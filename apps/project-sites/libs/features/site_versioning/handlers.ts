@@ -56,6 +56,78 @@ type AppContext = { Bindings: Env; Variables: Variables };
 export const siteVersioning = new Hono<AppContext>();
 
 /**
+ * A `site_snapshots` D1 row as selected by the list route — the minimal set of
+ * columns the version-history UI renders. Kept local to the module (no Zod
+ * boundary: this is an internal read shape, not a request/response contract).
+ */
+export interface SnapshotRow {
+  id: string;
+  snapshot_name: string;
+  build_version: string;
+  description: string | null;
+  created_at: string;
+}
+
+/**
+ * A `site_snapshots` row enriched with the authoritative commit timestamp the
+ * frontend `snapshots.component.ts` reads (`commit_iso`). Superset of
+ * {@link SnapshotRow} — every original column survives untouched.
+ */
+export type EnrichedSnapshotRow = SnapshotRow & {
+  /**
+   * The commit moment for this snapshot. The R2 git entry's `date` when the
+   * row's `build_version` matches a `gitHistory[].buildVersion`; otherwise the
+   * row's own `created_at` (accurate to within seconds for UI-created snapshots
+   * — the GitHub push fires right after the D1 insert).
+   */
+  commit_iso: string;
+};
+
+/**
+ * Stamp `commit_iso` on every snapshot row by joining `build_version` (the R2
+ * version path) against the git commit chain — the pure core of the snapshots
+ * list route, extracted so the join is unit-testable in isolation and reusable
+ * by any future surface (batch history, exports) without re-deriving it.
+ *
+ * @param rows        - `site_snapshots` rows (in the order they should render).
+ * @param gitHistory  - R2 git commit summaries; `[]` when the git store is
+ *   empty OR unreachable (the caller swallows `getHistory` failures — a broken
+ *   git store must NEVER fail the snapshot list, since the D1 rows are the
+ *   source of truth for the list itself).
+ * @returns The same rows, order preserved, each with `commit_iso` set:
+ *   `gitHistory.find(e => e.buildVersion === row.build_version)?.date` when a
+ *   commit carries that build version, else `row.created_at` as the fallback.
+ *
+ * @remarks
+ * Pure + side-effect-free (no I/O, no `env`) — a broken/empty `gitHistory`
+ * degrades every row to its `created_at` rather than throwing. `buildVersion`
+ * is the JOIN KEY because a snapshot's `build_version` IS the R2 version path a
+ * build commit writes to. Only the FIRST matching commit is used (histories are
+ * HEAD-first, so the most-recent commit for a version wins — a version is
+ * written once per build, so at most one entry matches in practice).
+ *
+ * @example
+ * ```ts
+ * enrichWithCommitIso(
+ *   [{ id, snapshot_name, build_version: 'v1735000000000', description: null, created_at: '2026-06-01T10:00:00Z' }],
+ *   [{ sha, message, date: '2026-06-01T10:00:07Z', author: 'system', fileCount: 3, buildVersion: 'v1735000000000' }],
+ * );
+ * // → [{ …row, commit_iso: '2026-06-01T10:00:07Z' }]   // git date wins
+ * ```
+ */
+export function enrichWithCommitIso<Row extends SnapshotRow>(
+  rows: readonly Row[],
+  gitHistory: ReadonlyArray<{ date: string; buildVersion?: string }>,
+): Array<Row & { commit_iso: string }> {
+  return rows.map((row) => ({
+    ...row,
+    commit_iso:
+      gitHistory.find((entry) => entry.buildVersion === row.build_version)?.date ??
+      row.created_at,
+  }));
+}
+
+/**
  * List the named-snapshot rollback points for a site, paired with the
  * underlying git-style commit history pulled from R2. Snapshots are
  * named freezes ("initial", "before-redesign", "v2-launch") that the
@@ -98,13 +170,7 @@ siteVersioning.get('/api/sites/:siteId/snapshots', async (c) => {
   const site = await requireOwnedSite<{ slug: string }>(c.env, orgId, siteId, 'slug');
 
   const { dbQuery: dbq } = await import('../../../src/services/db.js');
-  const result = await dbq<{
-    id: string;
-    snapshot_name: string;
-    build_version: string;
-    description: string | null;
-    created_at: string;
-  }>(
+  const result = await dbq<SnapshotRow>(
     c.env.DB,
     'SELECT id, snapshot_name, build_version, description, created_at FROM site_snapshots WHERE site_id = ? AND deleted_at IS NULL ORDER BY created_at DESC',
     [siteId],
@@ -132,16 +198,12 @@ siteVersioning.get('/api/sites/:siteId/snapshots', async (c) => {
     }
   }
 
-  // Surface `commit_iso` per row: `build_version` IS the R2 version path, so it
-  // is the join key against `gitHistory[].buildVersion`. A match means the git
-  // entry's `date` is the authoritative commit timestamp; otherwise the row's
-  // own `created_at` is the correct fallback.
-  const data = result.data.map((row) => ({
-    ...row,
-    commit_iso:
-      gitHistory.find((entry) => entry.buildVersion === row.build_version)?.date ??
-      row.created_at,
-  }));
+  // Surface `commit_iso` per row via the pure `enrichWithCommitIso` join:
+  // `build_version` IS the R2 version path, so it is the join key against
+  // `gitHistory[].buildVersion`. A match means the git entry's `date` is the
+  // authoritative commit timestamp; otherwise the row's own `created_at` is the
+  // correct fallback (see the helper's docblock for the full contract).
+  const data: EnrichedSnapshotRow[] = enrichWithCommitIso(result.data, gitHistory);
 
   return c.json({ data, git_history: gitHistory });
 });

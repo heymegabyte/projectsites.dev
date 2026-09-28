@@ -371,6 +371,11 @@ interface GhStatus {
                     <span class="snap-date"
                           [title]="commitTooltip(snap)"
                           [attr.data-testid]="'snapshot-date-' + snap.id">
+                      @if (commitFromGit(snap)) {
+                        <span class="snap-date-git-dot"
+                              [attr.data-testid]="'snapshot-git-dot-' + snap.id"
+                              aria-label="Timestamp from the git commit"></span>
+                      }
                       {{ commitRelative(snap) }}
                     </span>
                     @if (snap.description) {
@@ -885,12 +890,26 @@ interface GhStatus {
     .snap-row .snap-latest-chip { flex-shrink: 0; }
     .snap-date {
       flex-shrink: 0;
+      display: inline-flex;
+      align-items: center;
+      gap: 0.3rem;
       font-family: 'JetBrains Mono', ui-monospace, monospace;
       font-size: 0.68rem;
       color: rgba(255, 255, 255, 0.8);
       letter-spacing: 0.01em;
       white-space: nowrap;
       cursor: help;
+    }
+    /* Provenance dot — present only when the timestamp is the authoritative git
+       commit moment (commit_iso matched a build commit), absent on created_at
+       fallback. Brand-cyan, static (reduced-motion-safe). */
+    .snap-date-git-dot {
+      width: 5px;
+      height: 5px;
+      border-radius: 9999px;
+      flex-shrink: 0;
+      background: var(--ps-accent, #00e5ff);
+      box-shadow: 0 0 5px color-mix(in oklch, var(--ps-accent, #00e5ff) 65%, transparent);
     }
     .snap-desc-inline {
       flex: 1 1 0;
@@ -1474,8 +1493,20 @@ export class AdminSnapshotsComponent implements OnInit, OnDestroy {
   commitTooltip(snap: Snapshot): string {
     const date = this.commitDate(snap);
     if (Number.isNaN(date.getTime())) return '';
-    const sourceLabel = snap.commit_iso ? 'git commit' : 'snapshot created';
+    const sourceLabel = this.commitFromGit(snap) ? 'git commit' : 'snapshot created';
     return `${this.absoluteDateFormatter.format(date)} (${sourceLabel})`;
+  }
+
+  /**
+   * True when this row's timestamp is the AUTHORITATIVE git commit moment
+   * (the backend `enrichWithCommitIso` join matched `build_version` against the
+   * R2 commit chain), false when it fell back to the D1 `created_at`. Drives a
+   * subtle provenance dot so a glance distinguishes an exact commit time from an
+   * approximation — the backend already computes `commit_iso`, this surfaces its
+   * provenance instead of hiding it behind the tooltip.
+   */
+  commitFromGit(snap: Snapshot): boolean {
+    return !!snap.commit_iso && snap.commit_iso !== snap.created_at;
   }
 
 
