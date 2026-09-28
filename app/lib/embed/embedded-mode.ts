@@ -619,6 +619,44 @@ export interface SiteDbQueryResponseMessage {
   error?: string;
 }
 
+/**
+ * Child → Parent (per-site D1 search): ADVANCED cross-table search. The admin calls
+ * `POST /api/sites/:siteId/db/search` with `{ q, limit }` and replies with {@link SiteDbSearchResponseMessage}.
+ * Searches table NAMES + table CONTENT (text columns) in the site's OWN D1.
+ */
+export interface SiteDbSearchRequestMessage {
+  type: 'PS_SITEDB_SEARCH_REQUEST';
+  correlationId: string;
+
+  /** The search query string. */
+  q: string;
+
+  /** Optional cap on total content hits (default 50). */
+  limit?: number;
+}
+
+/**
+ * Parent → Child (per-site D1 search): reply to {@link SiteDbSearchRequestMessage} — table-name matches PLUS
+ * in-content matches (table · column · stable rowid · surrounding snippet). `enabled:false` when the
+ * `per_site_data` flag is dark.
+ */
+export interface SiteDbSearchResponseMessage {
+  type: 'PS_SITEDB_SEARCH_RESPONSE';
+  correlationId?: string;
+  ok: boolean;
+
+  /** Tables whose NAME contains the query. */
+  nameMatches?: string[];
+
+  /** Rows whose CONTENT matched — table + column + stable rowid + a surrounding snippet. */
+  contentMatches?: { table: string; column: string; rowid: number; snippet: string }[];
+
+  /** `true` when the content-match set was capped server-side. */
+  truncated?: boolean;
+  enabled?: boolean;
+  error?: string;
+}
+
 // ── Resource-overview bridge messages ──────────────────────────────────────────
 
 /**
@@ -1696,6 +1734,7 @@ export type ParentToChildMessage =
   | SiteDbTablesResponseMessage
   | SiteDbRowsResponseMessage
   | SiteDbQueryResponseMessage
+  | SiteDbSearchResponseMessage
   | ResOverviewResponseMessage
   | ResReconcileResponseMessage
   | ResDetailResponseMessage
@@ -1728,6 +1767,7 @@ export type ChildToParentMessage =
   | SiteDbTablesRequestMessage
   | SiteDbRowsRequestMessage
   | SiteDbQueryRequestMessage
+  | SiteDbSearchRequestMessage
   | ResOverviewRequestMessage
   | ResReconcileRequestMessage
   | ResDetailRequestMessage
@@ -2272,6 +2312,22 @@ export function requestDbQuery(
       params: input.params,
     },
     'PS_SITEDB_QUERY_RESPONSE',
+  );
+}
+
+/**
+ * Advanced cross-table search over the site's OWN D1 (matches table NAMES + row CONTENT). Resolves with the
+ * parent's {@link SiteDbSearchResponseMessage} — `{ nameMatches, contentMatches, truncated }`.
+ */
+export function requestDbSearch(input: { q: string; limit?: number }): Promise<SiteDbSearchResponseMessage> {
+  return requestFromParent<SiteDbSearchResponseMessage>(
+    {
+      type: 'PS_SITEDB_SEARCH_REQUEST',
+      correlationId: nextBridgeCorrelationId(),
+      q: input.q,
+      limit: input.limit,
+    },
+    'PS_SITEDB_SEARCH_RESPONSE',
   );
 }
 

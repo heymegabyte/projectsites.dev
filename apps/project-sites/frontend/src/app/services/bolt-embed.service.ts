@@ -1821,6 +1821,64 @@ export class BoltEmbedService {
             });
           break;
         }
+        case 'PS_SITEDB_SEARCH_REQUEST': {
+          // Data Platform (per-site D1) — ADVANCED cross-table search via POST /api/sites/:id/db/search.
+          // Reply with PS_SITEDB_SEARCH_RESPONSE. Same server-side isolation + dark-flag translation as the
+          // query bridge. Returns table-name matches + in-content matches (table · column · rowid · snippet).
+          const iframe = this.iframeEl;
+          const site = this.currentSite;
+          const cid = msg.correlationId;
+          const query = typeof msg.q === 'string' ? msg.q : '';
+          const limit = typeof msg.limit === 'number' ? msg.limit : undefined;
+          const reply = (payload: Record<string, unknown>): void => {
+            iframe?.contentWindow?.postMessage(
+              { type: 'PS_SITEDB_SEARCH_RESPONSE', correlationId: cid, ...payload },
+              EDITOR_BASE,
+            );
+          };
+          if (!site) {
+            reply({ ok: false, error: 'No site selected' });
+            break;
+          }
+          if (!query) {
+            reply({ ok: false, error: 'Missing query' });
+            break;
+          }
+          this.api
+            .post<{
+              data?: {
+                nameMatches?: string[];
+                contentMatches?: { table: string; column: string; rowid: number; snippet: string }[];
+                truncated?: boolean;
+              };
+            }>(`/sites/${site.id}/db/search`, { q: query, limit }, { silent: true })
+            .subscribe({
+              next: (res) =>
+                reply({
+                  ok: true,
+                  nameMatches: res?.data?.nameMatches ?? [],
+                  contentMatches: res?.data?.contentMatches ?? [],
+                  truncated: !!res?.data?.truncated,
+                }),
+              error: (err: unknown) => {
+                if (
+                  err instanceof HttpErrorResponse &&
+                  err.status === 404 &&
+                  typeof err.error?.error?.message === 'string' &&
+                  err.error.error.message.includes('not enabled')
+                ) {
+                  reply({ ok: false, enabled: false });
+                  return;
+                }
+                const message =
+                  err instanceof HttpErrorResponse && typeof err.error?.error?.message === 'string'
+                    ? err.error.error.message
+                    : 'Search failed.';
+                reply({ ok: false, error: message });
+              },
+            });
+          break;
+        }
         case 'PS_RES_OVERVIEW_REQUEST': {
           // Resource overview — the embedded editor has no cross-origin session, so it asks US (we hold
           // currentSite + the ApiService bearer) to list the site's platform resources for an environment

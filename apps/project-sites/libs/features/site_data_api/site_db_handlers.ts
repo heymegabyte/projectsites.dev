@@ -802,6 +802,108 @@ siteDbApi.post('/api/sites/:siteId/db/query', async (c) => {
   }
 });
 
+/** Body for the cross-table content search — one query string + an optional total-hit cap. */
+const SearchBodySchema = z
+  .object({ q: z.string().min(1).max(200), limit: z.number().int().min(1).max(100).optional() })
+  .strict();
+
+/** Escape LIKE wildcards so a user's `%` / `_` / `\` are matched literally (paired with `ESCAPE '\'`). */
+function escapeLike(s: string): string {
+  return s.replace(/[\\%_]/g, (m) => `\\${m}`);
+}
+
+/**
+ * POST — ADVANCED cross-table search over the site's OWN isolated D1. Matches BOTH (a) table NAMES that
+ * contain `q`, and (b) CONTENT: scans each user table's text-ish columns with a wildcard-escaped `LIKE`
+ * and returns the table + column + stable `rowid` + a short surrounding snippet per hit — so the UI can
+ * show a "matched inside <table>" result distinct from a table-name match. Read-only, org-owned + flag-dark
+ * upstream (`gateAndResolve`); bounded (per-table + total caps) so a large DB stays fast.
+ */
+siteDbApi.post('/api/sites/:siteId/db/search', async (c) => {
+  const { siteId } = c.req.param();
+  const gate = await gateAndResolve(c, siteId);
+  if (gate instanceof Response) return gate;
+
+  const parsed = SearchBodySchema.safeParse(await c.req.json().catch(() => ({})));
+  if (!parsed.success)
+    return c.json({ error: { code: 'BAD_REQUEST', message: 'Invalid search' }, ok: false }, 400);
+
+  const q = parsed.data.q.trim();
+  const limit = parsed.data.limit ?? 50;
+  const like = `%${escapeLike(q)}%`;
+  const qLower = q.toLowerCase();
+
+  /** Caps that keep the scan fast on a big DB (customer per-site DBs are small, but never unbounded). */
+  const MAX_TABLES = 40;
+  const PER_TABLE = 5;
+
+  try {
+    const tables = await listSiteTables(gate.db); // already hides sqlite_*/_cf_*/d1_migrations
+    const nameMatches = tables.filter((t) => t.toLowerCase().includes(qLower)).slice(0, 25);
+
+    const contentMatches: Array<{ table: string; column: string; rowid: number; snippet: string }> = [];
+    let truncated = false;
+
+    for (const table of tables.slice(0, MAX_TABLES)) {
+      if (contentMatches.length >= limit) {
+        truncated = true;
+        break;
+      }
+
+      let textCols: string[];
+      try {
+        const columns = await introspectColumns(gate.db, table);
+        textCols = columns
+          .filter((col) => isSafeIdent(col.name))
+          .filter((col) => {
+            const t = (col.type || '').toUpperCase();
+            return t === '' || /CHAR|CLOB|TEXT|VARCHAR/.test(t); // text-ish only (skip numeric/blob)
+          })
+          .map((col) => col.name);
+      } catch {
+        continue; // a table we can't introspect is skipped, never fails the whole search
+      }
+
+      if (textCols.length === 0) {
+        continue;
+      }
+
+      const where = textCols.map((col) => `${quoteIdent(col)} LIKE ? ESCAPE '\\'`).join(' OR ');
+      let rows: Record<string, unknown>[];
+      try {
+        rows = (
+          await gate.db.query<Record<string, unknown>>(
+            `SELECT rowid AS _rowid, * FROM ${quoteIdent(table)} WHERE ${where} LIMIT ?`,
+            [...textCols.map(() => like), PER_TABLE],
+          )
+        ).results;
+      } catch {
+        continue;
+      }
+
+      for (const row of rows) {
+        if (contentMatches.length >= limit) {
+          truncated = true;
+          break;
+        }
+
+        const hitCol = textCols.find((col) => String(row[col] ?? '').toLowerCase().includes(qLower)) ?? textCols[0];
+        const raw = String(row[hitCol] ?? '');
+        const idx = raw.toLowerCase().indexOf(qLower);
+        const start = Math.max(0, idx - 24);
+        const end = idx + q.length + 40;
+        const snippet = `${start > 0 ? '…' : ''}${raw.slice(start, end)}${raw.length > end ? '…' : ''}`;
+        contentMatches.push({ column: hitCol, rowid: Number(row._rowid) || 0, snippet, table });
+      }
+    }
+
+    return c.json({ data: { contentMatches, nameMatches, query: q, truncated }, ok: true });
+  } catch (err) {
+    if (err instanceof SiteDataD1Error) return dataStoreError(c, 'Search could not run.');
+    throw err;
+  }
+});
+
 /**
  * GET — list the site's PUBLISHED R2 build files under `sites/{slug}/{version}/*` (the whole site,
  * not just `/assets/*` which `GET /api/sites/:id/build-assets` already lists). The version resolves
