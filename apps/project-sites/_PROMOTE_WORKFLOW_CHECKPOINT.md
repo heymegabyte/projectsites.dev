@@ -5,7 +5,7 @@
 > state + ordered slices + verification results. **Re-inspect the repo every fire; never assume
 > a prior attempt landed.** Keep this file SMALL; delete it + consolidate into docs when done.
 
-## STATUS: iteration 3 (Slice 1 + Slice 2 + Slice 3 LANDED — release workflow underway)
+## STATUS: iteration 4 (Slice 1 + Slice 2 + Slice 3 + Slice 4 LANDED — release workflow underway)
 
 - **Slice 1 (D1 CRUD backend) — DONE, already committed** (verified 2026-09-28: `clampColumnType`/
   `buildAddColumnSql`/`buildInsertRowSql`/etc. present in `src/services/site_data_db.ts`; the 9 per-site
@@ -73,9 +73,17 @@
    (assertSiteOwned + isFlagOn guarded → 404 dark). REMAINING EXTERNAL STEP: apply migration 0646 to
    prod D1 (`wrangler d1 migrations apply project-sites-db-production --remote`) — additive/idempotent,
    safe; the flag stays DARK so nothing reads/writes until enabled.
-4. **Editor Source Control view** beside the file explorer: changed-file count+status (A/M/D/R),
-   diffs vs last committed main base, badges/gutter markers, release history, restore-to-Preview,
-   "main" indicator + Preview/Production sync status, conflict notices.
+4. ~~**Editor Source Control view**~~ — DONE 2026-09-28 (see VERIFICATION LOG). New
+   `app/components/workbench/SourceControlPanel.tsx` mounted as a 4th tab beside the file explorer
+   (Files · Search · Locks · **Source**) in `EditorPanel.tsx`. REUSES the preserved
+   `git-browser-logic.ts` (extended with `diffWorkingTree`/`countChanges`/`summarizePreviewSync`/
+   status+outcome labels) + GitPanel's branded button/state primitives + bridge pattern. Changed-file
+   count+status (A/M/D/R) diffed from the editor's OWN `workbenchStore.files` (Preview) vs the published
+   main base (`PS_CODE_TREE_REQUEST`); release history + Preview↔Production sync from the new
+   `PS_RELEASES_REQUEST`/`PS_PREVIEW_STATE_REQUEST` bridges (→ durable-preview worker API, parent-session
+   bridge like the Database tab); restore-to-Preview fetches the base file (`PS_CODE_FILE_REQUEST`) and
+   writes it via `workbenchStore.setVirtualFile` (Preview-only — NEVER commits/deploys/Production). NO
+   Promote button (Slice 5). Empty/loading/error/success states; brand-dark cyan, no solid-white buttons.
 5. **Cyan `Promote` header button** (exact label) + status progression + no-op/retry states.
 6. **Promote transaction** (per-site serialized, idempotent, retryable — existing job system or
    Cloudflare Workflows): 12 steps in the cron spec. Deterministic AI commit-subject + factual
@@ -135,7 +143,39 @@ failed" retry · idempotent promote · edits-during-promote → new draft · .gi
 - Commit SHA: <filled at commit>.
 - REMAINING EXTERNAL STEP: apply migration 0646 to prod D1
   (`wrangler d1 migrations apply project-sites-db-production --remote`) — additive/idempotent + flag DARK.
-- NEXT UNMET SLICE → **Slice 4: Editor Source Control view** (beside the file explorer): changed-file
-  count+status (A/M/D/R), diffs vs last committed main base, badges/gutter markers, release history,
-  restore-to-Preview, "main" indicator + Preview/Production sync status, conflict notices. REUSE the
-  preserved `git-browser-logic.ts` (Slice 2) + the new `durable_preview` release/working-tree API.
+
+### 2026-09-28 — Slice 4: Editor Source Control view (editor `app/`, React)
+- Origin state at start: `b478c7ea6` (== origin/main; Slice 3 landed). No Source Control view on origin —
+  clean to add. Isolated worktree; only `app/**` + this checkpoint touched (sibling agent owns
+  `apps/project-sites/**` concurrently — never staged).
+- Files touched (all editor `app/`):
+  - `app/components/workbench/git-browser-logic.ts` — EXTENDED the preserved pure module (Slice 2) with the
+    Source Control logic: `diffWorkingTree` (Preview vs main base → A/M/D/R change set, rename-collapse,
+    path-normalize), `countChanges`, `statusBadge`/`statusLabel`, `summarizePreviewSync` (in_sync/
+    preview_ahead/no_release/unknown + deploy-failed flag), `syncLabel`, `releaseOutcomeLabel` + the
+    `WorkingFile`/`FileChange`/`PreviewWorkingTree`/`ReleaseRecord`/`SyncSummary` types.
+  - `app/components/workbench/git-browser-logic.spec.ts` — +new describe blocks for all the above (RED→GREEN).
+  - `app/components/workbench/SourceControlPanel.tsx` — NEW. The view; reuses git-browser-logic + GitPanel's
+    Button/IconButton/CenterState/Spinner + the pendingRef/`request()` bridge pattern. Preview from
+    `workbenchStore.files` (live, local); base from `PS_CODE_TREE_REQUEST`; history+sync from
+    `PS_RELEASES_REQUEST`/`PS_PREVIEW_STATE_REQUEST`; restore via `PS_CODE_FILE_REQUEST` +
+    `workbenchStore.setVirtualFile` (Preview-only). NO Promote. Full empty/loading/error/success states.
+  - `app/components/workbench/SourceControlPanel.spec.tsx` — NEW. 8 specs (renders status from mocked
+    working-tree/diff, renders release history from mocked releases, honest empty states, sync indicator,
+    restore targets Preview only + asserts NO commit/deploy/promote/publish message ever sent).
+  - `app/lib/embed/embedded-mode.ts` — +`PreviewStateRequest/Response` + `ReleasesRequest/Response` message
+    pairs (mirror the durable-preview `{working_tree}` / `{releases,count}` envelopes) wired into both unions.
+  - `app/components/workbench/EditorPanel.tsx` — +`Source` tab (trigger + content) beside Files/Search/Locks.
+- VERIFY (all green before commit):
+  - `npm run typecheck` (editor, repo-root `tsc`) → GREEN (exit 0, no errors).
+  - `npx vitest run` git-browser-logic.spec + SourceControlPanel.spec + GitPanel.spec + embedded-mode.spec
+    → **61/61 PASS** (logic 36 · SourceControl 8 · GitPanel 4 preserved · embedded-mode 13). RED confirmed
+    first (panel spec failed to import the missing module; logic spec drove the pure helpers).
+  - `npx eslint` my 2 new files → only the `<style precedence>` `@ts-expect-error` remains (the SAME accepted
+    pattern the already-landed GitPanel.tsx ships — editor eslint is dirty repo-wide; typecheck+Vitest is the
+    slice DoD per Slice 2/3 convention). All prettier/style auto-fixed.
+- Commit SHA: <filled at commit>.
+- REMAINING EXTERNAL: real-browser header/VQA pass needs a Pages deploy of `app/` (editor) — the view
+  renders only inside the admin iframe (embedded bridge); unit+typecheck cover the logic + wiring.
+- NEXT UNMET SLICE → **Slice 5: Cyan `Promote` header button** (exact label) + status progression +
+  no-op/retry states. (Then Slice 6: the promote transaction.)

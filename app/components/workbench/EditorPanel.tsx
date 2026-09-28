@@ -40,6 +40,7 @@ import { Search } from './Search'; // <-- Ensure Search is imported
 import { classNames } from '~/utils/classNames'; // <-- Import classNames if not already present
 import { LockManager } from './LockManager'; // <-- Import LockManager
 import { ProjectHub } from './ProjectHub'; // Code-view command center (deploy / snapshots / git)
+import { SourceControlPanel } from './SourceControlPanel'; // Source Control view — Preview diff + releases (Slice 4)
 
 interface EditorPanelProps {
   files?: FileMap;
@@ -248,6 +249,17 @@ export const EditorPanel = memo(
                         >
                           Locks
                         </Tabs.Trigger>
+                        {/* Source Control — Preview working-tree diff + release history (Slice 4). Sits
+                            beside the file explorer; inspect/restore only, never commits or Production. */}
+                        <Tabs.Trigger
+                          value="source-control"
+                          title="Source Control — review Preview changes + release history"
+                          className={classNames(
+                            'h-full bg-transparent hover:bg-bolt-elements-background-depth-3 py-0.5 px-2 rounded-lg text-sm font-medium text-bolt-elements-textTertiary hover:text-bolt-elements-textPrimary data-[state=active]:text-bolt-elements-textPrimary',
+                          )}
+                        >
+                          Source
+                        </Tabs.Trigger>
                       </Tabs.List>
                     </div>
                   </PanelHeader>
@@ -271,6 +283,16 @@ export const EditorPanel = memo(
 
                   <Tabs.Content value="locks" className="flex-grow overflow-auto focus-visible:outline-none">
                     <LockManager />
+                  </Tabs.Content>
+
+                  {/* Source Control owns its own header + scroll, so this slot just fills the column
+                      (no extra overflow/padding). It reads Preview vs the published main base + the
+                      durable-preview release API over the postMessage bridge. */}
+                  <Tabs.Content
+                    value="source-control"
+                    className="flex-grow min-h-0 flex flex-col focus-visible:outline-none"
+                  >
+                    <SourceControlPanel />
                   </Tabs.Content>
                 </Tabs.Root>
               </div>

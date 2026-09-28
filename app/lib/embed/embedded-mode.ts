@@ -1198,6 +1198,95 @@ export interface CodeHistoryResponseMessage {
   error?: string;
 }
 
+// ── Source Control bridge messages (Preview working-tree + immutable releases — Slice 4) ──────────
+//
+// The Source Control view shows the Preview↔Production relationship. Preview is the latest durably-saved
+// working tree; Production is the last deployed release SHA. The embedded editor has no cross-origin
+// session, so — exactly like the Database tab — the admin (which holds `selectedSite` + the bearer)
+// makes the authed calls to the durable-preview worker API (`GET /api/sites/:id/preview-state`,
+// `GET /api/sites/:id/releases`) and replies over these bridge messages. Both are READ-ONLY: this view
+// NEVER commits, deploys, or changes Production. DARK behind the `durable_preview` flag (a 404 whose
+// message includes "not enabled" → `enabled:false`, an honest "not published yet" state, never an error).
+
+/**
+ * Child → Parent (Source Control): read this site's current Preview working-tree record. The admin
+ * calls `GET /api/sites/:id/preview-state` and replies with {@link PreviewStateResponseMessage}.
+ */
+export interface PreviewStateRequestMessage {
+  type: 'PS_PREVIEW_STATE_REQUEST';
+  correlationId: string;
+}
+
+/** The Preview working-tree record (mirrors the worker's `WorkingTree` — the durable-preview `working_tree`). */
+export interface PreviewWorkingTreeRecord {
+  base_main_sha: string | null;
+  draft_revision: number;
+  tree_digest: string | null;
+  preview_deploy_revision: string | null;
+  last_error: string | null;
+  updated_at: string;
+}
+
+/**
+ * Parent → Child (Source Control): the admin's reply to {@link PreviewStateRequestMessage} (mirrors the
+ * worker's `{ working_tree }` envelope). `working_tree` is `null` when the site has never saved a Preview.
+ * `enabled:false` when the `durable_preview` flag is dark (the 404 "not enabled").
+ */
+export interface PreviewStateResponseMessage {
+  type: 'PS_PREVIEW_STATE_RESPONSE';
+  correlationId?: string;
+  ok: boolean;
+
+  /** The site's Preview working-tree record, or null when none saved yet. */
+  working_tree?: PreviewWorkingTreeRecord | null;
+
+  /** `false` when the `durable_preview` flag is off (the dark-flag 404) → the surface stays honest. */
+  enabled?: boolean;
+  error?: string;
+}
+
+/**
+ * Child → Parent (Source Control): read this site's immutable Production release history (newest first).
+ * The admin calls `GET /api/sites/:id/releases` and replies with {@link ReleasesResponseMessage}.
+ */
+export interface ReleasesRequestMessage {
+  type: 'PS_RELEASES_REQUEST';
+  correlationId: string;
+}
+
+/** One immutable release record (mirrors the worker's `Release`). */
+export interface ReleaseHistoryRecord {
+  id: string;
+  commit_sha: string | null;
+  artifact_digest: string | null;
+  deployment_id: string | null;
+  actor: string | null;
+  draft_revision: number | null;
+  outcome: 'success' | 'commit_ok_deploy_failed' | 'failed';
+  created_at: string;
+}
+
+/**
+ * Parent → Child (Source Control): the admin's reply to {@link ReleasesRequestMessage} (mirrors the
+ * worker's `{ releases, count }` envelope). `releases` is `[]` for a site that's never been published
+ * (honest empty, not an error). `enabled:false` when the `durable_preview` flag is dark.
+ */
+export interface ReleasesResponseMessage {
+  type: 'PS_RELEASES_RESPONSE';
+  correlationId?: string;
+  ok: boolean;
+
+  /** The immutable release history, newest first; empty for a never-published site. */
+  releases?: ReleaseHistoryRecord[];
+
+  /** Echoed count of releases. */
+  count?: number;
+
+  /** `false` when the `durable_preview` flag is off (the dark-flag 404) → the surface stays honest. */
+  enabled?: boolean;
+  error?: string;
+}
+
 /**
  * Child → Parent (Danger Zone — FIRE 8): the embedded editor asks the admin (which holds the bearer +
  * `selectedSite`) to PREVIEW or EXECUTE a per-site greenfield reset. The child NEVER supplies a site
@@ -1744,6 +1833,8 @@ export type ParentToChildMessage =
   | CodeTreeResponseMessage
   | CodeFileResponseMessage
   | CodeHistoryResponseMessage
+  | PreviewStateResponseMessage
+  | ReleasesResponseMessage
   | ResetResponseMessage
   | DbLoadSampleResponseMessage
   | DbAiSeedResponseMessage
@@ -1777,6 +1868,8 @@ export type ChildToParentMessage =
   | CodeTreeRequestMessage
   | CodeFileRequestMessage
   | CodeHistoryRequestMessage
+  | PreviewStateRequestMessage
+  | ReleasesRequestMessage
   | ResetRequestMessage
   | DbLoadSampleRequestMessage
   | DbAiSeedRequestMessage

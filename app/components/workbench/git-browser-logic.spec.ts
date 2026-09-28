@@ -9,7 +9,17 @@ import {
   formatBytes,
   shortSha,
   formatCommitDate,
+  diffWorkingTree,
+  countChanges,
+  statusBadge,
+  statusLabel,
+  summarizePreviewSync,
+  syncLabel,
+  releaseOutcomeLabel,
   type CodeFileEntry,
+  type WorkingFile,
+  type PreviewWorkingTree,
+  type ReleaseRecord,
 } from './git-browser-logic';
 
 /** Minimal file-entry factory for tree tests. */
@@ -129,5 +139,154 @@ describe('git-browser-logic · shortSha / formatCommitDate', () => {
 
   it('returns the raw string for an unparseable date', () => {
     expect(formatCommitDate('not-a-date')).toBe('not-a-date');
+  });
+});
+
+// ── Source Control — Slice 4 ──────────────────────────────────────────────────
+
+/** Working-tree file factory (the `PS_LIST_FILES` shape). */
+function wf(path: string, size = 100): WorkingFile {
+  return { path, size };
+}
+
+describe('git-browser-logic · diffWorkingTree (Preview vs main base)', () => {
+  it('classifies added / modified / deleted vs the base, grouped modified→added→deleted', () => {
+    const working: WorkingFile[] = [
+      wf('index.html', 1200), // modified (base 1000)
+      wf('src/App.tsx', 500), // added (not in base)
+      wf('styles.css', 300), // unchanged (same size)
+    ];
+    const base: CodeFileEntry[] = [
+      f('index.html', 1000),
+      f('styles.css', 300),
+      f('old.js', 200), // deleted (not in working)
+    ];
+
+    const changes = diffWorkingTree(working, base);
+
+    // Unchanged file is absent; the three real changes are present, modified first, deleted last.
+    expect(changes.map((c) => `${c.status}:${c.path}`)).toEqual([
+      'modified:index.html',
+      'added:src/App.tsx',
+      'deleted:old.js',
+    ]);
+
+    const modified = changes.find((c) => c.path === 'index.html');
+    expect(modified).toMatchObject({ status: 'modified', size: 1200, baseSize: 1000 });
+  });
+
+  it('returns an EMPTY change set when Preview matches the base (honest in-sync)', () => {
+    const files = [wf('index.html', 1000), wf('styles.css', 300)];
+    const base = [f('index.html', 1000), f('styles.css', 300)];
+    expect(diffWorkingTree(files, base)).toEqual([]);
+  });
+
+  it('normalizes a leading ./ or / so identical files are not falsely "changed"', () => {
+    const working = [wf('./index.html', 1000), wf('/assets/app.js', 500)];
+    const base = [f('index.html', 1000), f('assets/app.js', 500)];
+    expect(diffWorkingTree(working, base)).toEqual([]);
+  });
+
+  it('collapses a same-basename same-size add+delete into a single rename', () => {
+    const working = [wf('src/App.tsx', 500)];
+    const base = [f('App.tsx', 500)];
+
+    const changes = diffWorkingTree(working, base);
+
+    expect(changes).toHaveLength(1);
+    expect(changes[0]).toMatchObject({ status: 'renamed', path: 'src/App.tsx', fromPath: 'App.tsx' });
+  });
+
+  it('countChanges tallies per-status counts + total', () => {
+    const working = [wf('a.txt', 2), wf('b.txt', 3), wf('c.txt', 9)];
+    const base = [f('a.txt', 1), f('d.txt', 4)]; // a modified, b+c added, d deleted
+    const counts = countChanges(diffWorkingTree(working, base));
+
+    expect(counts).toEqual({ total: 4, added: 2, modified: 1, deleted: 1, renamed: 0 });
+  });
+
+  it('statusBadge / statusLabel map each status to a letter + word', () => {
+    expect(statusBadge('added')).toBe('A');
+    expect(statusBadge('modified')).toBe('M');
+    expect(statusBadge('deleted')).toBe('D');
+    expect(statusBadge('renamed')).toBe('R');
+    expect(statusLabel('modified')).toBe('Modified');
+    expect(statusLabel('renamed')).toBe('Renamed');
+  });
+});
+
+/** Working-tree record factory (the `PS_PREVIEW_STATE` shape). */
+function tree(overrides: Partial<PreviewWorkingTree> = {}): PreviewWorkingTree {
+  return {
+    base_main_sha: 'aaaaaaa',
+    draft_revision: 5,
+    tree_digest: 'digest',
+    preview_deploy_revision: null,
+    last_error: null,
+    updated_at: '2026-05-11T14:00:00Z',
+    ...overrides,
+  };
+}
+
+/** Release-record factory (the `PS_RELEASES` shape). */
+function rel(overrides: Partial<ReleaseRecord> = {}): ReleaseRecord {
+  return {
+    id: crypto.randomUUID(),
+    commit_sha: 'aaaaaaa',
+    artifact_digest: 'digest',
+    deployment_id: 'dep-1',
+    actor: 'owner@example.com',
+    draft_revision: 5,
+    outcome: 'success',
+    created_at: '2026-05-11T13:00:00Z',
+    ...overrides,
+  };
+}
+
+describe('git-browser-logic · summarizePreviewSync (Preview ↔ Production)', () => {
+  it('reports no_release when there is no deployed release yet', () => {
+    const s = summarizePreviewSync(tree(), []);
+    expect(s.state).toBe('no_release');
+    expect(s.productionSha).toBeNull();
+    expect(syncLabel(s.state)).toBe('Not yet published');
+  });
+
+  it('reports in_sync when Preview SHA == the latest release SHA and no newer draft', () => {
+    const s = summarizePreviewSync(tree({ base_main_sha: 'sha1', draft_revision: 5 }), [
+      rel({ commit_sha: 'sha1', draft_revision: 5 }),
+    ]);
+    expect(s.state).toBe('in_sync');
+    expect(s.previewSha).toBe('sha1');
+    expect(s.productionSha).toBe('sha1');
+  });
+
+  it('reports preview_ahead when the SHAs differ', () => {
+    const s = summarizePreviewSync(tree({ base_main_sha: 'sha2' }), [rel({ commit_sha: 'sha1' })]);
+    expect(s.state).toBe('preview_ahead');
+    expect(syncLabel(s.state)).toBe('Preview ahead of Production');
+  });
+
+  it('reports preview_ahead when the draft revision is newer than the release, even at the same SHA', () => {
+    const s = summarizePreviewSync(tree({ base_main_sha: 'sha1', draft_revision: 8 }), [
+      rel({ commit_sha: 'sha1', draft_revision: 5 }),
+    ]);
+    expect(s.state).toBe('preview_ahead');
+  });
+
+  it('skips a failed release for the live SHA but still surfaces deploy-failed from the newest', () => {
+    const s = summarizePreviewSync(tree({ base_main_sha: 'sha2' }), [
+      rel({ commit_sha: 'sha2', outcome: 'commit_ok_deploy_failed', created_at: '2026-05-11T14:00:00Z' }),
+      rel({ commit_sha: 'sha1', outcome: 'success', created_at: '2026-05-11T12:00:00Z' }),
+    ]);
+    // Newest deployed-or-attempted release wins the live SHA (commit_ok_deploy_failed counts as committed).
+    expect(s.productionSha).toBe('sha2');
+    expect(s.deployFailed).toBe(true);
+    expect(s.lastOutcome).toBe('commit_ok_deploy_failed');
+  });
+
+  it('releaseOutcomeLabel maps each outcome to an honest label', () => {
+    expect(releaseOutcomeLabel('success')).toBe('Deployed');
+    expect(releaseOutcomeLabel('commit_ok_deploy_failed')).toBe('Deploy failed');
+    expect(releaseOutcomeLabel('failed')).toBe('Failed');
   });
 });
