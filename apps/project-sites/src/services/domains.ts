@@ -99,11 +99,51 @@ export interface DomainProvisioner {
 }
 
 /**
- * Create a Cloudflare-for-SaaS custom hostname via the CF API.
+ * Look up an existing CF-for-SaaS custom hostname by its EXACT name. Makes
+ * {@link createCustomHostname} idempotent: when CF returns 1406 "Duplicate custom hostname"
+ * (a prior attach created the hostname on the zone but didn't finish persisting it), the caller
+ * reuses the existing record instead of erroring. Returns `undefined` on any lookup failure or
+ * when no exact match exists.
+ *
+ * @param env      - Worker environment (needs `CF_API_TOKEN`, `CF_ZONE_ID`).
+ * @param hostname - The fully-qualified domain to find.
+ * @returns The existing hostname's `{ cf_id, status, ssl_status }`, or `undefined`.
+ */
+export async function findCustomHostnameByName(
+  env: Env,
+  hostname: string,
+): Promise<{ cf_id: string; status: string; ssl_status: string } | undefined> {
+  try {
+    const res = await fetch(
+      `https://api.cloudflare.com/client/v4/zones/${env.CF_ZONE_ID}/custom_hostnames?hostname=${encodeURIComponent(hostname)}`,
+      { headers: { Authorization: `Bearer ${env.CF_API_TOKEN}` } },
+    );
+    if (!res.ok) return undefined;
+    const body = (await res.json()) as {
+      success?: boolean;
+      result?: Array<{ id?: string; hostname?: string; status?: string; ssl?: { status?: string } }>;
+    };
+    const match = (body.result ?? []).find((h) => h.hostname === hostname) ?? body.result?.[0];
+    if (!match?.id) return undefined;
+    return {
+      cf_id: match.id,
+      status: match.status ?? 'unknown',
+      ssl_status: match.ssl?.status ?? 'unknown',
+    };
+  } catch {
+    return undefined;
+  }
+}
+
+/**
+ * Create a Cloudflare-for-SaaS custom hostname via the CF API. Idempotent: if the hostname
+ * already exists on the zone (CF 1406 "Duplicate custom hostname"), the existing record is
+ * looked up and returned instead of throwing — so re-attaching a domain a prior attempt left
+ * on the zone SUCCEEDS (the caller re-homes routing + persistence anyway).
  *
  * @param env      - Worker environment (needs `CF_API_TOKEN`, `CF_ZONE_ID`).
  * @param hostname - The fully-qualified domain to provision.
- * @throws {badRequest} If the Cloudflare API call fails.
+ * @throws {badRequest} If the Cloudflare API call fails for any reason other than a reusable duplicate.
  */
 export async function createCustomHostname(
   env: Env,
@@ -130,6 +170,25 @@ export async function createCustomHostname(
 
   if (!response.ok) {
     const err = await response.text();
+    // Idempotency: the hostname already exists on the zone (CF 1406 "Duplicate custom hostname")
+    // — a prior attach created it but didn't persist. Reuse the existing record so re-attaching
+    // succeeds instead of erroring. The caller re-homes KV routing + the D1 row regardless.
+    if (/\b1406\b|duplicate custom hostname/i.test(err)) {
+      const existing = await findCustomHostnameByName(env, hostname);
+      if (existing) {
+        console.warn(
+          JSON.stringify({
+            level: 'info',
+            service: 'domains',
+            message: 'CF custom hostname already existed — reusing (idempotent attach)',
+            hostname,
+            cf_id: existing.cf_id,
+            cf_status: existing.status,
+          }),
+        );
+        return existing;
+      }
+    }
     console.warn(
       JSON.stringify({
         level: 'error',

@@ -93,6 +93,54 @@ describe('createCustomHostname', () => {
     expect((err as AppError).statusCode).toBe(400);
   });
 
+  it('is idempotent: on CF 1406 "Duplicate custom hostname" it reuses the existing record', async () => {
+    // POST fails with 1406 (hostname already on the zone from a prior attach) …
+    (global.fetch as jest.Mock).mockResolvedValueOnce({
+      ok: false,
+      json: async () => ({ errors: [{ code: 1406, message: 'Duplicate custom hostname found.' }] }),
+      text: async () =>
+        JSON.stringify({ errors: [{ code: 1406, message: 'Duplicate custom hostname found.' }] }),
+    });
+    // … then the lookup-by-name GET returns the existing active hostname.
+    (global.fetch as jest.Mock).mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({
+        success: true,
+        result: [
+          { id: 'cf-existing-9', hostname: 'dup.example.com', status: 'active', ssl: { status: 'active' } },
+        ],
+      }),
+      text: async () => '',
+    });
+
+    const result = await createCustomHostname(mockEnv, 'dup.example.com');
+
+    expect(result).toEqual({ cf_id: 'cf-existing-9', status: 'active', ssl_status: 'active' });
+    // second fetch is the hostname-filtered lookup
+    expect((global.fetch as jest.Mock).mock.calls[1][0]).toContain(
+      'custom_hostnames?hostname=dup.example.com',
+    );
+  });
+
+  it('still throws on 1406 when the existing hostname cannot be found', async () => {
+    (global.fetch as jest.Mock).mockResolvedValueOnce({
+      ok: false,
+      json: async () => ({ errors: [{ code: 1406, message: 'Duplicate custom hostname found.' }] }),
+      text: async () =>
+        JSON.stringify({ errors: [{ code: 1406, message: 'Duplicate custom hostname found.' }] }),
+    });
+    (global.fetch as jest.Mock).mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({ success: true, result: [] }),
+      text: async () => '',
+    });
+
+    const err = await createCustomHostname(mockEnv, 'ghost.example.com').catch((e: unknown) => e);
+
+    expect(err).toBeInstanceOf(AppError);
+    expect((err as AppError).statusCode).toBe(400);
+  });
+
   it('sends correct auth header and body', async () => {
     (global.fetch as jest.Mock).mockResolvedValueOnce({
       ok: true,

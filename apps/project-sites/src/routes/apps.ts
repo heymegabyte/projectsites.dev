@@ -1421,6 +1421,7 @@ apps.post('/api/apps/instances/:id/domains', async (c) => {
        (id, instance_id, org_id, domain, cf_hostname_id, is_primary, status, ssl_status, created_at, updated_at)
      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
      ON CONFLICT(domain) DO UPDATE SET
+       instance_id = excluded.instance_id, org_id = excluded.org_id,
        cf_hostname_id = excluded.cf_hostname_id, status = excluded.status,
        ssl_status = excluded.ssl_status, updated_at = excluded.updated_at`,
     [
