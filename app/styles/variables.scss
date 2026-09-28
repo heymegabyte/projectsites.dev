@@ -288,10 +288,13 @@
   --bolt-elements-borderColorActive: #00e5ff;
   --bolt-elements-dividerColor: rgba(0, 229, 255, 0.12);
 
-  /* Text — light on dark */
+  /* Text — light on dark. PRIMARY stays near-white (main copy); the MUTED tiers are a
+     clearly-COLORED cool gray, NOT a faint transparent near-white — a low-opacity near-white
+     reads as flat "white" (the reported ps-import-sub bug) and muddies hierarchy. Solid cool
+     grays are unmistakably "a color" + AA-legible on #060610. (Brian 2026-09-27 white-fix.) */
   --bolt-elements-textPrimary: #f4f4ff;
-  --bolt-elements-textSecondary: rgba(244, 244, 255, 0.66);
-  --bolt-elements-textTertiary: rgba(244, 244, 255, 0.45);
+  --bolt-elements-textSecondary: #9aa0b6;
+  --bolt-elements-textTertiary: #737a93;
 
   /* Buttons — dark base + cyan accent; NEVER a white/gray fill */
   --bolt-elements-button-primary-background: rgba(0, 229, 255, 0.14);
@@ -302,7 +305,7 @@
   --bolt-elements-button-secondary-text: #f4f4ff;
 
   /* Items / lists */
-  --bolt-elements-item-contentDefault: rgba(244, 244, 255, 0.55);
+  --bolt-elements-item-contentDefault: #8b91a6;
   --bolt-elements-item-contentActive: #f4f4ff;
   --bolt-elements-item-contentAccent: #00e5ff;
   --bolt-elements-item-backgroundActive: rgba(0, 229, 255, 0.10);
@@ -310,8 +313,8 @@
 
   /* Icons — fixes vendor dark-theme bug (icon-primary was gray.950 = invisible) */
   --bolt-elements-icon-primary: #f4f4ff;
-  --bolt-elements-icon-secondary: rgba(244, 244, 255, 0.66);
-  --bolt-elements-icon-tertiary: rgba(244, 244, 255, 0.45);
+  --bolt-elements-icon-secondary: #9aa0b6;
+  --bolt-elements-icon-tertiary: #737a93;
 
   /* Panels: artifacts / actions / messages / prompt / CTA */
   --bolt-elements-artifacts-background: #0e0e28;

@@ -12,6 +12,10 @@ body {
   height: 100%;
   width: 100%;
   background-color: var(--bolt-elements-bg-depth-1);
+  /* Inherited base text color — so NO editor element falls back to the browser default
+     (black → invisible on the dark canvas) or a stray white. Everything inherits brand ink
+     unless it sets its own color. Part of the blanket white-element fix (Brian 2026-09-27). */
+  color: var(--bolt-elements-textPrimary, #f4f4ff);
 }
 
 :root {
@@ -461,7 +465,7 @@ textarea[placeholder*='ask'] {
 }
 .ps-more-sub {
   font-size: 0.66rem;
-  color: rgba(244, 244, 255, 0.55);
+  color: var(--bolt-elements-textSecondary, #9aa0b6);
   font-family: 'Space Grotesk', system-ui, sans-serif;
 }
 
@@ -560,7 +564,9 @@ textarea[placeholder*='ask'] {
   color: #f4f4ff;
 }
 .ps-import-sub {
-  color: rgba(244, 244, 255, 0.62);
+  /* Follow the blanket muted-text token (cool gray) — was a faint near-white that read as
+     flat "white" (the reported bug). Token-driven so palette edits land in one place. */
+  color: var(--bolt-elements-textSecondary, #9aa0b6);
 }
 .ps-import-count {
   color: #00e5ff;
@@ -819,7 +825,7 @@ button[aria-label*='end message' i]:hover:not(:disabled) {
   color: #ff79c6;
 }
 [data-id$='.md'] [class*='icon'] {
-  color: rgba(244, 244, 255, 0.6);
+  color: var(--bolt-elements-textSecondary, #9aa0b6);
 }
 [data-id$='.html'] [class*='icon'] {
   color: #e34c26;
