@@ -155,7 +155,7 @@ export class AppsInstancesCache {
       <header class="flex items-start justify-between gap-3 flex-wrap" appReveal>
         <div>
           <div class="kicker">App store</div>
-          <h2 class="section-h text-lg font-bold text-white m-0 mt-1 flex items-center gap-2">
+          <h1 class="section-h text-lg font-bold text-white m-0 mt-1 flex items-center gap-2">
             <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" class="text-accent"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/></svg>
             App Instances
             @if (runningCount() > 0) {
@@ -164,7 +164,7 @@ export class AppsInstancesCache {
                 {{ runningCount() }} running
               </span>
             }
-          </h2>
+          </h1>
           <p class="text-[0.78rem] text-text-secondary m-0 mt-1 max-w-prose leading-relaxed">
             Self-hosted services deployed for this org. Restart, stop, or destroy from the ⋯ menu.
           </p>
@@ -227,10 +227,10 @@ export class AppsInstancesCache {
               <header class="group-head">
                 <div class="group-glyph" aria-hidden="true">{{ group.glyph }}</div>
                 <div class="group-headmain">
-                  <h3 class="group-name">
+                  <h2 class="group-name">
                     <span class="group-name-text">{{ group.name }}</span>
                     <span class="group-count" [attr.aria-label]="group.instances.length + ' instances'">{{ group.instances.length }}</span>
-                  </h3>
+                  </h2>
                   <div class="group-sub">
                     @if (group.runningCount > 0) {
                       <span class="group-run"><span class="group-run-dot" aria-hidden="true"></span>{{ group.runningCount }} running</span>
@@ -905,7 +905,7 @@ export class AppInstancesComponent implements OnInit, OnDestroy {
             </div>
             <div class="min-w-0 flex-1">
               <div class="kicker">{{ catalogApp()?.category ?? 'app' }}</div>
-              <h2 class="section-h text-2xl font-bold text-white m-0 mt-1">{{ catalogApp()?.name ?? i.app_id }}</h2>
+              <h1 class="section-h text-2xl font-bold text-white m-0 mt-1">{{ catalogApp()?.name ?? i.app_id }}</h1>
               <div class="inst-host-row">
                 <app-domain-manager
                   [instanceId]="i.id"
@@ -965,7 +965,7 @@ export class AppInstancesComponent implements OnInit, OnDestroy {
                  URL. Status polls via load() until running (see maybeStartPolling). -->
             <section class="card" appReveal [attr.aria-busy]="i.status === 'provisioning'">
               <header class="flex items-center justify-between mb-3 gap-2 flex-wrap">
-                <h3 class="card-h m-0">Runtime</h3>
+                <h2 class="card-h m-0">Runtime</h2>
                 <span class="status-pill" [attr.data-status]="i.status" [style.--pill-color]="statusColor(i.status)">
                   <span class="status-dot" aria-hidden="true"></span>{{ statusLabel(i.status) }}
                 </span>
@@ -1027,7 +1027,7 @@ export class AppInstancesComponent implements OnInit, OnDestroy {
             <!-- ─── LOGS ─── (container apps) -->
             <section class="card" appReveal [attr.aria-busy]="logsLoading()">
               <header class="flex items-center justify-between mb-3 gap-2 flex-wrap">
-                <h3 class="card-h m-0">Logs</h3>
+                <h2 class="card-h m-0">Logs</h2>
                 <div class="flex items-center gap-2">
                   <span class="text-[0.62rem] text-text-secondary font-mono" aria-live="polite">
                     {{ logs().length }} lines · {{ pollingLabel() }}
@@ -1047,7 +1047,7 @@ export class AppInstancesComponent implements OnInit, OnDestroy {
 
           <!-- ─── ENV EDITOR ─── -->
           <aside class="card" appReveal>
-            <h3 class="card-h">Environment variables</h3>
+            <h2 class="card-h">Environment variables</h2>
             @if (!catalogApp()) {
               <p class="text-[0.78rem] text-text-secondary m-0">Catalog entry unavailable — env editor disabled.</p>
             } @else {

@@ -91,7 +91,7 @@ const INFRA_META: Readonly<Record<InfraDep, { glyph: string; label: string }>> =
             </div>
             <div class="min-w-0 flex-1">
               <div class="kicker">{{ categoryLabel(a) }}</div>
-              <h2 class="section-h text-2xl font-bold text-white m-0 mt-1">{{ a.name }}</h2>
+              <h1 class="section-h text-2xl font-bold text-white m-0 mt-1">{{ a.name }}</h1>
               <p class="text-[0.84rem] text-text-secondary m-0 mt-1 max-w-prose leading-relaxed">{{ a.tagline }}</p>
               @if (a.tags.length > 0) {
                 <div class="tag-row mt-2">
@@ -109,7 +109,9 @@ const INFRA_META: Readonly<Record<InfraDep, { glyph: string; label: string }>> =
         <!-- ─────────────────── SCREENSHOT CAROUSEL ─────────────────── -->
         @if (screenshots().length) {
           <section class="shots-card" appReveal [attr.aria-label]="'Screenshots of ' + a.name">
-            <div class="shots-track" #shotsTrack>
+            <div class="shots-track" #shotsTrack (scroll)="onShotsScroll(shotsTrack)"
+                 tabindex="0" role="group"
+                 [attr.aria-label]="a.name + ' screenshots — arrow keys, side buttons, or dots to browse'">
               @for (shot of screenshots(); track shot; let i = $index) {
                 <img class="shot" [src]="shot" [alt]="a.name + ' preview ' + (i + 1)"
                      loading="lazy" decoding="async"
@@ -123,6 +125,13 @@ const INFRA_META: Readonly<Record<InfraDep, { glyph: string; label: string }>> =
               <button type="button" class="shots-nav shots-next" (click)="scrollShots(shotsTrack, 1)" aria-label="Next image">
                 <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m9 18 6-6-6-6"/></svg>
               </button>
+              <div class="shots-dots" aria-hidden="true">
+                @for (shot of screenshots(); track shot; let i = $index) {
+                  <button type="button" class="shots-dot" [class.active]="activeShot() === i"
+                          (click)="goToShot(shotsTrack, i)" tabindex="-1"
+                          [attr.aria-label]="'Go to image ' + (i + 1)"></button>
+                }
+              </div>
             }
           </section>
         }
@@ -134,7 +143,7 @@ const INFRA_META: Readonly<Record<InfraDep, { glyph: string; label: string }>> =
           <section class="space-y-5" appReveal>
 
             <article class="card">
-              <h3 class="card-h">About</h3>
+              <h2 class="card-h">About</h2>
               <p class="text-[0.85rem] text-text-secondary leading-relaxed m-0">{{ a.description }}</p>
               @if (a.features?.length) {
                 <ul class="feature-list" aria-label="Key features" data-testid="apps-feature-list">
@@ -170,7 +179,7 @@ const INFRA_META: Readonly<Record<InfraDep, { glyph: string; label: string }>> =
 
             <article class="card">
               <header class="flex items-center justify-between flex-wrap gap-2 mb-3">
-                <h3 class="card-h m-0">Environment variables</h3>
+                <h2 class="card-h m-0">Environment variables</h2>
                 <span class="text-[0.66rem] text-text-secondary font-mono">{{ a.env.length }} {{ a.env.length === 1 ? 'key' : 'keys' }} · {{ requiredCount(a) }} required</span>
               </header>
               @if (a.env.length === 0) {
@@ -262,7 +271,7 @@ const INFRA_META: Readonly<Record<InfraDep, { glyph: string; label: string }>> =
 
             <article class="card">
               @if (a.image?.startsWith('cf-native:')) {
-                <h3 class="card-h">Runtime</h3>
+                <h2 class="card-h">Runtime</h2>
                 <p class="text-[0.74rem] text-text-secondary leading-relaxed">
                   Deployed as a real <strong>Cloudflare Worker</strong> on the edge network via
                   Workers for Platforms — <em>not</em> a container. Each instance runs in the V8
@@ -275,7 +284,7 @@ const INFRA_META: Readonly<Record<InfraDep, { glyph: string; label: string }>> =
                   <li><span class="meta-pill-k">Storage</span> Cloudflare R2 (per instance)</li>
                 </ul>
               } @else {
-                <h3 class="card-h">Dockerfile</h3>
+                <h2 class="card-h">Dockerfile</h2>
                 <p class="text-[0.74rem] text-text-secondary leading-relaxed">
                   Container image — pulled at boot:
                 </p>
@@ -295,7 +304,7 @@ const INFRA_META: Readonly<Record<InfraDep, { glyph: string; label: string }>> =
           <!-- ─── RIGHT: deploy panel ─── -->
           <aside class="space-y-5">
             <article class="card deploy-card" appReveal>
-              <h3 class="card-h">Deploy</h3>
+              <h2 class="card-h">Deploy</h2>
 
               @if (supported()) {
               <label class="form-field">
@@ -401,7 +410,7 @@ const INFRA_META: Readonly<Record<InfraDep, { glyph: string; label: string }>> =
               @if (instances().length > 0) {
                 <div class="instances-section">
                   <div class="instances-head">
-                    <h4 class="instances-h">Active Instances ({{ instances().length }})</h4>
+                    <h3 class="instances-h">Active Instances ({{ instances().length }})</h3>
                     <a class="instances-manage" [routerLink]="['/admin/apps/instances']">
                       Manage all →
                     </a>
@@ -489,7 +498,7 @@ const INFRA_META: Readonly<Record<InfraDep, { glyph: string; label: string }>> =
             <div class="rec-head">
               <span class="rec-spark" aria-hidden="true">✦</span>
               <div class="min-w-0">
-                <h3 id="rec-heading" class="rec-title">AI Recommends</h3>
+                <h2 id="rec-heading" class="rec-title">AI Recommends</h2>
                 <p class="rec-sub">Matched to {{ a.name }} on shared capabilities + category.</p>
               </div>
             </div>
@@ -594,13 +603,13 @@ const INFRA_META: Readonly<Record<InfraDep, { glyph: string; label: string }>> =
     .shots-track {
       display: flex; gap: 12px; overflow-x: auto;
       scroll-snap-type: x mandatory; scroll-behavior: smooth;
-      padding: 14px; scrollbar-width: thin;
+      padding: 14px; scrollbar-width: none;
     }
-    .shots-track::-webkit-scrollbar { height: 8px; }
-    .shots-track::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.15); border-radius: 4px; }
+    .shots-track::-webkit-scrollbar { display: none; }
+    .shots-track:focus-visible { outline: 2px solid var(--ps-accent, #00E5FF); outline-offset: -2px; border-radius: var(--ps-radius-sm, 10px); }
     .shot {
-      scroll-snap-align: center; flex: 0 0 auto;
-      height: clamp(200px, 42vh, 420px); width: auto; max-width: 100%;
+      scroll-snap-align: center; flex: 0 0 100%;
+      height: clamp(200px, 42vh, 420px); width: 100%; max-width: 100%;
       border-radius: var(--ps-radius-sm, 10px);
       border: 1px solid rgba(255,255,255,0.08);
       object-fit: contain; background: #0b0b16;
@@ -617,7 +626,22 @@ const INFRA_META: Readonly<Record<InfraDep, { glyph: string; label: string }>> =
     .shots-nav:focus-visible { outline: var(--ps-ring-focus, 2px solid #00E5FF); outline-offset: 2px; }
     .shots-prev { left: 10px; }
     .shots-next { right: 10px; }
+    .shots-dots {
+      position: absolute; left: 0; right: 0; bottom: 12px;
+      display: flex; justify-content: center; gap: 7px; pointer-events: none;
+    }
+    .shots-dot {
+      pointer-events: auto; width: 7px; height: 7px; padding: 0; border: 0;
+      border-radius: 999px; background: rgba(255,255,255,0.3); cursor: pointer;
+      box-shadow: 0 1px 3px rgba(0,0,0,0.5);
+      transition: width 180ms ease, background 180ms ease;
+    }
+    .shots-dot:hover { background: rgba(255,255,255,0.55); }
+    .shots-dot.active { width: 20px; background: var(--ps-accent, #00E5FF); }
+    .shots-dot:focus-visible { outline: 2px solid var(--ps-accent, #00E5FF); outline-offset: 2px; }
     @media (prefers-reduced-motion: reduce) { .shots-track { scroll-behavior: auto; } }
+    /* Tighten the frame on phones so a wide screenshot doesn't letterbox into dead space. */
+    @media (max-width: 640px) { .shot { height: clamp(170px, 26vh, 240px); } }
 
     .tag-row { display: flex; flex-wrap: wrap; gap: 4px; }
     .tag-pill {
@@ -1604,9 +1628,22 @@ export class AppDetailComponent implements OnInit {
     return m ? `https://opengraph.githubassets.com/1/${m[1]}/${m[2].replace(/\.git$/, '')}` : null;
   }
 
-  /** Scroll the screenshot track by ~one frame (prev/next buttons); scroll-snap centers it. */
+  /** Active carousel frame index — drives the pagination dots. */
+  readonly activeShot = signal(0);
+
+  /** Scroll the screenshot track by exactly one frame (prev/next buttons); scroll-snap settles it. */
   scrollShots(track: HTMLElement, dir: number): void {
-    track.scrollBy({ left: dir * track.clientWidth * 0.9, behavior: 'smooth' });
+    track.scrollBy({ left: dir * track.clientWidth, behavior: 'smooth' });
+  }
+
+  /** Jump the carousel to frame `i` (pagination-dot click). */
+  goToShot(track: HTMLElement, i: number): void {
+    track.scrollTo({ left: i * track.clientWidth, behavior: 'smooth' });
+  }
+
+  /** Sync the active-frame index from the live scroll position (drives the dots). */
+  onShotsScroll(track: HTMLElement): void {
+    this.activeShot.set(Math.round(track.scrollLeft / (track.clientWidth || 1)));
   }
 
   requiredCount(a: CatalogApp): number {
