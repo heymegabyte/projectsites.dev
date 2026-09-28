@@ -192,11 +192,14 @@ async function uploadSiteAssets(
   const manifest: Record<string, { hash: string; size: number }> = {};
   for (const a of assets) manifest[a.path] = { hash: a.hash, size: a.bytes.length };
 
-  const start = await fetch(`${CF_BASE}/accounts/${accountId}/workers/scripts/${scriptPath}/assets-upload-session`, {
-    method: 'POST',
-    headers: { authorization: `Bearer ${token}`, 'content-type': 'application/json' },
-    body: JSON.stringify({ manifest }),
-  });
+  const start = await fetch(
+    `${CF_BASE}/accounts/${accountId}/workers/scripts/${scriptPath}/assets-upload-session`,
+    {
+      method: 'POST',
+      headers: { authorization: `Bearer ${token}`, 'content-type': 'application/json' },
+      body: JSON.stringify({ manifest }),
+    },
+  );
   const startJson = (await start.json().catch(() => ({}))) as {
     success?: boolean;
     result?: { jwt?: string; buckets?: string[][] };
@@ -205,7 +208,10 @@ async function uploadSiteAssets(
   if (!start.ok || !startJson.success) {
     return {
       ok: false,
-      error: `assets-upload-session failed: ${JSON.stringify(startJson.errors ?? '')}`.slice(0, 400),
+      error: `assets-upload-session failed: ${JSON.stringify(startJson.errors ?? '')}`.slice(
+        0,
+        400,
+      ),
       status: start.status,
     };
   }
@@ -293,7 +299,10 @@ export async function deploySiteToWfp(
   try {
     assets = await readBuildAssets(bucket, site.slug, version);
   } catch (err) {
-    return { ok: false, error: `r2_read_failed: ${err instanceof Error ? err.message : String(err)}` };
+    return {
+      ok: false,
+      error: `r2_read_failed: ${err instanceof Error ? err.message : String(err)}`,
+    };
   }
   if (assets.length === 0) return { ok: false, error: 'empty_build' };
 
@@ -323,12 +332,19 @@ export async function deploySiteToWfp(
       { type: 'plain_text', name: '__PS_ARTIFACT_DIGEST', text: artifactDigest },
     ],
     assets: assetRes.jwt
-      ? { jwt: assetRes.jwt, config: { html_handling: 'auto-trailing-slash', not_found_handling: 'none' } }
+      ? {
+          jwt: assetRes.jwt,
+          config: { html_handling: 'auto-trailing-slash', not_found_handling: 'none' },
+        }
       : { config: { html_handling: 'auto-trailing-slash', not_found_handling: 'none' } },
   };
   const form = new FormData();
   form.append('metadata', new Blob([JSON.stringify(metadata)], { type: 'application/json' }));
-  form.append('worker.mjs', new Blob([SERVING_SHIM], { type: 'application/javascript+module' }), 'worker.mjs');
+  form.append(
+    'worker.mjs',
+    new Blob([SERVING_SHIM], { type: 'application/javascript+module' }),
+    'worker.mjs',
+  );
 
   const put = await fetch(`${CF_BASE}/accounts/${accountId}/workers/${dispatchScriptPath}`, {
     method: 'PUT',

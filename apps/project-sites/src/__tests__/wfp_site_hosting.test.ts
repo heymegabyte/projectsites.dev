@@ -234,7 +234,10 @@ describe('deploySiteToWfp', () => {
     expect(putCall).toBeDefined();
 
     const recorded = mockRecordResource.mock.calls[0][1] as Record<string, unknown>;
-    expect(recorded).toMatchObject({ environment: 'preview', userWorkerScript: 'site-abc123de-f012-7abc-9def-0123456789ab-preview' });
+    expect(recorded).toMatchObject({
+      environment: 'preview',
+      userWorkerScript: 'site-abc123de-f012-7abc-9def-0123456789ab-preview',
+    });
   });
 
   it('falls back to sites.current_build_version when no version is passed', async () => {
