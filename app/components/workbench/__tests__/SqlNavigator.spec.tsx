@@ -19,6 +19,10 @@
  *  5. A `confirmation_required` result surfaces the confirm affordance; confirming re-sends confirm:true.
  *  6. A dark-flag (enabled:false) reply shows the friendly "not enabled" state, never an error.
  *  7. A write result surfaces the ground-truth `rowsWritten`.
+ *  8. The always-visible "Run · LIMIT 500" button caps a bare SELECT at 500 rows before running.
+ *  9. LIMIT 500 leaves an already-bounded / non-SELECT statement untouched (no double LIMIT).
+ * 10. An unbounded bare SELECT surfaces the amber "Add LIMIT 500" nudge beside Run; a bounded one doesn't.
+ * 11. The result meta strip shows the returned row count.
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { render, screen, cleanup, fireEvent, waitFor, within } from '@testing-library/react';
@@ -31,6 +35,7 @@ const { postToParentSpy, onParentMessageSpy, parentHandlers } = vi.hoisted(() =>
   const postToParentSpy = vi.fn();
   const onParentMessageSpy = vi.fn((handler: (msg: unknown) => void) => {
     parentHandlers.add(handler);
+
     return () => {
       parentHandlers.delete(handler);
     };
@@ -54,6 +59,7 @@ import { SqlNavigator } from '../SqlNavigator';
 function replyToLastMutate(reply: Record<string, unknown>): void {
   const call = [...postToParentSpy.mock.calls].reverse().find((c) => c[0]?.type === 'PS_RES_MUTATE_REQUEST');
   const correlationId = call?.[0]?.correlationId;
+
   for (const handler of parentHandlers) {
     handler({ type: 'PS_RES_MUTATE_RESPONSE', correlationId, ...reply });
   }
@@ -117,6 +123,7 @@ describe('SqlNavigator — rich per-site SQL workspace', () => {
     expect(req?.action).toBe('exec');
     expect(req?.confirm).toBe(false);
     expect((req?.input as { sql: string }).sql).toBe('SELECT id, name FROM t;');
+
     // INV-1: the client NEVER supplies a Cloudflare identifier of any kind.
     const flat = JSON.stringify(req);
     expect(flat).not.toMatch(/database_id|account_id|d1_database|namespace|bucket/i);
@@ -127,7 +134,10 @@ describe('SqlNavigator — rich per-site SQL workspace', () => {
         ok: true,
         data: {
           classification: 'read',
-          columns: [{ name: 'id', type: 'INTEGER' }, { name: 'name', type: 'TEXT' }],
+          columns: [
+            { name: 'id', type: 'INTEGER' },
+            { name: 'name', type: 'TEXT' },
+          ],
           rows: [{ id: 1, name: 'Alice' }],
           rowsRead: 1,
           durationMs: 3,
@@ -195,7 +205,7 @@ describe('SqlNavigator — rich per-site SQL workspace', () => {
   it('surfaces the ground-truth rowsWritten for a write', async () => {
     render(<SqlNavigator />);
 
-    fireEvent.change(screen.getByTestId('database-sql-textarea'), { target: { value: "INSERT INTO t VALUES (1);" } });
+    fireEvent.change(screen.getByTestId('database-sql-textarea'), { target: { value: 'INSERT INTO t VALUES (1);' } });
     fireEvent.click(screen.getByTestId('database-sql-run'));
     replyToLastMutate({
       ok: true,
@@ -203,7 +213,79 @@ describe('SqlNavigator — rich per-site SQL workspace', () => {
     });
 
     await waitFor(() => expect(screen.getByTestId('database-sql-rows-written')).toBeTruthy());
+
     const badge = screen.getByTestId('database-sql-rows-written');
     expect(within(badge).getByText(/1 row written/)).toBeTruthy();
+  });
+
+  it('the always-visible LIMIT 500 button caps a bare SELECT at 500 rows before running', () => {
+    render(<SqlNavigator />);
+
+    fireEvent.change(screen.getByTestId('database-sql-textarea'), { target: { value: 'SELECT * FROM big_table' } });
+
+    const limitBtn = screen.getByTestId('database-sql-limit') as HTMLButtonElement;
+    expect(limitBtn).toBeTruthy();
+    expect(limitBtn.disabled).toBe(false);
+
+    fireEvent.click(limitBtn);
+
+    const req = lastMutateRequest();
+    expect(req?.kind).toBe('d1');
+    expect(req?.action).toBe('exec');
+    expect((req?.input as { sql: string }).sql).toBe('SELECT * FROM big_table LIMIT 500');
+  });
+
+  it('LIMIT 500 leaves an already-bounded SELECT untouched (no double LIMIT)', () => {
+    render(<SqlNavigator />);
+
+    fireEvent.change(screen.getByTestId('database-sql-textarea'), { target: { value: 'SELECT * FROM t LIMIT 10' } });
+    fireEvent.click(screen.getByTestId('database-sql-limit'));
+
+    const req = lastMutateRequest();
+    expect((req?.input as { sql: string }).sql).toBe('SELECT * FROM t LIMIT 10');
+  });
+
+  it('shows the amber "Add LIMIT" nudge only for an unbounded bare SELECT', () => {
+    render(<SqlNavigator />);
+
+    // Unbounded → the nudge appears.
+    fireEvent.change(screen.getByTestId('database-sql-textarea'), { target: { value: 'SELECT * FROM users' } });
+    expect(screen.getByTestId('database-sql-add-limit')).toBeTruthy();
+
+    // Already bounded → no nudge.
+    fireEvent.change(screen.getByTestId('database-sql-textarea'), { target: { value: 'SELECT * FROM users LIMIT 5' } });
+    expect(screen.queryByTestId('database-sql-add-limit')).toBeNull();
+  });
+
+  it('the amber nudge runs the bounded variant', () => {
+    render(<SqlNavigator />);
+
+    fireEvent.change(screen.getByTestId('database-sql-textarea'), { target: { value: 'SELECT * FROM users' } });
+    fireEvent.click(screen.getByTestId('database-sql-add-limit'));
+
+    const req = lastMutateRequest();
+    expect((req?.input as { sql: string }).sql).toBe('SELECT * FROM users LIMIT 500');
+  });
+
+  it('the result meta strip shows the returned row count', async () => {
+    render(<SqlNavigator />);
+
+    fireEvent.change(screen.getByTestId('database-sql-textarea'), { target: { value: 'SELECT id FROM t;' } });
+    fireEvent.click(screen.getByTestId('database-sql-run'));
+    replyToLastMutate({
+      ok: true,
+      result: {
+        ok: true,
+        data: {
+          classification: 'read',
+          columns: [{ name: 'id', type: 'INTEGER' }],
+          rows: [{ id: 1 }, { id: 2 }, { id: 3 }],
+          durationMs: 2,
+        },
+      },
+    });
+
+    await waitFor(() => expect(screen.getByTestId('database-sql-row-count')).toBeTruthy());
+    expect(within(screen.getByTestId('database-sql-row-count')).getByText(/3 rows/)).toBeTruthy();
   });
 });

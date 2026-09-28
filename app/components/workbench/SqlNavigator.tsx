@@ -50,6 +50,9 @@ import {
   removeSavedQuery,
   explainQuery,
   explainPlanHint,
+  analyzeRowLimit,
+  isExpensiveScan,
+  DEFAULT_ROW_LIMIT,
   type SavedQuery,
   type ExplainHint,
 } from './data-panel-logic';
@@ -90,6 +93,7 @@ const NEW_TABLE_TEMPLATE = `CREATE TABLE my_table (
 // ── Bridge plumbing ────────────────────────────────────────────────────────
 
 let correlationCounter = 0;
+
 function nextCorrelationId(): string {
   if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
     return crypto.randomUUID();
@@ -129,6 +133,7 @@ function readHistory(): string[] {
   try {
     const raw = typeof localStorage !== 'undefined' ? localStorage.getItem(SQL_HISTORY_KEY) : null;
     const parsed = raw ? JSON.parse(raw) : [];
+
     return Array.isArray(parsed) ? parsed.filter((s): s is string => typeof s === 'string') : [];
   } catch {
     return [];
@@ -149,6 +154,7 @@ function readSaved(): SavedQuery[] {
   try {
     const raw = typeof localStorage !== 'undefined' ? localStorage.getItem(SQL_SAVED_KEY) : null;
     const parsed = raw ? JSON.parse(raw) : [];
+
     return Array.isArray(parsed)
       ? parsed.filter((s): s is SavedQuery => !!s && typeof s.name === 'string' && typeof s.query === 'string')
       : [];
@@ -268,6 +274,7 @@ export const SqlNavigator = memo(() => {
         }
 
         const tables = (reply.tables ?? []).map((t) => t.name);
+
         // Column completion is populated on demand from each result set (see `run`). Seed with tables.
         setSchema((prev) => ({ tables, columns: prev?.columns ?? [] }));
       } catch {
@@ -284,6 +291,7 @@ export const SqlNavigator = memo(() => {
     setHistory((h) => {
       const next = addToSqlHistory(h, query);
       persistHistory(next);
+
       return next;
     });
   }, []);
@@ -301,7 +309,7 @@ export const SqlNavigator = memo(() => {
       correlationId: nextCorrelationId(),
     })) as SiteDbTablesResponseMessage;
 
-    if (!tablesReply.ok || (tablesReply.enabled === false)) {
+    if (!tablesReply.ok || tablesReply.enabled === false) {
       throw new Error(tablesReply.error ?? 'Could not read your database schema.');
     }
 
@@ -319,6 +327,7 @@ export const SqlNavigator = memo(() => {
           })) as SiteDbRowsResponseMessage;
 
           const columns = (rowsReply.columns ?? []) as AskColumn[];
+
           return { name, columns };
         } catch {
           return { name, columns: [] };
@@ -455,6 +464,7 @@ export const SqlNavigator = memo(() => {
           }
 
           setState({ status: 'error', message });
+
           return;
         }
 
@@ -479,6 +489,19 @@ export const SqlNavigator = memo(() => {
 
   const run = useCallback(() => void runQuery(sql, false, false), [sql, runQuery]);
 
+  // "Bare SELECT with no LIMIT" advice — drives BOTH the always-on LIMIT 500 button and the amber nudge.
+  const rowLimitAdvice = useMemo(() => analyzeRowLimit(sql), [sql]);
+
+  /**
+   * Run the current query capped at {@link DEFAULT_ROW_LIMIT} rows so a big table is safe to preview.
+   * A bare `SELECT`/`WITH…SELECT` with no `LIMIT` runs the `LIMIT 500`-appended variant; an
+   * already-bounded or non-SELECT statement runs UNCHANGED (never a double-`LIMIT` syntax error).
+   */
+  const runWithLimit = useCallback(
+    () => void runQuery(rowLimitAdvice.limitedSql, false, false),
+    [rowLimitAdvice, runQuery],
+  );
+
   const explain = useCallback(() => {
     const wrapped = explainQuery(sql);
 
@@ -487,10 +510,7 @@ export const SqlNavigator = memo(() => {
     }
   }, [sql, runQuery]);
 
-  const confirmRun = useCallback(
-    () => void runQuery(lastConfirmSqlRef.current, true, false),
-    [runQuery],
-  );
+  const confirmRun = useCallback(() => void runQuery(lastConfirmSqlRef.current, true, false), [runQuery]);
 
   // ── History + saved-query actions ──────────────────────────────────────────
   const recallHistory = useCallback(
@@ -512,6 +532,7 @@ export const SqlNavigator = memo(() => {
     setSaved((prev) => {
       const next = addSavedQuery(prev, name, sql);
       persistSaved(next);
+
       return next;
     });
     setSaveName('');
@@ -526,6 +547,7 @@ export const SqlNavigator = memo(() => {
     setSaved((prev) => {
       const next = removeSavedQuery(prev, name);
       persistSaved(next);
+
       return next;
     });
   }, []);
@@ -795,8 +817,24 @@ export const SqlNavigator = memo(() => {
             data-testid="database-sql-run"
             className="min-h-[24px] text-[12px] font-semibold px-3.5 py-1.5 rounded-lg bg-bolt-elements-item-contentAccent text-bolt-elements-background-depth-1 enabled:hover:opacity-90 disabled:opacity-40 disabled:cursor-not-allowed transition-opacity flex items-center gap-1.5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-offset-bolt-elements-background-depth-1 focus-visible:ring-bolt-elements-item-contentAccent cursor-pointer"
           >
-            {state.status === 'running' ? <div className="i-ph:circle-notch animate-spin" /> : <div className="i-ph:play" />}
+            {state.status === 'running' ? (
+              <div className="i-ph:circle-notch animate-spin" />
+            ) : (
+              <div className="i-ph:play" />
+            )}
             <span className="min-w-[7ch] text-center">{state.status === 'running' ? 'Running…' : 'Run'}</span>
+          </button>
+          <button
+            type="button"
+            onClick={runWithLimit}
+            disabled={state.status === 'running' || !sql.trim()}
+            data-testid="database-sql-limit"
+            title={`Preview safely — run the current query capped at the first ${DEFAULT_ROW_LIMIT} rows (a bare SELECT gets LIMIT ${DEFAULT_ROW_LIMIT}; an already-bounded query runs unchanged)`}
+            className="min-h-[24px] text-[11px] font-medium px-3 py-1.5 rounded-lg border border-bolt-elements-item-contentAccent/40 bg-bolt-elements-item-contentAccent/10 text-bolt-elements-item-contentAccent enabled:hover:bg-bolt-elements-item-contentAccent/20 disabled:opacity-40 disabled:cursor-not-allowed transition-colors flex items-center gap-1.5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-bolt-elements-item-contentAccent cursor-pointer"
+          >
+            <div className="i-ph:rows" />
+            {/* Reserve the widest label so the button never jitters (buttons-accommodate-largest-text). */}
+            <span className="min-w-[9ch] text-center whitespace-nowrap">Run · LIMIT {DEFAULT_ROW_LIMIT}</span>
           </button>
           <button
             type="button"
@@ -808,6 +846,17 @@ export const SqlNavigator = memo(() => {
           >
             <div className="i-ph:strategy" /> Explain
           </button>
+          {rowLimitAdvice.needsLimit && state.status !== 'running' && (
+            <button
+              type="button"
+              onClick={runWithLimit}
+              data-testid="database-sql-add-limit"
+              title={`This SELECT has no LIMIT — it can return every row and scan the whole table. Run a bounded first ${rowLimitAdvice.limit} rows instead (you can still Run the full query).`}
+              className="min-h-[24px] text-[10px] font-medium text-amber-300 rounded-lg px-2.5 py-1.5 flex items-center gap-1 border border-amber-300/30 hover:bg-amber-300/10 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-300 cursor-pointer"
+            >
+              <div className="i-ph:warning" /> Add LIMIT {rowLimitAdvice.limit}
+            </button>
+          )}
           <span className="text-[10px] text-bolt-elements-textTertiary ml-auto">⌘/Ctrl + Enter to run</span>
         </div>
       </div>
@@ -833,9 +882,12 @@ export const SqlNavigator = memo(() => {
             data-testid="database-sql-disabled"
           >
             <div className="i-ph:lock-key text-3xl text-bolt-elements-textTertiary" />
-            <p className="text-sm font-medium text-bolt-elements-textSecondary">The SQL navigator isn&rsquo;t enabled yet</p>
+            <p className="text-sm font-medium text-bolt-elements-textSecondary">
+              The SQL navigator isn&rsquo;t enabled yet
+            </p>
             <p className="text-[11px] text-bolt-elements-textTertiary max-w-[260px]">
-              Your site&rsquo;s own database is on the way. Once it&rsquo;s turned on, you can run SQL here — nothing to set up.
+              Your site&rsquo;s own database is on the way. Once it&rsquo;s turned on, you can run SQL here — nothing to
+              set up.
             </p>
           </div>
         )}
@@ -916,6 +968,9 @@ const SqlResult = memo(({ data, wasExplain }: { data: SqlExecData; wasExplain: b
   const wrote = typeof data.rowsWritten === 'number' && data.rowsWritten > 0;
   const planHint: ExplainHint | null = useMemo(() => (wasExplain ? explainPlanHint(rows) : null), [wasExplain, rows]);
 
+  // Show the returned row count for reads (not writes — those report rowsWritten, and not EXPLAIN plans).
+  const showRowCount = !wrote && !wasExplain && rows.length > 0;
+
   const hintClass =
     planHint?.level === 'good'
       ? 'border-emerald-500/40 bg-emerald-500/10 text-emerald-300'
@@ -940,16 +995,34 @@ const SqlResult = memo(({ data, wasExplain }: { data: SqlExecData; wasExplain: b
             {data.rowsWritten} row{data.rowsWritten === 1 ? '' : 's'} written
           </span>
         )}
+        {showRowCount && (
+          <span
+            className="px-2 py-0.5 rounded-full bg-bolt-elements-background-depth-2 text-bolt-elements-textSecondary tabular-nums"
+            data-testid="database-sql-row-count"
+          >
+            {rows.length.toLocaleString()} {rows.length === 1 ? 'row' : 'rows'}
+          </span>
+        )}
         {typeof data.rowsRead === 'number' && data.rowsRead > 0 && (
           <span
             className="px-2 py-0.5 rounded-full bg-bolt-elements-background-depth-2 text-bolt-elements-textTertiary tabular-nums"
             data-testid="database-sql-rows-read"
           >
-            {data.rowsRead} read
+            {data.rowsRead.toLocaleString()} read
           </span>
         )}
         {typeof data.durationMs === 'number' && (
           <span className="text-bolt-elements-textTertiary tabular-nums">{data.durationMs} ms</span>
+        )}
+        {isExpensiveScan(data.rowsRead) && (
+          <span
+            className="flex items-center gap-1 text-amber-300"
+            data-testid="database-sql-scan-warn"
+            role="status"
+            title="This query read a large number of rows — add an index on the column(s) you filter or join by to keep it fast at scale."
+          >
+            <div className="i-ph:warning" aria-hidden /> expensive scan — {data.rowsRead!.toLocaleString()} rows read
+          </span>
         )}
       </div>
 
