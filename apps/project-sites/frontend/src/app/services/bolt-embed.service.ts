@@ -294,6 +294,12 @@ interface PsMessage {
   readonly dataUrl?: string;
   /** PS_RES_SITE_FILES (Resources tab): the published build version to list (default: current). */
   readonly version?: string;
+  /** PS_PROMOTE_REQUEST (Source Control — Promote): the Preview working-tree draft revision (idempotency key). */
+  readonly draftRevision?: number;
+  /** PS_PROMOTE_REQUEST: the digest of the working tree being promoted (byte-equality proof on the release). */
+  readonly treeDigest?: string;
+  /** PS_PROMOTE_REQUEST: optional commit SHA associated with this draft. */
+  readonly commitSha?: string | null;
 }
 
 /**
@@ -1816,6 +1822,83 @@ export class BoltEmbedService {
                   typeof err.error?.error?.message === 'string'
                     ? err.error.error.message
                     : 'The query failed.';
+                reply({ ok: false, error: message });
+              },
+            });
+          break;
+        }
+        case 'PS_PROMOTE_REQUEST': {
+          // Source Control — Promote to Production. The embedded editor has no cross-origin session, so it
+          // asks US (we hold currentSite + the ApiService bearer) to POST /api/sites/:id/promote. The worker
+          // REALLY freezes the Preview artifact → publishes a new production version → points Production at it,
+          // and records the HONEST outcome. Reply with PS_PROMOTE_RESPONSE. DARK behind the `durable_preview`
+          // flag → a 404 whose body message says "not enabled" maps to {ok:false,enabled:false} so the control
+          // stays honest (never a fabricated success).
+          const iframe = this.iframeEl;
+          const site = this.currentSite;
+          const cid = msg.correlationId;
+          const draftRevision =
+            typeof msg.draftRevision === 'number' ? msg.draftRevision : undefined;
+          const treeDigest = typeof msg.treeDigest === 'string' ? msg.treeDigest : undefined;
+          const commitSha = typeof msg.commitSha === 'string' ? msg.commitSha : undefined;
+          const reply = (payload: Record<string, unknown>): void => {
+            iframe?.contentWindow?.postMessage(
+              { type: 'PS_PROMOTE_RESPONSE', correlationId: cid, ...payload },
+              EDITOR_BASE,
+            );
+          };
+          if (!site) {
+            reply({ ok: false, error: 'No site selected' });
+            break;
+          }
+          if (draftRevision === undefined || !treeDigest) {
+            reply({ ok: false, error: 'Nothing to promote' });
+            break;
+          }
+          this.api
+            .post<{
+              release?: unknown;
+              outcome?: 'success' | 'commit_ok_deploy_failed' | 'failed';
+              idempotent?: boolean;
+              data?: {
+                release?: unknown;
+                outcome?: 'success' | 'commit_ok_deploy_failed' | 'failed';
+                idempotent?: boolean;
+              };
+            }>(
+              `/sites/${site.id}/promote`,
+              {
+                draft_revision: draftRevision,
+                tree_digest: treeDigest,
+                commit_sha: commitSha ?? null,
+              },
+              { silent: true },
+            )
+            .subscribe({
+              next: (res) =>
+                reply({
+                  ok: true,
+                  release: res?.release ?? res?.data?.release,
+                  outcome: res?.outcome ?? res?.data?.outcome,
+                  idempotent: !!(res?.idempotent ?? res?.data?.idempotent),
+                }),
+              error: (err: unknown) => {
+                // Dark-flag / not-owned: a 404 whose body message says "not enabled" is the `durable_preview`
+                // killswitch — tell the editor to keep the control honest (hidden/disabled), not show an error.
+                if (
+                  err instanceof HttpErrorResponse &&
+                  err.status === 404 &&
+                  typeof err.error?.error?.message === 'string' &&
+                  err.error.error.message.includes('not enabled')
+                ) {
+                  reply({ ok: false, enabled: false });
+                  return;
+                }
+                const message =
+                  err instanceof HttpErrorResponse &&
+                  typeof err.error?.error?.message === 'string'
+                    ? err.error.error.message
+                    : 'Promotion failed.';
                 reply({ ok: false, error: message });
               },
             });
