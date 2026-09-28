@@ -456,12 +456,13 @@ export const APPS_CATALOG: ReadonlyArray<CatalogApp> = [
     glyph: '🗂️',
     logo: '/app-logos/payload.svg',
     // Real Payload admin-UI screenshots (docs) + the GitHub hero banner. Verified 200 image/jpeg
-    // (2026-09-28). The detail carousel prepends these, then appends the homepage og:image + the
-    // repo's GitHub social card. img-src is `*` so no CSP change is needed.
+    // (2026-09-28). Ordered COOLEST-first: cinematic hero banner → redesigned admin Collections
+    // panel → document draft/publish editor. The carousel then appends the dark og:image wordmark
+    // + the plain GitHub repo card (the two least-cool tail slides). img-src is `*` — no CSP change.
     screenshots: [
+      'https://l4wlsi8vxy8hre4v.public.blob.vercel-storage.com/github-banner-new-logo.jpg',
       'https://payloadcms.com/images/docs/admin.jpg',
       'https://payloadcms.com/images/docs/autosave-drafts.jpg',
-      'https://l4wlsi8vxy8hre4v.public.blob.vercel-storage.com/github-banner-new-logo.jpg',
     ],
     license: 'MIT',
     tags: ['cms', 'headless', 'typescript', 'd1', 'r2', 'cf-worker'],
