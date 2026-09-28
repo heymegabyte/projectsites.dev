@@ -863,6 +863,19 @@ const LOW_BALANCE_CENTS = 500;
                   }
                 </button>
                 <div class="dp-row-actions">
+                  @if (h.status !== 'deactivated') {
+                    <!-- Visible "open live site" — surfaces the removed top-bar button's job
+                         directly on every domain row (also in the ⋯ menu as "Open in tab"). -->
+                    <button
+                      type="button"
+                      class="dp-act"
+                      (click)="openHostname(h)"
+                      [attr.aria-label]="'Open ' + h.hostname + ' in a new tab'"
+                      title="Open live site in a new tab"
+                    >
+                      <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M7 17 17 7"/><path d="M8 7h9v9"/></svg>
+                    </button>
+                  }
                   <button
                     type="button"
                     class="dp-act"

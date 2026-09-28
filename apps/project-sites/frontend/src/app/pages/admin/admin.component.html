@@ -431,35 +431,11 @@
              home-icon + dropdown widget. The current section name stays
              to the right as the third breadcrumb segment. -->
           <app-domain-picker></app-domain-picker>
-          <!-- "View site" — opens the currently-selected site's LIVE website
-               (custom domain or {slug}.projectsites.dev) in a new tab. Sits directly
-               to the right of the domain picker; icon-only on mobile to preserve the
-               top-bar budget. Real <a> (middle-click / open-in-new-tab / keyboard). -->
-          @if (state.selectedSite(); as site) {
-            <a
-              class="top-btn top-btn-accent view-site-btn icon-only flex-shrink-0"
-              [href]="state.getSiteUrl(site)"
-              target="_blank"
-              rel="noopener noreferrer"
-              [brnTooltip]="'View the live website (opens in a new tab)'"
-              aria-label="View the live website (opens in a new tab)"
-            >
-              <svg
-                width="16"
-                height="16"
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                stroke-width="2"
-                stroke-linecap="round"
-                stroke-linejoin="round"
-                aria-hidden="true"
-              >
-                <path d="m3 9 9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z" />
-                <polyline points="9 22 9 12 15 12 15 22" />
-              </svg>
-            </a>
-          }
+          <!-- The standalone "View live website" button was removed — the URL dropdown
+               (app-domain-picker, above) now owns "open the live site": each domain row has a
+               visible ↗ open-in-new-tab plus the ⋯ "Open in tab" action, so every URL feature
+               (view live · set primary · buy/register · manage) lives in the one dropdown. -->
+
           <!-- The section-name breadcrumb is redundant on mobile (every section
              renders its own visible heading directly below) and the wide domain
              picker squeezes it into a clipped 2-char wrap at 390px — so the
