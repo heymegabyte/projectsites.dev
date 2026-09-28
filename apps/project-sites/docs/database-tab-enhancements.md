@@ -57,3 +57,23 @@
 ## Shipped
 - **#3 cell click-to-copy** in `DataGrid.tsx` (SQL results grid): click / Enter / Space copies the cell's
   raw value, shows a transient "Copied" tick, keyboard-accessible + focus-ringed. 2026-09-28.
+- **Actions dropdown** — the DatabasePanel `TablesToolbar` row + the SiteTablesPanel Header's "Seed with AI" +
+  refresh buttons are replaced by ONE "Actions" dropdown (New Table · Import · History · Refresh) in the
+  Tables header. `SiteTablesPanel` Header + `onHistory` prop. 2026-09-28.
+- **History = "Create snapshot"** — relabeled Save point → "Create snapshot" (captures the live D1 bookmark),
+  copy now explains D1 auto-protects hourly for 30 days + hour-granularity restore. `TimeTravelPanel`. 2026-09-28.
+
+## Brian requests 2026-09-28 (this batch)
+- ✅ **History: manual snapshot + auto + 30-day hour restore** — shipped (Create snapshot captures the real
+  bookmark; datetime picker already does hour-granularity restore across the 30-day window; auto is inherent to
+  D1 Time Travel + now explained).
+- ✅ **Actions dropdown (New Table + History)** — shipped; removed the actions row + Seed/refresh buttons.
+- ✅ **Remove "Seed with AI" from the Tables toolbar** — shipped.
+- ⏳ **ADVANCED cross-table content SEARCH (loop TODO, top priority):** in `SiteTablesPanel`'s TableListView,
+  remove the "Use AI" + "Create Table" buttons and put an EXPANDING search bar that searches (a) table NAMES
+  and (b) table CONTENT across ALL tables — with stylized results that visually distinguish a table-name match
+  from an in-content match (table · column · row snippet). Needs a worker endpoint `POST /api/sites/:id/db/search`
+  (server-resolved per-site D1; iterate user tables; LIKE / FTS / AI-ranked; return {table,column,rowid,snippet})
+  + a `PS_SITEDB_SEARCH` bridge, wired to the expanding search UI. This is the next DB-loop slice.
+- ⏳ **10 progressive gorgeous+functional revisions of the Database section** — the DB loop (`72a83e2c`, every
+  15m) performs these iteratively; each fire = one measurable visual+functional upgrade, verified live + deployed.

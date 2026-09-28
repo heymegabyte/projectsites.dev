@@ -413,7 +413,7 @@ export const TimeTravelPanel = memo(() => {
                   type="text"
                   value={newLabel}
                   onChange={(e) => setNewLabel(e.target.value)}
-                  placeholder="Label this point (e.g. before big import)"
+                  placeholder="Name this snapshot (e.g. before big import)"
                   data-testid="tt-label-input"
                   className="flex-1 rounded border border-bolt-elements-borderColor bg-bolt-elements-background-depth-2 px-2 py-1.5 text-[12px] text-bolt-elements-textPrimary placeholder:text-bolt-elements-textTertiary focus:outline-none focus-visible:ring-2 focus-visible:ring-bolt-elements-item-contentAccent"
                 />
@@ -424,7 +424,7 @@ export const TimeTravelPanel = memo(() => {
                   data-testid="tt-save-point"
                   className="min-h-[24px] text-[12px] font-semibold px-3 py-1.5 rounded-lg bg-bolt-elements-item-contentAccent text-bolt-elements-background-depth-1 enabled:hover:opacity-90 disabled:opacity-50 disabled:cursor-not-allowed transition-opacity flex items-center gap-1.5 shrink-0 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-bolt-elements-item-contentAccent cursor-pointer"
                 >
-                  <div className="i-ph:bookmark-simple" /> Save point
+                  <div className="i-ph:camera-duotone" /> Create snapshot
                 </button>
               </div>
             )}
@@ -588,7 +588,7 @@ const Header = memo(({ retentionDays, onRefresh }: { retentionDays: number; onRe
     <div className="min-w-0">
       <h2 className="text-sm font-semibold text-bolt-elements-textPrimary">History &amp; restore</h2>
       <p className="text-[10px] text-bolt-elements-textTertiary truncate">
-        Jump your database back to any point in the last {retentionDays} days · your database
+        Auto-protected hourly for the last {retentionDays} days — jump to any point, or save a named snapshot
       </p>
     </div>
     <button

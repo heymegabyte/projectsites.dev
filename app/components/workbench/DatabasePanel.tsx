@@ -162,18 +162,17 @@ export const DatabasePanel = memo(() => {
       {/* Active sub-view — each stays lightweight; only the mounted view holds a live bridge. */}
       <div className="relative flex-1 overflow-hidden">
         {subView === 'table' && (
-          // Tables-view is a vertical column: the tables browser scrolls, an ACTIONS toolbar sits at the top
-          // (Import / History / Schema / Seed with AI — the entries removed from the nav live here as
-          // buttons), and the collapsed-by-default Danger Zone (per-site greenfield reset) sits at the very
-          // bottom. Everything targets the site's OWN dedicated D1/KV/R2 only.
+          // Tables-view is a vertical column: the tables browser scrolls (its OWN header holds the single
+          // "Actions" dropdown — New Table / Import / History / Refresh), and the collapsed-by-default Danger
+          // Zone (per-site greenfield reset) sits at the very bottom. Everything targets the site's OWN D1/KV/R2.
           <div className="h-full flex flex-col overflow-y-auto">
-            <TablesToolbar onAction={setTableAction} />
             <div className="flex-1 min-h-0">
               <SiteTablesPanel
                 onCreateTable={() => setTableAction('schema')}
                 onSeedWithAi={() => setTableAction('seed')}
                 onImportCsv={() => setTableAction('import')}
                 onNewTableSql={() => setSubView('sql')}
+                onHistory={() => setTableAction('history')}
               />
             </div>
             <div className="shrink-0 px-3 pb-4">
@@ -195,61 +194,6 @@ export const DatabasePanel = memo(() => {
 
 DatabasePanel.displayName = 'DatabasePanel';
 
-// ── Tables-view actions toolbar (Import · History · Schema · Seed with AI) ────────────────────────
-
-const TABLE_ACTIONS: readonly { value: TableAction; label: string; icon: string; title: string }[] = [
-  {
-    value: 'import',
-    label: 'Import',
-    icon: 'i-ph:upload-simple-duotone',
-    title: 'Import a CSV/JSON file into a table',
-  },
-  {
-    value: 'schema',
-    label: 'New table',
-    icon: 'i-ph:blueprint-duotone',
-    title: 'Build a new table with a guided schema builder',
-  },
-  {
-    value: 'history',
-    label: 'History',
-    icon: 'i-ph:clock-counter-clockwise-duotone',
-    title: 'History — restore your database to an earlier point in time',
-  },
-] as const;
-
-/** The compact actions row above the Tables grid — the entries removed from the top nav live here. */
-const TablesToolbar = memo(({ onAction }: { onAction: (action: TableAction) => void }) => (
-  <div
-    className="flex items-center gap-1.5 px-3 py-2 border-b border-bolt-elements-borderColor/60 shrink-0 overflow-x-auto"
-    data-testid="database-tables-toolbar"
-  >
-    <span className="text-[10px] uppercase tracking-wider text-bolt-elements-textTertiary shrink-0 mr-0.5">
-      Actions
-    </span>
-    {TABLE_ACTIONS.map((action) => (
-      <button
-        key={action.value}
-        type="button"
-        onClick={() => onAction(action.value)}
-        title={action.title}
-        data-testid={`database-action-${action.value}`}
-        className={classNames(
-          'min-h-[24px] shrink-0 text-[11px] font-medium px-2.5 py-1 rounded-md border transition-colors motion-reduce:transition-none flex items-center gap-1.5',
-          'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-bolt-elements-item-contentAccent cursor-pointer',
-          action.value === 'seed'
-            ? 'border-bolt-elements-item-contentAccent/50 bg-bolt-elements-item-backgroundAccent/10 text-bolt-elements-item-contentAccent hover:bg-bolt-elements-item-backgroundAccent/20'
-            : 'border-bolt-elements-borderColor bg-bolt-elements-background-depth-2 text-bolt-elements-textSecondary hover:text-bolt-elements-textPrimary hover:bg-bolt-elements-background-depth-3',
-        )}
-      >
-        <div className={classNames(action.icon, 'text-sm')} aria-hidden />
-        {action.label}
-      </button>
-    ))}
-  </div>
-));
-
-TablesToolbar.displayName = 'DatabasePanel.TablesToolbar';
 
 // ── Tables-view action overlay (renders Import / History / Schema / AiSeed panels on top of the grid) ───
 
