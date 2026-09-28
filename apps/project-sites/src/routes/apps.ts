@@ -1437,6 +1437,22 @@ apps.post('/api/apps/instances/:id/domains', async (c) => {
       nowIso,
     ],
   );
+  // Guarantee the instance has a primary: on a fresh attach `isFirst` set it, but the
+  // ON CONFLICT re-home branch leaves is_primary untouched — so a domain re-homed here (or a
+  // sole domain whose row pre-existed non-primary) would never become the surfaced URL. If no
+  // row for this instance is primary, promote the just-attached one.
+  const primaries = await dbQuery<{ n: number }>(
+    c.env.DB,
+    `SELECT COUNT(*) AS n FROM app_instance_domains WHERE instance_id = ? AND is_primary = 1`,
+    [row.id],
+  );
+  if ((primaries.data?.[0]?.n ?? 0) === 0) {
+    await dbExecute(
+      c.env.DB,
+      `UPDATE app_instance_domains SET is_primary = 1, updated_at = ? WHERE instance_id = ? AND domain = ?`,
+      [nowIso, row.id, domain],
+    );
+  }
   await auditService.writeAuditLog(c.env.DB, {
     org_id: orgId,
     actor_id: userId,
