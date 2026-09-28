@@ -4,18 +4,25 @@
 
 ## ⟐ Cycle log (most recent first)
 
+### 2026-09-28 · Wave D — editor deep-route fix + psnotify DO + Data journey GREEN (FIRST SCHEDULED CRON FIRE)
+- **The 15-min cron is live** (`/run-the-loop` every 15m, job `5b233086`, durable). This was its first fire — 3 disjoint agents (frontend / worker / e2e), all self-committed to `main`.
+- **D1 — `/admin/editor/:siteId` deep-links FIXED** (were 404ing — `app.routes.ts` had only exact `editor`). Added `editor/:siteId` + `AdminStateService.selectSiteById` + param read + coherent not-found. Karma RED→GREEN (4 cases); tsc+ng build clean. Frontend R2 deployed; `/admin/editor` 200. `e18b023af`.
+- **D2 — psnotify DO inbox SHIPPED (first slice) — the #1 notifications gap.** `libs/features/psnotify/`: `PsNotifyDO` (SQLite, per-user, `add/list/markRead`); `notifyUser` now writes to the DO (was a `console.warn` stub); authed `GET /api/notifications` + `POST /:id/read` (caller-scoped); flag `psnotify` default-OFF. wrangler DO binding + `new_sqlite_classes=["PsNotifyDO"]`. 7/7 Jest, validate:features clean. **Deployed — worker `4aa5c078`; deploy confirms `PSNOTIFY_DO (PsNotifyDO)` bound**; endpoint mounted (401 unauth), dark. `9223970c1`. **Honest status:** 401 proves mounted-only (false-green lesson) — authed DO-journey verifies when the flag promotes. Follow-on: fan-out adapters + bell unify.
+- **D4 — per-site D1 Data journey PROVEN GREEN on prod (2 passed).** `e2e/data-tab-journey.e2e.ts`: create table→insert row→add/rename/drop column→SQL console→drop table, each reconciled display-vs-store against the site's OWN D1 (`131b9973…`, not shared), ZERO divergence. Enabled `per_site_data` scoped to the E2E org. `0c8438e86`.
+- **Deployed:** worker `4aa5c078` (psnotify DO migration) ✓, frontend R2 (298, purged) ✓.
+
 ### 2026-09-28 · Wave C — Promote browser GREEN + Data column-ops + Forms journey GREEN
 - **Lane 1 Promote — BROWSER journey GREEN on prod (6 passed).** Rewrote `e2e/promote-workflow.e2e.ts` to drive the REAL UI: auth → `/admin/editor` → `frameLocator` the editor iframe → Source Control tab → click `promote-to-production` → assert success copy → verify `GET /releases`. Fixed prod `testMatch`→`e2e/**/*.e2e.ts`. **Promote now proven END-TO-END (API + browser).** Found a real bug (worked around in spec, NOT fixed): deep route `/admin/editor/:siteId` renders admin-404 (no `:siteId`→selectSite mapping) → **Wave D**.
 - **Lane 3 Data — column ops (add/rename/drop) SHIPPED → per-site D1 table CRUD COMPLETE.** New `PS_SITEDB_ADD/RENAME/DROP_COLUMN` bridge; column menu rewired off raw-SQL DDL onto dedicated endpoints; dead `defaultValue` control removed. tsc clean; editor Pages `4a46bcfa`. Dark behind `per_site_data`. Next: flip `per_site_data` (scoped) + a Data-tab browser E2E.
 - **Core loop Forms — journey GREEN on prod (3 passed).** `e2e/forms-submission-journey.e2e.ts`: submit `POST /api/contact-form/:slug` → `form_submissions` persists → admin inbox `GET /api/sites/:siteId/form-submissions` shows the marker (`meta.total` 0→1→2). Display-vs-store reconciled. Endpoints: `contact_newsletter/handlers.ts:53`, `site_activity/handlers.ts:65`. Caveat: apex POST hits CF Bot-Fight 403 (known).
 - **Deployed:** frontend R2 (298, purged) ✓, editor Pages `4a46bcfa` ✓. **Commits:** 9bec0b994 promote-spec · 1d23525b5 column-ops · 98345b6eb forms-spec. Pushed.
 
-### ▶ Queued next (Wave D — fire these disjoint agents)
-- **D1 — Fix `/admin/editor/:siteId` deep-route 404** (frontend router/admin: map `:siteId`→`selectSite` so editor deep-links + the promote spec's natural URL resolve). Small, high-value; C1 found it.
-- **D2 — Notifications: ship the psnotify DO** (Lane 10, the #1 gap — `src/services/psnotify.ts` is a `console.warn` stub). Build `libs/features/psnotify/` DO inbox + fan-out so `notifyUser` lights the bell; unify the bell feed. Worker.
-- **D3 — Analytics: enable Analytics Engine ingest** (`ANALYTICS_INGEST_ENABLED="false"`→ scoped-on) + reconcile display-vs-store per-subdomain. Worker + verify. (Lane 11.)
-- **D4 — Prove the Data journey GREEN**: flip `per_site_data` scoped to the E2E org (like `durable_preview`), add a Data-tab browser E2E (create table → add row → add/rename/drop column → SQL console), reconcile vs the site's own D1. E2E + flag.
-- Each disjoint (frontend / worker / worker / e2e) — safe to fan out 4-wide. All resumable; money-path + forms already GREEN.
+### ▶ Queued next (Wave E — the 15-min cron `/run-the-loop` fires these)
+- **Analytics Engine ingest** (deferred from Wave D — collided with psnotify on `wrangler.toml`): flip `ANALYTICS_INGEST_ENABLED`→scoped-on + reconcile per-subdomain display-vs-store. Worker + verify.
+- **psnotify follow-on**: email/push fan-out adapters + unify the bell feed onto the DO + promote the `psnotify` flag, THEN verify the authed inbox journey (per the false-green lesson — authed DO-journey, never a 401 probe).
+- **D1-adjacent cleanup**: port the 3 `xit`-skipped boot-veil specs (`editor.component.spec.ts`) to an `admin.component` spec + un-skip (the veil moved to `admin.component` on main).
+- **Promote Slice 6 / WfP async-deploy outcome** (Lane 2) · **generated-site quality gate** (Lane 7, flip `build_validators` report→strict).
+- Wave D shipped ✅: D1 deep-route fix · D2 psnotify DO first-slice (deployed, dark) · D4 Data journey GREEN.
 
 ### 2026-09-28 · Wave B — Data create/drop UI + operator cockpit + Promote PROVEN GREEN
 - **Lane 1 Promote — MONEY-PATH PROVEN GREEN on prod (API path).** Agent caught migration **0646 was never applied to prod** (`site_working_tree`/`site_releases` missing → promote 500'd; the Wave-A 403 probe was a **FALSE-GREEN** — ownership guard fired before the missing-table SQL). Applied 0646 (idempotent) to `project-sites-db-production`; scoped `durable_preview` override to the E2E org. **Proven:** preview-state (draft 1→2) → `POST /promote` → `outcome:success` → real release row → `current_build_version` flipped → **`search-verify.projectsites.dev` serves the promoted revision over HTTP**; re-promote idempotent. **Browser spec still RED** — it targets `/admin/sites/:id/snapshots` but `promote-to-production` lives in the editor iframe Source Control tab. **Next: retarget the spec at the editor (boot iframe → Code→Source Control) + add to `playwright.prod.config.ts` testMatch.**
