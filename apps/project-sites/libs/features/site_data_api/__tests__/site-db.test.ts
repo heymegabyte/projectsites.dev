@@ -222,8 +222,10 @@ describe('GET /api/sites/:siteId/db/tables/:table', () => {
     expect(body.data.limit).toBe(10);
     expect(body.data.rows).toEqual([{ id: 1 }, { id: 2 }]);
     expect(body.data.columns).toEqual([{ name: 'id', notnull: 0, pk: 1, type: 'INTEGER' }]);
-    // The SELECT is scoped to the quoted table with BOUND limit/offset (never interpolated values).
-    const selectCall = query.mock.calls.find((c) => /SELECT \* FROM "customers"/.test(c[0] as string));
+    // The SELECT is scoped to the quoted table with BOUND limit/offset (never interpolated values),
+    // and exposes SQLite's stable `rowid` as `_rowid` (the grid's inline-edit/delete row handle).
+    const selectCall = query.mock.calls.find((c) => /FROM "customers" LIMIT \? OFFSET \?/.test(c[0] as string));
+    expect(selectCall?.[0]).toMatch(/SELECT rowid AS _rowid, \* FROM "customers"/);
     expect(selectCall?.[1]).toEqual([10, 0]);
   });
 });

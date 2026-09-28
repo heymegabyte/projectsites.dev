@@ -135,6 +135,13 @@ describe('resolveSiteDataDb — isolation (the security boundary)', () => {
     const h = createD1Sqlite();
     try {
       h.exec(ALLOC_DDL); // empty — no row for s2
+      // A fresh provision runs a one-shot readiness probe (SELECT 1) over the CF /query plane so the
+      // caller's first real query never hits the cold-open error — mock that fetch OK so it returns fast.
+      (global as unknown as { fetch: jest.Mock }).fetch.mockResolvedValue({
+        json: async () => ({ result: [{ meta: {}, results: [{ '1': 1 }] }], success: true }),
+        ok: true,
+        status: 200,
+      } as unknown as Response);
       const res = await resolveSiteDataDb(envWith(h.db), 's2', { orgId: null });
       expect(res.ok).toBe(true);
       if (!res.ok) return;

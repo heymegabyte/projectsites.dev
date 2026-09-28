@@ -172,6 +172,29 @@ export function makeSiteDataExecutor(
   };
 }
 
+/** Bounded readiness probe attempts for a freshly-provisioned D1 (linear backoff → ~6s total). */
+const SITE_DATA_READY_ATTEMPTS = 5;
+
+/**
+ * Poll a JUST-provisioned per-site D1 until its REST `/query` plane answers a trivial `SELECT 1`.
+ * A newly-CREATEd D1's query plane propagates for a beat, so the caller's FIRST real statement can
+ * transiently fail with a cold-open error ("Could not open the site database") even though the DB
+ * exists — verified in prod on a first query against a brand-new site. Running this once, right after
+ * WE provision, lets the caller's first query land on a ready DB instead of a scary error (INV-3).
+ * Bounded + best-effort: swallows the transient failure and returns as soon as ready, or gives up
+ * quietly after the window (the caller's real query then surfaces any genuine failure). Never throws.
+ */
+async function waitForSiteDataReady(db: SiteDataD1): Promise<void> {
+  for (let attempt = 0; attempt < SITE_DATA_READY_ATTEMPTS; attempt++) {
+    try {
+      await db.query('SELECT 1');
+      return;
+    } catch {
+      await new Promise((r) => setTimeout(r, 400 * (attempt + 1)));
+    }
+  }
+}
+
 /**
  * Resolve (and, by default, lazily provision) the per-site D1 executor for a site.
  *
@@ -230,7 +253,15 @@ export async function resolveSiteDataDb(
   const account = env.CF_ACCOUNT_ID;
   if (!account) return { ok: false, reason: 'no_account_id' };
 
-  return { databaseId, db: makeSiteDataExecutor(auth, account, databaseId), ok: true, provisioned };
+  const db = makeSiteDataExecutor(auth, account, databaseId);
+
+  // When WE just created this D1, wait for its query plane to come up so the caller's FIRST statement
+  // doesn't hit the cold-open error (runs once per site lifetime; no-op for an existing allocation).
+  if (provisioned) {
+    await waitForSiteDataReady(db);
+  }
+
+  return { databaseId, db, ok: true, provisioned };
 }
 
 /**
