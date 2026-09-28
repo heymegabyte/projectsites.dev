@@ -779,45 +779,65 @@ export const Preview = memo(({ setSelectedElement }: PreviewProps) => {
             previews={previews}
           />
           {primaryHost && (
-            <button
-              type="button"
-              className="shrink-0 max-w-[52%] flex items-center gap-1 pl-1.5 pr-1.5 py-0.5 rounded-full text-bolt-elements-textTertiary hover:text-bolt-elements-textPrimary hover:bg-bolt-elements-item-backgroundActive transition-colors"
-              title={`Manage this site's URL & domains — ${primaryUrl}`}
-              aria-label={`Manage URL & domains for ${primaryHost}`}
-              data-testid="preview-domain-menu-trigger"
-              onClick={() => {
-                // Ask the parent admin to open the site's domain menu popup (set slug / attach /
-                // buy domains). The admin's BoltEmbedService validates event.origin, so '*' is
-                // safe here and works in dev + prod. Standalone editor (no parent) → no-op.
-                try {
-                  window.parent?.postMessage({ type: 'PS_OPEN_DOMAIN_MENU' }, '*');
-                } catch {
-                  /* no admin parent — nothing to open */
-                }
-              }}
-            >
-              <span className="truncate">{primaryHost}</span>
-              <svg
-                width="9"
-                height="9"
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth="3"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                className="shrink-0 opacity-70"
-                aria-hidden="true"
+            <>
+              {/*
+               * The site's REAL public origin, rendered as a LOCKED, hardcoded-looking URL
+               * PREFIX (padlock + dimmed `https://` + solid host) that reads continuously
+               * with the editable path input beside it — so the bar shows
+               * `https://<host>/<path>`, the domain fixed and only the path editable. Still
+               * click-to-manage (opens the admin domain menu); the padlock + inline (non-pill)
+               * styling + trailing divider signal it's a fixed segment, not a field.
+               * (Brian 2026-09-27 → 2026-09-28: "styled to look hardcoded next to the path input".)
+               */}
+              <button
+                type="button"
+                className="group/dom shrink-0 max-w-[56%] flex items-center gap-1 pl-2 pr-1 py-0.5 rounded-l-full text-bolt-elements-preview-addressBar-text hover:bg-bolt-elements-item-backgroundActive transition-colors cursor-pointer"
+                title={`This site is served at ${primaryUrl} — click to manage its URL & domains`}
+                aria-label={`Primary URL ${primaryUrl}. Click to manage URL & domains.`}
+                data-testid="preview-domain-menu-trigger"
+                onClick={() => {
+                  // Ask the parent admin to open the site's domain menu popup (set slug / attach /
+                  // buy domains). The admin's BoltEmbedService validates event.origin, so '*' is
+                  // safe here and works in dev + prod. Standalone editor (no parent) → no-op.
+                  try {
+                    window.parent?.postMessage({ type: 'PS_OPEN_DOMAIN_MENU' }, '*');
+                  } catch {
+                    /* no admin parent — nothing to open */
+                  }
+                }}
               >
-                <path d="m6 9 6 6 6-6" />
-              </svg>
-            </button>
+                <span
+                  className="i-ph:lock-simple-fill shrink-0 text-[11px] text-bolt-elements-item-contentAccent"
+                  aria-hidden="true"
+                />
+                <span className="flex items-baseline min-w-0" data-testid="preview-primary-url">
+                  <span className="shrink-0 text-bolt-elements-textTertiary">https://</span>
+                  <span className="truncate font-medium text-bolt-elements-textPrimary">{primaryHost}</span>
+                </span>
+                <svg
+                  width="9"
+                  height="9"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="3"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  className="shrink-0 opacity-40 group-hover/dom:opacity-80 transition-opacity"
+                  aria-hidden="true"
+                >
+                  <path d="m6 9 6 6 6-6" />
+                </svg>
+              </button>
+              <span className="shrink-0 self-stretch w-px my-1 bg-bolt-elements-borderColor" aria-hidden="true" />
+            </>
           )}
           <input
             title="URL Path"
             ref={inputRef}
-            className="w-full bg-transparent outline-none"
+            className="w-full bg-transparent outline-none pl-1.5"
             type="text"
+            placeholder="/"
             value={displayPath}
             onChange={(event) => {
               setDisplayPath(event.target.value);
