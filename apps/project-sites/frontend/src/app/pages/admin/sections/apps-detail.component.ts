@@ -829,6 +829,12 @@ const INFRA_META: Readonly<Record<InfraDep, { glyph: string; label: string }>> =
       backdrop-filter: none !important;
       -webkit-backdrop-filter: none !important;
     }
+    /* The aside's article card itself carries NO fill — the page shows through so the
+       Deploy column reads frameless (Brian directive 2026-09-28); the content modules
+       inside (estimate, CTA, instances) provide all the structure + beauty. */
+    aside > article {
+      background: none !important;
+    }
 
     /* ─── Deploy panel (aside) ─── */
     /* Round 1 — TRANSPARENT, frameless aside. The base .card fill/border/padding/shadow are

@@ -61,7 +61,15 @@ try {
     const a = document.querySelector('aside.deploy-aside');
     if (!a) return { found: false };
     const cs = getComputedStyle(a);
-    return { found: true, backgroundColor: cs.backgroundColor, backdropFilter: cs.backdropFilter || cs.webkitBackdropFilter };
+    const art = a.querySelector(':scope > article');
+    const acs = art ? getComputedStyle(art) : null;
+    return {
+      found: true,
+      backgroundColor: cs.backgroundColor,
+      backdropFilter: cs.backdropFilter || cs.webkitBackdropFilter,
+      articleBackgroundColor: acs ? acs.backgroundColor : null,
+      articleBackgroundImage: acs ? acs.backgroundImage : null,
+    };
   });
 
   // 2) LAYOUT — carousel .shot height + orphaned PROVISIONING label
