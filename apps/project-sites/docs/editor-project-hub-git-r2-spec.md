@@ -5,6 +5,19 @@ under the Code-view "Your project" (ProjectHub) button, make Preview branch-awar
 Promote/Deploy auto-commit + AI-drive the build. Written after a read-only infra sweep so execution
 does not rebuild what exists. Feature-flag: `editor_git_r2_hub` (dark until slices land).
 
+## ⭐ Architecture — TWO layers (corrected 2026-09-28, Brian; NOT an either/or)
+
+- **PREVIEW = an isomorphic-git repository in R2, per site (under the site's namespace).** Real branches;
+  the editor commits against it. `dist/` is git-ignored but PRESENT on R2 (built output). The **Preview URL
+  serves the selected branch's `dist/` from R2** (main or any branch present).
+- **PRODUCTION = immutable timestamped snapshots at `sites/{slug}/{ISO-timestamp}/`**, created ONLY on
+  **Promote (Preview → Production)**: auto-commit-if-dirty (AI message) into the isogit repo → snapshot the
+  built `dist/` into `sites/{slug}/{ISO}/` → git **tag** linking the timestamped dir ↔ the commit → WfP.
+- **isomorphic-git SUPERSEDES the JSON-over-R2 `services/git.ts` for the Preview layer** — migrate
+  `GET /api/sites/:id/history` + `PS_CODE_HISTORY` to read the isogit log; do NOT keep two git models.
+- Ordered implementation slices live in `apps/project-sites/_LOOP_LEDGER.md` (this arc). Everything else
+  below (WfP, branch-aware serving, snapshots, AI rails) is REUSED as-is.
+
 ## What ALREADY exists (do NOT rebuild — wire to it)
 
 - **Git-over-R2 per site** — `apps/project-sites/src/services/git.ts`. NOT isomorphic-git (deliberate:
