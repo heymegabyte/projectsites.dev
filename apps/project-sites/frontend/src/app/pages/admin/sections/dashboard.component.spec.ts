@@ -75,7 +75,7 @@ describe('AdminDashboardComponent (Getting Started hub)', () => {
 
   // ccLoading() drives the command-center skeleton that reserves the Site-status + CWV
   // space, so those async sections don't shove the section-guide groups down when they
-  // pop in — the residual dashboard CLS after recent-activity/referral were reserved. It
+  // pop in — the residual dashboard CLS after the async sections were reserved. It
   // MUST span BOTH the sites fetch (isLoading) AND the separately-timed CWV metrics fetch.
   it('ccLoading() spans BOTH the sites and the (later) CWV-metrics fetch (anti-CLS reserve)', () => {
     TestBed.resetTestingModule();

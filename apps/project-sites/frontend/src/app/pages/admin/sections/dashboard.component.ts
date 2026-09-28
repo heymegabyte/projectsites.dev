@@ -28,7 +28,6 @@ import { CmdGlyphComponent } from '../../../components/cmd-glyph/cmd-glyph.compo
 import { RollingCounterComponent } from '../../../components/rolling-counter/rolling-counter.component';
 import { QuotaChipComponent } from '../quota-chip.component';
 import { OnboardingChecklistComponent } from '../../../components/onboarding-checklist/onboarding-checklist.component';
-import { RecentActivityComponent } from '../../../components/recent-activity/recent-activity.component';
 import { ReferralCardComponent } from '../../../components/referral-card/referral-card.component';
 import { AdminStateService } from '../admin-state.service';
 import { AuthService } from '../../../services/auth.service';
@@ -98,7 +97,6 @@ const RECENT_KEY = 'ps_dash_recents';
     RollingCounterComponent,
     QuotaChipComponent,
     OnboardingChecklistComponent,
-    RecentActivityComponent,
     ReferralCardComponent,
   ],
   template: `
@@ -178,7 +176,7 @@ const RECENT_KEY = 'ps_dash_recents';
         <!-- Reserve the command-center height while EITHER the sites OR the (later,
              separate) CWV-metrics fetch is in flight, so Site status + CWV appearing
              (staggered) never shove the section-guide groups down — the residual
-             dashboard layout shift after recent-activity/referral were fixed (CLS ≤0.05).
+             dashboard layout shift after the async sections were reserved (CLS ≤0.05).
              Skeleton doubles as a loading affordance; the reserve (324px) matches the
              loaded status+CWV height (317px incl. margins) so the swap is height-neutral. -->
         <div class="cc-slot" [class.cc-reserve]="ccLoading() || hasSites()">
@@ -310,10 +308,6 @@ const RECENT_KEY = 'ps_dash_recents';
             </ul>
           </section>
         }
-
-        <!-- Recent activity (feature: activity_feed) — org timeline; self-hides
-             when the flag is off (API 404) or the org has no activity yet. -->
-        <app-recent-activity />
 
         <!-- ── Section guide ──────────────────────────────────── -->
         @for (group of displayGroups(); track group.title) {
