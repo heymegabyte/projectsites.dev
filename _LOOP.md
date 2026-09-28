@@ -4,6 +4,13 @@
 
 ## ⟐ Cycle log (most recent first)
 
+### 2026-09-28 · Editor panels — comprehensive no-white + gorgeous (per-panel fan-out; Brian re-prompted ≥3×)
+- **Root-caused the recurring "panels still show white" — 3 sources grep CAN'T see:** (1) the entire CodeMirror `--cm-*` layer (selection `#42b4ff`/gutter `#237893`/search `gray.100`) — the old blanket override NEVER touched it; (2) native form chrome (`<select>/<option>`/checkbox/date/range) painting browser-white because `color-scheme:dark` was unset; (3) `bolt-elements-*/opacity` utilities silently dropping alpha → harsh SOLID-cyan glare (68+ instances). This is why blanket-once-by-grep kept failing.
+- **3 disjoint agents:** comprehensive dark token override + native-element styling (`app/styles/*` — ~60 tokens incl. CodeMirror + scrollbars/placeholders/accent, `9f5ec7fb0`); Data cluster gorgeous+no-white (`DatabasePanel/SiteTablesPanel/DataGrid/SqlNavigator/SqlEditor/CellEditor`, `1cce2f66b`); Resources+Code cluster (`d8851e3bc` — 5 restyled + 9 audited already-clean).
+- **Verified (pixels):** Data panels now render fully dark + cyan + gorgeous, ZERO white (`editor-vqa/data-05-final-verified-zero-white.png` before→after: cyan checkboxes, dark selects/date, cyan-highlighted SQL console, launchpad). Via pixel-faithful harness on the REAL compiled CSS — **`editor.projectsites.dev` 403s to headless** (CF/WebContainer gate); live per-panel screenshots need the authed admin iframe embed (THE reason this has been hard to verify).
+- **Deployed:** editor Pages (build-verified `color-scheme` present, `#237893`→0).
+- **⚠ CAMPAIGN NOT COMPLETE** — "10 rounds × every panel" continues on the cron: sibling Data panels **KvBrowser + SchemaBuilder** still have the accent-glare + need `color-scheme:dark`; more gorgeous rounds on all panels; convert 3 Resources panels' manual Refresh→poll (`real-time-data`).
+
 ### 2026-09-28 · Wave D — editor deep-route fix + psnotify DO + Data journey GREEN (FIRST SCHEDULED CRON FIRE)
 - **The 15-min cron is live** (`/run-the-loop` every 15m, job `5b233086`, durable). This was its first fire — 3 disjoint agents (frontend / worker / e2e), all self-committed to `main`.
 - **D1 — `/admin/editor/:siteId` deep-links FIXED** (were 404ing — `app.routes.ts` had only exact `editor`). Added `editor/:siteId` + `AdminStateService.selectSiteById` + param read + coherent not-found. Karma RED→GREEN (4 cases); tsc+ng build clean. Frontend R2 deployed; `/admin/editor` 200. `e18b023af`.
@@ -22,6 +29,7 @@
 - **psnotify follow-on**: email/push fan-out adapters + unify the bell feed onto the DO + promote the `psnotify` flag, THEN verify the authed inbox journey (per the false-green lesson — authed DO-journey, never a 401 probe).
 - **D1-adjacent cleanup**: port the 3 `xit`-skipped boot-veil specs (`editor.component.spec.ts`) to an `admin.component` spec + un-skip (the veil moved to `admin.component` on main).
 - **Promote Slice 6 / WfP async-deploy outcome** (Lane 2) · **generated-site quality gate** (Lane 7, flip `build_validators` report→strict).
+- **⭐ EDITOR PANEL GORGEOUS CAMPAIGN (standing, Brian priority):** finish `color-scheme:dark` + accent-glare fix on KvBrowser + SchemaBuilder (same 140 instances the Data agent flagged); continue inspect→critique→edit→screenshot rounds toward 10/panel on EVERY workbench panel; convert ResourceOverviewPanel/BucketsPanel/ResourcesPanel manual Refresh→visibility-poll. NOTE: `editor.projectsites.dev` 403s headless — verify via the authed admin iframe (`/admin/editor`) OR a pixel-faithful harness on the compiled CSS (per `editor-panels-keep-shipping-white-need-per-panel-gorgeous`).
 - Wave D shipped ✅: D1 deep-route fix · D2 psnotify DO first-slice (deployed, dark) · D4 Data journey GREEN.
 
 ### 2026-09-28 · Wave B — Data create/drop UI + operator cockpit + Promote PROVEN GREEN
