@@ -54,9 +54,12 @@ import {
   requestDbLoadSample,
   requestDbAiSeed,
   requestDbSearch,
+  requestDbCreateTable,
+  requestDbDropTable,
   type ParentToChildMessage,
   type SiteDbTablesResponseMessage,
   type SiteDbRowsResponseMessage,
+  type SiteDbColumnSpec,
   type ResMutateResponseMessage,
 } from '~/lib/embed/embedded-mode';
 import {
@@ -710,6 +713,88 @@ export const SiteTablesPanel = memo(
       setComingSoon(label);
       setTimeout(() => setComingSoon((cur) => (cur === label ? null : cur)), 3200);
     }, []);
+
+    // ── Create table (manual builder) + drop table — via the dedicated per-site D1 P1 endpoints ──
+    /** Whether the guided "New table" modal is open. */
+    const [createTableOpen, setCreateTableOpen] = useState(false);
+    /** The table name currently being dropped (shows the confirm + a spinner), or null. */
+    const [dropTarget, setDropTarget] = useState<string | null>(null);
+    const [dropBusy, setDropBusy] = useState(false);
+
+    /**
+     * Create a NEW table (manual name + typed columns) via the dedicated `POST /db/tables` bridge
+     * ({@link requestDbCreateTable}) — NOT the exec-SQL path. On success, refetch the table list so the new
+     * one appears. Returns `{ ok, error? }` so the modal can surface a verbatim server error inline.
+     */
+    const createTable = useCallback(
+      async (name: string, columns: SiteDbColumnSpec[]): Promise<{ ok: boolean; error?: string }> => {
+        if (!isEmbedded) {
+          return { ok: false, error: 'Open this from the ProjectSites admin to create a table.' };
+        }
+
+        let reply: Awaited<ReturnType<typeof requestDbCreateTable>>;
+
+        try {
+          reply = await requestDbCreateTable({ name, columns });
+        } catch (err) {
+          return { ok: false, error: err instanceof Error ? err.message : 'The table could not be created.' };
+        }
+
+        if (reply.enabled === false || (reply.error && reply.error.includes(DISABLED_404))) {
+          return { ok: false, error: DISABLED_404 };
+        }
+
+        if (!reply.ok) {
+          return { ok: false, error: reply.error || 'The table could not be created.' };
+        }
+
+        postToastToParent('success', `Created table “${reply.table ?? name}”.`);
+        await loadTables();
+
+        return { ok: true };
+      },
+      [loadTables],
+    );
+
+    /**
+     * Drop a table via the dedicated `DELETE /db/tables/:table` bridge ({@link requestDbDropTable}). Called
+     * after the danger-confirm is accepted. On success, close any open view of it + refetch the list.
+     */
+    const dropTable = useCallback(
+      async (name: string) => {
+        setDropBusy(true);
+
+        let reply: Awaited<ReturnType<typeof requestDbDropTable>>;
+
+        try {
+          reply = await requestDbDropTable({ table: name });
+        } catch (err) {
+          setDropBusy(false);
+          postToastToParent('error', err instanceof Error ? err.message : `Could not drop “${name}”.`);
+          return;
+        }
+
+        setDropBusy(false);
+        setDropTarget(null);
+
+        if (reply.enabled === false || (reply.error && reply.error.includes(DISABLED_404))) {
+          postToastToParent('error', 'Per-site data is not enabled.');
+          return;
+        }
+
+        if (!reply.ok) {
+          postToastToParent('error', reply.error || `Could not drop “${name}”.`);
+          return;
+        }
+
+        postToastToParent('success', `Dropped table “${name}”.`);
+
+        // If the dropped table is the one open in the browse view, return to the list.
+        setSelectedTable((cur) => (cur === name ? null : cur));
+        await loadTables();
+      },
+      [loadTables],
+    );
 
     // ── Quick-fill actions (Load sample data · Seed with AI) ──────────────────
     /** Which quick-fill action is in flight (disables its button + shows a spinner), or null. */
@@ -1751,7 +1836,7 @@ export const SiteTablesPanel = memo(
       <div className="h-full flex flex-col bg-bolt-elements-background-depth-1 text-bolt-elements-textPrimary">
         <Header
           editable={selectedTable !== null && pkCols.length > 0}
-          onNewTable={() => (onCreateTable ? onCreateTable() : flashComingSoon('New table'))}
+          onNewTable={() => setCreateTableOpen(true)}
           onImport={() => (onImportCsv ? onImportCsv() : flashComingSoon('Import'))}
           onHistory={() => (onHistory ? onHistory() : flashComingSoon('History'))}
           onRefresh={selectedTable ? () => void loadRows(selectedTable) : () => void loadTables()}
@@ -1773,8 +1858,9 @@ export const SiteTablesPanel = memo(
             onOpen={openTable}
             onRetry={() => void loadTables()}
             onComingSoon={flashComingSoon}
-            onCreateTable={onCreateTable}
+            onCreateTable={() => setCreateTableOpen(true)}
             onNewTableSql={onNewTableSql}
+            onDropTable={(name) => setDropTarget(name)}
             onSeedWithAi={() => void seedWithAi()}
             onLoadSample={() => void loadSampleData()}
             onImportCsv={onImportCsv}
@@ -1960,6 +2046,21 @@ export const SiteTablesPanel = memo(
               setDetailRow(null);
               setEditing(null);
             }}
+          />
+        )}
+
+        {/* Create-table modal (guided, no-SQL — name + typed columns → POST /db/tables) */}
+        {createTableOpen && (
+          <CreateTableModal onCreate={createTable} onClose={() => setCreateTableOpen(false)} />
+        )}
+
+        {/* Drop-table danger confirm (DELETE /db/tables/:table) */}
+        {dropTarget && (
+          <DropTableConfirm
+            table={dropTarget}
+            busy={dropBusy}
+            onConfirm={() => void dropTable(dropTarget)}
+            onCancel={() => setDropTarget(null)}
           />
         )}
       </div>
@@ -2618,6 +2719,7 @@ const TableListView = memo(
     onComingSoon,
     onCreateTable,
     onNewTableSql,
+    onDropTable,
     onSeedWithAi,
     onLoadSample,
     onImportCsv,
@@ -2629,6 +2731,7 @@ const TableListView = memo(
     onComingSoon: (label: string) => void;
     onCreateTable?: () => void;
     onNewTableSql?: () => void;
+    onDropTable: (name: string) => void;
     onSeedWithAi: () => void;
     onLoadSample: () => void;
     onImportCsv?: () => void;
@@ -2684,17 +2787,34 @@ const TableListView = memo(
           </div>
         </div>
         {state.tables.map((t) => (
-          <button
+          // Row = open-button + drop-button SIBLINGS in a group (never a button inside a button —
+          // that breaks HTML + UnoCSS masked icons per god-tier-engineering).
+          <div
             key={t.name}
-            type="button"
-            onClick={() => onOpen(t.name)}
             data-testid="sitedb-table-row"
-            className="w-full min-h-[24px] flex items-center gap-2 px-3 py-2 text-xs text-left hover:bg-bolt-elements-item-backgroundActive transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-bolt-elements-item-contentAccent cursor-pointer"
+            className="group/row w-full min-h-[24px] flex items-center gap-2 pl-3 pr-1.5 text-xs hover:bg-bolt-elements-item-backgroundActive transition-colors"
           >
-            <div className="i-ph:table text-sm text-bolt-elements-textTertiary shrink-0" />
-            <span className="text-bolt-elements-textPrimary font-mono flex-1 truncate">{t.name}</span>
-            <div className="i-ph:caret-right text-bolt-elements-textTertiary shrink-0" />
-          </button>
+            <button
+              type="button"
+              onClick={() => onOpen(t.name)}
+              data-testid="sitedb-table-open"
+              className="min-h-[24px] flex items-center gap-2 py-2 text-left flex-1 min-w-0 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-bolt-elements-item-contentAccent cursor-pointer"
+            >
+              <div className="i-ph:table text-sm text-bolt-elements-textTertiary shrink-0" />
+              <span className="text-bolt-elements-textPrimary font-mono flex-1 truncate">{t.name}</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => onDropTable(t.name)}
+              data-testid="sitedb-table-drop"
+              aria-label={`Drop table ${t.name}`}
+              title="Drop table"
+              className="min-h-[24px] min-w-[24px] flex items-center justify-center rounded text-bolt-elements-textTertiary opacity-0 group-hover/row:opacity-100 focus-visible:opacity-100 hover:text-red-400 hover:bg-red-500/10 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-red-400 transition-all shrink-0 cursor-pointer"
+            >
+              <div className="i-ph:trash text-[13px]" />
+            </button>
+            <div className="i-ph:caret-right text-bolt-elements-textTertiary shrink-0" aria-hidden />
+          </div>
         ))}
       </div>
     );
@@ -4236,6 +4356,327 @@ const AddColumnForm = memo(
 );
 
 AddColumnForm.displayName = 'SiteTablesPanel.AddColumnForm';
+
+// ── Create-table modal (guided, no-SQL — name + typed columns) ───────────────
+
+/** The three SQLite storage classes the manual builder offers (matches the `POST /db/tables` contract). */
+const CREATE_COLUMN_TYPES: ReadonlyArray<SiteDbColumnSpec['type']> = ['TEXT', 'INTEGER', 'REAL'];
+
+/** One editable column row in the create-table builder (local UI state; `type` is a raw SQLite class). */
+interface DraftColumn {
+  id: number;
+  name: string;
+  type: SiteDbColumnSpec['type'];
+}
+
+let draftColSeq = 0;
+const newDraftColumn = (): DraftColumn => ({ id: ++draftColSeq, name: '', type: 'TEXT' });
+
+/**
+ * A guided, no-SQL "New table" modal: a table name + an add-as-many typed columns list (each name + a
+ * TEXT/INTEGER/REAL dropdown). On submit it calls {@link SiteTablesPanel} → {@link requestDbCreateTable}
+ * (the dedicated `POST /db/tables` bridge — NOT raw SQL), refetches the list on success, and surfaces a
+ * verbatim server error inline. Esc closes; the first field auto-focuses; identifiers validate live so no
+ * doomed submit. Style mirrors the editor's dark `#060610` + cyan `#00E5FF` tokens.
+ */
+const CreateTableModal = memo(
+  ({
+    onCreate,
+    onClose,
+  }: {
+    onCreate: (name: string, columns: SiteDbColumnSpec[]) => Promise<{ ok: boolean; error?: string }>;
+    onClose: () => void;
+  }) => {
+    const [tableName, setTableName] = useState('');
+    const [columns, setColumns] = useState<DraftColumn[]>(() => [newDraftColumn()]);
+    const [busy, setBusy] = useState(false);
+    const [error, setError] = useState('');
+    const nameInputRef = useRef<HTMLInputElement>(null);
+
+    // Focus the table-name field on open (keyboard-first).
+    useEffect(() => {
+      nameInputRef.current?.focus();
+    }, []);
+
+    // Esc closes (unless a submit is in flight).
+    useEffect(() => {
+      const onKey = (e: KeyboardEvent) => {
+        if (e.key === 'Escape' && !busy) {
+          onClose();
+        }
+      };
+
+      document.addEventListener('keydown', onKey);
+
+      return () => document.removeEventListener('keydown', onKey);
+    }, [busy, onClose]);
+
+    const trimmedTable = tableName.trim();
+    const tableValid = trimmedTable.length > 0 && SAFE_IDENT_RE.test(trimmedTable);
+    const namedColumns = columns.filter((c) => c.name.trim().length > 0);
+    const allNamedValid = namedColumns.every((c) => SAFE_IDENT_RE.test(c.name.trim()));
+    // Duplicate column names (case-insensitive) would be rejected by the worker — block early.
+    const lowerNames = namedColumns.map((c) => c.name.trim().toLowerCase());
+    const hasDupes = new Set(lowerNames).size !== lowerNames.length;
+    const canSubmit = tableValid && namedColumns.length > 0 && allNamedValid && !hasDupes && !busy;
+
+    const updateColumn = (id: number, patch: Partial<DraftColumn>) =>
+      setColumns((cur) => cur.map((c) => (c.id === id ? { ...c, ...patch } : c)));
+    const addColumn = () => setColumns((cur) => [...cur, newDraftColumn()]);
+    const removeColumn = (id: number) => setColumns((cur) => (cur.length > 1 ? cur.filter((c) => c.id !== id) : cur));
+
+    const submit = async () => {
+      if (!canSubmit) {
+        return;
+      }
+
+      setBusy(true);
+      setError('');
+
+      const specs: SiteDbColumnSpec[] = namedColumns.map((c) => ({ name: c.name.trim(), type: c.type }));
+      const res = await onCreate(trimmedTable, specs);
+      setBusy(false);
+
+      if (res.ok) {
+        onClose();
+      } else {
+        setError(res.error || 'The table could not be created.');
+      }
+    };
+
+    return (
+      <div className="absolute inset-0 z-40 flex items-center justify-center p-4" role="dialog" aria-modal="true" aria-label="Create a new table">
+        <button type="button" aria-hidden className="absolute inset-0 bg-black/60 cursor-default" onClick={() => !busy && onClose()} />
+        <div
+          className="relative w-full max-w-[460px] max-h-full overflow-auto modern-scrollbar rounded-xl border border-bolt-elements-borderColor bg-bolt-elements-background-depth-1 shadow-2xl"
+          data-testid="sitedb-create-table"
+        >
+          <div className="flex items-center gap-2 px-4 py-3 border-b border-bolt-elements-borderColor">
+            <div className="i-ph:blueprint-duotone text-bolt-elements-item-contentAccent text-lg" />
+            <h3 className="text-sm font-semibold text-bolt-elements-textPrimary">New table</h3>
+            <button
+              type="button"
+              onClick={() => !busy && onClose()}
+              aria-label="Close"
+              className="ml-auto min-h-[24px] min-w-[24px] flex items-center justify-center rounded text-bolt-elements-textTertiary hover:text-bolt-elements-textPrimary focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-bolt-elements-item-contentAccent cursor-pointer"
+            >
+              <div className="i-ph:x text-sm" />
+            </button>
+          </div>
+
+          <div className="p-4 space-y-4">
+            <div className="space-y-1.5">
+              <label htmlFor="sitedb-create-table-name" className="text-[10px] uppercase tracking-wider text-bolt-elements-textTertiary">
+                Table name
+              </label>
+              <input
+                id="sitedb-create-table-name"
+                ref={nameInputRef}
+                type="text"
+                value={tableName}
+                onChange={(e) => setTableName(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') {
+                    e.preventDefault();
+                    void submit();
+                  }
+                }}
+                placeholder="e.g. customers"
+                aria-label="Table name"
+                data-testid="sitedb-create-table-name-input"
+                className="w-full min-h-[24px] rounded border border-bolt-elements-borderColor bg-bolt-elements-background-depth-2 px-2.5 py-1.5 text-[13px] font-mono text-bolt-elements-textPrimary placeholder:text-bolt-elements-textTertiary focus:outline-none focus:ring-1 focus:ring-bolt-elements-item-contentAccent"
+              />
+              {trimmedTable.length > 0 && !tableValid && (
+                <p className="text-[10px] text-bolt-elements-textTertiary">
+                  Start with a letter or underscore — letters, numbers, and underscores only.
+                </p>
+              )}
+            </div>
+
+            <div className="space-y-2">
+              <span className="text-[10px] uppercase tracking-wider text-bolt-elements-textTertiary">Columns</span>
+              <div className="space-y-2">
+                {columns.map((col) => {
+                  const colTrim = col.name.trim();
+                  const colInvalid = colTrim.length > 0 && !SAFE_IDENT_RE.test(colTrim);
+
+                  return (
+                    <div key={col.id} className="flex items-center gap-1.5" data-testid="sitedb-create-table-column">
+                      <input
+                        type="text"
+                        value={col.name}
+                        onChange={(e) => updateColumn(col.id, { name: e.target.value })}
+                        onKeyDown={(e) => {
+                          if (e.key === 'Enter') {
+                            e.preventDefault();
+                            void submit();
+                          }
+                        }}
+                        placeholder="column_name"
+                        aria-label="Column name"
+                        data-testid="sitedb-create-table-column-name"
+                        className={classNames(
+                          'flex-1 min-w-0 min-h-[24px] rounded border bg-bolt-elements-background-depth-2 px-2 py-1 text-[12px] font-mono text-bolt-elements-textPrimary placeholder:text-bolt-elements-textTertiary focus:outline-none focus:ring-1 focus:ring-bolt-elements-item-contentAccent',
+                          colInvalid ? 'border-red-400/60' : 'border-bolt-elements-borderColor',
+                        )}
+                      />
+                      <select
+                        value={col.type}
+                        onChange={(e) => updateColumn(col.id, { type: e.target.value as SiteDbColumnSpec['type'] })}
+                        aria-label="Column type"
+                        data-testid="sitedb-create-table-column-type"
+                        className="min-h-[24px] rounded border border-bolt-elements-borderColor bg-bolt-elements-background-depth-2 px-1.5 py-0.5 text-[12px] text-bolt-elements-textPrimary focus:outline-none cursor-pointer"
+                      >
+                        {CREATE_COLUMN_TYPES.map((t) => (
+                          <option key={t} value={t}>
+                            {t}
+                          </option>
+                        ))}
+                      </select>
+                      <button
+                        type="button"
+                        onClick={() => removeColumn(col.id)}
+                        disabled={columns.length <= 1}
+                        aria-label="Remove column"
+                        title="Remove column"
+                        className="min-h-[24px] min-w-[24px] flex items-center justify-center rounded text-bolt-elements-textTertiary hover:text-red-400 hover:bg-red-500/10 disabled:opacity-30 disabled:cursor-not-allowed focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-red-400 transition-colors shrink-0 cursor-pointer"
+                      >
+                        <div className="i-ph:x text-[12px]" />
+                      </button>
+                    </div>
+                  );
+                })}
+              </div>
+              <button
+                type="button"
+                onClick={addColumn}
+                data-testid="sitedb-create-table-add-column"
+                className="min-h-[24px] flex items-center gap-1 text-[11px] font-medium text-bolt-elements-item-contentAccent hover:opacity-80 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-bolt-elements-item-contentAccent rounded px-1 cursor-pointer"
+              >
+                <div className="i-ph:plus text-[12px]" /> Add column
+              </button>
+              {hasDupes && (
+                <p className="text-[10px] text-red-400" role="alert">
+                  Column names must be unique.
+                </p>
+              )}
+            </div>
+
+            {error && (
+              <p className="text-[11px] text-red-400" role="alert" data-testid="sitedb-create-table-error">
+                {error}
+              </p>
+            )}
+          </div>
+
+          <div className="flex items-center justify-end gap-2 px-4 py-3 border-t border-bolt-elements-borderColor">
+            <button
+              type="button"
+              onClick={() => !busy && onClose()}
+              className="min-h-[24px] text-[12px] px-3 py-1.5 rounded border border-bolt-elements-borderColor text-bolt-elements-textSecondary hover:text-bolt-elements-textPrimary hover:bg-bolt-elements-background-depth-2 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-bolt-elements-item-contentAccent transition-colors cursor-pointer"
+            >
+              Cancel
+            </button>
+            <button
+              type="button"
+              onClick={() => void submit()}
+              disabled={!canSubmit}
+              data-testid="sitedb-create-table-submit"
+              className="min-h-[24px] text-[12px] font-semibold px-3 py-1.5 rounded border border-bolt-elements-item-contentAccent/50 bg-bolt-elements-item-backgroundAccent/15 text-bolt-elements-item-contentAccent enabled:hover:bg-bolt-elements-item-backgroundAccent/25 disabled:opacity-50 disabled:cursor-not-allowed transition-colors flex items-center gap-1.5 cursor-pointer"
+            >
+              <div className={busy ? 'i-ph:circle-notch animate-spin' : 'i-ph:check'} />
+              <span className="min-w-[9ch] text-center">{busy ? 'Creating…' : 'Create table'}</span>
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  },
+);
+
+CreateTableModal.displayName = 'SiteTablesPanel.CreateTableModal';
+
+// ── Drop-table danger confirm ────────────────────────────────────────────────
+
+/**
+ * A destructive-action confirm for dropping a table: names the table, warns the data is gone for good, and
+ * requires an explicit click. Calls {@link SiteTablesPanel} → {@link requestDbDropTable} (the dedicated
+ * `DELETE /db/tables/:table` bridge). Esc / Cancel dismiss; the Cancel button auto-focuses so the safe path
+ * is the default. The Drop button reserves its widest label so it never resizes (per buttons-accommodate rule).
+ */
+const DropTableConfirm = memo(
+  ({
+    table,
+    busy,
+    onConfirm,
+    onCancel,
+  }: {
+    table: string;
+    busy: boolean;
+    onConfirm: () => void;
+    onCancel: () => void;
+  }) => {
+    const cancelRef = useRef<HTMLButtonElement>(null);
+
+    useEffect(() => {
+      cancelRef.current?.focus();
+    }, []);
+
+    useEffect(() => {
+      const onKey = (e: KeyboardEvent) => {
+        if (e.key === 'Escape' && !busy) {
+          onCancel();
+        }
+      };
+
+      document.addEventListener('keydown', onKey);
+
+      return () => document.removeEventListener('keydown', onKey);
+    }, [busy, onCancel]);
+
+    return (
+      <div className="absolute inset-0 z-50 flex items-center justify-center p-4" role="dialog" aria-modal="true" aria-label={`Drop table ${table}`}>
+        <button type="button" aria-hidden className="absolute inset-0 bg-black/60 cursor-default" onClick={() => !busy && onCancel()} />
+        <div
+          className="relative w-full max-w-[380px] rounded-xl border border-red-500/40 bg-bolt-elements-background-depth-1 shadow-2xl p-4 space-y-3"
+          data-testid="sitedb-drop-table-confirm"
+        >
+          <div className="flex items-center gap-2">
+            <div className="i-ph:warning-octagon-duotone text-red-400 text-lg" />
+            <h3 className="text-sm font-semibold text-bolt-elements-textPrimary">Drop this table?</h3>
+          </div>
+          <p className="text-[12px] text-bolt-elements-textSecondary text-pretty">
+            You&rsquo;re about to permanently drop{' '}
+            <span className="font-mono text-bolt-elements-textPrimary">{table}</span> and every row in it. This
+            can&rsquo;t be undone.
+          </p>
+          <div className="flex items-center justify-end gap-2 pt-1">
+            <button
+              type="button"
+              ref={cancelRef}
+              onClick={() => !busy && onCancel()}
+              className="min-h-[24px] text-[12px] px-3 py-1.5 rounded border border-bolt-elements-borderColor text-bolt-elements-textSecondary hover:text-bolt-elements-textPrimary hover:bg-bolt-elements-background-depth-2 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-bolt-elements-item-contentAccent transition-colors cursor-pointer"
+            >
+              Cancel
+            </button>
+            <button
+              type="button"
+              onClick={onConfirm}
+              disabled={busy}
+              data-testid="sitedb-drop-table-confirm-button"
+              className="min-h-[24px] text-[12px] font-semibold px-3 py-1.5 rounded border border-red-500/50 bg-red-500/15 text-red-400 enabled:hover:bg-red-500/25 disabled:opacity-50 disabled:cursor-not-allowed transition-colors flex items-center gap-1.5 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-red-400 cursor-pointer"
+            >
+              <div className={busy ? 'i-ph:circle-notch animate-spin' : 'i-ph:trash'} />
+              <span className="min-w-[8ch] text-center">{busy ? 'Dropping…' : 'Drop table'}</span>
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  },
+);
+
+DropTableConfirm.displayName = 'SiteTablesPanel.DropTableConfirm';
 
 // ── One grid row ─────────────────────────────────────────────────────────────
 

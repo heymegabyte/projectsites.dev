@@ -657,6 +657,82 @@ export interface SiteDbSearchResponseMessage {
   error?: string;
 }
 
+/** One column in a {@link SiteDbCreateTableRequestMessage} — a name + a SQLite storage class. */
+export interface SiteDbColumnSpec {
+  /** Raw column name (letters/digits/underscore; the worker re-validates + quotes it). */
+  name: string;
+
+  /** SQLite storage class the manual builder offers — TEXT / INTEGER / REAL. */
+  type: 'TEXT' | 'INTEGER' | 'REAL';
+}
+
+/**
+ * Child → Parent (per-site D1 — create table): the admin `POST /api/sites/:siteId/db/tables` with
+ * `{ name, columns }` and replies with {@link SiteDbCreateTableResponseMessage}. Creates a NEW table in the
+ * site's OWN dedicated D1 (server-resolved id, shared-platform ids denylisted). Gated server-side by the
+ * `per_site_data` flag (DARK → 404 → `enabled:false`). Mirrors {@link SiteDbQueryRequestMessage}.
+ */
+export interface SiteDbCreateTableRequestMessage {
+  type: 'PS_SITEDB_CREATE_TABLE_REQUEST';
+  correlationId: string;
+
+  /** The new table's name (the worker validates it's a safe identifier + not already taken). */
+  name: string;
+
+  /** The ordered column list (at least one) — each a name + a TEXT/INTEGER/REAL type. */
+  columns: SiteDbColumnSpec[];
+}
+
+/**
+ * Parent → Child (per-site D1 — create table): the admin's reply to {@link SiteDbCreateTableRequestMessage}.
+ * `ok:true` when the table was created. A real DDL/validation error rides in `error` (surfaced verbatim).
+ * `enabled:false` when the `per_site_data` flag is dark (the 404 "not enabled").
+ */
+export interface SiteDbCreateTableResponseMessage {
+  type: 'PS_SITEDB_CREATE_TABLE_RESPONSE';
+  correlationId?: string;
+  ok: boolean;
+
+  /** The created table's name (echoed by the worker on success). */
+  table?: string;
+
+  /** `false` when the `per_site_data` flag is off (the dark-flag 404) → the control stays hidden. */
+  enabled?: boolean;
+  error?: string;
+}
+
+/**
+ * Child → Parent (per-site D1 — drop table): the admin `DELETE /api/sites/:siteId/db/tables/:table` and
+ * replies with {@link SiteDbDropTableResponseMessage}. Drops the table from the site's OWN dedicated D1.
+ * Gated server-side by the `per_site_data` flag (DARK → 404 → `enabled:false`). Mirrors
+ * {@link SiteDbQueryRequestMessage}.
+ */
+export interface SiteDbDropTableRequestMessage {
+  type: 'PS_SITEDB_DROP_TABLE_REQUEST';
+  correlationId: string;
+
+  /** The table to drop (the worker re-validates the identifier server-side). */
+  table: string;
+}
+
+/**
+ * Parent → Child (per-site D1 — drop table): the admin's reply to {@link SiteDbDropTableRequestMessage}.
+ * `ok:true` when the table was dropped. A real error rides in `error` (surfaced verbatim). `enabled:false`
+ * when the `per_site_data` flag is dark (the 404 "not enabled").
+ */
+export interface SiteDbDropTableResponseMessage {
+  type: 'PS_SITEDB_DROP_TABLE_RESPONSE';
+  correlationId?: string;
+  ok: boolean;
+
+  /** The dropped table's name (echoed by the worker on success). */
+  table?: string;
+
+  /** `false` when the `per_site_data` flag is off (the dark-flag 404) → the control stays hidden. */
+  enabled?: boolean;
+  error?: string;
+}
+
 // ── Resource-overview bridge messages ──────────────────────────────────────────
 
 /**
@@ -1885,6 +1961,8 @@ export type ParentToChildMessage =
   | SiteDbRowsResponseMessage
   | SiteDbQueryResponseMessage
   | SiteDbSearchResponseMessage
+  | SiteDbCreateTableResponseMessage
+  | SiteDbDropTableResponseMessage
   | ResOverviewResponseMessage
   | ResReconcileResponseMessage
   | ResDetailResponseMessage
@@ -1921,6 +1999,8 @@ export type ChildToParentMessage =
   | SiteDbRowsRequestMessage
   | SiteDbQueryRequestMessage
   | SiteDbSearchRequestMessage
+  | SiteDbCreateTableRequestMessage
+  | SiteDbDropTableRequestMessage
   | ResOverviewRequestMessage
   | ResReconcileRequestMessage
   | ResDetailRequestMessage
@@ -2484,6 +2564,42 @@ export function requestDbSearch(input: { q: string; limit?: number }): Promise<S
       limit: input.limit,
     },
     'PS_SITEDB_SEARCH_RESPONSE',
+  );
+}
+
+/**
+ * Create a NEW table in the site's OWN dedicated D1 (manual name + typed columns) via
+ * `POST /api/sites/:siteId/db/tables`. Resolves with the parent's {@link SiteDbCreateTableResponseMessage} —
+ * `ok:true` on success, a verbatim `error` on a DDL/validation failure, or `enabled:false` when the
+ * `per_site_data` flag is dark.
+ */
+export function requestDbCreateTable(
+  input: { name: string; columns: SiteDbColumnSpec[] },
+): Promise<SiteDbCreateTableResponseMessage> {
+  return requestFromParent<SiteDbCreateTableResponseMessage>(
+    {
+      type: 'PS_SITEDB_CREATE_TABLE_REQUEST',
+      correlationId: nextBridgeCorrelationId(),
+      name: input.name,
+      columns: input.columns,
+    },
+    'PS_SITEDB_CREATE_TABLE_RESPONSE',
+  );
+}
+
+/**
+ * Drop a table from the site's OWN dedicated D1 via `DELETE /api/sites/:siteId/db/tables/:table`. Resolves
+ * with the parent's {@link SiteDbDropTableResponseMessage} — `ok:true` on success, a verbatim `error` on
+ * failure, or `enabled:false` when the `per_site_data` flag is dark.
+ */
+export function requestDbDropTable(input: { table: string }): Promise<SiteDbDropTableResponseMessage> {
+  return requestFromParent<SiteDbDropTableResponseMessage>(
+    {
+      type: 'PS_SITEDB_DROP_TABLE_REQUEST',
+      correlationId: nextBridgeCorrelationId(),
+      table: input.table,
+    },
+    'PS_SITEDB_DROP_TABLE_RESPONSE',
   );
 }
 

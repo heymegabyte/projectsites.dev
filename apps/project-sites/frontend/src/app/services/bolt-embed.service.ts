@@ -177,6 +177,13 @@ interface PsMessage {
    * statement instead of stringifying user values into SQL.
    */
   readonly params?: Array<string | number | boolean | null>;
+  /**
+   * PS_SITEDB_CREATE_TABLE_REQUEST (Data Platform — create table): the ordered column list for the new
+   * table, each a `{name, type}` where `type` ∈ TEXT|INTEGER|REAL. Forwarded verbatim to
+   * POST /api/sites/:id/db/tables `{name, columns}`; the worker validates every identifier + type.
+   * (`name` — the new table's name — reuses the shared `name` field above.)
+   */
+  readonly columns?: Array<{ name?: string; type?: string }>;
   /** PS_NL2SQL_REQUEST (AI SQL assistant): the natural-language question to translate to SQL. */
   readonly question?: string;
   /** PS_KV_REQUEST (KV inspector): which read op to proxy to /api/admin/kv/*. */
@@ -1822,6 +1829,111 @@ export class BoltEmbedService {
                   typeof err.error?.error?.message === 'string'
                     ? err.error.error.message
                     : 'The query failed.';
+                reply({ ok: false, error: message });
+              },
+            });
+          break;
+        }
+        case 'PS_SITEDB_CREATE_TABLE_REQUEST': {
+          // Data Platform (per-site D1) — create a NEW table (manual name + typed columns) via
+          // POST /api/sites/:id/db/tables. The embedded editor has no cross-origin session, so it asks US
+          // (we hold currentSite + the ApiService bearer). Same server-side isolation + lazy provisioning as
+          // PS_SITEDB_QUERY. Reply with PS_SITEDB_CREATE_TABLE_RESPONSE. Mirrors the PS_SITEDB_QUERY bridge:
+          // dark behind `per_site_data` → a 404 whose body says "not enabled" maps to {ok:false,enabled:false};
+          // a DDL/validation error is HTTP 400 whose message we surface VERBATIM.
+          const iframe = this.iframeEl;
+          const site = this.currentSite;
+          const cid = msg.correlationId;
+          const name = typeof msg.name === 'string' ? msg.name : '';
+          const columns = Array.isArray(msg.columns) ? msg.columns : [];
+          const reply = (payload: Record<string, unknown>): void => {
+            iframe?.contentWindow?.postMessage(
+              { type: 'PS_SITEDB_CREATE_TABLE_RESPONSE', correlationId: cid, ...payload },
+              EDITOR_BASE,
+            );
+          };
+          if (!site) {
+            reply({ ok: false, error: 'No site selected' });
+            break;
+          }
+          if (!name || columns.length === 0) {
+            reply({ ok: false, error: 'A table needs a name and at least one column' });
+            break;
+          }
+          this.api
+            .post<{ table?: string; data?: { table?: string } }>(
+              `/sites/${site.id}/db/tables`,
+              { name, columns },
+              { silent: true },
+            )
+            .subscribe({
+              next: (res) => reply({ ok: true, table: res?.table ?? res?.data?.table ?? name }),
+              error: (err: unknown) => {
+                if (
+                  err instanceof HttpErrorResponse &&
+                  err.status === 404 &&
+                  typeof err.error?.error?.message === 'string' &&
+                  err.error.error.message.includes('not enabled')
+                ) {
+                  reply({ ok: false, enabled: false });
+                  return;
+                }
+                const message =
+                  err instanceof HttpErrorResponse &&
+                  typeof err.error?.error?.message === 'string'
+                    ? err.error.error.message
+                    : 'The table could not be created.';
+                reply({ ok: false, error: message });
+              },
+            });
+          break;
+        }
+        case 'PS_SITEDB_DROP_TABLE_REQUEST': {
+          // Data Platform (per-site D1) — drop a table via DELETE /api/sites/:id/db/tables/:table. The
+          // embedded editor has no cross-origin session, so it asks US (we hold currentSite + the ApiService
+          // bearer). Same server-side isolation as PS_SITEDB_QUERY. Reply with PS_SITEDB_DROP_TABLE_RESPONSE.
+          // Mirrors the PS_SITEDB_QUERY bridge: dark behind `per_site_data` → a 404 whose body says
+          // "not enabled" maps to {ok:false,enabled:false}; any other failure is surfaced VERBATIM.
+          const iframe = this.iframeEl;
+          const site = this.currentSite;
+          const cid = msg.correlationId;
+          const table = typeof msg.table === 'string' ? msg.table : '';
+          const reply = (payload: Record<string, unknown>): void => {
+            iframe?.contentWindow?.postMessage(
+              { type: 'PS_SITEDB_DROP_TABLE_RESPONSE', correlationId: cid, ...payload },
+              EDITOR_BASE,
+            );
+          };
+          if (!site) {
+            reply({ ok: false, error: 'No site selected' });
+            break;
+          }
+          if (!table) {
+            reply({ ok: false, error: 'Missing table' });
+            break;
+          }
+          this.api
+            .delete<{ table?: string; data?: { table?: string } }>(
+              `/sites/${site.id}/db/tables/${encodeURIComponent(table)}`,
+              { silent: true },
+            )
+            .subscribe({
+              next: (res) => reply({ ok: true, table: res?.table ?? res?.data?.table ?? table }),
+              error: (err: unknown) => {
+                if (
+                  err instanceof HttpErrorResponse &&
+                  err.status === 404 &&
+                  typeof err.error?.error?.message === 'string' &&
+                  err.error.error.message.includes('not enabled')
+                ) {
+                  reply({ ok: false, enabled: false });
+                  return;
+                }
+                const message =
+                  err instanceof HttpErrorResponse &&
+                  typeof err.error?.error?.message === 'string'
+                    ? err.error.error.message
+                    : 'The table could not be dropped.';
                 reply({ ok: false, error: message });
               },
             });
