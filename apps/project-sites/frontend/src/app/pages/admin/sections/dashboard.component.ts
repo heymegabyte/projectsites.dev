@@ -33,7 +33,7 @@ import { AdminStateService } from '../admin-state.service';
 import { AuthService } from '../../../services/auth.service';
 import { isSysAdminEmail } from '../sys-admin';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
-import { ApiService } from '../../../services/api.service';
+import { ApiService, type Site } from '../../../services/api.service';
 
 interface SectionCard {
   label: string;
@@ -81,6 +81,42 @@ interface CwvPill {
   budget: number;
 }
 
+/**
+ * One tile in the operator KPI strip. Every value is derived from a metric
+ * `AdminStateService` genuinely provides (sites list / domain summary /
+ * subscription) — never a fabricated number. `numeric` tiles animate a
+ * rolling counter; text tiles (e.g. plan name) show `display` verbatim.
+ */
+interface KpiTile {
+  key: string;
+  label: string;
+  /** Numeric value for the rolling counter (numeric tiles only). */
+  value: number;
+  /** Verbatim string for text tiles (e.g. the plan name); null for numeric tiles. */
+  display: string | null;
+  /** One-line honest interpretation shown under the value. */
+  sub: string;
+  glyph: string;
+  tone: 'accent' | 'good' | 'building' | 'attention' | 'neutral';
+  numeric: boolean;
+}
+
+/**
+ * One actionable row in the "Needs attention" queue — a site that is in
+ * `error`/`failed`, or a `published` site with no finished build (serves the
+ * branded 503 — the lying-published guard, mirrored from `siteStatusSummary`).
+ * `action` maps to an existing `AdminStateService`/router affordance.
+ */
+interface AttentionItem {
+  siteId: string;
+  name: string;
+  status: string;
+  reason: string;
+  actionLabel: string;
+  /** 'rebuild' → goToWaiting (retry the build); 'open' → site detail route. */
+  action: 'rebuild' | 'open';
+}
+
 const FAV_KEY = 'ps_dash_favs';
 const RECENT_KEY = 'ps_dash_recents';
 
@@ -107,6 +143,102 @@ const RECENT_KEY = 'ps_dash_recents';
       <!-- Onboarding activation checklist (feature: onboarding_copilot) — self-hides
            when the flag is off (API 404), complete, or dismissed. -->
       <app-onboarding-checklist />
+
+      <!-- ══ Operator cockpit (additive — top of dashboard) ══════════
+           A live KPI tile strip + an actionable "Needs attention" queue,
+           both derived from the already-loaded AdminStateService signals
+           (poll-driven, no manual Refresh). Only renders once the sites
+           list has loaded AND the account has ≥1 site — never a fabricated
+           number, never a doomed control. -->
+      @if (!isLoading() && hasSites()) {
+        <section class="cockpit" appReveal aria-labelledby="cockpit-h">
+          <div class="cockpit-head">
+            <h2 class="group-title" id="cockpit-h">
+              <app-cmd-glyph name="activity" /> Operator cockpit
+            </h2>
+            <span class="cockpit-live" aria-hidden="true">
+              <span class="cockpit-live-dot"></span> Live
+            </span>
+          </div>
+          <p class="status-source">
+            Live · from your account, auto-refreshed every 30s — no refresh needed
+          </p>
+
+          @if (kpiTiles().length > 0) {
+            <ul class="kpi-strip" aria-label="Key metrics">
+              @for (t of kpiTiles(); track t.key) {
+                <li class="kpi-tile" [class]="'tone-' + t.tone">
+                  <span class="kpi-top">
+                    <span class="kpi-glyph" aria-hidden="true"
+                      ><app-cmd-glyph [name]="t.glyph"
+                    /></span>
+                    <span class="kpi-live-dot" aria-hidden="true"></span>
+                  </span>
+                  @if (t.numeric) {
+                    <app-rolling-counter class="kpi-value" [value]="t.value" />
+                  } @else {
+                    <span class="kpi-value">{{ t.display }}</span>
+                  }
+                  <span class="kpi-label">{{ t.label }}</span>
+                  <span class="kpi-sub">{{ t.sub }}</span>
+                </li>
+              }
+            </ul>
+          }
+
+          <!-- ── Needs attention queue ──────────────────────────── -->
+          <h3 class="cockpit-sub" id="attn-h">
+            <app-cmd-glyph name="shield" /> Needs attention
+          </h3>
+          @if (attentionItems(); as items) {
+            @if (items.length > 0) {
+              <ul class="attn-list" aria-labelledby="attn-h">
+                @for (item of items; track item.siteId) {
+                  <li
+                    class="attn-row"
+                    tabindex="0"
+                    role="button"
+                    [attr.aria-label]="
+                      item.name + ' — ' + item.reason + ' Press Enter to rebuild.'
+                    "
+                    (click)="rebuildFromQueue(item)"
+                    (keydown.enter)="rebuildFromQueue(item)"
+                    (keydown.space)="$event.preventDefault(); rebuildFromQueue(item)"
+                    [attr.data-testid]="'dash-attn-' + item.siteId"
+                  >
+                    <span class="attn-dot" aria-hidden="true"></span>
+                    <span class="attn-body">
+                      <span class="attn-name">{{ item.name }}</span>
+                      <span class="attn-reason">{{ item.reason }}</span>
+                    </span>
+                    <span class="attn-status" aria-hidden="true">{{ item.status }}</span>
+                    <button
+                      type="button"
+                      class="attn-action"
+                      (click)="$event.stopPropagation(); rebuildFromQueue(item)"
+                      [attr.aria-label]="item.actionLabel + ' ' + item.name"
+                      [attr.data-testid]="'dash-attn-action-' + item.siteId"
+                    >
+                      <app-cmd-glyph name="rocket" /> {{ item.actionLabel }}
+                    </button>
+                  </li>
+                }
+              </ul>
+            } @else {
+              <div class="attn-clear" data-testid="dash-attn-clear">
+                <span class="attn-clear-glyph" aria-hidden="true"
+                  ><app-cmd-glyph name="shield"
+                /></span>
+                <p class="attn-clear-title">All clear</p>
+                <p class="attn-clear-sub">
+                  Every site is healthy — no failed or stalled builds right now.
+                </p>
+              </div>
+            }
+          }
+        </section>
+      }
+
       <!-- ── Search ─────────────────────────────────────────────── -->
       <div class="search-wrap" appReveal role="search">
         <span class="search-ic" aria-hidden="true"><app-cmd-glyph name="search" /></span>
@@ -989,6 +1121,301 @@ const RECENT_KEY = 'ps_dash_recents';
           transform: none;
         }
       }
+
+      /* ══ Operator cockpit (KPI strip + Needs-attention queue) ══ */
+      .cockpit {
+        margin: 4px 0 30px;
+        padding: 18px 18px 20px;
+        border: 1px solid var(--ps-hairline, rgba(255, 255, 255, 0.08));
+        border-radius: var(--ps-radius-xl, 22px);
+        background:
+          radial-gradient(
+            120% 140% at 0% 0%,
+            color-mix(in oklch, var(--ps-accent, #00e5ff) 7%, transparent),
+            transparent 60%
+          ),
+          var(--ps-surface-1, rgba(255, 255, 255, 0.02));
+      }
+      .cockpit-head {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 12px;
+      }
+      .cockpit-head .group-title {
+        margin: 0;
+      }
+      .cockpit-live {
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        font-family: var(--ps-font-code, 'Fira Code', ui-monospace, monospace);
+        font-size: 0.62rem;
+        letter-spacing: 0.06em;
+        text-transform: uppercase;
+        color: var(--ps-success, #4dffb5);
+      }
+      .cockpit-live-dot {
+        width: 7px;
+        height: 7px;
+        border-radius: 50%;
+        background: var(--ps-success, #4dffb5);
+        box-shadow: 0 0 0 0 color-mix(in oklch, var(--ps-success, #4dffb5) 60%, transparent);
+        animation: cockpit-pulse 2.4s ease-out infinite;
+      }
+      @keyframes cockpit-pulse {
+        0% {
+          box-shadow: 0 0 0 0 color-mix(in oklch, var(--ps-success, #4dffb5) 55%, transparent);
+        }
+        70% {
+          box-shadow: 0 0 0 7px transparent;
+        }
+        100% {
+          box-shadow: 0 0 0 0 transparent;
+        }
+      }
+
+      /* KPI tile strip */
+      .kpi-strip {
+        list-style: none;
+        margin: 4px 0 6px;
+        padding: 0;
+        display: grid;
+        gap: 10px;
+        grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+      }
+      .kpi-tile {
+        display: grid;
+        grid-template-rows: auto auto auto auto;
+        gap: 3px;
+        padding: 12px 14px;
+        border: 1px solid var(--ps-hairline, rgba(255, 255, 255, 0.08));
+        border-radius: var(--ps-radius-lg, 16px);
+        background: var(--ps-surface-1, rgba(255, 255, 255, 0.03));
+        transition:
+          border-color 0.333s ease,
+          transform 0.333s cubic-bezier(0.16, 1, 0.3, 1);
+      }
+      .kpi-tile:hover {
+        transform: translateY(-2px);
+        border-color: var(--ps-accent-line, rgba(0, 229, 255, 0.28));
+      }
+      .kpi-top {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+      }
+      .kpi-glyph {
+        display: inline-flex;
+        color: var(--ps-accent, #00e5ff);
+        opacity: 0.9;
+      }
+      .kpi-glyph app-cmd-glyph {
+        width: 16px;
+        height: 16px;
+        display: inline-flex;
+      }
+      .kpi-live-dot {
+        width: 6px;
+        height: 6px;
+        border-radius: 50%;
+        background: var(--ps-text-muted, rgba(255, 255, 255, 0.4));
+        animation: cockpit-pulse 2.8s ease-out infinite;
+      }
+      .kpi-value {
+        font-size: 1.6rem;
+        font-weight: 700;
+        line-height: 1.1;
+        font-variant-numeric: tabular-nums;
+        color: #e8fbff;
+      }
+      .kpi-label {
+        font-size: 0.8rem;
+        font-weight: 600;
+        color: #e8fbff;
+      }
+      .kpi-sub {
+        font-size: 0.66rem;
+        /* 0.66 alpha ≈ AA on the dark bg (mirrors .status-source contrast fix). */
+        color: rgba(255, 255, 255, 0.66);
+      }
+      .kpi-tile.tone-good .kpi-glyph,
+      .kpi-tile.tone-good .kpi-live-dot {
+        color: var(--ps-success, #4dffb5);
+        background: var(--ps-success, #4dffb5);
+      }
+      .kpi-tile.tone-good .kpi-glyph {
+        background: none;
+      }
+      .kpi-tile.tone-building .kpi-glyph,
+      .kpi-tile.tone-building .kpi-live-dot {
+        color: var(--ps-accent, #00e5ff);
+        background: var(--ps-accent, #00e5ff);
+      }
+      .kpi-tile.tone-building .kpi-glyph {
+        background: none;
+      }
+      .kpi-tile.tone-attention {
+        border-color: color-mix(in oklch, #ff4d6d 30%, transparent);
+      }
+      .kpi-tile.tone-attention .kpi-glyph,
+      .kpi-tile.tone-attention .kpi-live-dot {
+        color: #ff4d6d;
+        background: #ff4d6d;
+      }
+      .kpi-tile.tone-attention .kpi-glyph {
+        background: none;
+      }
+
+      /* Needs-attention queue */
+      .cockpit-sub {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        margin: 14px 0 8px;
+        font-size: 0.82rem;
+        font-weight: 600;
+        color: #e8fbff;
+      }
+      .cockpit-sub app-cmd-glyph {
+        width: 16px;
+        height: 16px;
+        color: var(--ps-accent, #00e5ff);
+      }
+      .attn-list {
+        list-style: none;
+        margin: 0;
+        padding: 0;
+        display: flex;
+        flex-direction: column;
+        gap: 8px;
+      }
+      .attn-row {
+        display: grid;
+        grid-template-columns: auto 1fr auto auto;
+        align-items: center;
+        gap: 4px 12px;
+        padding: 11px 14px;
+        cursor: pointer;
+        border: 1px solid color-mix(in oklch, #ff4d6d 26%, transparent);
+        border-left-width: 3px;
+        border-radius: var(--ps-radius-md, 12px);
+        background: color-mix(in oklch, #ff4d6d 6%, transparent);
+        transition:
+          border-color 0.333s ease,
+          transform 0.333s cubic-bezier(0.16, 1, 0.3, 1);
+      }
+      .attn-row:hover {
+        transform: translateY(-1px);
+        border-color: #ff4d6d;
+      }
+      .attn-row:focus-visible {
+        outline: 2px solid var(--ps-accent, #00e5ff);
+        outline-offset: 2px;
+      }
+      .attn-dot {
+        width: 8px;
+        height: 8px;
+        border-radius: 50%;
+        background: #ff4d6d;
+      }
+      .attn-body {
+        display: flex;
+        flex-direction: column;
+        gap: 1px;
+        min-width: 0;
+      }
+      .attn-name {
+        font-size: 0.86rem;
+        font-weight: 600;
+        color: #e8fbff;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+      .attn-reason {
+        font-size: 0.7rem;
+        color: rgba(255, 255, 255, 0.66);
+      }
+      .attn-status {
+        font-family: var(--ps-font-code, 'Fira Code', ui-monospace, monospace);
+        font-size: 0.6rem;
+        letter-spacing: 0.04em;
+        text-transform: uppercase;
+        color: #ff9db0;
+      }
+      .attn-action {
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        min-height: 36px;
+        padding: 0 14px;
+        font: inherit;
+        font-size: 0.78rem;
+        font-weight: 600;
+        cursor: pointer;
+        color: var(--ps-ink, #f4f4ff);
+        background: rgba(0, 229, 255, 0.06);
+        border: 1px solid rgba(0, 229, 255, 0.28);
+        border-radius: 999px;
+        transition:
+          border-color 0.333s ease,
+          transform 0.333s ease;
+      }
+      .attn-action app-cmd-glyph {
+        width: 14px;
+        height: 14px;
+      }
+      .attn-action:hover {
+        transform: translateY(-1px);
+        border-color: rgba(0, 229, 255, 0.55);
+      }
+      .attn-action:focus-visible {
+        outline: 2px solid var(--ps-accent, #00e5ff);
+        outline-offset: 2px;
+      }
+      .attn-clear {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        text-align: center;
+        gap: 4px;
+        padding: 18px 14px;
+        border: 1px dashed color-mix(in oklch, var(--ps-success, #4dffb5) 26%, transparent);
+        border-radius: var(--ps-radius-md, 12px);
+        background: color-mix(in oklch, var(--ps-success, #4dffb5) 5%, transparent);
+      }
+      .attn-clear-glyph {
+        display: inline-flex;
+        color: var(--ps-success, #4dffb5);
+      }
+      .attn-clear-glyph app-cmd-glyph {
+        width: 22px;
+        height: 22px;
+      }
+      .attn-clear-title {
+        margin: 2px 0 0;
+        font-size: 0.9rem;
+        font-weight: 600;
+        color: #e8fbff;
+      }
+      .attn-clear-sub {
+        margin: 0;
+        font-size: 0.72rem;
+        color: rgba(255, 255, 255, 0.66);
+      }
+      @media (prefers-reduced-motion: reduce) {
+        .kpi-tile:hover,
+        .attn-row:hover,
+        .attn-action:hover {
+          transform: none;
+        }
+        .cockpit-live-dot,
+        .kpi-live-dot {
+          animation: none;
+        }
+      }
+
       .stat app-rolling-counter {
         font-weight: 700;
         color: var(--ps-accent, #00e5ff);
@@ -1219,6 +1646,159 @@ export class AdminDashboardComponent {
       .filter((d) => buckets[d.key] > 0)
       .map((d) => ({ ...d, count: buckets[d.key], siteId: firstId[d.key] as string }));
   });
+
+  /** True when a 'published' site has no finished build → it serves the branded
+   *  503, so it is NOT actually live. Mirrors the `siteStatusSummary` guard +
+   *  the public-search lying-published check. A single source for both the KPI
+   *  "Live" count and the attention queue so they can never disagree. */
+  private isServingLive(s: Site): boolean {
+    return s.status === 'published' && !!s.current_build_version;
+  }
+
+  /** True while a site is mid-build (any pre-published working status). */
+  private isBuildingSite(s: Site): boolean {
+    return this.state.isBuilding(s);
+  }
+
+  /**
+   * Operator KPI strip — real metrics only, straight off the already-loaded
+   * `AdminStateService` signals (zero new fetches). A tile is OMITTED, never
+   * faked, when its underlying data isn't provided:
+   *  - "Sites live" / "Total sites": always (sites list is loaded).
+   *  - "Building now": only when ≥1 site is mid-build.
+   *  - "Custom domains": only when `domainSummary().total > 0` (else the service
+   *    has no domains to report — omitted, not shown as 0).
+   *  - "Plan": only when a subscription record exists.
+   * Analytics / leads / form-submission counts are intentionally absent — the
+   * service does NOT expose them here, so no tile is invented for them.
+   */
+  readonly kpiTiles = computed<readonly KpiTile[]>(() => {
+    const sites = this.state.sites();
+    const tiles: KpiTile[] = [];
+    if (sites.length === 0) return tiles;
+
+    const live = sites.filter((s) => this.isServingLive(s)).length;
+    const building = sites.filter((s) => this.isBuildingSite(s)).length;
+
+    tiles.push({
+      key: 'live',
+      label: 'Sites live',
+      value: live,
+      display: null,
+      sub: live === 1 ? 'published + serving' : 'published + serving',
+      glyph: 'globe',
+      tone: live > 0 ? 'good' : 'neutral',
+      numeric: true,
+    });
+    tiles.push({
+      key: 'total',
+      label: 'Total sites',
+      value: sites.length,
+      display: null,
+      sub: 'in your account',
+      glyph: 'grid',
+      tone: 'accent',
+      numeric: true,
+    });
+    if (building > 0) {
+      tiles.push({
+        key: 'building',
+        label: 'Building now',
+        value: building,
+        display: null,
+        sub: 'generating or deploying',
+        glyph: 'rocket',
+        tone: 'building',
+        numeric: true,
+      });
+    }
+    const attention = this.attentionItems().length;
+    if (attention > 0) {
+      tiles.push({
+        key: 'attention',
+        label: 'Needs attention',
+        value: attention,
+        display: null,
+        sub: attention === 1 ? 'site needs a look' : 'sites need a look',
+        glyph: 'shield',
+        tone: 'attention',
+        numeric: true,
+      });
+    }
+    const domains = this.state.domainSummary();
+    if (domains.total > 0) {
+      tiles.push({
+        key: 'domains',
+        label: 'Custom domains',
+        value: domains.active,
+        display: null,
+        sub:
+          domains.pending > 0
+            ? `${domains.pending} pending setup`
+            : domains.failed > 0
+              ? `${domains.failed} need attention`
+              : 'active + verified',
+        glyph: 'globe',
+        tone: domains.failed > 0 ? 'attention' : domains.active > 0 ? 'good' : 'neutral',
+        numeric: true,
+      });
+    }
+    const sub = this.state.subscription();
+    if (sub) {
+      tiles.push({
+        key: 'plan',
+        label: 'Plan',
+        value: 0,
+        display: this.titleCase(sub.plan),
+        sub: sub.status ? this.titleCase(sub.status) : 'current plan',
+        glyph: 'credit-card',
+        tone: sub.status === 'active' || sub.status === 'trialing' ? 'good' : 'neutral',
+        numeric: false,
+      });
+    }
+    return tiles;
+  });
+
+  /**
+   * Actionable "Needs attention" queue — every site that is in `error`/`failed`
+   * or is `published` without a finished build (lying-published → serves 503).
+   * Real rows only; an empty result renders a truthful "all clear" state, never
+   * a fabricated list. Each row's action reuses an existing affordance.
+   */
+  readonly attentionItems = computed<readonly AttentionItem[]>(() =>
+    this.state
+      .sites()
+      .filter((s) => {
+        const cls = this.state.getStatusClass(s.status);
+        return cls === 'error' || (s.status === 'published' && !s.current_build_version);
+      })
+      .map<AttentionItem>((s) => {
+        const failedBuild = s.status === 'published' && !s.current_build_version;
+        return {
+          siteId: s.id,
+          name: s.business_name || s.slug,
+          status: failedBuild ? 'incomplete' : this.state.getStatusLabel(s.status),
+          reason: failedBuild
+            ? 'Published but the last build didn’t finish — it serves an error page.'
+            : 'The build failed. Rebuild to try again.',
+          actionLabel: 'Rebuild',
+          action: 'rebuild',
+        };
+      }),
+  );
+
+  /** Rebuild a site from the attention queue — reuses the existing waiting flow
+   *  (`goToWaiting`), the same path the site-status tiles + waiting page use. */
+  rebuildFromQueue(item: AttentionItem): void {
+    const site = this.state.sites().find((s) => s.id === item.siteId);
+    if (site) this.state.goToWaiting(site);
+  }
+
+  /** Small helper: Title-Case a plan/status token ("active" → "Active"). */
+  private titleCase(v: string): string {
+    if (!v) return '';
+    return v.charAt(0).toUpperCase() + v.slice(1).toLowerCase();
+  }
 
   /** Live search query. Empty → grouped view; non-empty → flat filtered results. */
   readonly query = signal('');
