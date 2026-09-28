@@ -2345,9 +2345,8 @@ export class SiteGenerationWorkflow extends WorkflowEntrypoint<Env, SiteGenerati
         // WfP latency never delays this step's completion; the deploy is best-effort.
         void (async () => {
           try {
-            const { deploySiteWfpSlotsOnLifecycle } = await import(
-              '../services/wfp_site_hosting.js'
-            );
+            const { deploySiteWfpSlotsOnLifecycle } =
+              await import('../services/wfp_site_hosting.js');
             const wfp = await deploySiteWfpSlotsOnLifecycle(env, params.siteId, {
               orgId: params.orgId,
               slots: ['preview', 'production'],
@@ -2357,7 +2356,7 @@ export class SiteGenerationWorkflow extends WorkflowEntrypoint<Env, SiteGenerati
               await wfLog('workflow.wfp_slots_deployed', {
                 preview_ok: wfp.results.preview?.ok ?? null,
                 production_ok: wfp.results.production?.ok ?? null,
-                message: `WfP hosting: preview=${wfp.results.preview?.ok ? 'live' : (wfp.results.preview && !wfp.results.preview.ok ? wfp.results.preview.error : 'n/a')} production=${wfp.results.production?.ok ? 'live' : (wfp.results.production && !wfp.results.production.ok ? wfp.results.production.error : 'n/a')}`,
+                message: `WfP hosting: preview=${wfp.results.preview?.ok ? 'live' : wfp.results.preview && !wfp.results.preview.ok ? wfp.results.preview.error : 'n/a'} production=${wfp.results.production?.ok ? 'live' : wfp.results.production && !wfp.results.production.ok ? wfp.results.production.error : 'n/a'}`,
               });
             }
           } catch {
