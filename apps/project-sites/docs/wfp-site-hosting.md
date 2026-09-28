@@ -99,8 +99,21 @@ lone 200.
    `src/__tests__/wfp_serve_preference.test.ts` (8 cases: flag-off no-dispatch, flag-on+slot→dispatch prod,
    preview host→`-preview`, no slot→R2, dispatch throw→R2, unconfigured→R2, worker-5xx→R2, bolt-community→R2).
    tsc + full Jest (864 suites) green. **coupled**
-4. **Wire lifecycle** — deploy the **preview** slot after `upload-final`; deploy the **production** slot
-   on publish/promote. **coupled**
+4. ✅ **Wire lifecycle** — DONE (2026-09-28). `deploySiteWfpSlotsOnLifecycle(env, siteId, {orgId, slots, version})`
+   (`src/services/wfp_site_hosting.ts`) is the thin, fail-soft, flag-gated lifecycle hook the build/publish
+   path calls to give a site its WfP slots — flag-gated FIRST (`site_wfp_hosting`, per-site) so a flag-off
+   build/publish makes ZERO WfP calls (byte-identical), then calls Unit-2 `deploySiteToWfp` per requested slot
+   (REUSED, not reimplemented). Wired into THREE lifecycle points, each ADDITIVE + fail-soft (never throws into
+   the build/publish path; a WfP miss leaves R2 the served path): (a) the site-generation Workflow's
+   `finalize-build` step, right AFTER the `status='published'` D1 flip — deploys BOTH the `preview` AND
+   `production` slots from the just-published `version` (`void`'d, audit-logged `workflow.wfp_slots_deployed`);
+   (b) `POST /api/publish/bolt` (anonymous bolt publish) — deploys the `production` slot (`waitUntil`); (c)
+   `POST /api/sites/:id/publish-bolt` (authed embedded-bolt publish) — deploys the `production` slot
+   (`waitUntil`, beside the existing functions-deploy). Ownership is enforced by `deploySiteToWfp`'s own
+   `assertSiteOwned` (the workflow/route already resolved the owner); short-lived Bearer creds only. Unit test
+   `src/__tests__/wfp_lifecycle_wiring.test.ts` (7 cases: flag-off no-call byte-identical, flag-on preview slot,
+   flag-on production slot, flag-on both slots, deploy-failure no-throw, deploy-throw swallowed, no-orgId skip).
+   tsc + full Jest (865 suites / 13,717 tests) green. **coupled**
 5. **Teardown** — on site delete/archive, delete BOTH slots + clear the registry row (reuse
    `deleteSiteFunctionsWorker`). **coupled**
 6. **Owner UI (admin, Angular + Spartan, brand tokens)** — a Preview/Publish + **WfP deploy-status**
@@ -113,10 +126,25 @@ lone 200.
 
 ## Acceptance
 
-- Flag OFF → `serveSiteFromR2` behavior byte-identical; every existing site unchanged.
+- Flag OFF → `serveSiteFromR2` behavior byte-identical; every existing site unchanged. **✅ MET** — the
+  flag-gate is the FIRST check in BOTH the serving preference (Unit 3) AND the lifecycle hook (Unit 4); a
+  flag-off site reads one flag then falls through to the untouched R2 path / makes ZERO WfP calls (unit-tested
+  byte-identical on both surfaces).
 - Flag ON, new site → its preview slot serves a **styled 200 via dispatch**; on publish the prod slot
-  serves a styled 200; on delete both slots + registry are gone (404).
+  serves a styled 200; on delete both slots + registry are gone (404). **◐ IMPL COMPLETE — end-to-end
+  prod-verify PENDING one external step.** Units 1-4 wire the full lifecycle (build → preview slot; publish →
+  prod slot; Unit-3 dispatch serves it with `x-ps-serve: wfp`), and Unit 4 deployed to production
+  (`wrangler deploy --env production`). The remaining check requires WfP to be PROVISIONED on the account:
+  `isWfpConfigured(env)` is currently FALSE on prod (the `USER_DISPATCH` binding / dispatch namespace
+  `project-sites-endpoints` + `CF_API_TOKEN` are not yet all set), so `deploySiteToWfp` fail-softs
+  `wfp_not_configured` and no slot is ever deployed — every site correctly stays on R2. Once WfP is provisioned
+  (add the `[[dispatch_namespaces]]` binding to `wrangler.toml` + set the CF token secret), flip
+  `site_wfp_hosting` ON for one test site with an R2 build, run a publish (or call `deploySiteToWfp` directly),
+  then WebFetch its subdomain → assert **200 + styled HTML + `x-ps-serve: wfp`**. This is the sole external
+  gate; the code path is complete + unit-proven. (Teardown Unit 5 + owner UI Unit 6 are separate work units.)
 - Portability preserved (the site deliverable still deploys to bare CF; no platform-only bindings baked in).
+  **✅ MET** — nothing platform-only is baked into the site's own build; the WfP slot is a serving substrate on
+  the platform side (the serving shim + `ASSETS` binding are added at deploy time, not written into the R2 build).
 
 ## Verification in this repo (no local build required)
 

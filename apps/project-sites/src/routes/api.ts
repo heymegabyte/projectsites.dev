@@ -3248,6 +3248,27 @@ api.post('/api/sites/:id/deploy', async (c) => {
     console.warn('[publish] Snapshot creation failed (non-blocking):', snapErr);
   }
 
+  // WfP Site Hosting lifecycle wiring (docs/wfp-site-hosting.md §Work units 4) — a
+  // bolt publish is a publish/promote milestone → (re)deploy the site's PRODUCTION
+  // WfP slot from the just-published version. ADDITIVE + FAIL-SOFT + flag-gated:
+  // `site_wfp_hosting` OFF makes ZERO WfP calls (byte-identical publish); ON deploys
+  // the slot. waitUntil'd off the response + non-throwing so WfP latency/faults never
+  // delay or break the static publish (R2 stays the served path via Unit-3 fallback).
+  c.executionCtx.waitUntil(
+    (async () => {
+      try {
+        const { deploySiteWfpSlotsOnLifecycle } = await import('../services/wfp_site_hosting.js');
+        await deploySiteWfpSlotsOnLifecycle(c.env, siteId, {
+          orgId,
+          slots: ['production'],
+          version,
+        });
+      } catch {
+        // fail-soft — WfP hosting must never break the bolt publish
+      }
+    })(),
+  );
+
   // Invalidate KV cache
   await c.env.CACHE_KV.delete(`host:${slug}${DOMAINS.SITES_SUFFIX}`).catch(() => {});
 
@@ -3526,6 +3547,28 @@ api.post('/api/sites/:id/publish-bolt', async (c) => {
             error: e instanceof Error ? e.message : String(e),
           }),
         );
+      }
+    })(),
+  );
+
+  // WfP Site Hosting lifecycle wiring (docs/wfp-site-hosting.md §Work units 4) — this
+  // embedded-bolt publish is a publish/promote milestone → (re)deploy the site's
+  // PRODUCTION WfP slot from the just-published version. ADDITIVE + FAIL-SOFT +
+  // flag-gated (`site_wfp_hosting`): OFF makes ZERO WfP calls (byte-identical publish),
+  // ON deploys the slot. Same waitUntil + non-throwing pattern as the functions deploy
+  // above — WfP latency/faults never delay or break the static publish (R2 stays the
+  // served path via Unit-3 fallback).
+  c.executionCtx.waitUntil(
+    (async () => {
+      try {
+        const { deploySiteWfpSlotsOnLifecycle } = await import('../services/wfp_site_hosting.js');
+        await deploySiteWfpSlotsOnLifecycle(c.env, siteId, {
+          orgId,
+          slots: ['production'],
+          version,
+        });
+      } catch {
+        // fail-soft — WfP hosting must never break the embedded-bolt publish
       }
     })(),
   );

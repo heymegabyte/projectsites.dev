@@ -2334,6 +2334,37 @@ export class SiteGenerationWorkflow extends WorkflowEntrypoint<Env, SiteGenerati
           url: `https://${params.slug}${DOMAINS.SITES_SUFFIX}`,
         });
 
+        // ── WfP Site Hosting lifecycle wiring (docs/wfp-site-hosting.md §Work units 4) ──
+        // The build just uploaded a published bundle to R2 → give this site its WfP
+        // slots: the PREVIEW slot (build success) AND the PRODUCTION slot (this IS the
+        // publish flip above). ADDITIVE + FAIL-SOFT + flag-gated: with `site_wfp_hosting`
+        // OFF this makes ZERO WfP calls and the build path is byte-identical; with it ON
+        // it (re)deploys both slots from the just-published version. A WfP failure NEVER
+        // fails the build — the helper resolves a typed summary, never throws, and R2
+        // stays the served path (Unit-3 falls back to it when no slot is live). void'd so
+        // WfP latency never delays this step's completion; the deploy is best-effort.
+        void (async () => {
+          try {
+            const { deploySiteWfpSlotsOnLifecycle } = await import(
+              '../services/wfp_site_hosting.js'
+            );
+            const wfp = await deploySiteWfpSlotsOnLifecycle(env, params.siteId, {
+              orgId: params.orgId,
+              slots: ['preview', 'production'],
+              version,
+            });
+            if (wfp.attempted) {
+              await wfLog('workflow.wfp_slots_deployed', {
+                preview_ok: wfp.results.preview?.ok ?? null,
+                production_ok: wfp.results.production?.ok ?? null,
+                message: `WfP hosting: preview=${wfp.results.preview?.ok ? 'live' : (wfp.results.preview && !wfp.results.preview.ok ? wfp.results.preview.error : 'n/a')} production=${wfp.results.production?.ok ? 'live' : (wfp.results.production && !wfp.results.production.ok ? wfp.results.production.error : 'n/a')}`,
+              });
+            }
+          } catch {
+            // fail-soft — WfP hosting must never break the site publish
+          }
+        })();
+
         // Best-effort: accumulate the build's AI spend into the token-burn meter.
         // The container build's exact token usage isn't surfaced here yet, so we
         // record a conservative per-build estimate keyed off elapsed time. Never

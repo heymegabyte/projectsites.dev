@@ -399,3 +399,98 @@ export async function deploySiteToWfp(
     assetCount: ordered.length,
   };
 }
+
+// ─── Work Unit 4 — lifecycle wiring (docs/wfp-site-hosting.md §Work units 4) ───
+
+/** Options for {@link deploySiteWfpSlotsOnLifecycle}. */
+export interface DeploySiteWfpSlotsOptions {
+  /** The site's owning org (`params.orgId` / `c.get('orgId')`). Undefined → skip. */
+  readonly orgId: string | undefined;
+  /** Which slot(s) to (re)deploy at this lifecycle point. */
+  readonly slots: readonly WfpSlot[];
+  /** The just-built/published version (an R2 prefix segment). Omitted → current build. */
+  readonly version?: string;
+}
+
+/** Summary of a lifecycle deploy — never a throw; every branch resolves. */
+export interface DeploySiteWfpSlotsSummary {
+  /** Did the flag gate pass so a WfP deploy was actually attempted? */
+  readonly attempted: boolean;
+  /** Per-slot outcome (present only for attempted slots). */
+  readonly results: Partial<Record<WfpSlot, DeploySiteToWfpResult>>;
+}
+
+/**
+ * Lifecycle hook: give a site its WfP slot(s) at a build/publish milestone —
+ * the **preview** slot after `upload-final` (build success) and the **production**
+ * slot on publish/promote. This is the Unit-4 wiring: it is the ONLY thing the
+ * build/publish path calls, and it is ADDITIVE + FAIL-SOFT by construction.
+ *
+ * - **Flag-gated FIRST** (`site_wfp_hosting`, per-site scope) so a flag-off site's
+ *   build/publish path is byte-identical — one flag read, then it returns
+ *   `{ attempted:false }` having made ZERO WfP/CF calls. Only when the flag is ON
+ *   does it call {@link deploySiteToWfp} for each requested slot.
+ * - **Fail-soft** (doc §Interpretation): a WfP deploy failure NEVER propagates —
+ *   this resolves a typed summary (never throws), so a WfP miss can never fail the
+ *   build or the publish; R2 remains the served path (Unit-3 falls back to it when
+ *   no slot is live). Callers should still `waitUntil`/`void` this off the response
+ *   path so WfP latency never delays the user.
+ * - **Reuse, not reimplementation** (doc §Reuse): calls {@link deploySiteToWfp}
+ *   (Unit 2) + `isFlagOn` (Unit 1) — no dispatch/upload logic is duplicated here.
+ *
+ * @param env - Worker env (D1 `DB`, `SITES_BUCKET`, WfP creds; flag store).
+ * @param siteId - The site reaching this lifecycle milestone.
+ * @param opts - `{ orgId, slots, version? }`.
+ * @returns A {@link DeploySiteWfpSlotsSummary} — always resolves, never throws.
+ *
+ * @remarks Impure: reads a flag, and (flag-on) reads R2 + issues CF REST calls per slot.
+ * @example
+ * // build success — give the preview slot (fire-and-forget, fail-soft):
+ * ctx.waitUntil(deploySiteWfpSlotsOnLifecycle(env, siteId, { orgId, slots: ['preview'], version }));
+ * // publish — give the production slot:
+ * ctx.waitUntil(deploySiteWfpSlotsOnLifecycle(env, siteId, { orgId, slots: ['production'], version }));
+ */
+export async function deploySiteWfpSlotsOnLifecycle(
+  env: Env,
+  siteId: string,
+  opts: DeploySiteWfpSlotsOptions,
+): Promise<DeploySiteWfpSlotsSummary> {
+  const summary: DeploySiteWfpSlotsSummary = { attempted: false, results: {} };
+  try {
+    // Unowned → nothing to scope a flag or an owned deploy to. Skip silently.
+    if (!opts.orgId) return summary;
+
+    // Flag gate FIRST — a flag-off build/publish makes ZERO WfP calls (byte-identical).
+    const { isFlagOn } = await import('../modules/feature_flags/services.js');
+    if (!(await isFlagOn(env, 'site_wfp_hosting', { orgId: opts.orgId, siteId }))) {
+      return summary;
+    }
+
+    // Flag ON — (re)deploy each requested slot. Dynamic import so the call resolves
+    // the (mockable) module export; deploySiteToWfp is itself fail-soft ({ ok:false }),
+    // and the per-slot try/catch swallows even an unexpected throw so a build/publish
+    // is never failed by a WfP miss.
+    const mod = await import('./wfp_site_hosting.js');
+    const results: Partial<Record<WfpSlot, DeploySiteToWfpResult>> = {};
+    let attempted = false;
+    for (const slot of opts.slots) {
+      attempted = true;
+      try {
+        results[slot] = await mod.deploySiteToWfp(env, siteId, {
+          orgId: opts.orgId,
+          slot,
+          ...(opts.version !== undefined ? { version: opts.version } : {}),
+        });
+      } catch (err) {
+        results[slot] = {
+          ok: false,
+          error: `deploy_threw: ${err instanceof Error ? err.message : String(err)}`,
+        };
+      }
+    }
+    return { attempted, results };
+  } catch {
+    // Absolute fail-soft: the lifecycle hook must never break the build/publish path.
+    return summary;
+  }
+}
