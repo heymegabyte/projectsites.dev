@@ -53,6 +53,7 @@ import {
   onParentMessage,
   requestDbLoadSample,
   requestDbAiSeed,
+  requestDbSearch,
   type ParentToChildMessage,
   type SiteDbTablesResponseMessage,
   type SiteDbRowsResponseMessage,
@@ -2220,6 +2221,332 @@ const EmptyLaunchpad = memo(
 
 EmptyLaunchpad.displayName = 'SiteTablesPanel.EmptyLaunchpad';
 
+// ── Advanced search (expanding bar + stylized results) ───────────────────────
+
+/** The internal state machine for the expanding advanced-search bar. */
+type SearchPhase =
+  | { status: 'idle' }
+  | { status: 'searching'; q: string }
+  | {
+      status: 'results';
+      q: string;
+      nameMatches: string[];
+      contentMatches: { table: string; column: string; rowid: number; snippet: string }[];
+      truncated: boolean;
+    }
+  | { status: 'error'; q: string; message: string };
+
+const SEARCH_DEBOUNCE_MS = 250;
+const SEARCH_MIN_CHARS = 2;
+
+/**
+ * Render one content-match snippet with the matched query emphasized (case-insensitive). Splits the snippet
+ * around the FIRST occurrence so the matched run is visually highlighted in cyan; falls back to the raw
+ * snippet when the query isn't literally present (e.g. the server matched a normalized/stemmed form). Pure.
+ */
+function highlightSnippet(snippet: string, query: string): React.ReactNode {
+  const q = query.trim();
+
+  if (!q) {
+    return snippet;
+  }
+
+  const idx = snippet.toLowerCase().indexOf(q.toLowerCase());
+
+  if (idx < 0) {
+    return snippet;
+  }
+
+  return (
+    <>
+      {snippet.slice(0, idx)}
+      <mark className="bg-bolt-elements-item-contentAccent/25 text-bolt-elements-item-contentAccent rounded-sm px-0.5">
+        {snippet.slice(idx, idx + q.length)}
+      </mark>
+      {snippet.slice(idx + q.length)}
+    </>
+  );
+}
+
+/**
+ * An expanding advanced-search control for the Tables list: a search icon that opens into a text input,
+ * debounced (~250ms) cross-table search over the site's OWN D1 via {@link requestDbSearch}. Renders a
+ * stylized results panel with TWO distinct groups — table-NAME matches (clickable → open) and in-CONTENT
+ * matches (cyan-accented `🔎 table · column` + emphasized snippet → open the owning table). Collapses on
+ * blur when empty; Esc collapses + clears. Silently hides itself when per-site data is off (`enabled:false`).
+ */
+const TableSearch = memo(({ onOpen }: { onOpen: (name: string) => void }) => {
+  const [expanded, setExpanded] = useState(false);
+  const [query, setQuery] = useState('');
+  const [phase, setPhase] = useState<SearchPhase>({ status: 'idle' });
+  /** Set once the bridge reports the feature disabled — hides the whole control, no dead affordance. */
+  const [disabled, setDisabled] = useState(false);
+
+  const inputRef = useRef<HTMLInputElement>(null);
+  const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  /** Monotonic token so a slow reply from a stale query can't clobber a newer one. */
+  const runIdRef = useRef(0);
+
+  // Focus the input the moment the bar expands (keyboard-first).
+  useEffect(() => {
+    if (expanded) {
+      inputRef.current?.focus();
+    }
+  }, [expanded]);
+
+  // Clean up any pending debounce on unmount.
+  useEffect(
+    () => () => {
+      if (debounceRef.current) {
+        clearTimeout(debounceRef.current);
+      }
+    },
+    [],
+  );
+
+  const runSearch = useCallback(async (q: string) => {
+    const runId = ++runIdRef.current;
+    setPhase({ status: 'searching', q });
+
+    let reply: Awaited<ReturnType<typeof requestDbSearch>>;
+
+    try {
+      reply = await requestDbSearch({ q });
+    } catch (err) {
+      if (runId !== runIdRef.current) {
+        return;
+      }
+
+      setPhase({ status: 'error', q, message: err instanceof Error ? err.message : 'Search could not run.' });
+
+      return;
+    }
+
+    // A newer keystroke superseded this reply — drop it.
+    if (runId !== runIdRef.current) {
+      return;
+    }
+
+    // Feature is dark — hide the whole control silently (never a dead/doomed input).
+    if (reply.enabled === false) {
+      setDisabled(true);
+      return;
+    }
+
+    if (!reply.ok) {
+      setPhase({ status: 'error', q, message: reply.error || 'Search could not run.' });
+      return;
+    }
+
+    setPhase({
+      status: 'results',
+      q,
+      nameMatches: reply.nameMatches ?? [],
+      contentMatches: reply.contentMatches ?? [],
+      truncated: reply.truncated ?? false,
+    });
+  }, []);
+
+  // Debounced query → search (≥2 chars); clearing/short query resets to the plain list.
+  const onQueryChange = useCallback(
+    (value: string) => {
+      setQuery(value);
+
+      if (debounceRef.current) {
+        clearTimeout(debounceRef.current);
+      }
+
+      const trimmed = value.trim();
+
+      if (trimmed.length < SEARCH_MIN_CHARS) {
+        runIdRef.current++; // cancel any in-flight reply
+        setPhase({ status: 'idle' });
+
+        return;
+      }
+
+      debounceRef.current = setTimeout(() => void runSearch(trimmed), SEARCH_DEBOUNCE_MS);
+    },
+    [runSearch],
+  );
+
+  const collapse = useCallback(() => {
+    setExpanded(false);
+    setQuery('');
+    runIdRef.current++;
+    setPhase({ status: 'idle' });
+
+    if (debounceRef.current) {
+      clearTimeout(debounceRef.current);
+    }
+  }, []);
+
+  const onKeyDown = useCallback(
+    (e: React.KeyboardEvent<HTMLInputElement>) => {
+      if (e.key === 'Escape') {
+        e.preventDefault();
+        collapse();
+      }
+    },
+    [collapse],
+  );
+
+  // Collapse on blur ONLY when the field is empty (so results stay while typing/reading).
+  const onBlur = useCallback(() => {
+    if (query.trim().length === 0) {
+      setExpanded(false);
+    }
+  }, [query]);
+
+  if (disabled) {
+    return null;
+  }
+
+  const showPanel = expanded && query.trim().length >= SEARCH_MIN_CHARS;
+
+  return (
+    <div className="relative">
+      {expanded ? (
+        <div className="flex items-center gap-1 rounded border border-bolt-elements-item-contentAccent/50 bg-bolt-elements-background-depth-2 pl-2 pr-1 transition-[width] duration-150 motion-reduce:transition-none">
+          <div className="i-ph:magnifying-glass text-[12px] text-bolt-elements-item-contentAccent shrink-0" aria-hidden />
+          <input
+            ref={inputRef}
+            type="text"
+            value={query}
+            onChange={(e) => onQueryChange(e.target.value)}
+            onKeyDown={onKeyDown}
+            onBlur={onBlur}
+            placeholder="Search tables & data…"
+            data-testid="sitedb-search"
+            aria-label="Search tables and data"
+            className="w-40 sm:w-52 bg-transparent py-0.5 text-[11px] text-bolt-elements-textPrimary placeholder:text-bolt-elements-textTertiary focus:outline-none"
+          />
+          {phase.status === 'searching' && (
+            <div className="i-ph:circle-notch animate-spin motion-reduce:animate-none text-[12px] text-bolt-elements-item-contentAccent shrink-0" aria-hidden />
+          )}
+          <button
+            type="button"
+            onClick={collapse}
+            title="Close search (Esc)"
+            aria-label="Close search"
+            className="i-ph:x text-[12px] text-bolt-elements-textTertiary hover:text-bolt-elements-textPrimary shrink-0 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-bolt-elements-item-contentAccent rounded cursor-pointer"
+          />
+        </div>
+      ) : (
+        <button
+          type="button"
+          onClick={() => setExpanded(true)}
+          data-testid="sitedb-search-open"
+          title="Search tables & data"
+          aria-label="Search tables and data"
+          className="min-h-[24px] text-[11px] font-medium px-2 py-0.5 rounded border border-bolt-elements-borderColor bg-bolt-elements-background-depth-2 text-bolt-elements-textSecondary hover:text-bolt-elements-item-contentAccent hover:border-bolt-elements-item-contentAccent/50 transition-colors flex items-center gap-1 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-bolt-elements-item-contentAccent cursor-pointer"
+        >
+          <div className="i-ph:magnifying-glass" /> <span>Search</span>
+        </button>
+      )}
+
+      {showPanel && (
+        <div
+          data-testid="sitedb-search-results"
+          className="absolute right-0 top-[calc(100%+6px)] z-20 w-[min(88vw,22rem)] max-h-[60vh] overflow-auto modern-scrollbar rounded-lg border border-bolt-elements-item-contentAccent/30 bg-[#060610] shadow-xl shadow-black/40"
+          style={{ boxShadow: '0 12px 40px rgba(0,0,0,0.5), 0 0 0 1px color-mix(in oklch, #00e5ff 12%, transparent)' }}
+        >
+          {phase.status === 'searching' && (
+            <div className="flex items-center gap-2 px-3 py-3 text-[11px] text-bolt-elements-textSecondary">
+              <div className="i-ph:circle-notch animate-spin motion-reduce:animate-none text-bolt-elements-item-contentAccent" aria-hidden />
+              Searching your data…
+            </div>
+          )}
+
+          {phase.status === 'error' && (
+            <div className="flex items-start gap-2 px-3 py-3 text-[11px] text-bolt-elements-textSecondary">
+              <div className="i-ph:warning-circle text-red-400 mt-0.5 shrink-0" aria-hidden />
+              <span>{phase.message}</span>
+            </div>
+          )}
+
+          {phase.status === 'results' &&
+            (phase.nameMatches.length === 0 && phase.contentMatches.length === 0 ? (
+              <div
+                className="flex flex-col items-center gap-1.5 px-3 py-6 text-center"
+                data-testid="sitedb-search-empty"
+              >
+                <div className="i-ph:magnifying-glass text-xl text-bolt-elements-textTertiary/60" aria-hidden />
+                <p className="text-[11px] text-bolt-elements-textSecondary">
+                  No matches for &ldquo;{phase.q}&rdquo;
+                </p>
+                <p className="text-[10px] text-bolt-elements-textTertiary">Try a table name or a value in a cell.</p>
+              </div>
+            ) : (
+              <>
+                {phase.nameMatches.length > 0 && (
+                  <div className="py-1">
+                    <div className="px-3 pt-1.5 pb-1 text-[9px] uppercase tracking-wider text-bolt-elements-textTertiary flex items-center gap-1">
+                      <div className="i-ph:table text-bolt-elements-textTertiary" aria-hidden /> Tables
+                    </div>
+                    {phase.nameMatches.map((name) => (
+                      <button
+                        key={`name-${name}`}
+                        type="button"
+                        onMouseDown={(e) => e.preventDefault() /* keep input focus so blur doesn't collapse */}
+                        onClick={() => onOpen(name)}
+                        data-testid="sitedb-search-name-row"
+                        className="w-full flex items-center gap-2 px-3 py-1.5 text-left hover:bg-bolt-elements-item-backgroundActive transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-bolt-elements-item-contentAccent cursor-pointer"
+                      >
+                        <div className="i-ph:database text-[13px] text-bolt-elements-item-contentAccent shrink-0" aria-hidden />
+                        <span className="text-[12px] text-bolt-elements-textPrimary font-mono flex-1 truncate">
+                          {name}
+                        </span>
+                        <div className="i-ph:arrow-right text-[11px] text-bolt-elements-textTertiary shrink-0" aria-hidden />
+                      </button>
+                    ))}
+                  </div>
+                )}
+
+                {phase.contentMatches.length > 0 && (
+                  <div className="py-1 border-t border-bolt-elements-borderColor/60">
+                    <div className="px-3 pt-1.5 pb-1 text-[9px] uppercase tracking-wider text-bolt-elements-item-contentAccent/80 flex items-center gap-1">
+                      <div className="i-ph:magnifying-glass text-bolt-elements-item-contentAccent" aria-hidden /> In content
+                    </div>
+                    {phase.contentMatches.map((m, i) => (
+                      <button
+                        key={`content-${m.table}-${m.column}-${m.rowid}-${i}`}
+                        type="button"
+                        onMouseDown={(e) => e.preventDefault()}
+                        onClick={() => onOpen(m.table)}
+                        data-testid="sitedb-search-content-row"
+                        className="group w-full flex flex-col gap-0.5 px-3 py-1.5 text-left border-l-2 border-bolt-elements-item-contentAccent/40 hover:border-bolt-elements-item-contentAccent hover:bg-bolt-elements-item-backgroundAccent/[0.06] transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-bolt-elements-item-contentAccent cursor-pointer"
+                      >
+                        <span className="flex items-center gap-1.5 text-[11px] text-bolt-elements-item-contentAccent font-mono">
+                          <span aria-hidden>🔎</span>
+                          <span className="truncate">{m.table}</span>
+                          <span className="text-bolt-elements-textTertiary">·</span>
+                          <span className="text-bolt-elements-textSecondary truncate">{m.column}</span>
+                        </span>
+                        <span className="text-[10px] font-mono text-bolt-elements-textTertiary leading-snug line-clamp-2 break-words">
+                          {highlightSnippet(m.snippet, phase.q)}
+                        </span>
+                      </button>
+                    ))}
+                  </div>
+                )}
+
+                {phase.truncated && (
+                  <div className="px-3 py-1.5 text-[9px] text-bolt-elements-textTertiary/80 border-t border-bolt-elements-borderColor/60 flex items-center gap-1">
+                    <div className="i-ph:dots-three-outline text-bolt-elements-textTertiary/70" aria-hidden />
+                    Showing the first matches — refine your search to narrow it down.
+                  </div>
+                )}
+              </>
+            ))}
+        </div>
+      )}
+    </div>
+  );
+});
+
+TableSearch.displayName = 'SiteTablesPanel.TableSearch';
+
 // ── Table list view ────────────────────────────────────────────────────────
 
 const TableListView = memo(
@@ -2286,32 +2613,13 @@ const TableListView = memo(
 
     return (
       <div className="flex-1 overflow-auto modern-scrollbar" data-testid="sitedb-table-list">
-        {/* Toolbar: always offer both AI-seed AND Create Table so you can always browse/seed. */}
+        {/* Toolbar: table count + the expanding advanced search (Use AI / Create Table now live in the header Actions menu). */}
         <div className="flex items-center gap-2 px-3 py-2 border-b border-bolt-elements-borderColor sticky top-0 bg-bolt-elements-background-depth-1 z-10">
           <span className="text-[10px] uppercase tracking-wider text-bolt-elements-textTertiary">
             Tables ({state.tables.length})
           </span>
           <div className="ml-auto flex items-center gap-1.5">
-            <button
-              type="button"
-              onClick={onSeedWithAi}
-              data-testid="sitedb-list-seed-ai"
-              title="Generate a table of realistic rows with AI"
-              className="min-h-[24px] text-[11px] font-medium px-2 py-0.5 rounded border border-bolt-elements-item-contentAccent/50 bg-bolt-elements-item-backgroundAccent/10 text-bolt-elements-item-contentAccent hover:bg-bolt-elements-item-backgroundAccent/20 transition-colors flex items-center gap-1 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-bolt-elements-item-contentAccent cursor-pointer"
-            >
-              <div className="i-ph:sparkle" /> <span>Use AI</span>
-            </button>
-            {(onCreateTable || onNewTableSql) && (
-              <button
-                type="button"
-                onClick={() => (onCreateTable ? onCreateTable() : onNewTableSql!())}
-                data-testid="sitedb-new-table-inline"
-                title="Build a new table"
-                className="min-h-[24px] text-[11px] font-medium px-2 py-0.5 rounded border border-bolt-elements-borderColor bg-bolt-elements-background-depth-2 text-bolt-elements-item-contentAccent hover:bg-bolt-elements-background-depth-3 transition-colors flex items-center gap-1 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-bolt-elements-item-contentAccent cursor-pointer"
-              >
-                <div className="i-ph:plus" /> <span>Create Table</span>
-              </button>
-            )}
+            <TableSearch onOpen={onOpen} />
           </div>
         </div>
         {state.tables.map((t) => (
