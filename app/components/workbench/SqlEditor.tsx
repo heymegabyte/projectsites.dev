@@ -151,7 +151,7 @@ export const SqlEditor = memo(function SqlEditor({
 
   return (
     <div
-      className="relative w-full rounded-md bg-bolt-elements-background-depth-2 border border-bolt-elements-borderColor focus-within:border-bolt-elements-item-contentAccent/50"
+      className="relative w-full rounded-md bg-bolt-elements-background-depth-2 border border-bolt-elements-borderColor focus-within:border-[#00e5ff80] [color-scheme:dark] accent-[color:var(--ps-accent,#00e5ff)]"
       style={{ minHeight }}
     >
       <pre
@@ -191,7 +191,7 @@ export const SqlEditor = memo(function SqlEditor({
           data-testid="data-sql-completions"
           role="listbox"
           aria-label="SQL completions"
-          className="absolute left-2 top-full z-20 mt-1 max-h-56 w-64 overflow-auto modern-scrollbar rounded-md border border-bolt-elements-borderColor bg-bolt-elements-background-depth-1 py-1 shadow-xl shadow-black/40 ring-1 ring-bolt-elements-item-contentAccent/10"
+          className="absolute left-2 top-full z-20 mt-1 max-h-56 w-64 overflow-auto modern-scrollbar rounded-md border border-bolt-elements-borderColor bg-bolt-elements-background-depth-1 py-1 shadow-xl shadow-black/40 ring-1 ring-[#00e5ff1a]"
         >
           {completions.map((c, idx) => (
             <li
@@ -207,7 +207,7 @@ export const SqlEditor = memo(function SqlEditor({
               className={
                 'flex items-center gap-2 px-2 py-1 text-[12px] cursor-pointer border-l-2 transition-colors motion-reduce:transition-none ' +
                 (idx === activeIdx
-                  ? 'border-bolt-elements-item-contentAccent bg-bolt-elements-item-contentAccent/15 text-bolt-elements-textPrimary'
+                  ? 'border-bolt-elements-item-contentAccent bg-[#00e5ff26] text-bolt-elements-textPrimary'
                   : 'border-transparent text-bolt-elements-textSecondary hover:bg-bolt-elements-background-depth-2')
               }
             >

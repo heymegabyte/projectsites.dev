@@ -120,7 +120,7 @@ export const DatabasePanel = memo(() => {
 
   return (
     <div
-      className="h-full flex flex-col bg-bolt-elements-background-depth-1 text-bolt-elements-textPrimary"
+      className="h-full flex flex-col bg-bolt-elements-background-depth-1 text-bolt-elements-textPrimary [color-scheme:dark] accent-[color:var(--ps-accent,#00e5ff)]"
       data-testid="database-panel"
     >
       {/* Sub-nav button bar — concise Tables · SQL · KV (Airtable/Notion segmented control) */}

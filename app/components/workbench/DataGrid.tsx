@@ -227,7 +227,7 @@ export const DataGrid = memo(
     const rangeEnd = Math.min(total, (safePageIndex + 1) * pageSize);
 
     return (
-      <div data-testid={testId}>
+      <div data-testid={testId} className="[color-scheme:dark] accent-[color:var(--ps-accent,#00e5ff)]">
         {/* Toolbar — search · count · export */}
         <div className="mb-2 flex flex-wrap items-center gap-2">
           <div className="relative flex-1 min-w-[160px]">
@@ -258,7 +258,7 @@ export const DataGrid = memo(
             <button
               type="button"
               onClick={() => setExportOpen((o) => !o)}
-              className="flex items-center gap-1 rounded-md border border-bolt-elements-borderColor bg-bolt-elements-background-depth-1 px-2 py-1.5 text-[11px] text-bolt-elements-textSecondary hover:text-bolt-elements-textPrimary hover:border-bolt-elements-item-contentAccent/60 transition-colors"
+              className="flex items-center gap-1 rounded-md border border-bolt-elements-borderColor bg-bolt-elements-background-depth-1 px-2 py-1.5 text-[11px] text-bolt-elements-textSecondary hover:text-bolt-elements-textPrimary hover:border-[#00e5ff99] transition-colors"
               aria-haspopup="menu"
               aria-expanded={exportOpen}
               data-testid={`${testId}-export`}
@@ -317,7 +317,7 @@ export const DataGrid = memo(
                       key={name}
                       onClick={() => onSortColumn(name)}
                       title={`Sort by ${name}`}
-                      className="sticky top-0 z-10 cursor-pointer select-none text-left px-3 py-1.5 text-[10px] uppercase tracking-wider text-bolt-elements-textTertiary font-medium border-b border-bolt-elements-borderColor bg-bolt-elements-background-depth-2 whitespace-nowrap hover:text-bolt-elements-item-contentAccent after:absolute after:inset-x-0 after:bottom-0 after:h-px after:bg-bolt-elements-item-contentAccent/25"
+                      className="sticky top-0 z-10 cursor-pointer select-none text-left px-3 py-1.5 text-[10px] uppercase tracking-wider text-bolt-elements-textTertiary font-medium border-b border-bolt-elements-borderColor bg-bolt-elements-background-depth-2 whitespace-nowrap hover:text-bolt-elements-item-contentAccent after:absolute after:inset-x-0 after:bottom-0 after:h-px after:bg-[#00e5ff40]"
                     >
                       <span className="inline-flex items-center gap-1">
                         {name}
@@ -398,7 +398,7 @@ export const DataGrid = memo(
                         className={classNames(
                           'px-3 py-1.5 border-b border-bolt-elements-borderColor/30 whitespace-nowrap max-w-[280px] truncate cursor-pointer',
                           'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-bolt-elements-item-contentAccent',
-                          isCopied && 'ring-2 ring-inset ring-bolt-elements-item-contentAccent/70',
+                          isCopied && 'ring-2 ring-inset ring-[#00e5ffb2]',
                           classified.className,
                         )}
                         title={
@@ -442,7 +442,7 @@ export const DataGrid = memo(
                   className="rounded-md border border-bolt-elements-borderColor bg-bolt-elements-background-depth-1 px-1.5 py-1 text-[11px] text-bolt-elements-textSecondary focus:border-bolt-elements-item-contentAccent focus:outline-none"
                 >
                   {PAGE_SIZE_OPTIONS.map((n) => (
-                    <option key={n} value={n}>
+                    <option className="bg-[#0e0e28] text-bolt-elements-textPrimary" key={n} value={n}>
                       {n} / page
                     </option>
                   ))}
@@ -453,7 +453,7 @@ export const DataGrid = memo(
                 onClick={() => setPageIndex((i) => Math.max(0, i - 1))}
                 disabled={safePageIndex === 0}
                 aria-label="Previous page"
-                className="rounded-md border border-bolt-elements-borderColor px-2 py-1 disabled:opacity-40 enabled:hover:border-bolt-elements-item-contentAccent/60"
+                className="rounded-md border border-bolt-elements-borderColor px-2 py-1 disabled:opacity-40 enabled:hover:border-[#00e5ff99]"
               >
                 <div className="i-ph:caret-left" aria-hidden />
               </button>
@@ -465,7 +465,7 @@ export const DataGrid = memo(
                 onClick={() => setPageIndex((i) => Math.min(pageCount - 1, i + 1))}
                 disabled={safePageIndex >= pageCount - 1}
                 aria-label="Next page"
-                className="rounded-md border border-bolt-elements-borderColor px-2 py-1 disabled:opacity-40 enabled:hover:border-bolt-elements-item-contentAccent/60"
+                className="rounded-md border border-bolt-elements-borderColor px-2 py-1 disabled:opacity-40 enabled:hover:border-[#00e5ff99]"
               >
                 <div className="i-ph:caret-right" aria-hidden />
               </button>

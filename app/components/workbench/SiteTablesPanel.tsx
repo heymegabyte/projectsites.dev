@@ -1866,7 +1866,7 @@ export const SiteTablesPanel = memo(
     }).length;
 
     return (
-      <div className="h-full flex flex-col bg-bolt-elements-background-depth-1 text-bolt-elements-textPrimary">
+      <div className="h-full flex flex-col bg-bolt-elements-background-depth-1 text-bolt-elements-textPrimary [color-scheme:dark] accent-[color:var(--ps-accent,#00e5ff)]">
         <Header
           editable={selectedTable !== null && pkCols.length > 0}
           onNewTable={() => setCreateTableOpen(true)}
@@ -2026,7 +2026,7 @@ export const SiteTablesPanel = memo(
               onClick={() => void doUndo()}
               disabled={undoBusy}
               data-testid="sitedb-undo-button"
-              className="ml-auto min-h-[24px] text-[11px] font-semibold px-2.5 py-1 rounded border border-bolt-elements-item-contentAccent/60 bg-bolt-elements-background-depth-3 text-bolt-elements-item-contentAccent enabled:hover:opacity-90 disabled:opacity-50 disabled:cursor-not-allowed transition-opacity flex items-center gap-1 shrink-0 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-bolt-elements-item-contentAccent cursor-pointer"
+              className="ml-auto min-h-[24px] text-[11px] font-semibold px-2.5 py-1 rounded border border-[#00e5ff99] bg-bolt-elements-background-depth-3 text-bolt-elements-item-contentAccent enabled:hover:opacity-90 disabled:opacity-50 disabled:cursor-not-allowed transition-opacity flex items-center gap-1 shrink-0 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-bolt-elements-item-contentAccent cursor-pointer"
             >
               <div className={undoBusy ? 'i-ph:circle-notch animate-spin' : 'i-ph:arrow-counter-clockwise'} />
               <span className="min-w-[4ch] text-center">{undoBusy ? 'Undoing…' : 'Undo'}</span>
@@ -2175,7 +2175,7 @@ const Header = memo(
               aria-expanded={open}
               data-testid="sitedb-actions"
               title="Table actions"
-              className="min-h-[24px] text-[11px] font-semibold px-2.5 py-1 rounded-md border border-bolt-elements-item-contentAccent/50 bg-bolt-elements-item-backgroundAccent/10 text-bolt-elements-item-contentAccent hover:bg-bolt-elements-item-backgroundAccent/20 transition-colors motion-reduce:transition-none flex items-center gap-1.5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-bolt-elements-item-contentAccent cursor-pointer"
+              className="min-h-[24px] text-[11px] font-semibold px-2.5 py-1 rounded-md border border-[#00e5ff80] bg-bolt-elements-item-backgroundAccent/10 text-bolt-elements-item-contentAccent hover:bg-bolt-elements-item-backgroundAccent/20 transition-colors motion-reduce:transition-none flex items-center gap-1.5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-bolt-elements-item-contentAccent cursor-pointer"
             >
               <div className="i-ph:lightning-duotone text-sm shrink-0" aria-hidden />
               Actions
@@ -2326,7 +2326,7 @@ const EmptyLaunchpad = memo(
       <div className="flex-1 overflow-auto modern-scrollbar" data-testid="sitedb-empty">
         <div className="min-h-full flex flex-col items-center justify-center gap-6 p-8 text-center">
           <div className="flex flex-col items-center gap-3">
-            <div className="relative flex items-center justify-center h-16 w-16 rounded-2xl border border-bolt-elements-item-contentAccent/30 bg-bolt-elements-item-contentAccent/[0.08]">
+            <div className="relative flex items-center justify-center h-16 w-16 rounded-2xl border border-[#00e5ff4c] bg-[#00e5ff14]">
               <div className="i-ph:database-duotone text-3xl text-bolt-elements-item-contentAccent" aria-hidden />
               <div
                 aria-hidden="true"
@@ -2363,17 +2363,17 @@ const EmptyLaunchpad = memo(
                   className={classNames(
                     'group relative overflow-hidden rounded-xl border p-4 text-left flex flex-col gap-2 transition-all duration-150 motion-reduce:transition-none',
                     'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-offset-bolt-elements-background-depth-1 focus-visible:ring-bolt-elements-item-contentAccent',
-                    'enabled:hover:-translate-y-0.5 motion-reduce:enabled:hover:translate-y-0 enabled:hover:shadow-lg enabled:hover:shadow-bolt-elements-item-contentAccent/5',
+                    'enabled:hover:-translate-y-0.5 motion-reduce:enabled:hover:translate-y-0 enabled:hover:shadow-lg enabled:hover:shadow-[#00e5ff0d]',
                     disabled ? 'opacity-60 cursor-not-allowed' : 'cursor-pointer',
                     tile.primary
-                      ? 'border-bolt-elements-item-contentAccent/50 bg-bolt-elements-item-contentAccent/[0.06] enabled:hover:border-bolt-elements-item-contentAccent/70'
-                      : 'border-bolt-elements-borderColor bg-bolt-elements-background-depth-2 enabled:hover:border-bolt-elements-item-contentAccent/40 enabled:hover:bg-bolt-elements-background-depth-3',
+                      ? 'border-[#00e5ff80] bg-[#00e5ff0f] enabled:hover:border-[#00e5ffb2]'
+                      : 'border-bolt-elements-borderColor bg-bolt-elements-background-depth-2 enabled:hover:border-[#00e5ff66] enabled:hover:bg-bolt-elements-background-depth-3',
                   )}
                 >
                   {tile.primary && (
                     <span
                       aria-hidden="true"
-                      className="absolute left-0 top-0 bottom-0 w-0.5 bg-bolt-elements-item-contentAccent/70"
+                      className="absolute left-0 top-0 bottom-0 w-0.5 bg-[#00e5ffb2]"
                     />
                   )}
                   <div className="flex items-center gap-2.5">
@@ -2381,7 +2381,7 @@ const EmptyLaunchpad = memo(
                       className={classNames(
                         'flex items-center justify-center h-9 w-9 rounded-xl shrink-0',
                         tile.primary
-                          ? 'border border-bolt-elements-item-contentAccent/30 bg-bolt-elements-item-contentAccent/[0.1]'
+                          ? 'border border-[#00e5ff4c] bg-[#00e5ff1a]'
                           : 'border border-bolt-elements-borderColor/60 bg-bolt-elements-background-depth-1',
                       )}
                       aria-hidden="true"
@@ -2455,7 +2455,7 @@ function highlightSnippet(snippet: string, query: string): React.ReactNode {
   return (
     <>
       {snippet.slice(0, idx)}
-      <mark className="bg-bolt-elements-item-contentAccent/25 text-bolt-elements-item-contentAccent rounded-sm px-0.5">
+      <mark className="bg-[#00e5ff40] text-bolt-elements-item-contentAccent rounded-sm px-0.5">
         {snippet.slice(idx, idx + q.length)}
       </mark>
       {snippet.slice(idx + q.length)}
@@ -2602,7 +2602,7 @@ const TableSearch = memo(({ onOpen }: { onOpen: (name: string) => void }) => {
   return (
     <div className="relative">
       {expanded ? (
-        <div className="flex items-center gap-1 rounded border border-bolt-elements-item-contentAccent/50 bg-bolt-elements-background-depth-2 pl-2 pr-1 transition-[width] duration-150 motion-reduce:transition-none">
+        <div className="flex items-center gap-1 rounded border border-[#00e5ff80] bg-bolt-elements-background-depth-2 pl-2 pr-1 transition-[width] duration-150 motion-reduce:transition-none">
           <div className="i-ph:magnifying-glass text-[12px] text-bolt-elements-item-contentAccent shrink-0" aria-hidden />
           <input
             ref={inputRef}
@@ -2634,7 +2634,7 @@ const TableSearch = memo(({ onOpen }: { onOpen: (name: string) => void }) => {
           data-testid="sitedb-search-open"
           title="Search tables & data"
           aria-label="Search tables and data"
-          className="min-h-[24px] text-[11px] font-medium px-2 py-0.5 rounded border border-bolt-elements-borderColor bg-bolt-elements-background-depth-2 text-bolt-elements-textSecondary hover:text-bolt-elements-item-contentAccent hover:border-bolt-elements-item-contentAccent/50 transition-colors flex items-center gap-1 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-bolt-elements-item-contentAccent cursor-pointer"
+          className="min-h-[24px] text-[11px] font-medium px-2 py-0.5 rounded border border-bolt-elements-borderColor bg-bolt-elements-background-depth-2 text-bolt-elements-textSecondary hover:text-bolt-elements-item-contentAccent hover:border-[#00e5ff80] transition-colors flex items-center gap-1 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-bolt-elements-item-contentAccent cursor-pointer"
         >
           <div className="i-ph:magnifying-glass" /> <span>Search</span>
         </button>
@@ -2643,7 +2643,7 @@ const TableSearch = memo(({ onOpen }: { onOpen: (name: string) => void }) => {
       {showPanel && (
         <div
           data-testid="sitedb-search-results"
-          className="absolute right-0 top-[calc(100%+6px)] z-20 w-[min(88vw,22rem)] max-h-[60vh] overflow-auto modern-scrollbar rounded-lg border border-bolt-elements-item-contentAccent/30 bg-[#060610] shadow-xl shadow-black/40"
+          className="absolute right-0 top-[calc(100%+6px)] z-20 w-[min(88vw,22rem)] max-h-[60vh] overflow-auto modern-scrollbar rounded-lg border border-[#00e5ff4c] bg-[#060610] shadow-xl shadow-black/40"
           style={{ boxShadow: '0 12px 40px rgba(0,0,0,0.5), 0 0 0 1px color-mix(in oklch, #00e5ff 12%, transparent)' }}
         >
           {phase.status === 'searching' && (
@@ -2710,7 +2710,7 @@ const TableSearch = memo(({ onOpen }: { onOpen: (name: string) => void }) => {
                         onMouseDown={(e) => e.preventDefault()}
                         onClick={() => onOpen(m.table)}
                         data-testid="sitedb-search-content-row"
-                        className="group w-full flex flex-col gap-0.5 px-3 py-1.5 text-left border-l-2 border-bolt-elements-item-contentAccent/40 hover:border-bolt-elements-item-contentAccent hover:bg-bolt-elements-item-backgroundAccent/[0.06] transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-bolt-elements-item-contentAccent cursor-pointer"
+                        className="group w-full flex flex-col gap-0.5 px-3 py-1.5 text-left border-l-2 border-[#00e5ff66] hover:border-bolt-elements-item-contentAccent hover:bg-bolt-elements-item-backgroundAccent/[0.06] transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-bolt-elements-item-contentAccent cursor-pointer"
                       >
                         <span className="flex items-center gap-1.5 text-[11px] text-bolt-elements-item-contentAccent font-mono">
                           <span aria-hidden>🔎</span>
@@ -2901,7 +2901,7 @@ const SelectChips = memo(({ value }: { value: unknown }) => {
       {items.map((it, i) => (
         <span
           key={`${it}-${i}`}
-          className="inline-flex items-center rounded-full px-1.5 py-px text-[10px] bg-bolt-elements-item-backgroundAccent/15 text-bolt-elements-item-contentAccent border border-bolt-elements-item-contentAccent/25"
+          className="inline-flex items-center rounded-full px-1.5 py-px text-[10px] bg-bolt-elements-item-backgroundAccent/15 text-bolt-elements-item-contentAccent border border-[#00e5ff40]"
         >
           {it}
         </span>
@@ -2956,7 +2956,7 @@ function CellValue({
         className={classNames(
           'inline-flex items-center justify-center h-4 w-4 rounded border transition-colors',
           on
-            ? 'bg-bolt-elements-item-contentAccent/80 border-bolt-elements-item-contentAccent text-bolt-elements-background-depth-1'
+            ? 'bg-[#00e5ffcc] border-bolt-elements-item-contentAccent text-bolt-elements-background-depth-1'
             : 'border-bolt-elements-borderColor text-transparent',
           editable ? 'cursor-pointer hover:border-bolt-elements-item-contentAccent' : '',
         )}
@@ -3225,7 +3225,7 @@ const BrowseView = memo((props: BrowseViewProps) => {
             placeholder="Search rows…"
             data-testid="sitedb-search"
             aria-label="Search rows"
-            className="min-h-[24px] w-[150px] rounded border border-bolt-elements-borderColor bg-bolt-elements-background-depth-2 pl-6 pr-2 py-1 text-[11px] text-bolt-elements-textPrimary placeholder:text-bolt-elements-textTertiary focus:outline-none focus:border-bolt-elements-item-contentAccent/50 focus:ring-1 focus:ring-bolt-elements-item-contentAccent transition-colors motion-reduce:transition-none"
+            className="min-h-[24px] w-[150px] rounded border border-bolt-elements-borderColor bg-bolt-elements-background-depth-2 pl-6 pr-2 py-1 text-[11px] text-bolt-elements-textPrimary placeholder:text-bolt-elements-textTertiary focus:outline-none focus:border-[#00e5ff80] focus:ring-1 focus:ring-bolt-elements-item-contentAccent transition-colors motion-reduce:transition-none"
           />
         </div>
 
@@ -3308,7 +3308,7 @@ const BrowseView = memo((props: BrowseViewProps) => {
               disabled={addingRow}
               data-testid="sitedb-add-row"
               title="Add a new row"
-              className="min-h-[24px] text-[11px] font-semibold px-2 py-1 rounded border border-bolt-elements-item-contentAccent/50 bg-bolt-elements-item-backgroundAccent/10 text-bolt-elements-item-contentAccent enabled:hover:bg-bolt-elements-item-backgroundAccent/20 disabled:opacity-50 transition-colors flex items-center gap-1 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-bolt-elements-item-contentAccent cursor-pointer"
+              className="min-h-[24px] text-[11px] font-semibold px-2 py-1 rounded border border-[#00e5ff80] bg-bolt-elements-item-backgroundAccent/10 text-bolt-elements-item-contentAccent enabled:hover:bg-bolt-elements-item-backgroundAccent/20 disabled:opacity-50 transition-colors flex items-center gap-1 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-bolt-elements-item-contentAccent cursor-pointer"
             >
               <div className={addingRow ? 'i-ph:circle-notch animate-spin' : 'i-ph:plus'} />
               <span className="min-w-[6ch] text-center">{addingRow ? 'Adding…' : 'New row'}</span>
@@ -3411,7 +3411,7 @@ const BrowseView = memo((props: BrowseViewProps) => {
                   <button
                     type="button"
                     onClick={onAddRow}
-                    className="min-h-[24px] mt-1 text-[11px] font-medium px-3 py-1.5 rounded border border-bolt-elements-item-contentAccent/50 bg-bolt-elements-item-backgroundAccent/10 text-bolt-elements-item-contentAccent hover:bg-bolt-elements-item-backgroundAccent/20 transition-colors flex items-center gap-1 cursor-pointer"
+                    className="min-h-[24px] mt-1 text-[11px] font-medium px-3 py-1.5 rounded border border-[#00e5ff80] bg-bolt-elements-item-backgroundAccent/10 text-bolt-elements-item-contentAccent hover:bg-bolt-elements-item-backgroundAccent/20 transition-colors flex items-center gap-1 cursor-pointer"
                   >
                     <div className="i-ph:plus" /> Add the first row
                   </button>
@@ -3596,7 +3596,7 @@ const BrowseView = memo((props: BrowseViewProps) => {
                   className="min-h-[24px] rounded border border-bolt-elements-borderColor bg-bolt-elements-background-depth-2 px-1.5 py-0.5 text-[11px] text-bolt-elements-textPrimary focus:outline-none cursor-pointer"
                 >
                   {PAGE_SIZE_OPTIONS.map((n) => (
-                    <option key={n} value={n}>
+                    <option className="bg-[#0e0e28] text-bolt-elements-textPrimary" key={n} value={n}>
                       {n} / page
                     </option>
                   ))}
@@ -3666,16 +3666,16 @@ const ToolbarButton = memo(
       className={classNames(
         'min-h-[24px] text-[11px] font-medium px-2 py-1 rounded border transition-colors flex items-center gap-1 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-bolt-elements-item-contentAccent cursor-pointer',
         active
-          ? 'border-bolt-elements-item-contentAccent/60 bg-bolt-elements-item-backgroundAccent/15 text-bolt-elements-item-contentAccent'
+          ? 'border-[#00e5ff99] bg-bolt-elements-item-backgroundAccent/15 text-bolt-elements-item-contentAccent'
           : accent
-            ? 'border-bolt-elements-item-contentAccent/40 bg-bolt-elements-item-backgroundAccent/[0.06] text-bolt-elements-item-contentAccent hover:bg-bolt-elements-item-backgroundAccent/15'
+            ? 'border-[#00e5ff66] bg-bolt-elements-item-backgroundAccent/[0.06] text-bolt-elements-item-contentAccent hover:bg-bolt-elements-item-backgroundAccent/15'
             : 'border-bolt-elements-borderColor bg-bolt-elements-background-depth-2 text-bolt-elements-textSecondary hover:text-bolt-elements-textPrimary hover:bg-bolt-elements-background-depth-3',
       )}
     >
       <div className={classNames(icon, 'text-[13px]')} />
       <span>{label}</span>
       {badge && (
-        <span className="ml-0.5 rounded-full bg-bolt-elements-item-contentAccent/25 px-1 text-[9px] text-bolt-elements-item-contentAccent">
+        <span className="ml-0.5 rounded-full bg-[#00e5ff40] px-1 text-[9px] text-bolt-elements-item-contentAccent">
           {badge}
         </span>
       )}
@@ -3842,8 +3842,8 @@ const FilterBar = memo(
                 data-testid="sitedb-filter-combinator"
                 className="w-[54px] shrink-0 min-h-[24px] rounded border border-bolt-elements-borderColor bg-bolt-elements-background-depth-2 px-1 py-0.5 text-[10px] text-bolt-elements-textPrimary focus:outline-none cursor-pointer"
               >
-                <option value="AND">And</option>
-                <option value="OR">Or</option>
+                <option className="bg-[#0e0e28] text-bolt-elements-textPrimary" value="AND">And</option>
+                <option className="bg-[#0e0e28] text-bolt-elements-textPrimary" value="OR">Or</option>
               </select>
             )}
             <select
@@ -3853,9 +3853,9 @@ const FilterBar = memo(
               data-testid="sitedb-filter-col"
               className="min-h-[24px] max-w-[140px] rounded border border-bolt-elements-borderColor bg-bolt-elements-background-depth-2 px-1.5 py-0.5 text-[11px] text-bolt-elements-textPrimary focus:outline-none cursor-pointer"
             >
-              <option value="">column…</option>
+              <option className="bg-[#0e0e28] text-bolt-elements-textPrimary" value="">column…</option>
               {columns.map((col) => (
-                <option key={col.name} value={col.name}>
+                <option className="bg-[#0e0e28] text-bolt-elements-textPrimary" key={col.name} value={col.name}>
                   {col.name}
                 </option>
               ))}
@@ -3868,7 +3868,7 @@ const FilterBar = memo(
               className="min-h-[24px] rounded border border-bolt-elements-borderColor bg-bolt-elements-background-depth-2 px-1.5 py-0.5 text-[11px] text-bolt-elements-textPrimary focus:outline-none cursor-pointer"
             >
               {FILTER_OP_OPTIONS.map((o) => (
-                <option key={o.value} value={o.value}>
+                <option className="bg-[#0e0e28] text-bolt-elements-textPrimary" key={o.value} value={o.value}>
                   {o.label}
                 </option>
               ))}
@@ -3999,7 +3999,7 @@ const AiPanel = memo(
               className="min-h-[24px] max-w-[140px] rounded border border-bolt-elements-borderColor bg-bolt-elements-background-depth-2 px-1.5 py-0.5 text-[11px] text-bolt-elements-textPrimary focus:outline-none cursor-pointer"
             >
               {columns.map((c) => (
-                <option key={c.name} value={c.name}>
+                <option className="bg-[#0e0e28] text-bolt-elements-textPrimary" key={c.name} value={c.name}>
                   {c.name}
                 </option>
               ))}
@@ -4025,7 +4025,7 @@ const AiPanel = memo(
             onClick={submit}
             disabled={isBusy}
             data-testid="sitedb-ai-submit"
-            className="min-h-[24px] text-[11px] font-semibold px-2.5 py-1 rounded border border-bolt-elements-item-contentAccent/50 bg-bolt-elements-item-backgroundAccent/15 text-bolt-elements-item-contentAccent enabled:hover:bg-bolt-elements-item-backgroundAccent/25 disabled:opacity-50 transition-colors flex items-center gap-1 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-bolt-elements-item-contentAccent cursor-pointer"
+            className="min-h-[24px] text-[11px] font-semibold px-2.5 py-1 rounded border border-[#00e5ff80] bg-bolt-elements-item-backgroundAccent/15 text-bolt-elements-item-contentAccent enabled:hover:bg-bolt-elements-item-backgroundAccent/25 disabled:opacity-50 transition-colors flex items-center gap-1 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-bolt-elements-item-contentAccent cursor-pointer"
           >
             <div className={isBusy ? 'i-ph:circle-notch animate-spin' : 'i-ph:sparkle'} />
             <span className="min-w-[5ch] text-center">{isBusy ? 'Working…' : 'Apply'}</span>
@@ -4211,7 +4211,7 @@ const ColumnHeaderMenu = memo(
                     onClick={() => void submitRename()}
                     disabled={!renameValid || busy}
                     data-testid={`sitedb-col-rename-save-${column.name}`}
-                    className="min-h-[24px] flex-1 text-[11px] font-semibold px-2 py-1 rounded border border-bolt-elements-item-contentAccent/50 bg-bolt-elements-item-backgroundAccent/15 text-bolt-elements-item-contentAccent enabled:hover:bg-bolt-elements-item-backgroundAccent/25 disabled:opacity-50 transition-colors flex items-center justify-center gap-1 cursor-pointer"
+                    className="min-h-[24px] flex-1 text-[11px] font-semibold px-2 py-1 rounded border border-[#00e5ff80] bg-bolt-elements-item-backgroundAccent/15 text-bolt-elements-item-contentAccent enabled:hover:bg-bolt-elements-item-backgroundAccent/25 disabled:opacity-50 transition-colors flex items-center justify-center gap-1 cursor-pointer"
                   >
                     <div className={busy ? 'i-ph:circle-notch animate-spin' : 'i-ph:check'} /> Save
                   </button>
@@ -4342,7 +4342,7 @@ const AddColumnForm = memo(
             className="min-h-[24px] rounded border border-bolt-elements-borderColor bg-bolt-elements-background-depth-2 px-1.5 py-0.5 text-[11px] text-bolt-elements-textPrimary focus:outline-none cursor-pointer"
           >
             {FIELD_KIND_OPTIONS.map((o) => (
-              <option key={o.value} value={o.value}>
+              <option className="bg-[#0e0e28] text-bolt-elements-textPrimary" key={o.value} value={o.value}>
                 {o.label}
               </option>
             ))}
@@ -4352,7 +4352,7 @@ const AddColumnForm = memo(
             onClick={() => void submit()}
             disabled={busy || !identValid}
             data-testid="sitedb-add-column-submit"
-            className="min-h-[24px] text-[11px] font-semibold px-2.5 py-1 rounded border border-bolt-elements-item-contentAccent/50 bg-bolt-elements-item-backgroundAccent/15 text-bolt-elements-item-contentAccent enabled:hover:bg-bolt-elements-item-backgroundAccent/25 disabled:opacity-50 transition-colors flex items-center gap-1 cursor-pointer"
+            className="min-h-[24px] text-[11px] font-semibold px-2.5 py-1 rounded border border-[#00e5ff80] bg-bolt-elements-item-backgroundAccent/15 text-bolt-elements-item-contentAccent enabled:hover:bg-bolt-elements-item-backgroundAccent/25 disabled:opacity-50 transition-colors flex items-center gap-1 cursor-pointer"
           >
             <div className={busy ? 'i-ph:circle-notch animate-spin' : 'i-ph:check'} /> Add
           </button>
@@ -4545,7 +4545,7 @@ const CreateTableModal = memo(
                         className="min-h-[24px] rounded border border-bolt-elements-borderColor bg-bolt-elements-background-depth-2 px-1.5 py-0.5 text-[12px] text-bolt-elements-textPrimary focus:outline-none cursor-pointer"
                       >
                         {CREATE_COLUMN_TYPES.map((t) => (
-                          <option key={t} value={t}>
+                          <option className="bg-[#0e0e28] text-bolt-elements-textPrimary" key={t} value={t}>
                             {t}
                           </option>
                         ))}
@@ -4599,7 +4599,7 @@ const CreateTableModal = memo(
               onClick={() => void submit()}
               disabled={!canSubmit}
               data-testid="sitedb-create-table-submit"
-              className="min-h-[24px] text-[12px] font-semibold px-3 py-1.5 rounded border border-bolt-elements-item-contentAccent/50 bg-bolt-elements-item-backgroundAccent/15 text-bolt-elements-item-contentAccent enabled:hover:bg-bolt-elements-item-backgroundAccent/25 disabled:opacity-50 disabled:cursor-not-allowed transition-colors flex items-center gap-1.5 cursor-pointer"
+              className="min-h-[24px] text-[12px] font-semibold px-3 py-1.5 rounded border border-[#00e5ff80] bg-bolt-elements-item-backgroundAccent/15 text-bolt-elements-item-contentAccent enabled:hover:bg-bolt-elements-item-backgroundAccent/25 disabled:opacity-50 disabled:cursor-not-allowed transition-colors flex items-center gap-1.5 cursor-pointer"
             >
               <div className={busy ? 'i-ph:circle-notch animate-spin' : 'i-ph:check'} />
               <span className="min-w-[9ch] text-center">{busy ? 'Creating…' : 'Create table'}</span>
@@ -4919,7 +4919,7 @@ const GalleryView = memo(
                 type="button"
                 onClick={() => onRowClick(row)}
                 data-testid="sitedb-gallery-card"
-                className="group/card relative overflow-hidden text-left rounded-xl border border-bolt-elements-borderColor bg-bolt-elements-background-depth-2 p-3 hover:border-bolt-elements-item-contentAccent/40 hover:bg-bolt-elements-background-depth-3 hover:shadow-lg hover:shadow-bolt-elements-item-contentAccent/5 hover:-translate-y-0.5 motion-reduce:hover:translate-y-0 transition-all duration-150 motion-reduce:transition-none focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-bolt-elements-item-contentAccent cursor-pointer flex flex-col gap-1.5"
+                className="group/card relative overflow-hidden text-left rounded-xl border border-bolt-elements-borderColor bg-bolt-elements-background-depth-2 p-3 hover:border-[#00e5ff66] hover:bg-bolt-elements-background-depth-3 hover:shadow-lg hover:shadow-[#00e5ff0d] hover:-translate-y-0.5 motion-reduce:hover:translate-y-0 transition-all duration-150 motion-reduce:transition-none focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-bolt-elements-item-contentAccent cursor-pointer flex flex-col gap-1.5"
               >
                 <span
                   aria-hidden="true"

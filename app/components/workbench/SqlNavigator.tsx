@@ -631,11 +631,11 @@ export const SqlNavigator = memo(() => {
   }, []);
 
   return (
-    <div className="h-full flex flex-col bg-bolt-elements-background-depth-1" data-testid="database-sql">
+    <div className="h-full flex flex-col bg-bolt-elements-background-depth-1 [color-scheme:dark] accent-[color:var(--ps-accent,#00e5ff)]" data-testid="database-sql">
       {/* ── Toolbar: starters · templates · history · saved · save-as ── */}
       <div className="p-3 border-b border-bolt-elements-borderColor/60 space-y-2 shrink-0 bg-bolt-elements-background-depth-2/40 backdrop-blur-sm">
         <div className="flex items-center gap-2">
-          <div className="flex items-center justify-center h-8 w-8 rounded-lg border border-bolt-elements-item-contentAccent/30 bg-bolt-elements-item-contentAccent/[0.08] shrink-0">
+          <div className="flex items-center justify-center h-8 w-8 rounded-lg border border-[#00e5ff4c] bg-[#00e5ff14] shrink-0">
             <div className="i-ph:terminal-window-duotone text-base text-bolt-elements-item-contentAccent" aria-hidden />
           </div>
           <div className="min-w-0">
@@ -657,7 +657,7 @@ export const SqlNavigator = memo(() => {
                 void runQuery(s.query, false, false);
               }}
               data-testid="database-sql-starter"
-              className="min-h-[24px] text-[10px] rounded-full px-2.5 py-0.5 border border-bolt-elements-borderColor text-bolt-elements-textSecondary hover:border-bolt-elements-item-contentAccent/40 hover:text-bolt-elements-textPrimary transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-bolt-elements-item-contentAccent cursor-pointer"
+              className="min-h-[24px] text-[10px] rounded-full px-2.5 py-0.5 border border-bolt-elements-borderColor text-bolt-elements-textSecondary hover:border-[#00e5ff66] hover:text-bolt-elements-textPrimary transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-bolt-elements-item-contentAccent cursor-pointer"
             >
               {s.label}
             </button>
@@ -668,7 +668,7 @@ export const SqlNavigator = memo(() => {
             onClick={() => setSql(NEW_TABLE_TEMPLATE)}
             data-testid="database-sql-new-table"
             title="Drop a CREATE TABLE template into the editor — edit the name + columns, then Run"
-            className="min-h-[24px] text-[10px] rounded-full px-2.5 py-0.5 border border-bolt-elements-item-contentAccent/40 text-bolt-elements-item-contentAccent hover:bg-bolt-elements-item-contentAccent/10 transition-colors flex items-center gap-1 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-bolt-elements-item-contentAccent cursor-pointer"
+            className="min-h-[24px] text-[10px] rounded-full px-2.5 py-0.5 border border-[#00e5ff66] text-bolt-elements-item-contentAccent hover:bg-[#00e5ff1a] transition-colors flex items-center gap-1 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-bolt-elements-item-contentAccent cursor-pointer"
           >
             <div className="i-ph:plus" /> New table
           </button>
@@ -684,8 +684,8 @@ export const SqlNavigator = memo(() => {
             className={classNames(
               'min-h-[24px] text-[10px] rounded-full px-2.5 py-0.5 border flex items-center gap-1 transition-colors motion-reduce:transition-none focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-bolt-elements-item-contentAccent cursor-pointer',
               askOpen
-                ? 'border-bolt-elements-item-contentAccent/60 bg-bolt-elements-item-contentAccent/15 text-bolt-elements-item-contentAccent shadow-[0_0_0_1px_rgba(0,229,255,0.15),0_2px_12px_-4px_rgba(0,229,255,0.4)]'
-                : 'border-bolt-elements-item-contentAccent/40 text-bolt-elements-item-contentAccent hover:bg-bolt-elements-item-contentAccent/10',
+                ? 'border-[#00e5ff99] bg-[#00e5ff26] text-bolt-elements-item-contentAccent shadow-[0_0_0_1px_rgba(0,229,255,0.15),0_2px_12px_-4px_rgba(0,229,255,0.4)]'
+                : 'border-[#00e5ff66] text-bolt-elements-item-contentAccent hover:bg-[#00e5ff1a]',
             )}
           >
             <div className="i-ph:sparkle" /> Ask AI
@@ -697,7 +697,7 @@ export const SqlNavigator = memo(() => {
               data-testid="database-sql-history-toggle"
               aria-expanded={historyOpen}
               title="Recent queries you have run (this browser)"
-              className="min-h-[24px] text-[10px] rounded-full px-2.5 py-0.5 border border-bolt-elements-borderColor text-bolt-elements-textSecondary hover:border-bolt-elements-item-contentAccent/40 hover:text-bolt-elements-textPrimary transition-colors flex items-center gap-1 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-bolt-elements-item-contentAccent cursor-pointer"
+              className="min-h-[24px] text-[10px] rounded-full px-2.5 py-0.5 border border-bolt-elements-borderColor text-bolt-elements-textSecondary hover:border-[#00e5ff66] hover:text-bolt-elements-textPrimary transition-colors flex items-center gap-1 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-bolt-elements-item-contentAccent cursor-pointer"
             >
               <div className="i-ph:clock-counter-clockwise" /> History ({history.length})
             </button>
@@ -709,7 +709,7 @@ export const SqlNavigator = memo(() => {
               data-testid="database-sql-saved-toggle"
               aria-expanded={savedOpen}
               title="Your saved queries (this browser) — click to recall into the editor"
-              className="min-h-[24px] text-[10px] rounded-full px-2.5 py-0.5 border border-bolt-elements-borderColor text-bolt-elements-textSecondary hover:border-bolt-elements-item-contentAccent/40 hover:text-bolt-elements-textPrimary transition-colors flex items-center gap-1 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-bolt-elements-item-contentAccent cursor-pointer"
+              className="min-h-[24px] text-[10px] rounded-full px-2.5 py-0.5 border border-bolt-elements-borderColor text-bolt-elements-textSecondary hover:border-[#00e5ff66] hover:text-bolt-elements-textPrimary transition-colors flex items-center gap-1 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-bolt-elements-item-contentAccent cursor-pointer"
             >
               <div className="i-ph:bookmark-simple" /> Saved ({saved.length})
             </button>
@@ -728,7 +728,7 @@ export const SqlNavigator = memo(() => {
               placeholder="Name…"
               data-testid="database-sql-save-name"
               aria-label="Name to save the current query under"
-              className="w-24 min-h-[24px] rounded-full bg-bolt-elements-background-depth-2 border border-bolt-elements-borderColor px-2.5 py-0.5 text-[10px] text-bolt-elements-textPrimary placeholder:text-bolt-elements-textTertiary focus:outline-none focus:border-bolt-elements-item-contentAccent/50"
+              className="w-24 min-h-[24px] rounded-full bg-bolt-elements-background-depth-2 border border-bolt-elements-borderColor px-2.5 py-0.5 text-[10px] text-bolt-elements-textPrimary placeholder:text-bolt-elements-textTertiary focus:outline-none focus:border-[#00e5ff80]"
             />
             <button
               type="button"
@@ -740,7 +740,7 @@ export const SqlNavigator = memo(() => {
                 'min-h-[24px] text-[10px] rounded-full px-2.5 py-0.5 border flex items-center gap-1 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-bolt-elements-item-contentAccent',
                 !saveName.trim() || !sql.trim()
                   ? 'border-bolt-elements-borderColor text-bolt-elements-textTertiary cursor-not-allowed'
-                  : 'border-bolt-elements-item-contentAccent/40 text-bolt-elements-item-contentAccent hover:bg-bolt-elements-item-contentAccent/10 cursor-pointer',
+                  : 'border-[#00e5ff66] text-bolt-elements-item-contentAccent hover:bg-[#00e5ff1a] cursor-pointer',
               )}
             >
               <div className="i-ph:bookmark-simple" /> Save
@@ -806,7 +806,7 @@ export const SqlNavigator = memo(() => {
         {askOpen && (
           <div
             data-testid="database-sql-ask"
-            className="rounded-md border border-bolt-elements-item-contentAccent/30 bg-bolt-elements-item-contentAccent/[0.05] p-2.5 space-y-2 motion-safe:animate-[fadeIn_140ms_ease-out]"
+            className="rounded-md border border-[#00e5ff4c] bg-[#00e5ff0d] p-2.5 space-y-2 motion-safe:animate-[fadeIn_140ms_ease-out]"
           >
             <div className="flex items-center gap-1.5 text-[11px] font-medium text-bolt-elements-textSecondary">
               <div className="i-ph:sparkle-duotone text-bolt-elements-item-contentAccent" aria-hidden /> Ask your
@@ -827,7 +827,7 @@ export const SqlNavigator = memo(() => {
                 data-testid="database-sql-ask-input"
                 aria-label="Ask a question about your database in plain English"
                 spellCheck={false}
-                className="min-w-0 flex-1 rounded border border-bolt-elements-borderColor bg-bolt-elements-background-depth-2 px-2.5 py-1 text-[12px] text-bolt-elements-textPrimary placeholder:text-bolt-elements-textTertiary focus:outline-none focus:border-bolt-elements-item-contentAccent/50 focus:ring-1 focus:ring-bolt-elements-item-contentAccent/40 transition-colors"
+                className="min-w-0 flex-1 rounded border border-bolt-elements-borderColor bg-bolt-elements-background-depth-2 px-2.5 py-1 text-[12px] text-bolt-elements-textPrimary placeholder:text-bolt-elements-textTertiary focus:outline-none focus:border-[#00e5ff80] focus:ring-1 focus:ring-[#00e5ff66] transition-colors"
               />
               <button
                 type="button"
@@ -838,7 +838,7 @@ export const SqlNavigator = memo(() => {
                   'min-h-[24px] flex shrink-0 items-center gap-1 rounded px-2.5 py-1 text-[11px] font-semibold transition-colors motion-reduce:transition-none focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-bolt-elements-item-contentAccent',
                   askBusy || !askQuestion.trim()
                     ? 'cursor-not-allowed bg-bolt-elements-background-depth-3 text-bolt-elements-textTertiary opacity-60'
-                    : 'cursor-pointer bg-bolt-elements-item-contentAccent/15 text-bolt-elements-item-contentAccent hover:bg-bolt-elements-item-contentAccent/25',
+                    : 'cursor-pointer bg-[#00e5ff26] text-bolt-elements-item-contentAccent hover:bg-[#00e5ff40]',
                 )}
               >
                 <div className={askBusy ? 'i-ph:circle-notch animate-spin' : 'i-ph:arrow-right'} />
@@ -863,7 +863,7 @@ export const SqlNavigator = memo(() => {
 
         {askNote && (
           <div
-            className="flex items-center gap-2 rounded-md border border-bolt-elements-item-contentAccent/30 bg-bolt-elements-item-contentAccent/[0.07] px-2.5 py-1.5 text-[11px] text-bolt-elements-textSecondary motion-safe:animate-[fadeIn_160ms_ease-out]"
+            className="flex items-center gap-2 rounded-md border border-[#00e5ff4c] bg-[#00e5ff12] px-2.5 py-1.5 text-[11px] text-bolt-elements-textSecondary motion-safe:animate-[fadeIn_160ms_ease-out]"
             data-testid="database-sql-ask-note"
             role="status"
           >
@@ -911,7 +911,7 @@ export const SqlNavigator = memo(() => {
             disabled={state.status === 'running' || !sql.trim()}
             data-testid="database-sql-limit"
             title={`Preview safely — run the current query capped at the first ${DEFAULT_ROW_LIMIT} rows (a bare SELECT gets LIMIT ${DEFAULT_ROW_LIMIT}; an already-bounded query runs unchanged)`}
-            className="min-h-[24px] text-[11px] font-medium px-3 py-1.5 rounded-lg border border-bolt-elements-item-contentAccent/40 bg-bolt-elements-item-contentAccent/10 text-bolt-elements-item-contentAccent enabled:hover:bg-bolt-elements-item-contentAccent/20 disabled:opacity-40 disabled:cursor-not-allowed transition-colors flex items-center gap-1.5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-bolt-elements-item-contentAccent cursor-pointer"
+            className="min-h-[24px] text-[11px] font-medium px-3 py-1.5 rounded-lg border border-[#00e5ff66] bg-[#00e5ff1a] text-bolt-elements-item-contentAccent enabled:hover:bg-[#00e5ff33] disabled:opacity-40 disabled:cursor-not-allowed transition-colors flex items-center gap-1.5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-bolt-elements-item-contentAccent cursor-pointer"
           >
             <div className="i-ph:rows" />
             {/* Reserve the widest label so the button never jitters (buttons-accommodate-largest-text). */}
@@ -949,7 +949,7 @@ export const SqlNavigator = memo(() => {
             className="flex flex-col items-center justify-center gap-3 p-8 text-center h-full"
             data-testid="database-sql-idle"
           >
-            <div className="flex items-center justify-center h-14 w-14 rounded-2xl border border-bolt-elements-item-contentAccent/25 bg-bolt-elements-item-contentAccent/[0.06]">
+            <div className="flex items-center justify-center h-14 w-14 rounded-2xl border border-[#00e5ff40] bg-[#00e5ff0f]">
               <div
                 className="i-ph:terminal-window-duotone text-2xl text-bolt-elements-item-contentAccent"
                 aria-hidden
@@ -1075,7 +1075,7 @@ const SqlResult = memo(
         ? 'border-emerald-500/40 bg-emerald-500/10 text-emerald-300'
         : planHint?.level === 'warn'
           ? 'border-amber-500/40 bg-amber-500/10 text-amber-200'
-          : 'border-bolt-elements-item-contentAccent/40 bg-bolt-elements-item-contentAccent/10 text-bolt-elements-item-contentAccent';
+          : 'border-[#00e5ff66] bg-[#00e5ff1a] text-bolt-elements-item-contentAccent';
 
     return (
       <div className="p-3" data-testid="database-sql-result">
