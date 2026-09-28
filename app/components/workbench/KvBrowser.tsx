@@ -664,7 +664,9 @@ export const KvBrowser = memo(() => {
                   {selectedKey}
                 </span>
                 {parsed?.isJson && (
-                  <span className="shrink-0 rounded px-1 text-[9px] font-mono uppercase text-[#00E5FF]">json</span>
+                  <span className="shrink-0 rounded px-1.5 py-0.5 text-[9px] font-mono uppercase tracking-wider border border-bolt-elements-item-contentAccent/30 bg-bolt-elements-item-contentAccent/10 text-bolt-elements-item-contentAccent">
+                    json
+                  </span>
                 )}
               </div>
               {valueLoading && (
@@ -781,7 +783,7 @@ export const KvBrowser = memo(() => {
                         checked={editClearExpiry}
                         onChange={(e) => setEditClearExpiry(e.target.checked)}
                         data-testid="database-kv-clear-expiry"
-                        className="h-3 w-3 accent-[#00e5ff]"
+                        className="h-3 w-3 accent-[color:var(--ps-accent)]"
                       />
                       Remove expiration (make permanent)
                     </label>

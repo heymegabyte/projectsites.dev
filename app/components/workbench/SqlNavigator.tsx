@@ -555,9 +555,11 @@ export const SqlNavigator = memo(() => {
   return (
     <div className="h-full flex flex-col bg-bolt-elements-background-depth-1" data-testid="database-sql">
       {/* ── Toolbar: starters · templates · history · saved · save-as ── */}
-      <div className="p-3 border-b border-bolt-elements-borderColor/60 space-y-2 shrink-0">
+      <div className="p-3 border-b border-bolt-elements-borderColor/60 space-y-2 shrink-0 bg-bolt-elements-background-depth-2/40 backdrop-blur-sm">
         <div className="flex items-center gap-2">
-          <div className="i-ph:terminal-window-duotone text-lg text-bolt-elements-item-contentAccent" aria-hidden />
+          <div className="flex items-center justify-center h-8 w-8 rounded-lg border border-bolt-elements-item-contentAccent/30 bg-bolt-elements-item-contentAccent/[0.08] shrink-0">
+            <div className="i-ph:terminal-window-duotone text-base text-bolt-elements-item-contentAccent" aria-hidden />
+          </div>
           <div className="min-w-0">
             <h2 className="text-sm font-semibold tracking-tight text-bolt-elements-textPrimary">SQL navigator</h2>
             <p className="text-[10px] text-bolt-elements-textTertiary truncate">
@@ -602,10 +604,10 @@ export const SqlNavigator = memo(() => {
             aria-expanded={askOpen}
             title="Ask in plain English — the AI writes the SQL from your site's own tables"
             className={classNames(
-              'min-h-[24px] text-[10px] rounded-full px-2.5 py-0.5 border flex items-center gap-1 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-bolt-elements-item-contentAccent cursor-pointer',
+              'min-h-[24px] text-[10px] rounded-full px-2.5 py-0.5 border flex items-center gap-1 transition-colors motion-reduce:transition-none focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-bolt-elements-item-contentAccent cursor-pointer',
               askOpen
-                ? 'border-[#00e5ff]/60 bg-[#00e5ff]/10 text-[#00E5FF]'
-                : 'border-[#00e5ff]/40 text-[#00E5FF] hover:bg-[#00e5ff]/10',
+                ? 'border-bolt-elements-item-contentAccent/60 bg-bolt-elements-item-contentAccent/15 text-bolt-elements-item-contentAccent shadow-[0_0_0_1px_rgba(0,229,255,0.15),0_2px_12px_-4px_rgba(0,229,255,0.4)]'
+                : 'border-bolt-elements-item-contentAccent/40 text-bolt-elements-item-contentAccent hover:bg-bolt-elements-item-contentAccent/10',
             )}
           >
             <div className="i-ph:sparkle" /> Ask AI
@@ -726,10 +728,10 @@ export const SqlNavigator = memo(() => {
         {askOpen && (
           <div
             data-testid="database-sql-ask"
-            className="rounded-md border border-[#00e5ff]/30 bg-[#00e5ff]/[0.04] p-2.5 space-y-2"
+            className="rounded-md border border-bolt-elements-item-contentAccent/30 bg-bolt-elements-item-contentAccent/[0.05] p-2.5 space-y-2 motion-safe:animate-[fadeIn_140ms_ease-out]"
           >
             <div className="flex items-center gap-1.5 text-[11px] font-medium text-bolt-elements-textSecondary">
-              <div className="i-ph:sparkle text-[#00E5FF]" /> Ask your database
+              <div className="i-ph:sparkle-duotone text-bolt-elements-item-contentAccent" aria-hidden /> Ask your database
             </div>
             <div className="flex items-center gap-1.5">
               <input
@@ -746,7 +748,7 @@ export const SqlNavigator = memo(() => {
                 data-testid="database-sql-ask-input"
                 aria-label="Ask a question about your database in plain English"
                 spellCheck={false}
-                className="min-w-0 flex-1 rounded border border-bolt-elements-borderColor bg-bolt-elements-background-depth-2 px-2.5 py-1 text-[12px] text-bolt-elements-textPrimary placeholder:text-bolt-elements-textTertiary focus:outline-none focus:border-[#00e5ff]/50"
+                className="min-w-0 flex-1 rounded border border-bolt-elements-borderColor bg-bolt-elements-background-depth-2 px-2.5 py-1 text-[12px] text-bolt-elements-textPrimary placeholder:text-bolt-elements-textTertiary focus:outline-none focus:border-bolt-elements-item-contentAccent/50 focus:ring-1 focus:ring-bolt-elements-item-contentAccent/40 transition-colors"
               />
               <button
                 type="button"
@@ -754,10 +756,10 @@ export const SqlNavigator = memo(() => {
                 disabled={askBusy || !askQuestion.trim()}
                 data-testid="database-sql-ask-submit"
                 className={classNames(
-                  'min-h-[24px] flex shrink-0 items-center gap-1 rounded px-2.5 py-1 text-[11px] font-semibold transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#00e5ff]',
+                  'min-h-[24px] flex shrink-0 items-center gap-1 rounded px-2.5 py-1 text-[11px] font-semibold transition-colors motion-reduce:transition-none focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-bolt-elements-item-contentAccent',
                   askBusy || !askQuestion.trim()
-                    ? 'cursor-not-allowed bg-bolt-elements-background-depth-3 text-bolt-elements-textTertiary'
-                    : 'cursor-pointer bg-[#00e5ff]/15 text-[#00E5FF] hover:bg-[#00e5ff]/25',
+                    ? 'cursor-not-allowed bg-bolt-elements-background-depth-3 text-bolt-elements-textTertiary opacity-60'
+                    : 'cursor-pointer bg-bolt-elements-item-contentAccent/15 text-bolt-elements-item-contentAccent hover:bg-bolt-elements-item-contentAccent/25',
                 )}
               >
                 <div className={askBusy ? 'i-ph:circle-notch animate-spin' : 'i-ph:arrow-right'} />
@@ -782,11 +784,11 @@ export const SqlNavigator = memo(() => {
 
         {askNote && (
           <div
-            className="flex items-center gap-2 rounded-md border border-[#00e5ff]/30 bg-[#00e5ff]/[0.06] px-2.5 py-1.5 text-[11px] text-bolt-elements-textSecondary"
+            className="flex items-center gap-2 rounded-md border border-bolt-elements-item-contentAccent/30 bg-bolt-elements-item-contentAccent/[0.07] px-2.5 py-1.5 text-[11px] text-bolt-elements-textSecondary motion-safe:animate-[fadeIn_160ms_ease-out]"
             data-testid="database-sql-ask-note"
             role="status"
           >
-            <div className="i-ph:check-circle text-[#00E5FF] shrink-0" />
+            <div className="i-ph:check-circle-duotone text-bolt-elements-item-contentAccent shrink-0" aria-hidden />
             <span>{askNote}</span>
           </div>
         )}
@@ -865,10 +867,12 @@ export const SqlNavigator = memo(() => {
       <div className="flex-1 overflow-auto modern-scrollbar min-h-0">
         {state.status === 'idle' && (
           <div
-            className="flex flex-col items-center justify-center gap-2 p-8 text-center h-full"
+            className="flex flex-col items-center justify-center gap-3 p-8 text-center h-full"
             data-testid="database-sql-idle"
           >
-            <div className="i-ph:terminal-window text-3xl text-bolt-elements-textTertiary" />
+            <div className="flex items-center justify-center h-14 w-14 rounded-2xl border border-bolt-elements-item-contentAccent/25 bg-bolt-elements-item-contentAccent/[0.06]">
+              <div className="i-ph:terminal-window-duotone text-2xl text-bolt-elements-item-contentAccent" aria-hidden />
+            </div>
             <p className="text-xs text-bolt-elements-textSecondary max-w-[300px]">
               Write a query and press Run. Reads return rows; writes ask you to confirm before they change data.
               Autocomplete suggests your real tables + columns as you type.
@@ -1059,14 +1063,14 @@ const SqlResult = memo(({ data, wasExplain }: { data: SqlExecData; wasExplain: b
           </p>
         </div>
       ) : (
-        <div className="overflow-auto modern-scrollbar rounded-md border border-bolt-elements-borderColor">
-          <table className="min-w-full text-xs font-mono border-collapse">
+        <div className="overflow-auto modern-scrollbar rounded-md border border-bolt-elements-borderColor shadow-[inset_0_1px_0_rgba(255,255,255,0.02)]">
+          <table className="min-w-full text-xs font-mono border-collapse tabular-nums">
             <thead>
               <tr className="bg-bolt-elements-background-depth-2">
                 {columnNames.map((name) => (
                   <th
                     key={name}
-                    className="text-left px-3 py-1.5 text-[10px] uppercase tracking-wider text-bolt-elements-textTertiary font-medium border-b border-bolt-elements-borderColor whitespace-nowrap"
+                    className="sticky top-0 z-10 text-left px-3 py-1.5 text-[10px] uppercase tracking-wider text-bolt-elements-textTertiary font-medium border-b border-bolt-elements-borderColor bg-bolt-elements-background-depth-2 whitespace-nowrap after:absolute after:inset-x-0 after:bottom-0 after:h-px after:bg-bolt-elements-item-contentAccent/25"
                   >
                     {name}
                   </th>
@@ -1075,7 +1079,10 @@ const SqlResult = memo(({ data, wasExplain }: { data: SqlExecData; wasExplain: b
             </thead>
             <tbody>
               {rows.map((row, ri) => (
-                <tr key={ri} className="hover:bg-bolt-elements-item-backgroundActive transition-colors">
+                <tr
+                  key={ri}
+                  className="odd:bg-bolt-elements-background-depth-1 even:bg-bolt-elements-background-depth-2/30 hover:bg-bolt-elements-item-backgroundAccent/10 transition-colors motion-reduce:transition-none"
+                >
                   {columnNames.map((name) => {
                     const classified = classifyCell(row[name]);
                     return (
@@ -1087,7 +1094,11 @@ const SqlResult = memo(({ data, wasExplain }: { data: SqlExecData; wasExplain: b
                         )}
                         title={classified.kind === 'null' ? 'null' : (classified.title ?? classified.display)}
                       >
-                        {classified.kind === 'null' ? '—' : classified.display}
+                        {classified.kind === 'null' ? (
+                          <span className="text-bolt-elements-textTertiary/50">—</span>
+                        ) : (
+                          classified.display
+                        )}
                       </td>
                     );
                   })}

@@ -456,11 +456,11 @@ export const ImportPanel = memo(() => {
           <div
             onDragOver={(e) => e.preventDefault()}
             onDrop={onDrop}
-            className="rounded-xl border-2 border-dashed border-bolt-elements-borderColor bg-bolt-elements-background-depth-2 p-8 text-center transition-colors hover:border-bolt-elements-item-contentAccent/60"
+            className="group/drop rounded-xl border-2 border-dashed border-bolt-elements-borderColor bg-bolt-elements-background-depth-2 p-8 text-center transition-all duration-150 motion-reduce:transition-none hover:border-bolt-elements-item-contentAccent/60 hover:bg-bolt-elements-item-contentAccent/[0.04] hover:shadow-[inset_0_0_40px_-20px_rgba(0,229,255,0.4)]"
             data-testid="import-dropzone"
           >
             <div
-              className="i-ph:file-arrow-up-duotone text-4xl text-bolt-elements-item-contentAccent mx-auto mb-3"
+              className="i-ph:file-arrow-up-duotone text-4xl text-bolt-elements-item-contentAccent mx-auto mb-3 transition-transform duration-150 motion-safe:group-hover/drop:-translate-y-0.5"
               aria-hidden
             />
             <p className="text-[13px] text-bolt-elements-textSecondary mb-1">Drag a CSV or JSON file here</p>
@@ -670,8 +670,8 @@ export const ImportPanel = memo(() => {
                 <summary className="cursor-pointer px-3 py-2 text-[11px] font-medium text-bolt-elements-textSecondary select-none">
                   Preview first {Math.min(PREVIEW_ROWS, grid.rows.length)} rows
                 </summary>
-                <div className="overflow-auto max-h-[200px] border-t border-bolt-elements-borderColor">
-                  <table className="w-full text-[11px]" data-testid="import-preview-table">
+                <div className="overflow-auto modern-scrollbar max-h-[200px] border-t border-bolt-elements-borderColor">
+                  <table className="w-full text-[11px] tabular-nums" data-testid="import-preview-table">
                     <thead>
                       <tr>
                         {mappings
@@ -679,7 +679,7 @@ export const ImportPanel = memo(() => {
                           .map((m, i) => (
                             <th
                               key={i}
-                              className="text-left px-2 py-1 font-mono text-bolt-elements-textTertiary border-b border-bolt-elements-borderColor whitespace-nowrap"
+                              className="sticky top-0 z-10 text-left px-2 py-1 font-mono text-bolt-elements-textTertiary bg-bolt-elements-background-depth-2 border-b border-bolt-elements-borderColor whitespace-nowrap after:absolute after:inset-x-0 after:bottom-0 after:h-px after:bg-bolt-elements-item-contentAccent/20"
                             >
                               {m.targetColumn}
                             </th>
@@ -688,13 +688,16 @@ export const ImportPanel = memo(() => {
                     </thead>
                     <tbody>
                       {grid.rows.slice(0, PREVIEW_ROWS).map((row, r) => (
-                        <tr key={r}>
+                        <tr
+                          key={r}
+                          className="odd:bg-transparent even:bg-bolt-elements-background-depth-1/40 hover:bg-bolt-elements-item-backgroundAccent/[0.07] transition-colors motion-reduce:transition-none"
+                        >
                           {mappings
                             .filter((m) => m.include)
                             .map((m, c) => (
                               <td
                                 key={c}
-                                className="px-2 py-1 text-bolt-elements-textSecondary border-b border-bolt-elements-borderColor/40 whitespace-nowrap max-w-[160px] truncate"
+                                className="px-2 py-1 font-mono text-bolt-elements-textSecondary border-b border-bolt-elements-borderColor/40 whitespace-nowrap max-w-[160px] truncate"
                               >
                                 {row[m.sourceIndex] ?? ''}
                               </td>
@@ -713,11 +716,16 @@ export const ImportPanel = memo(() => {
                   onClick={runImport}
                   disabled={!canImport}
                   data-testid="import-run"
-                  className="min-h-[24px] text-[13px] font-semibold px-5 py-2 rounded-lg bg-bolt-elements-item-contentAccent text-bolt-elements-background-depth-1 hover:opacity-90 transition-opacity disabled:opacity-40 disabled:cursor-not-allowed flex items-center gap-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-bolt-elements-item-contentAccent cursor-pointer"
+                  className={classNames(
+                    'min-h-[24px] text-[13px] font-semibold px-5 py-2 rounded-lg flex items-center gap-2 transition-all duration-150 motion-reduce:transition-none focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-bolt-elements-item-contentAccent',
+                    !canImport
+                      ? 'bg-bolt-elements-background-depth-3 text-bolt-elements-textTertiary border border-bolt-elements-borderColor opacity-60 cursor-not-allowed'
+                      : 'bg-bolt-elements-item-contentAccent text-bolt-elements-background-depth-1 hover:shadow-[0_4px_18px_-4px_rgba(0,229,255,0.55)] hover:-translate-y-px motion-reduce:hover:translate-y-0 cursor-pointer',
+                  )}
                 >
                   {importing ? (
                     <>
-                      <div className="i-ph:spinner animate-spin" aria-hidden /> Importing…
+                      <div className="i-ph:spinner animate-spin motion-reduce:animate-none" aria-hidden /> Importing…
                     </>
                   ) : (
                     <>

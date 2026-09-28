@@ -148,13 +148,14 @@ export function SupabaseChatAlert({ alert, clearAlert, postMessage }: Props) {
           <div className="flex gap-2">
             {showConnectButton ? (
               <button
+                type="button"
                 onClick={handleConnectClick}
                 className={classNames(
-                  `px-3 py-2 rounded-md text-sm font-medium`,
+                  `px-3 py-2 rounded-md text-sm font-medium transition-colors`,
                   'bg-[#098F5F]',
                   'hover:bg-[#0aa06c]',
-                  'focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-green-500',
-                  'text-white',
+                  'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-bolt-elements-item-contentAccent',
+                  'text-[#eafff6]',
                   'flex items-center gap-1.5',
                 )}
               >
@@ -162,14 +163,15 @@ export function SupabaseChatAlert({ alert, clearAlert, postMessage }: Props) {
               </button>
             ) : (
               <button
+                type="button"
                 onClick={() => executeSupabaseAction(content)}
                 disabled={isExecuting}
                 className={classNames(
-                  `px-3 py-2 rounded-md text-sm font-medium`,
+                  `px-3 py-2 rounded-md text-sm font-medium transition-colors`,
                   'bg-[#098F5F]',
                   'hover:bg-[#0aa06c]',
-                  'focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-green-500',
-                  'text-white',
+                  'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-bolt-elements-item-contentAccent',
+                  'text-[#eafff6]',
                   'flex items-center gap-1.5',
                   isExecuting ? 'opacity-70 cursor-not-allowed' : '',
                 )}
@@ -178,13 +180,14 @@ export function SupabaseChatAlert({ alert, clearAlert, postMessage }: Props) {
               </button>
             )}
             <button
+              type="button"
               onClick={clearAlert}
               disabled={isExecuting}
               className={classNames(
-                `px-3 py-2 rounded-md text-sm font-medium`,
+                `px-3 py-2 rounded-md text-sm font-medium transition-colors`,
                 'bg-[#503B26]',
                 'hover:bg-[#774f28]',
-                'focus:outline-none',
+                'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-bolt-elements-item-contentAccent',
                 'text-[#F79007]',
                 isExecuting ? 'opacity-70 cursor-not-allowed' : '',
               )}

@@ -389,10 +389,10 @@ export const TimeTravelPanel = memo(() => {
               <div className="i-ph:map-pin" /> Current point
             </div>
             <div
-              className="rounded-lg border border-bolt-elements-borderColor bg-bolt-elements-background-depth-2 p-3 flex items-center gap-3"
+              className="rounded-lg border border-bolt-elements-item-contentAccent/30 bg-bolt-elements-item-contentAccent/[0.05] p-3 flex items-center gap-3 shadow-[inset_2px_0_0_var(--bolt-elements-item-contentAccent)]"
               data-testid="tt-current"
             >
-              <div className="i-ph:git-commit-duotone text-lg text-bolt-elements-item-contentAccent" />
+              <div className="i-ph:git-commit-duotone text-lg text-bolt-elements-item-contentAccent shrink-0" aria-hidden />
               <div className="min-w-0">
                 <p className="text-[12px] text-bolt-elements-textPrimary font-mono truncate">
                   {shortBookmark(info.bookmark)}

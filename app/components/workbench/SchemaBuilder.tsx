@@ -454,9 +454,9 @@ export const SchemaBuilder = memo(({ initialOp = 'createTable', onApplied }: Sch
                   data-testid={`schema-op-${o.value}`}
                   aria-pressed={active}
                   className={classNames(
-                    'min-h-[24px] flex items-center gap-1.5 px-2.5 py-1 text-[11px] font-medium rounded-md transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-bolt-elements-item-contentAccent cursor-pointer',
+                    'min-h-[24px] flex items-center gap-1.5 px-2.5 py-1 text-[11px] font-medium rounded-md transition-all duration-150 motion-reduce:transition-none focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-bolt-elements-item-contentAccent cursor-pointer',
                     active
-                      ? 'bg-bolt-elements-item-contentAccent text-bolt-elements-background-depth-1'
+                      ? 'bg-bolt-elements-item-contentAccent text-bolt-elements-background-depth-1 shadow-[0_2px_10px_-2px_rgba(0,229,255,0.5)]'
                       : 'text-bolt-elements-textTertiary hover:text-bolt-elements-textPrimary hover:bg-bolt-elements-background-depth-3',
                   )}
                 >
@@ -582,7 +582,7 @@ export const SchemaBuilder = memo(({ initialOp = 'createTable', onApplied }: Sch
                         checked={indexUnique}
                         onChange={(e) => setIndexUnique(e.target.checked)}
                         data-testid="schema-index-unique"
-                        className="h-3.5 w-3.5 accent-[#00e5ff]"
+                        className="h-3.5 w-3.5 accent-[color:var(--ps-accent)]"
                       />
                       Unique index (values must not repeat)
                     </label>
@@ -614,7 +614,7 @@ export const SchemaBuilder = memo(({ initialOp = 'createTable', onApplied }: Sch
                   </div>
                 ) : (
                   <pre
-                    className="overflow-x-auto rounded-lg bg-bolt-elements-background-depth-2 border border-bolt-elements-borderColor px-3 py-2 text-[11px] font-mono text-bolt-elements-textSecondary whitespace-pre-wrap"
+                    className="overflow-x-auto modern-scrollbar rounded-lg bg-bolt-elements-background-depth-2 border border-bolt-elements-borderColor border-l-2 border-l-bolt-elements-item-contentAccent/50 px-3 py-2 text-[11px] font-mono text-bolt-elements-textSecondary whitespace-pre-wrap"
                     data-testid="schema-sql-preview"
                   >
                     {compiled.plan!.statements.map((s) => `${s.sql};`).join('\n')}
@@ -656,16 +656,21 @@ export const SchemaBuilder = memo(({ initialOp = 'createTable', onApplied }: Sch
                 disabled={!compiled.plan || applying || !destructiveGateOk}
                 data-testid="schema-apply"
                 className={classNames(
-                  'min-h-[24px] text-[13px] font-semibold px-4 py-2 rounded-lg flex items-center gap-2 transition-opacity focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-offset-bolt-elements-background-depth-1 focus-visible:ring-bolt-elements-item-contentAccent cursor-pointer',
-                  isDestructive
-                    ? 'bg-red-500 text-white enabled:hover:opacity-90'
-                    : 'bg-bolt-elements-item-contentAccent text-bolt-elements-background-depth-1 enabled:hover:opacity-90',
-                  'disabled:opacity-50 disabled:cursor-not-allowed',
+                  'min-h-[24px] text-[13px] font-semibold px-4 py-2 rounded-lg flex items-center gap-2 transition-all duration-150 motion-reduce:transition-none focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-offset-bolt-elements-background-depth-1 focus-visible:ring-bolt-elements-item-contentAccent',
+                  !compiled.plan || applying || !destructiveGateOk
+                    ? 'bg-bolt-elements-background-depth-3 text-bolt-elements-textTertiary border border-bolt-elements-borderColor opacity-60 cursor-not-allowed'
+                    : isDestructive
+                      ? 'bg-red-500 text-white hover:shadow-[0_4px_18px_-4px_rgba(239,68,68,0.6)] hover:-translate-y-px motion-reduce:hover:translate-y-0 cursor-pointer'
+                      : 'bg-bolt-elements-item-contentAccent text-bolt-elements-background-depth-1 hover:shadow-[0_4px_18px_-4px_rgba(0,229,255,0.55)] hover:-translate-y-px motion-reduce:hover:translate-y-0 cursor-pointer',
                 )}
               >
                 <div
                   className={
-                    applying ? 'i-ph:circle-notch animate-spin' : isDestructive ? 'i-ph:trash' : 'i-ph:check-bold'
+                    applying
+                      ? 'i-ph:circle-notch animate-spin motion-reduce:animate-none'
+                      : isDestructive
+                        ? 'i-ph:trash'
+                        : 'i-ph:check-bold'
                   }
                 />
                 <span className="min-w-[7ch] text-center">
@@ -992,7 +997,7 @@ const Flag = memo(
         checked={checked}
         onChange={(e) => onChange(e.target.checked)}
         data-testid={testId}
-        className="h-3.5 w-3.5 accent-[#00e5ff]"
+        className="h-3.5 w-3.5 accent-[color:var(--ps-accent)]"
       />
       {label}
     </label>

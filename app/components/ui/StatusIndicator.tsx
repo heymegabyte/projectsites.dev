@@ -57,8 +57,8 @@ interface StatusIndicatorProps {
  * A component for displaying status indicators with optional labels and pulse animations.
  */
 export function StatusIndicator({ status, size = 'md', pulse = false, label, className }: StatusIndicatorProps) {
-  // Get the color class for the status
-  const colorClass = STATUS_COLORS[status] || 'bg-gray-500';
+  // Get the color class for the status (fallback = muted brand ink, never gray chrome)
+  const colorClass = STATUS_COLORS[status] || 'bg-bolt-elements-textTertiary';
 
   // Get the size class for the indicator
   const sizeClass = SIZE_CLASSES[size];

@@ -14,8 +14,8 @@ export const Switch = memo(({ className, onCheckedChange, checked }: SwitchProps
       className={classNames(
         'relative h-6 w-11 cursor-pointer rounded-full bg-bolt-elements-button-primary-background',
         'transition-colors duration-200 ease-in-out',
-        'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:ring-offset-2',
-        'disabled:cursor-not-allowed disabled:opacity-50',
+        'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-bolt-elements-item-contentAccent focus-visible:ring-offset-2 focus-visible:ring-offset-bolt-elements-background-depth-1',
+        'disabled:cursor-not-allowed disabled:opacity-60',
         'data-[state=checked]:bg-bolt-elements-item-contentAccent',
         className,
       )}
@@ -24,7 +24,7 @@ export const Switch = memo(({ className, onCheckedChange, checked }: SwitchProps
     >
       <SwitchPrimitive.Thumb
         className={classNames(
-          'block h-5 w-5 rounded-full bg-white',
+          'block h-5 w-5 rounded-full bg-bolt-elements-textPrimary',
           'shadow-lg shadow-black/20',
           'transition-transform duration-200 ease-in-out',
           'translate-x-0.5',

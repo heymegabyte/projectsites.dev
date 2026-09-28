@@ -483,11 +483,16 @@ export const AiSeedPanel = memo(() => {
                 onClick={generate}
                 disabled={columns.length === 0 || generating}
                 data-testid="seed-generate"
-                className="min-h-[24px] text-[13px] font-semibold px-4 py-2 rounded-lg bg-bolt-elements-item-contentAccent text-bolt-elements-background-depth-1 hover:opacity-90 transition-opacity disabled:opacity-40 disabled:cursor-not-allowed flex items-center gap-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-bolt-elements-item-contentAccent cursor-pointer"
+                className={classNames(
+                  'min-h-[24px] text-[13px] font-semibold px-4 py-2 rounded-lg flex items-center gap-2 transition-all duration-150 motion-reduce:transition-none focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-bolt-elements-item-contentAccent',
+                  columns.length === 0 || generating
+                    ? 'bg-bolt-elements-background-depth-3 text-bolt-elements-textTertiary border border-bolt-elements-borderColor opacity-60 cursor-not-allowed'
+                    : 'bg-bolt-elements-item-contentAccent text-bolt-elements-background-depth-1 hover:shadow-[0_4px_18px_-4px_rgba(0,229,255,0.55)] hover:-translate-y-px motion-reduce:hover:translate-y-0 cursor-pointer',
+                )}
               >
                 {generating ? (
                   <>
-                    <div className="i-ph:spinner animate-spin" aria-hidden /> Generating…
+                    <div className="i-ph:spinner animate-spin motion-reduce:animate-none" aria-hidden /> Generating…
                   </>
                 ) : (
                   <>
@@ -514,14 +519,14 @@ export const AiSeedPanel = memo(() => {
                 Preview — {previewRows.length} generated row{previewRows.length === 1 ? '' : 's'}
               </span>
             </div>
-            <div className="overflow-auto max-h-[240px]">
-              <table className="w-full text-[11px]" data-testid="seed-preview-table">
+            <div className="overflow-auto modern-scrollbar max-h-[240px]">
+              <table className="w-full text-[11px] tabular-nums" data-testid="seed-preview-table">
                 <thead>
                   <tr>
                     {columns.map((c) => (
                       <th
                         key={c.name}
-                        className="text-left px-2 py-1 font-mono text-bolt-elements-textTertiary border-b border-bolt-elements-borderColor whitespace-nowrap"
+                        className="sticky top-0 z-10 text-left px-2 py-1 font-mono text-bolt-elements-textTertiary bg-bolt-elements-background-depth-2 border-b border-bolt-elements-borderColor whitespace-nowrap after:absolute after:inset-x-0 after:bottom-0 after:h-px after:bg-bolt-elements-item-contentAccent/20"
                       >
                         {c.name}
                       </th>
@@ -530,11 +535,14 @@ export const AiSeedPanel = memo(() => {
                 </thead>
                 <tbody>
                   {previewRows.map((row, r) => (
-                    <tr key={r}>
+                    <tr
+                      key={r}
+                      className="odd:bg-transparent even:bg-bolt-elements-background-depth-1/40 hover:bg-bolt-elements-item-backgroundAccent/[0.07] transition-colors motion-reduce:transition-none"
+                    >
                       {row.map((cell, c) => (
                         <td
                           key={c}
-                          className="px-2 py-1 text-bolt-elements-textSecondary border-b border-bolt-elements-borderColor/40 whitespace-nowrap max-w-[200px] truncate"
+                          className="px-2 py-1 font-mono text-bolt-elements-textSecondary border-b border-bolt-elements-borderColor/40 whitespace-nowrap max-w-[200px] truncate"
                         >
                           {cell}
                         </td>
@@ -550,11 +558,16 @@ export const AiSeedPanel = memo(() => {
                 onClick={insertRows}
                 disabled={inserting}
                 data-testid="seed-insert"
-                className="min-h-[24px] text-[13px] font-semibold px-4 py-2 rounded-lg bg-bolt-elements-item-contentAccent text-bolt-elements-background-depth-1 hover:opacity-90 transition-opacity disabled:opacity-40 flex items-center gap-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-bolt-elements-item-contentAccent cursor-pointer"
+                className={classNames(
+                  'min-h-[24px] text-[13px] font-semibold px-4 py-2 rounded-lg flex items-center gap-2 transition-all duration-150 motion-reduce:transition-none focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-bolt-elements-item-contentAccent',
+                  inserting
+                    ? 'bg-bolt-elements-background-depth-3 text-bolt-elements-textTertiary border border-bolt-elements-borderColor opacity-60 cursor-not-allowed'
+                    : 'bg-bolt-elements-item-contentAccent text-bolt-elements-background-depth-1 hover:shadow-[0_4px_18px_-4px_rgba(0,229,255,0.55)] hover:-translate-y-px motion-reduce:hover:translate-y-0 cursor-pointer',
+                )}
               >
                 {inserting ? (
                   <>
-                    <div className="i-ph:spinner animate-spin" aria-hidden /> Adding…
+                    <div className="i-ph:spinner animate-spin motion-reduce:animate-none" aria-hidden /> Adding…
                   </>
                 ) : (
                   <>

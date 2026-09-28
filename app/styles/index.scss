@@ -1557,3 +1557,60 @@ button:not(:disabled):not([class*='ResizeHandle']):not([data-panel-resize-handle
     transition: none;
   }
 }
+
+/* ════════════════════════════════════════════════════════════════════════
+   Defensive net — no CONTROL renders white/gray (Brian 2026-09-27)
+   ────────────────────────────────────────────────────────────────────────
+   FINAL cascade layer + backstop ONLY. Surgical brand-token fixes on the
+   components are always preferred; this net exists so a white/gray utility
+   class (or a bare unstyled control) can never slip through and paint a
+   white/light button on the dark canvas.
+
+   Scope is INTERACTIVE CONTROLS ONLY — <button>, [role="button"], and
+   submit/button/reset inputs. It NEVER touches images, media, canvas,
+   iframes, SVG, theme-preview swatches, or the modal backdrop scrim, so it
+   cannot repaint a website preview, a color swatch, or a vendor logo.
+
+   Scoped to `[data-theme]` — the editor's <html> always carries it (root.tsx
+   forces data-theme='dark'), so this wraps every control yet only the editor.
+
+   Opt out with `.ps-allow-surface` on any control that legitimately needs a
+   non-brand fill (e.g. a vendor-branded CTA that carries its own color). */
+[data-theme] button:not(.ps-allow-surface),
+[data-theme] [role='button']:not(.ps-allow-surface),
+[data-theme] input[type='button']:not(.ps-allow-surface),
+[data-theme] input[type='submit']:not(.ps-allow-surface),
+[data-theme] input[type='reset']:not(.ps-allow-surface) {
+  /* Only the white/gray Tailwind escape-hatch classes are caught — a control
+     already on a brand token, transparent, or a semantic tint is untouched. */
+  &.bg-white,
+  &[class*='bg-gray-'],
+  &[class*='dark:bg-gray-'],
+  &.dark\:bg-black,
+  &[class*='bg-\[\#fff'],
+  &[class*='bg-\[\#FFF'],
+  &[class*='bg-\[\#f8'],
+  &[class*='bg-\[\#F8'],
+  &[class*='bg-\[\#fa'],
+  &[class*='bg-\[\#FA'] {
+    background-color: var(--bolt-elements-button-secondary-background, #131322) !important;
+    color: var(--bolt-elements-button-secondary-text, #f4f4ff) !important;
+    border-color: var(--bolt-elements-borderColor, rgba(0, 229, 255, 0.1));
+  }
+
+  /* Black/near-black text on a control reads as invisible on the dark
+     canvas — repaint to brand ink. (Icons/labels only; never a media fill.) */
+  &.text-black,
+  &[class*='text-\[\#000'],
+  &[class*='text-\[\#111'] {
+    color: var(--bolt-elements-textPrimary, #f4f4ff) !important;
+  }
+
+  /* A disabled control must stay clearly visible + obviously disabled —
+     never blank/white. Floor the opacity + brand the surface. */
+  &:disabled,
+  &[aria-disabled='true'] {
+    opacity: 0.6;
+    cursor: not-allowed;
+  }
+}

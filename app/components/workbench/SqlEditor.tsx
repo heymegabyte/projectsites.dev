@@ -17,9 +17,12 @@ import { memo, useEffect, useMemo, useRef, useState, type KeyboardEvent } from '
 import { tokenizeSql, type SqlTokenKind } from './sql-highlight';
 import { applyCompletion, sqlCompletions, type SqlCompletion, type SqlSchema } from './sql-complete';
 
-/** Colour per token kind. Keyword uses the brand cyan; string/number/comment are conventional. */
+/**
+ * Colour per token kind. Keyword uses the brand cyan token; string/number are conventional
+ * syntax-highlight hues (green/amber) with no brand-token equivalent — kept as-is on purpose.
+ */
 const KIND_CLASS: Record<SqlTokenKind, string> = {
-  keyword: 'text-[#00E5FF] font-semibold',
+  keyword: 'text-bolt-elements-item-contentAccent font-semibold',
   string: 'text-[#7ee787]',
   comment: 'text-bolt-elements-textTertiary italic',
   number: 'text-[#f5c451]',
@@ -188,7 +191,7 @@ export const SqlEditor = memo(function SqlEditor({
           data-testid="data-sql-completions"
           role="listbox"
           aria-label="SQL completions"
-          className="absolute left-2 top-full z-20 mt-1 max-h-56 w-64 overflow-auto rounded-md border border-bolt-elements-borderColor bg-bolt-elements-background-depth-1 py-1 shadow-lg"
+          className="absolute left-2 top-full z-20 mt-1 max-h-56 w-64 overflow-auto modern-scrollbar rounded-md border border-bolt-elements-borderColor bg-bolt-elements-background-depth-1 py-1 shadow-xl shadow-black/40 ring-1 ring-bolt-elements-item-contentAccent/10"
         >
           {completions.map((c, idx) => (
             <li
@@ -202,18 +205,20 @@ export const SqlEditor = memo(function SqlEditor({
               }}
               onMouseEnter={() => setActiveIdx(idx)}
               className={
-                'flex items-center gap-2 px-2 py-1 text-[12px] cursor-pointer ' +
+                'flex items-center gap-2 px-2 py-1 text-[12px] cursor-pointer border-l-2 transition-colors motion-reduce:transition-none ' +
                 (idx === activeIdx
-                  ? 'bg-bolt-elements-item-contentAccent/15 text-bolt-elements-textPrimary'
-                  : 'text-bolt-elements-textSecondary')
+                  ? 'border-bolt-elements-item-contentAccent bg-bolt-elements-item-contentAccent/15 text-bolt-elements-textPrimary'
+                  : 'border-transparent text-bolt-elements-textSecondary hover:bg-bolt-elements-background-depth-2')
               }
             >
               <span
                 className={
                   'shrink-0 rounded px-1 text-[9px] font-mono uppercase ' +
                   (c.kind === 'keyword'
-                    ? 'text-[#00E5FF]'
-                    : 'text-bolt-elements-textTertiary')
+                    ? 'text-bolt-elements-item-contentAccent'
+                    : c.kind === 'table'
+                      ? 'text-[color:var(--ps-accent-secondary)]'
+                      : 'text-bolt-elements-textTertiary')
                 }
               >
                 {COMPLETION_BADGE[c.kind]}

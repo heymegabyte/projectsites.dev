@@ -82,7 +82,7 @@ export function SupabaseConnection() {
           active
           disabled={connecting}
           onClick={() => setIsDialogOpen(!isDialogOpen)}
-          className="hover:bg-bolt-elements-item-backgroundActive !text-white flex items-center gap-2"
+          className="hover:bg-bolt-elements-item-backgroundActive !text-bolt-elements-textPrimary flex items-center gap-2"
         >
           <img
             className="w-4 h-4"
@@ -123,11 +123,11 @@ export function SupabaseConnection() {
                     placeholder="Enter your Supabase access token"
                     className={classNames(
                       'w-full px-3 py-2 rounded-lg text-sm',
-                      'bg-[#F8F8F8] dark:bg-[#1A1A1A]',
-                      'border border-[#E5E5E5] dark:border-[#333333]',
+                      'bg-bolt-elements-background-depth-3',
+                      'border border-bolt-elements-borderColor',
                       'text-bolt-elements-textPrimary placeholder-bolt-elements-textTertiary',
-                      'focus:outline-none focus:ring-1 focus:ring-[#3ECF8E]',
-                      'disabled:opacity-50',
+                      'focus:outline-none focus-visible:ring-2 focus-visible:ring-bolt-elements-item-contentAccent',
+                      'disabled:opacity-60',
                     )}
                   />
                   <div className="mt-2 text-sm text-bolt-elements-textSecondary">
@@ -148,13 +148,14 @@ export function SupabaseConnection() {
                     <DialogButton type="secondary">Cancel</DialogButton>
                   </DialogClose>
                   <button
+                    type="button"
                     onClick={handleConnect}
                     disabled={connecting || !supabaseConn.token}
                     className={classNames(
-                      'px-4 py-2 rounded-lg text-sm flex items-center gap-2',
-                      'bg-[#3ECF8E] text-white',
+                      'px-4 py-2 rounded-lg text-sm flex items-center gap-2 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-bolt-elements-item-contentAccent',
+                      'bg-[#3ECF8E] text-[#04231a] font-medium',
                       'hover:bg-[#3BBF84]',
-                      'disabled:opacity-50 disabled:cursor-not-allowed',
+                      'disabled:opacity-60 disabled:cursor-not-allowed',
                     )}
                   >
                     {connecting ? (
@@ -186,7 +187,7 @@ export function SupabaseConnection() {
                   </DialogTitle>
                 </div>
 
-                <div className="flex items-center gap-4 p-3 bg-[#F8F8F8] dark:bg-[#1A1A1A] rounded-lg">
+                <div className="flex items-center gap-4 p-3 bg-bolt-elements-background-depth-3 rounded-lg">
                   <div>
                     <h4 className="text-sm font-medium text-bolt-elements-textPrimary">{supabaseConn.user?.email}</h4>
                     <p className="text-xs text-bolt-elements-textSecondary">Role: {supabaseConn.user?.role}</p>
@@ -216,16 +217,18 @@ export function SupabaseConnection() {
                       </button>
                       <div className="flex items-center gap-2">
                         <button
+                          type="button"
                           onClick={() => fetchSupabaseStats(supabaseConn.token)}
-                          className="px-2 py-1 rounded-md text-xs bg-[#F0F0F0] dark:bg-[#252525] text-bolt-elements-textSecondary hover:bg-[#E5E5E5] dark:hover:bg-[#333333] flex items-center gap-1"
+                          className="px-2 py-1 rounded-md text-xs bg-bolt-elements-background-depth-3 border border-bolt-elements-borderColor text-bolt-elements-textSecondary hover:bg-bolt-elements-item-backgroundActive hover:text-bolt-elements-item-contentAccent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-bolt-elements-item-contentAccent transition-colors flex items-center gap-1"
                           title="Refresh projects list"
                         >
                           <div className="i-ph:arrows-clockwise w-3 h-3" />
                           Refresh
                         </button>
                         <button
+                          type="button"
                           onClick={() => handleCreateProject()}
-                          className="px-2 py-1 rounded-md text-xs bg-[#3ECF8E] text-white hover:bg-[#3BBF84] flex items-center gap-1"
+                          className="px-2 py-1 rounded-md text-xs bg-[#3ECF8E] text-[#04231a] font-medium hover:bg-[#3BBF84] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-bolt-elements-item-contentAccent transition-colors flex items-center gap-1"
                         >
                           <div className="i-ph:plus w-3 h-3" />
                           New Project
@@ -236,7 +239,7 @@ export function SupabaseConnection() {
                     {isProjectsExpanded && (
                       <>
                         {!supabaseConn.selectedProjectId && (
-                          <div className="mb-2 p-3 bg-[#F8F8F8] dark:bg-[#1A1A1A] rounded-lg text-sm text-bolt-elements-textSecondary">
+                          <div className="mb-2 p-3 bg-bolt-elements-background-depth-3 rounded-lg text-sm text-bolt-elements-textSecondary">
                             Select a project or create a new one for this chat
                           </div>
                         )}
@@ -259,12 +262,13 @@ export function SupabaseConnection() {
                                     </div>
                                   </div>
                                   <button
+                                    type="button"
                                     onClick={() => selectProject(project.id)}
                                     className={classNames(
-                                      'px-3 py-1 rounded-md text-xs',
+                                      'px-3 py-1 rounded-md text-xs transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-bolt-elements-item-contentAccent',
                                       supabaseConn.selectedProjectId === project.id
-                                        ? 'bg-[#3ECF8E] text-white'
-                                        : 'bg-[#F0F0F0] dark:bg-[#252525] text-bolt-elements-textSecondary hover:bg-[#3ECF8E] hover:text-white',
+                                        ? 'bg-[#3ECF8E] text-[#04231a] font-medium'
+                                        : 'bg-bolt-elements-background-depth-3 border border-bolt-elements-borderColor text-bolt-elements-textSecondary hover:bg-[#3ECF8E] hover:text-[#04231a]',
                                     )}
                                   >
                                     {supabaseConn.selectedProjectId === project.id ? (

@@ -2638,7 +2638,7 @@ const BrowseView = memo((props: BrowseViewProps) => {
       </div>
 
       {/* ── Toolbar row: search · filter · columns · density · AI · export · add ── */}
-      <div className="flex flex-wrap items-center gap-1.5 px-3 py-2 border-b border-bolt-elements-borderColor shrink-0 bg-bolt-elements-background-depth-1">
+      <div className="flex flex-wrap items-center gap-1.5 px-3 py-2 border-b border-bolt-elements-borderColor shrink-0 bg-bolt-elements-background-depth-1/80 backdrop-blur-sm">
         {/* Search */}
         <div className="relative">
           <div className="i-ph:magnifying-glass absolute left-2 top-1/2 -translate-y-1/2 text-[11px] text-bolt-elements-textTertiary pointer-events-none" />
@@ -2649,7 +2649,7 @@ const BrowseView = memo((props: BrowseViewProps) => {
             placeholder="Search rows…"
             data-testid="sitedb-search"
             aria-label="Search rows"
-            className="min-h-[24px] w-[150px] rounded border border-bolt-elements-borderColor bg-bolt-elements-background-depth-2 pl-6 pr-2 py-1 text-[11px] text-bolt-elements-textPrimary placeholder:text-bolt-elements-textTertiary focus:outline-none focus:ring-1 focus:ring-bolt-elements-item-contentAccent"
+            className="min-h-[24px] w-[150px] rounded border border-bolt-elements-borderColor bg-bolt-elements-background-depth-2 pl-6 pr-2 py-1 text-[11px] text-bolt-elements-textPrimary placeholder:text-bolt-elements-textTertiary focus:outline-none focus:border-bolt-elements-item-contentAccent/50 focus:ring-1 focus:ring-bolt-elements-item-contentAccent transition-colors motion-reduce:transition-none"
           />
         </div>
 
@@ -2850,9 +2850,9 @@ const BrowseView = memo((props: BrowseViewProps) => {
             />
           ) : (
             <div ref={scrollRef} className="flex-1 overflow-auto modern-scrollbar min-h-0" data-testid="sitedb-grid">
-              {/* Sticky header (frozen select + first column) */}
+              {/* Sticky header (frozen select + first column) — cyan under-hairline reads as a live typed header */}
               <div
-                className="sticky top-0 z-20 flex bg-bolt-elements-background-depth-2 border-b border-bolt-elements-borderColor"
+                className="sticky top-0 z-20 flex bg-bolt-elements-background-depth-2 border-b border-bolt-elements-borderColor shadow-[0_1px_0_rgba(0,229,255,0.18)]"
                 role="row"
               >
                 {canMutateRows && (
@@ -2869,7 +2869,7 @@ const BrowseView = memo((props: BrowseViewProps) => {
                       onChange={onToggleSelectAll}
                       aria-label="Select all rows on this page"
                       data-testid="sitedb-select-all"
-                      className="h-3 w-3 accent-[#00E5FF] cursor-pointer"
+                      className="h-3 w-3 accent-[color:var(--ps-accent)] cursor-pointer"
                     />
                   </div>
                 )}
@@ -2894,8 +2894,10 @@ const BrowseView = memo((props: BrowseViewProps) => {
                         densityCellClass(density),
                         s
                           ? 'text-bolt-elements-item-contentAccent bg-bolt-elements-item-backgroundAccent/[0.07]'
-                          : 'text-bolt-elements-textTertiary hover:text-bolt-elements-textSecondary',
-                        frozen ? 'sticky z-30 bg-bolt-elements-background-depth-2' : '',
+                          : 'text-bolt-elements-textTertiary hover:text-bolt-elements-textSecondary hover:bg-bolt-elements-background-depth-3/40',
+                        frozen
+                          ? 'sticky z-30 bg-bolt-elements-background-depth-2 shadow-[6px_0_10px_-8px_rgba(0,0,0,0.7)]'
+                          : '',
                       )}
                     >
                       {col.pk === 1 && (
@@ -2916,7 +2918,7 @@ const BrowseView = memo((props: BrowseViewProps) => {
                         >
                           <div className={s.dir === 'asc' ? 'i-ph:caret-up text-[10px]' : 'i-ph:caret-down text-[10px]'} />
                           {props.sorts.length > 1 && (
-                            <span className="inline-flex items-center justify-center h-3 min-w-3 px-0.5 rounded-full bg-bolt-elements-item-contentAccent/25 text-[8px] leading-none">
+                            <span className="inline-flex items-center justify-center h-3 min-w-3 px-0.5 rounded-full bg-[color:var(--ps-accent-secondary)]/30 text-[color:var(--ps-accent-secondary)] text-[8px] font-semibold leading-none ring-1 ring-[color:var(--ps-accent-secondary)]/40">
                               {s.priority}
                             </span>
                           )}
@@ -2978,7 +2980,7 @@ const BrowseView = memo((props: BrowseViewProps) => {
 
           {/* ── Pagination footer with page-size selector ── */}
           {filteredCount > 0 && (
-            <div className="flex items-center gap-2 px-3 py-2 border-t border-bolt-elements-borderColor text-[11px] text-bolt-elements-textTertiary shrink-0">
+            <div className="flex items-center gap-2 px-3 py-2 border-t border-bolt-elements-borderColor text-[11px] text-bolt-elements-textTertiary shrink-0 tabular-nums">
               <span data-testid="sitedb-page-info">
                 Showing {pageIndex * pageSize + 1} to {Math.min((pageIndex + 1) * pageSize, filteredCount)} of{' '}
                 {filteredCount}
@@ -3163,7 +3165,7 @@ const ColumnsMenu = memo(
                   checked={shown.has(col.name)}
                   onChange={() => onToggleHidden(col.name)}
                   data-testid={`sitedb-col-toggle-${col.name}`}
-                  className="h-3 w-3 accent-[#00E5FF] cursor-pointer shrink-0"
+                  className="h-3 w-3 accent-[color:var(--ps-accent)] cursor-pointer shrink-0"
                 />
                 <span className="text-[11px] font-mono text-bolt-elements-textPrimary truncate">{col.name}</span>
               </label>
@@ -3586,8 +3588,10 @@ const GridRow = memo((props: GridRowProps) => {
       role="row"
       data-testid="sitedb-grid-row"
       className={classNames(
-        'group/row absolute left-0 flex w-full items-stretch border-b border-bolt-elements-borderColor/30 transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-bolt-elements-item-contentAccent',
-        selected ? 'bg-bolt-elements-item-backgroundAccent/10' : 'hover:bg-bolt-elements-item-backgroundActive',
+        'group/row absolute left-0 flex w-full items-stretch border-b border-bolt-elements-borderColor/30 transition-colors motion-reduce:transition-none focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-bolt-elements-item-contentAccent',
+        selected
+          ? 'bg-bolt-elements-item-backgroundAccent/10 shadow-[inset_2px_0_0_var(--bolt-elements-item-contentAccent)]'
+          : 'hover:bg-bolt-elements-item-backgroundActive',
       )}
       style={{ top: 0, height: `${height}px`, transform: `translateY(${top}px)` }}
     >
@@ -3607,7 +3611,7 @@ const GridRow = memo((props: GridRowProps) => {
             onClick={(e) => e.stopPropagation()}
             aria-label="Select row"
             data-testid="sitedb-row-select"
-            className="h-3 w-3 accent-[#00E5FF] cursor-pointer"
+            className="h-3 w-3 accent-[color:var(--ps-accent)] cursor-pointer"
           />
         </div>
       )}
@@ -3682,10 +3686,14 @@ const GridRow = memo((props: GridRowProps) => {
             data-testid="sitedb-grid-cell"
             style={{ width: COL_WIDTH, left: frozen && canMutateRows ? 36 : undefined }}
             className={classNames(
-              'group relative shrink-0 text-xs font-mono truncate border-r border-bolt-elements-borderColor/20 flex items-center gap-1',
+              'group relative shrink-0 text-xs font-mono tabular-nums truncate border-r border-bolt-elements-borderColor/20 flex items-center gap-1',
               densityCellClass(density),
-              gate.editable && fieldKind !== 'boolean' ? 'cursor-text hover:bg-bolt-elements-item-backgroundActive' : 'cursor-pointer',
-              frozen ? 'sticky z-10 bg-bolt-elements-background-depth-1 group-hover/row:bg-bolt-elements-item-backgroundActive' : '',
+              gate.editable && fieldKind !== 'boolean'
+                ? 'cursor-text hover:bg-bolt-elements-item-backgroundAccent/[0.06]'
+                : 'cursor-pointer',
+              frozen
+                ? 'sticky z-10 bg-bolt-elements-background-depth-1 group-hover/row:bg-bolt-elements-item-backgroundActive shadow-[6px_0_10px_-8px_rgba(0,0,0,0.6)]'
+                : '',
             )}
           >
             <CellValue
@@ -3754,8 +3762,12 @@ const GalleryView = memo(
                 type="button"
                 onClick={() => onRowClick(row)}
                 data-testid="sitedb-gallery-card"
-                className="text-left rounded-xl border border-bolt-elements-borderColor bg-bolt-elements-background-depth-2 p-3 hover:border-bolt-elements-item-contentAccent/40 hover:bg-bolt-elements-background-depth-3 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-bolt-elements-item-contentAccent cursor-pointer flex flex-col gap-1.5"
+                className="group/card relative overflow-hidden text-left rounded-xl border border-bolt-elements-borderColor bg-bolt-elements-background-depth-2 p-3 hover:border-bolt-elements-item-contentAccent/40 hover:bg-bolt-elements-background-depth-3 hover:shadow-lg hover:shadow-bolt-elements-item-contentAccent/5 hover:-translate-y-0.5 motion-reduce:hover:translate-y-0 transition-all duration-150 motion-reduce:transition-none focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-bolt-elements-item-contentAccent cursor-pointer flex flex-col gap-1.5"
               >
+                <span
+                  aria-hidden="true"
+                  className="absolute inset-x-0 top-0 h-0.5 bg-gradient-to-r from-bolt-elements-item-contentAccent/70 to-[color:var(--ps-accent-secondary)]/70 opacity-0 group-hover/card:opacity-100 transition-opacity duration-150 motion-reduce:transition-none"
+                />
                 <div className="text-[12px] font-semibold text-bolt-elements-textPrimary truncate">{title}</div>
                 <div className="space-y-1">
                   {bodyFields.map((field) => {

@@ -57,14 +57,18 @@ export const IconButton = memo(
       return (
         <button
           ref={ref}
+          type="button"
           className={classNames(
-            'flex items-center text-bolt-elements-item-contentDefault bg-transparent enabled:hover:text-bolt-elements-item-contentActive rounded-md p-1 enabled:hover:bg-bolt-elements-item-backgroundActive disabled:cursor-not-allowed focus:outline-none',
+            'flex items-center text-bolt-elements-item-contentDefault bg-transparent enabled:hover:text-bolt-elements-item-contentActive rounded-md p-1 enabled:hover:bg-bolt-elements-item-backgroundActive transition-colors disabled:cursor-not-allowed focus:outline-none focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-bolt-elements-item-contentAccent',
             {
-              [classNames('opacity-30', disabledClassName)]: disabled,
+              // Disabled must stay clearly visible + obviously disabled (never near-invisible).
+              [classNames('opacity-60', disabledClassName)]: disabled,
             },
             className,
           )}
           title={title}
+          // Icon-only buttons have no visible text — the title doubles as the accessible name.
+          aria-label={!children && title ? title : undefined}
           disabled={disabled}
           style={style}
           tabIndex={tabIndex}

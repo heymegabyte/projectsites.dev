@@ -64,14 +64,16 @@ export const CodeBlock = memo(
         >
           {!disableCopy && (
             <button
+              type="button"
               className={classNames(
-                'flex items-center bg-accent-500 p-[6px] justify-center before:bg-white before:rounded-l-md before:text-gray-500 before:border-r before:border-gray-300 rounded-md transition-theme',
+                'flex items-center bg-accent-500 p-[6px] justify-center before:bg-bolt-elements-background-depth-3 before:rounded-l-md before:text-bolt-elements-item-contentAccent before:border-r before:border-bolt-elements-borderColor rounded-md transition-theme focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-bolt-elements-item-contentAccent',
                 {
                   'before:opacity-0': !copied,
                   'before:opacity-100': copied,
                 },
               )}
               title="Copy Code"
+              aria-label="Copy code"
               onClick={() => copyToClipboard()}
             >
               <div className="i-ph:clipboard-text-duotone"></div>

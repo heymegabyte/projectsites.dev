@@ -2,15 +2,15 @@
  * @file Resources — the editor "Resources" tab's per-site ASSET overview.
  *
  * @remarks
- * A gorgeous, concise (Airtable/Notion/Linear feel) overview of EVERYTHING a site stores:
+ * A gorgeous, concise (Cloudinary / Notion-gallery / Airtable feel) overview of EVERYTHING a site stores:
  *
- *   1. **Media library** — a grid/gallery of the site's assets (images/video/docs) with a kind + source
- *      filter, a name search, UPLOAD (reads the file locally → base64 → `PS_RES_MEDIA_UPLOAD`), and DELETE
- *      (`PS_RES_MEDIA { action:'delete', id }`). Assets come from `PS_RES_MEDIA { action:'list', … }`.
+ *   1. **Media library** — a gallery grid of the site's assets (images/video/docs) with a kind + source
+ *      filter, a name search, UPLOAD (reads the file locally → base64 → `PS_RES_MEDIA_UPLOAD`, drag-and-drop
+ *      too), and DELETE (`PS_RES_MEDIA { action:'delete', id }`). Assets come from `PS_RES_MEDIA { action:'list', … }`.
  *   2. **Site build files** — the files that make up the current published build (`PS_RES_SITE_FILES`),
- *      with byte sizes + open-in-new.
- *   3. **Storage-usage header** — total size + per-kind counts, read from the media `list` response's
- *      `usage` rollup.
+ *      with byte sizes + type glyphs + open-in-new.
+ *   3. **Storage-usage header** — total size + a cyan/purple per-kind data-viz bar + per-kind count chips,
+ *      read from the media `list` response's `usage` rollup.
  *
  * The embedded editor has no cross-origin session, so it CANNOT fetch the worker directly — it talks to the
  * parent admin (which holds the bearer + `selectedSite`) over `postMessage`, via the typed senders in
@@ -20,11 +20,13 @@
  *
  * The deeper per-kind Cloudflare-primitive console ({@link ResourceOverviewPanel} → {@link ResourceDetailPanel})
  * stays IMPORTED + reachable from a link in this panel's header, so no proven surface is orphaned
- * (interconnectedness). Loading + empty + error states are all handled per surface.
+ * (interconnectedness). Loading + empty + error + upload-in-progress states are all handled per surface.
  *
- * Style mirrors the sibling `./SiteTablesPanel` + `./ResourceOverviewPanel` EXACTLY (UnoCSS `bolt-elements-*`
- * tokens, phosphor `i-ph:*` icons, black + cyan, ≥24px targets, aria-labels, focus-visible rings,
- * `motion-reduce:*` for prefers-reduced-motion).
+ * BRAND: black + cyan (#00E5FF, primary) + purple (#7C3AED, secondary), zero white/gray hard-codes — every
+ * surface uses `--bolt-elements-*` tokens / UnoCSS `bolt-elements-*` classes. Every button carries visible
+ * text OR an `aria-label` + `title`; disabled controls stay a clearly-visible muted brand surface
+ * (`opacity-60 cursor-not-allowed`), never blank/white. Motion is `motion-reduce:*`-gated; every control
+ * gets a cyan `focus-visible` ring. Style mirrors the sibling `./SiteTablesPanel` + `./ResourceOverviewPanel`.
  */
 import React, { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { classNames } from '~/utils/classNames';
@@ -65,15 +67,85 @@ type FilesState =
   | { status: 'error'; message: string }
   | { status: 'ready'; files: SiteBuildFileEntry[]; prefix?: string };
 
+// ── Branded control primitives (the button contract, one source of truth) ────────────────────────
+//
+// Every control in this panel composes one of these. Shared: min 24px target, cyan focus-visible ring,
+// motion-reduce-safe transitions, cursor-pointer, and a clearly-visible muted disabled state (never blank).
+
+/** Shared base every branded control extends. */
+const CTRL_BASE =
+  'inline-flex items-center justify-center gap-1.5 rounded-lg font-medium transition-all duration-150 ' +
+  'motion-reduce:transition-none cursor-pointer select-none focus-visible:outline-none focus-visible:ring-2 ' +
+  'focus-visible:ring-offset-1 focus-visible:ring-offset-bolt-elements-background-depth-1 ' +
+  'disabled:opacity-60 disabled:cursor-not-allowed';
+
+/** Cyan-fill primary — the one dominant action per surface (dark ink on cyan, hover glow). */
+const BTN_PRIMARY = classNames(
+  CTRL_BASE,
+  'bg-bolt-elements-item-contentAccent text-bolt-elements-background-depth-1 font-semibold',
+  'shadow-sm shadow-bolt-elements-item-contentAccent/20',
+  'enabled:hover:shadow-md enabled:hover:shadow-bolt-elements-item-contentAccent/40 enabled:hover:brightness-110',
+  'enabled:active:brightness-95 focus-visible:ring-bolt-elements-item-contentAccent',
+);
+
+/** Dark surface + cyan border + cyan text — the calm secondary action. */
+const BTN_SECONDARY = classNames(
+  CTRL_BASE,
+  'border border-bolt-elements-item-contentAccent/35 bg-bolt-elements-item-contentAccent/[0.06]',
+  'text-bolt-elements-item-contentAccent',
+  'enabled:hover:bg-bolt-elements-item-contentAccent/[0.14] enabled:hover:border-bolt-elements-item-contentAccent/60',
+  'focus-visible:ring-bolt-elements-item-contentAccent',
+);
+
+/** Transparent → cyan-tinted on hover — quiet, for dense toolbars + tertiary actions. */
+const BTN_GHOST = classNames(
+  CTRL_BASE,
+  'border border-bolt-elements-borderColor bg-bolt-elements-background-depth-2 text-bolt-elements-textTertiary',
+  'enabled:hover:text-bolt-elements-item-contentAccent enabled:hover:border-bolt-elements-item-contentAccent/40',
+  'enabled:hover:bg-bolt-elements-background-depth-3 focus-visible:ring-bolt-elements-item-contentAccent',
+);
+
+/** Red-tinted destructive — visible-but-muted at rest, redder on hover. */
+const BTN_DESTRUCTIVE = classNames(
+  CTRL_BASE,
+  'border border-red-400/40 bg-bolt-elements-background-depth-1/90 text-red-400 backdrop-blur',
+  'enabled:hover:bg-red-500/20 enabled:hover:border-red-400/70 focus-visible:ring-red-400',
+);
+
 // ── Constants ────────────────────────────────────────────────────────────────
 
 const DISABLED_404 = 'not enabled';
+
 const KIND_FILTERS: { value: string; label: string; icon: string }[] = [
   { value: '', label: 'All', icon: 'i-ph:squares-four' },
   { value: 'image', label: 'Images', icon: 'i-ph:image' },
   { value: 'video', label: 'Video', icon: 'i-ph:video' },
   { value: 'document', label: 'Docs', icon: 'i-ph:file-text' },
 ];
+
+/**
+ * Brand accents — cyan is the theme token (`--bolt-elements-item-contentAccent` = #00e5ff); purple + teal
+ * are the sanctioned secondary/tertiary accents, applied via inline `style` (no hard-coded `text-[#hex]`
+ * UnoCSS classes per the brand contract). One source of truth for both the data-viz and the badges.
+ */
+const CYAN = 'var(--bolt-elements-item-contentAccent)';
+const PURPLE = '#7C3AED';
+const PURPLE_INK = '#a97bff';
+const TEAL = '#22d3ee';
+
+/**
+ * Per-kind accent so the data-viz + badges read at a glance — cyan/purple-forward, on-brand.
+ * `image` = cyan (primary), `video` = purple (secondary), `document` = a muted teal, `other` = ink-tint.
+ * `color`/`bg` are inline-style values; `neutral` marks kinds that use theme tokens instead.
+ */
+const KIND_META: Record<string, { label: string; icon: string; color: string; ink: string; neutral?: boolean }> = {
+  image: { label: 'Images', icon: 'i-ph:image-duotone', color: CYAN, ink: CYAN },
+  video: { label: 'Video', icon: 'i-ph:film-slate-duotone', color: PURPLE, ink: PURPLE_INK },
+  document: { label: 'Docs', icon: 'i-ph:file-text-duotone', color: TEAL, ink: TEAL },
+  other: { label: 'Other', icon: 'i-ph:file-duotone', color: '', ink: '', neutral: true },
+};
+
+const KIND_ORDER = ['image', 'video', 'document', 'other'] as const;
 
 /** Human-readable byte size (1 decimal for KB+). */
 function formatBytes(bytes: number | undefined): string {
@@ -97,27 +169,95 @@ function formatBytes(bytes: number | undefined): string {
   return `${value.toFixed(value >= 100 ? 0 : 1)} ${units[unit]}`;
 }
 
-/** True when an asset is an image we can thumbnail (by contentType or kind or extension). */
-function isImageAsset(asset: MediaAssetEntry): boolean {
+/** Compact relative time ("3d", "2h", "just now") from an ISO string — fills the caption's dead space. */
+function formatRelativeTime(iso: string | undefined): string | undefined {
+  if (!iso) {
+    return undefined;
+  }
+
+  const then = Date.parse(iso);
+
+  if (Number.isNaN(then)) {
+    return undefined;
+  }
+
+  const secs = Math.max(0, Math.round((Date.now() - then) / 1000));
+
+  if (secs < 45) {
+    return 'just now';
+  }
+
+  const mins = Math.round(secs / 60);
+
+  if (mins < 60) {
+    return `${mins}m ago`;
+  }
+
+  const hours = Math.round(mins / 60);
+
+  if (hours < 24) {
+    return `${hours}h ago`;
+  }
+
+  const days = Math.round(hours / 24);
+
+  if (days < 30) {
+    return `${days}d ago`;
+  }
+
+  const months = Math.round(days / 30);
+
+  if (months < 12) {
+    return `${months}mo ago`;
+  }
+
+  return `${Math.round(months / 12)}y ago`;
+}
+
+/** The coarse kind for an asset (falls back to a MIME/extension sniff when the backend didn't classify). */
+function kindOf(asset: MediaAssetEntry): 'image' | 'video' | 'document' | 'other' {
+  const k = (asset.kind || '').toLowerCase();
+
+  if (k === 'image' || k === 'video' || k === 'document') {
+    return k;
+  }
+
   const ct = (asset.contentType || '').toLowerCase();
 
   if (ct.startsWith('image/')) {
-    return true;
+    return 'image';
   }
 
-  if ((asset.kind || '').toLowerCase() === 'image') {
-    return true;
+  if (ct.startsWith('video/')) {
+    return 'video';
   }
 
-  return /\.(png|jpe?g|gif|webp|avif|svg|bmp|ico)$/i.test(asset.name || asset.url || '');
+  if (ct.includes('pdf') || /\.(pdf|docx?|txt|md|csv|json|xml)$/i.test(asset.name || '')) {
+    return 'document';
+  }
+
+  if (/\.(png|jpe?g|gif|webp|avif|svg|bmp|ico)$/i.test(asset.name || asset.url || '')) {
+    return 'image';
+  }
+
+  if (/\.(mp4|mov|webm|mkv|avi)$/i.test(asset.name || asset.url || '')) {
+    return 'video';
+  }
+
+  return 'other';
+}
+
+/** True when an asset is an image we can thumbnail (by contentType or kind or extension). */
+function isImageAsset(asset: MediaAssetEntry): boolean {
+  return kindOf(asset) === 'image';
 }
 
 /** A phosphor glyph for a non-image asset kind. */
 function iconForAsset(asset: MediaAssetEntry): string {
   const ct = (asset.contentType || '').toLowerCase();
-  const kind = (asset.kind || '').toLowerCase();
+  const kind = kindOf(asset);
 
-  if (ct.startsWith('video/') || kind === 'video') {
+  if (kind === 'video') {
     return 'i-ph:file-video-duotone';
   }
 
@@ -129,8 +269,58 @@ function iconForAsset(asset: MediaAssetEntry): string {
     return 'i-ph:file-text-duotone';
   }
 
-  if (ct.startsWith('audio/') || kind === 'audio') {
+  if (ct.startsWith('audio/')) {
     return 'i-ph:file-audio-duotone';
+  }
+
+  return 'i-ph:file-duotone';
+}
+
+/** A friendly extension token (`PNG`, `MP4`, `PDF`) for the kind badge — uppercased, ≤4 chars. */
+function extOf(asset: MediaAssetEntry): string | undefined {
+  const src = asset.name || asset.url || '';
+  const m = /\.([a-z0-9]{2,4})(?:\?|#|$)/i.exec(src);
+
+  if (m) {
+    return m[1].toUpperCase();
+  }
+
+  const ct = (asset.contentType || '').split('/')[1];
+
+  return ct ? ct.replace('+xml', '').slice(0, 4).toUpperCase() : undefined;
+}
+
+/** A glyph for a build file by its extension/content type. */
+function iconForBuildFile(file: SiteBuildFileEntry): string {
+  const name = (file.name || '').toLowerCase();
+  const ct = (file.contentType || '').toLowerCase();
+
+  if (/\.(html?|htm)$/.test(name) || ct.includes('html')) {
+    return 'i-ph:file-html-duotone';
+  }
+
+  if (/\.css$/.test(name) || ct.includes('css')) {
+    return 'i-ph:file-css-duotone';
+  }
+
+  if (/\.(js|mjs|cjs|jsx)$/.test(name) || ct.includes('javascript')) {
+    return 'i-ph:file-js-duotone';
+  }
+
+  if (/\.(ts|tsx)$/.test(name)) {
+    return 'i-ph:file-ts-duotone';
+  }
+
+  if (/\.json$/.test(name) || ct.includes('json')) {
+    return 'i-ph:brackets-curly-duotone';
+  }
+
+  if (/\.(png|jpe?g|gif|webp|avif|svg|ico)$/.test(name) || ct.startsWith('image/')) {
+    return 'i-ph:image-duotone';
+  }
+
+  if (/\.(woff2?|ttf|otf|eot)$/.test(name) || ct.includes('font')) {
+    return 'i-ph:text-aa-duotone';
   }
 
   return 'i-ph:file-duotone';
@@ -157,6 +347,7 @@ export const ResourcesPanel = memo(() => {
   const [kind, setKind] = useState<string>('');
   const [search, setSearch] = useState('');
   const [uploading, setUploading] = useState(false);
+  const [uploadName, setUploadName] = useState<string | null>(null);
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -251,6 +442,7 @@ export const ResourcesPanel = memo(() => {
       }
 
       setUploading(true);
+      setUploadName(file.name);
 
       try {
         const dataUrl = await fileToDataUrl(file);
@@ -286,6 +478,7 @@ export const ResourcesPanel = memo(() => {
         postToastToParent('error', err instanceof Error ? err.message : 'Upload failed.');
       } finally {
         setUploading(false);
+        setUploadName(null);
       }
     },
     [uploading, environment, loadMedia],
@@ -355,8 +548,14 @@ export const ResourcesPanel = memo(() => {
 
     // Fallback: derive from the loaded page (honest "this page" when the server didn't roll up).
     const totalBytes = media.assets.reduce((sum, a) => sum + (a.size ?? 0), 0);
+    const countsByKind = media.assets.reduce<Record<string, number>>((acc, a) => {
+      const k = kindOf(a);
+      acc[k] = (acc[k] ?? 0) + 1;
 
-    return { totalBytes, totalCount: media.assets.length };
+      return acc;
+    }, {});
+
+    return { totalBytes, totalCount: media.assets.length, countsByKind };
   }, [media]);
 
   // The deeper CF-primitive console — kept reachable so no proven surface is orphaned.
@@ -364,11 +563,7 @@ export const ResourcesPanel = memo(() => {
     return (
       <div className="h-full flex flex-col bg-bolt-elements-background-depth-1">
         <div className="flex items-center gap-2 px-3 py-2 border-b border-bolt-elements-borderColor shrink-0">
-          <button
-            type="button"
-            onClick={() => setShowConsole(false)}
-            className="min-h-[24px] flex items-center gap-1.5 px-2.5 py-1 text-[11px] font-medium rounded-md border border-bolt-elements-borderColor bg-bolt-elements-background-depth-2 text-bolt-elements-textSecondary hover:text-bolt-elements-textPrimary hover:bg-bolt-elements-background-depth-3 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-bolt-elements-item-contentAccent cursor-pointer"
-          >
+          <button type="button" onClick={() => setShowConsole(false)} className={classNames(BTN_GHOST, 'min-h-[26px] px-2.5 py-1 text-[11px]')}>
             <div className="i-ph:arrow-left text-sm" /> Back to assets
           </button>
           <span className="text-[11px] text-bolt-elements-textTertiary">Advanced · Cloudflare resources</span>
@@ -399,10 +594,12 @@ export const ResourcesPanel = memo(() => {
             kind={kind}
             search={search}
             uploading={uploading}
+            uploadName={uploadName}
             deletingId={deletingId}
             onKind={setKind}
             onSearch={setSearch}
             onPickFile={onPickFile}
+            onUploadFile={onUploadFile}
             onDelete={onDeleteAsset}
             onRetry={() => void loadMedia()}
           />
@@ -447,28 +644,23 @@ const Header = memo(
     onOpenConsole: () => void;
   }) => (
     <div className="relative border-b border-bolt-elements-borderColor shrink-0 overflow-hidden">
-      {/* Subtle brand wash — sets the cinematic black+cyan tone from the first pixel. */}
+      {/* Cinematic brand wash — cyan → purple, sets the black+cyan tone from the first pixel. */}
       <div
         aria-hidden="true"
-        className="pointer-events-none absolute inset-0 opacity-60"
-        style={{ background: 'linear-gradient(90deg, color-mix(in oklch, #00e5ff 8%, transparent), transparent 45%)' }}
+        className="pointer-events-none absolute inset-0"
+        style={{
+          background:
+            'radial-gradient(120% 140% at 0% 0%, color-mix(in oklch, #00e5ff 12%, transparent), transparent 42%), ' +
+            'radial-gradient(90% 120% at 100% 0%, color-mix(in oklch, #7c3aed 10%, transparent), transparent 46%)',
+        }}
       />
       <div className="relative flex items-center gap-3 px-4 pt-3">
-        <div className="flex items-center justify-center h-9 w-9 rounded-xl border border-bolt-elements-item-contentAccent/30 bg-bolt-elements-item-contentAccent/[0.08] shrink-0">
+        <div className="flex items-center justify-center h-9 w-9 rounded-xl border border-bolt-elements-item-contentAccent/30 bg-bolt-elements-item-contentAccent/[0.08] shadow-inner shadow-bolt-elements-item-contentAccent/10 shrink-0">
           <div className="i-ph:images-square-duotone text-xl text-bolt-elements-item-contentAccent" />
         </div>
         <div className="min-w-0 flex-1">
           <h2 className="text-sm font-semibold text-bolt-elements-textPrimary tracking-tight">Resources</h2>
-          <p className="text-[10px] text-bolt-elements-textTertiary truncate">
-            {usage.totalCount !== undefined ? (
-              <>
-                {usage.totalCount} asset{usage.totalCount === 1 ? '' : 's'} · {formatBytes(usage.totalBytes)} · your
-                site&rsquo;s files
-              </>
-            ) : (
-              'Your site’s media + build files'
-            )}
-          </p>
+          <StorageSummaryLine usage={usage} />
         </div>
 
         <div className="ml-auto flex items-center gap-2 shrink-0">
@@ -490,7 +682,7 @@ const Header = memo(
                   className={classNames(
                     'min-h-[24px] px-2.5 py-1 text-[11px] font-medium rounded-md transition-colors motion-reduce:transition-none focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-bolt-elements-item-contentAccent cursor-pointer',
                     active
-                      ? 'bg-bolt-elements-item-contentAccent text-bolt-elements-background-depth-1'
+                      ? 'bg-bolt-elements-item-contentAccent text-bolt-elements-background-depth-1 shadow-sm shadow-bolt-elements-item-contentAccent/25'
                       : 'text-bolt-elements-textTertiary hover:text-bolt-elements-textPrimary',
                   )}
                 >
@@ -506,7 +698,7 @@ const Header = memo(
             onClick={onOpenConsole}
             title="Advanced — every Cloudflare resource this site uses"
             data-testid="resources-open-console"
-            className="min-h-[24px] flex items-center gap-1.5 px-2.5 py-1 text-[11px] font-medium rounded-md border border-bolt-elements-borderColor bg-bolt-elements-background-depth-2 text-bolt-elements-textTertiary hover:text-bolt-elements-textPrimary hover:bg-bolt-elements-background-depth-3 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-bolt-elements-item-contentAccent cursor-pointer"
+            className={classNames(BTN_GHOST, 'min-h-[26px] px-2.5 py-1 text-[11px]')}
           >
             <div className="i-ph:stack text-sm" /> Advanced
           </button>
@@ -515,9 +707,9 @@ const Header = memo(
           <button
             type="button"
             onClick={onRefresh}
-            aria-label="Refresh"
+            aria-label="Refresh resources"
             title="Refresh"
-            className="min-h-[24px] min-w-[24px] flex items-center justify-center rounded border border-bolt-elements-borderColor bg-bolt-elements-background-depth-2 text-bolt-elements-item-contentAccent hover:bg-bolt-elements-background-depth-3 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-bolt-elements-item-contentAccent cursor-pointer"
+            className={classNames(BTN_SECONDARY, 'min-h-[26px] min-w-[26px] px-1.5 py-1')}
           >
             <div className="i-ph:arrows-clockwise text-sm" />
           </button>
@@ -525,7 +717,7 @@ const Header = memo(
       </div>
 
       {/* Section tabs — Media library | Site files */}
-      <div className="relative flex items-center gap-1 px-4 pt-2 pb-2" role="tablist" aria-label="Resource sections">
+      <div className="relative flex items-center gap-1 px-4 pt-2.5 pb-2" role="tablist" aria-label="Resource sections">
         {(
           [
             { value: 'media', label: 'Media library', icon: 'i-ph:images-square' },
@@ -542,9 +734,9 @@ const Header = memo(
               onClick={() => onSection(tab.value)}
               data-testid={`resources-section-${tab.value}`}
               className={classNames(
-                'min-h-[24px] flex items-center gap-1.5 px-3 py-1 text-xs font-medium rounded-md transition-colors motion-reduce:transition-none focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-bolt-elements-item-contentAccent cursor-pointer',
+                'group relative min-h-[26px] flex items-center gap-1.5 px-3 py-1 text-xs font-medium rounded-md transition-colors motion-reduce:transition-none focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-bolt-elements-item-contentAccent cursor-pointer',
                 active
-                  ? 'bg-bolt-elements-item-contentAccent text-bolt-elements-background-depth-1 shadow-sm'
+                  ? 'bg-bolt-elements-item-contentAccent text-bolt-elements-background-depth-1 shadow-sm shadow-bolt-elements-item-contentAccent/25'
                   : 'text-bolt-elements-textTertiary hover:text-bolt-elements-textPrimary hover:bg-bolt-elements-background-depth-3',
               )}
             >
@@ -560,14 +752,85 @@ const Header = memo(
 
 Header.displayName = 'ResourcesPanel.Header';
 
+// ── Storage-usage summary — count · size · a cyan/purple per-kind data-viz bar + chips ────────────
+
+const StorageSummaryLine = memo(({ usage }: { usage: MediaUsageSummary }) => {
+  const counts = usage.countsByKind ?? {};
+  const segments = KIND_ORDER.map((k) => ({ k, n: counts[k] ?? 0 })).filter((s) => s.n > 0);
+  const total = usage.totalCount ?? segments.reduce((sum, s) => sum + s.n, 0);
+
+  if (usage.totalCount === undefined && segments.length === 0) {
+    return <p className="text-[10px] text-bolt-elements-textTertiary truncate">Your site’s media + build files</p>;
+  }
+
+  return (
+    <div className="flex items-center gap-2 min-w-0">
+      <p className="text-[10px] text-bolt-elements-textTertiary truncate tabular-nums">
+        <span className="text-bolt-elements-textSecondary font-medium">{total}</span> asset{total === 1 ? '' : 's'}
+        {usage.totalBytes !== undefined && (
+          <>
+            {' · '}
+            <span className="text-bolt-elements-textSecondary font-medium">{formatBytes(usage.totalBytes)}</span>
+          </>
+        )}
+      </p>
+
+      {segments.length > 0 && (
+        <>
+          {/* Stacked per-kind bar — cyan/purple/teal proportions of the library at a glance. */}
+          <div
+            className="hidden sm:flex h-1.5 w-24 rounded-full overflow-hidden bg-bolt-elements-background-depth-3 shrink-0"
+            role="img"
+            aria-label={segments.map((s) => `${s.n} ${KIND_META[s.k].label}`).join(', ')}
+            title={segments.map((s) => `${s.n} ${KIND_META[s.k].label}`).join(' · ')}
+          >
+            {segments.map((s) => {
+              const m = KIND_META[s.k];
+              return (
+                <div
+                  key={s.k}
+                  className={classNames('h-full', m.neutral && 'bg-bolt-elements-textTertiary')}
+                  style={{ width: `${(s.n / total) * 100}%`, ...(m.neutral ? {} : { backgroundColor: m.color }) }}
+                />
+              );
+            })}
+          </div>
+
+          {/* Per-kind count chips. */}
+          <div className="hidden md:flex items-center gap-1 shrink-0">
+            {segments.map((s) => {
+              const m = KIND_META[s.k];
+              return (
+                <span
+                  key={s.k}
+                  className={classNames(
+                    'inline-flex items-center gap-0.5 rounded-full border px-1.5 py-px text-[9px] font-medium tabular-nums',
+                    m.neutral && 'border-bolt-elements-borderColor text-bolt-elements-textSecondary',
+                  )}
+                  style={m.neutral ? {} : { borderColor: `color-mix(in oklch, ${m.color} 40%, transparent)`, color: m.ink }}
+                >
+                  <span
+                    className={classNames('h-1.5 w-1.5 rounded-full', m.neutral && 'bg-bolt-elements-textTertiary')}
+                    style={m.neutral ? {} : { backgroundColor: m.color }}
+                    aria-hidden
+                  />
+                  {s.n}
+                </span>
+              );
+            })}
+          </div>
+        </>
+      )}
+    </div>
+  );
+});
+
+StorageSummaryLine.displayName = 'ResourcesPanel.StorageSummaryLine';
+
 // ── Shared states ──────────────────────────────────────────────────────────
 
 const Spinner = memo(({ label }: { label: string }) => (
-  <div
-    className="flex-1 flex flex-col items-center justify-center gap-2 p-8 text-center"
-    role="status"
-    aria-live="polite"
-  >
+  <div className="flex-1 flex flex-col items-center justify-center gap-2 p-8 text-center" role="status" aria-live="polite">
     <div className="i-ph:circle-notch text-2xl text-bolt-elements-item-contentAccent animate-spin motion-reduce:animate-none" />
     <p className="text-xs text-bolt-elements-textSecondary">{label}</p>
   </div>
@@ -577,14 +840,12 @@ Spinner.displayName = 'ResourcesPanel.Spinner';
 
 const ErrorCard = memo(({ message, onRetry }: { message: string; onRetry: () => void }) => (
   <div className="flex-1 flex flex-col items-center justify-center gap-3 p-8 text-center" data-testid="resources-error">
-    <div className="i-ph:warning-circle text-3xl text-red-400" />
-    <p className="text-xs text-bolt-elements-textSecondary max-w-[280px]">{message}</p>
-    <button
-      type="button"
-      onClick={onRetry}
-      className="min-h-[24px] mt-1 text-[11px] font-medium px-3 py-1.5 rounded border border-bolt-elements-borderColor bg-bolt-elements-background-depth-2 text-bolt-elements-item-contentAccent hover:bg-bolt-elements-background-depth-3 transition-colors flex items-center gap-1.5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-bolt-elements-item-contentAccent cursor-pointer"
-    >
-      <div className="i-ph:arrow-clockwise" /> Retry
+    <div className="flex items-center justify-center h-12 w-12 rounded-2xl border border-red-400/30 bg-red-500/[0.07]">
+      <div className="i-ph:warning-circle-duotone text-2xl text-red-400" aria-hidden />
+    </div>
+    <p className="text-xs text-bolt-elements-textSecondary max-w-[280px] leading-relaxed">{message}</p>
+    <button type="button" onClick={onRetry} className={classNames(BTN_SECONDARY, 'min-h-[28px] mt-1 px-3 py-1.5 text-[11px]')}>
+      <div className="i-ph:arrow-clockwise text-sm" /> Try again
     </button>
   </div>
 ));
@@ -593,9 +854,11 @@ ErrorCard.displayName = 'ResourcesPanel.ErrorCard';
 
 const DisabledCard = memo(({ what }: { what: string }) => (
   <div className="flex-1 flex flex-col items-center justify-center gap-3 p-8 text-center" data-testid="resources-disabled">
-    <div className="i-ph:lock-key text-3xl text-bolt-elements-textTertiary" />
-    <p className="text-sm font-medium text-bolt-elements-textSecondary">{what} isn&rsquo;t enabled yet</p>
-    <p className="text-[11px] text-bolt-elements-textTertiary max-w-[260px]">
+    <div className="flex items-center justify-center h-14 w-14 rounded-2xl border border-bolt-elements-borderColor bg-bolt-elements-background-depth-2">
+      <div className="i-ph:lock-key-duotone text-3xl text-bolt-elements-textTertiary" aria-hidden />
+    </div>
+    <p className="text-sm font-semibold text-bolt-elements-textSecondary">{what} isn&rsquo;t enabled yet</p>
+    <p className="text-[11px] text-bolt-elements-textTertiary max-w-[260px] leading-relaxed">
       This is on the way. Once it&rsquo;s turned on, it shows up here — nothing to set up.
     </p>
   </div>
@@ -611,10 +874,12 @@ const MediaLibrary = memo(
     kind,
     search,
     uploading,
+    uploadName,
     deletingId,
     onKind,
     onSearch,
     onPickFile,
+    onUploadFile,
     onDelete,
     onRetry,
   }: {
@@ -622,22 +887,75 @@ const MediaLibrary = memo(
     kind: string;
     search: string;
     uploading: boolean;
+    uploadName: string | null;
     deletingId: string | null;
     onKind: (k: string) => void;
     onSearch: (s: string) => void;
     onPickFile: () => void;
+    onUploadFile: (file: File) => void;
     onDelete: (asset: MediaAssetEntry) => void;
     onRetry: () => void;
   }) => {
+    const [dragging, setDragging] = useState(false);
+    const dragDepth = useRef(0);
+
+    // Drag-and-drop upload affordance — depth-counted so nested enter/leave doesn't flicker.
+    const onDragEnter = useCallback((e: React.DragEvent) => {
+      if (!Array.from(e.dataTransfer.types).includes('Files')) {
+        return;
+      }
+
+      e.preventDefault();
+      dragDepth.current += 1;
+      setDragging(true);
+    }, []);
+
+    const onDragOver = useCallback((e: React.DragEvent) => {
+      if (Array.from(e.dataTransfer.types).includes('Files')) {
+        e.preventDefault();
+        e.dataTransfer.dropEffect = 'copy';
+      }
+    }, []);
+
+    const onDragLeave = useCallback((e: React.DragEvent) => {
+      e.preventDefault();
+      dragDepth.current = Math.max(0, dragDepth.current - 1);
+
+      if (dragDepth.current === 0) {
+        setDragging(false);
+      }
+    }, []);
+
+    const onDrop = useCallback(
+      (e: React.DragEvent) => {
+        e.preventDefault();
+        dragDepth.current = 0;
+        setDragging(false);
+
+        const file = e.dataTransfer.files?.[0];
+
+        if (file) {
+          onUploadFile(file);
+        }
+      },
+      [onUploadFile],
+    );
+
     if (state.status === 'disabled') {
       return <DisabledCard what="Media library" />;
     }
 
     return (
-      <div className="h-full flex flex-col">
+      <div
+        className="relative h-full flex flex-col"
+        onDragEnter={onDragEnter}
+        onDragOver={onDragOver}
+        onDragLeave={onDragLeave}
+        onDrop={onDrop}
+      >
         {/* Toolbar — kind filter · search · upload */}
-        <div className="flex items-center gap-2 px-4 py-2 border-b border-bolt-elements-borderColor/60 shrink-0 overflow-x-auto">
-          <div className="flex items-center gap-1 rounded-lg bg-bolt-elements-background-depth-2 p-0.5 shrink-0">
+        <div className="flex items-center gap-2 px-4 py-2.5 border-b border-bolt-elements-borderColor/60 shrink-0 overflow-x-auto">
+          <div className="flex items-center gap-0.5 rounded-lg border border-bolt-elements-borderColor bg-bolt-elements-background-depth-2 p-0.5 shrink-0">
             {KIND_FILTERS.map((f) => {
               const active = kind === f.value;
               return (
@@ -650,8 +968,8 @@ const MediaLibrary = memo(
                   className={classNames(
                     'min-h-[24px] flex items-center gap-1 px-2 py-1 text-[11px] font-medium rounded-md transition-colors motion-reduce:transition-none focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-bolt-elements-item-contentAccent cursor-pointer',
                     active
-                      ? 'bg-bolt-elements-item-contentAccent text-bolt-elements-background-depth-1'
-                      : 'text-bolt-elements-textTertiary hover:text-bolt-elements-textPrimary',
+                      ? 'bg-bolt-elements-item-contentAccent text-bolt-elements-background-depth-1 shadow-sm shadow-bolt-elements-item-contentAccent/20'
+                      : 'text-bolt-elements-textTertiary hover:text-bolt-elements-textPrimary hover:bg-bolt-elements-background-depth-3',
                   )}
                 >
                   <div className={classNames(f.icon, 'text-xs')} aria-hidden />
@@ -661,8 +979,8 @@ const MediaLibrary = memo(
             })}
           </div>
 
-          <div className="relative flex-1 min-w-[120px]">
-            <div className="i-ph:magnifying-glass absolute left-2 top-1/2 -translate-y-1/2 text-xs text-bolt-elements-textTertiary pointer-events-none" />
+          <div className="relative flex-1 min-w-[120px] group">
+            <div className="i-ph:magnifying-glass absolute left-2.5 top-1/2 -translate-y-1/2 text-xs text-bolt-elements-textTertiary group-focus-within:text-bolt-elements-item-contentAccent transition-colors pointer-events-none" />
             <input
               type="search"
               value={search}
@@ -670,18 +988,18 @@ const MediaLibrary = memo(
               placeholder="Search files…"
               aria-label="Search media"
               data-testid="resources-search"
-              className="w-full min-h-[24px] pl-7 pr-2 py-1 text-[12px] rounded-md border border-bolt-elements-borderColor bg-bolt-elements-background-depth-2 text-bolt-elements-textPrimary placeholder:text-bolt-elements-textTertiary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-bolt-elements-item-contentAccent"
+              className="w-full min-h-[26px] pl-8 pr-2.5 py-1 text-[12px] rounded-lg border border-bolt-elements-borderColor bg-bolt-elements-background-depth-2 text-bolt-elements-textPrimary placeholder:text-bolt-elements-textTertiary transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-bolt-elements-item-contentAccent focus-visible:border-bolt-elements-item-contentAccent/50"
             />
           </div>
 
-          {/* Upload — label reserves its widest state so it never resizes. */}
+          {/* Upload — label span reserves its widest state (`Uploading…`) so it never resizes. */}
           <button
             type="button"
             onClick={onPickFile}
             disabled={uploading}
             data-testid="resources-upload"
             title="Upload a file to your media library"
-            className="min-h-[24px] shrink-0 text-[11px] font-semibold px-3 py-1 rounded-md bg-bolt-elements-item-contentAccent text-bolt-elements-background-depth-1 enabled:hover:opacity-90 disabled:opacity-50 disabled:cursor-not-allowed transition-opacity flex items-center gap-1.5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-offset-bolt-elements-background-depth-1 focus-visible:ring-bolt-elements-item-contentAccent cursor-pointer"
+            className={classNames(BTN_PRIMARY, 'min-h-[26px] shrink-0 px-3 py-1 text-[11px]')}
           >
             <div
               className={classNames(
@@ -699,21 +1017,30 @@ const MediaLibrary = memo(
         {state.status === 'error' && <ErrorCard message={state.message} onRetry={onRetry} />}
         {state.status === 'ready' &&
           (state.assets.length === 0 ? (
-            <MediaEmpty hasFilter={Boolean(kind) || Boolean(search.trim())} onUpload={onPickFile} />
+            <MediaEmpty hasFilter={Boolean(kind) || Boolean(search.trim())} uploading={uploading} onUpload={onPickFile} />
           ) : (
-            <div className="flex-1 overflow-auto modern-scrollbar p-4" data-testid="resources-media-grid">
-              <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3">
+            <div className="flex-1 overflow-auto modern-scrollbar p-3" data-testid="resources-media-grid">
+              <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-2.5">
+                {/* Live upload placeholder card — reads as "in progress", not a broken tile. */}
+                {uploading && <UploadingCard name={uploadName} />}
                 {state.assets.map((asset) => (
-                  <MediaCard
-                    key={asset.id}
-                    asset={asset}
-                    deleting={deletingId === asset.id}
-                    onDelete={() => onDelete(asset)}
-                  />
+                  <MediaCard key={asset.id} asset={asset} deleting={deletingId === asset.id} onDelete={() => onDelete(asset)} />
                 ))}
               </div>
             </div>
           ))}
+
+        {/* Drag-and-drop overlay — cyan dashed drop target over the whole library. */}
+        {dragging && (
+          <div
+            className="absolute inset-0 z-10 flex flex-col items-center justify-center gap-2 rounded-lg m-2 border-2 border-dashed border-bolt-elements-item-contentAccent bg-bolt-elements-background-depth-1/85 backdrop-blur-sm pointer-events-none"
+            data-testid="resources-drop-overlay"
+          >
+            <div className="i-ph:upload-simple-duotone text-4xl text-bolt-elements-item-contentAccent motion-safe:animate-bounce motion-reduce:animate-none" aria-hidden />
+            <p className="text-sm font-semibold text-bolt-elements-textPrimary">Drop to upload</p>
+            <p className="text-[11px] text-bolt-elements-textTertiary">Release the file to add it to your media library</p>
+          </div>
+        )}
       </div>
     );
   },
@@ -722,14 +1049,11 @@ const MediaLibrary = memo(
 MediaLibrary.displayName = 'ResourcesPanel.MediaLibrary';
 
 const MediaSkeleton = memo(() => (
-  <div className="flex-1 overflow-hidden p-4" aria-busy="true" data-testid="resources-media-skeleton">
-    <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3">
+  <div className="flex-1 overflow-hidden p-3" aria-busy="true" data-testid="resources-media-skeleton">
+    <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-2.5">
       {Array.from({ length: 8 }).map((_, i) => (
-        <div
-          key={i}
-          className="rounded-xl border border-bolt-elements-borderColor bg-bolt-elements-background-depth-2 overflow-hidden"
-        >
-          <div className="aspect-[4/3] bg-bolt-elements-background-depth-3 motion-safe:animate-pulse" />
+        <div key={i} className="rounded-xl border border-bolt-elements-borderColor bg-bolt-elements-background-depth-2 overflow-hidden">
+          <div className="aspect-[4/3] bg-gradient-to-br from-bolt-elements-background-depth-3 to-bolt-elements-background-depth-2 motion-safe:animate-pulse" />
           <div className="p-2 space-y-1.5">
             <div className="h-2.5 w-3/4 rounded bg-bolt-elements-background-depth-3 motion-safe:animate-pulse" />
             <div className="h-2 w-1/3 rounded bg-bolt-elements-background-depth-3 motion-safe:animate-pulse" />
@@ -742,95 +1066,168 @@ const MediaSkeleton = memo(() => (
 
 MediaSkeleton.displayName = 'ResourcesPanel.MediaSkeleton';
 
-const MediaEmpty = memo(({ hasFilter, onUpload }: { hasFilter: boolean; onUpload: () => void }) => (
+const MediaEmpty = memo(({ hasFilter, uploading, onUpload }: { hasFilter: boolean; uploading: boolean; onUpload: () => void }) => (
   <div className="flex-1 flex flex-col items-center justify-center gap-4 p-8 text-center" data-testid="resources-media-empty">
-    <div className="flex items-center justify-center h-14 w-14 rounded-2xl border border-bolt-elements-item-contentAccent/25 bg-bolt-elements-item-contentAccent/[0.06]">
-      <div className="i-ph:image-duotone text-3xl text-bolt-elements-item-contentAccent" aria-hidden />
+    <div className="relative flex items-center justify-center h-16 w-16 rounded-2xl border border-bolt-elements-item-contentAccent/25 bg-bolt-elements-item-contentAccent/[0.06]">
+      <div
+        aria-hidden
+        className="absolute inset-0 rounded-2xl opacity-60"
+        style={{ background: 'radial-gradient(60% 60% at 50% 30%, color-mix(in oklch, #7c3aed 22%, transparent), transparent)' }}
+      />
+      <div className="relative i-ph:image-duotone text-3xl text-bolt-elements-item-contentAccent" aria-hidden />
     </div>
     <div className="space-y-1">
-      <p className="text-sm font-semibold text-bolt-elements-textPrimary">
-        {hasFilter ? 'No matching files' : 'No media yet'}
-      </p>
-      <p className="text-[11px] text-bolt-elements-textTertiary max-w-[280px]">
+      <p className="text-sm font-semibold text-bolt-elements-textPrimary">{hasFilter ? 'No matching files' : 'No media yet'}</p>
+      <p className="text-[11px] text-bolt-elements-textTertiary max-w-[290px] leading-relaxed">
         {hasFilter
-          ? 'Try a different filter or search — or upload a new file.'
-          : 'Upload images, video, or documents for your site — they show up here to reuse anywhere.'}
+          ? 'Try a different filter or search — or drag a file here to upload.'
+          : 'Drag a file here, or upload images, video, or documents — they show up here to reuse anywhere on your site.'}
       </p>
     </div>
-    <button
-      type="button"
-      onClick={onUpload}
-      data-testid="resources-media-empty-upload"
-      className="min-h-[24px] text-[12px] font-semibold px-3.5 py-2 rounded-lg bg-bolt-elements-item-contentAccent text-bolt-elements-background-depth-1 hover:opacity-90 transition-opacity flex items-center gap-1.5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-offset-bolt-elements-background-depth-1 focus-visible:ring-bolt-elements-item-contentAccent cursor-pointer"
-    >
-      <div className="i-ph:upload-simple-bold" /> Upload a file
+    <button type="button" onClick={onUpload} disabled={uploading} data-testid="resources-media-empty-upload" className={classNames(BTN_PRIMARY, 'min-h-[30px] px-4 py-2 text-[12px]')}>
+      <div className={classNames(uploading ? 'i-ph:circle-notch animate-spin motion-reduce:animate-none' : 'i-ph:upload-simple-bold', 'text-sm')} aria-hidden />
+      <span className="min-w-[10ch] text-center">{uploading ? 'Uploading…' : 'Upload a file'}</span>
     </button>
   </div>
 ));
 
 MediaEmpty.displayName = 'ResourcesPanel.MediaEmpty';
 
-const MediaCard = memo(
-  ({ asset, deleting, onDelete }: { asset: MediaAssetEntry; deleting: boolean; onDelete: () => void }) => {
-    const image = isImageAsset(asset);
-    const name = asset.name || asset.url.split('/').pop() || 'file';
+/** An in-flight upload tile — cyan pulse + name, so the grid reflects progress immediately. */
+const UploadingCard = memo(({ name }: { name: string | null }) => (
+  <div
+    className="relative overflow-hidden rounded-xl border border-bolt-elements-item-contentAccent/40 bg-bolt-elements-item-contentAccent/[0.05] flex flex-col"
+    data-testid="resources-uploading-card"
+    aria-busy="true"
+  >
+    <div className="relative aspect-[4/3] flex items-center justify-center overflow-hidden bg-bolt-elements-background-depth-1">
+      <div className="i-ph:circle-notch text-3xl text-bolt-elements-item-contentAccent animate-spin motion-reduce:animate-none" aria-hidden />
+      {/* Indeterminate cyan progress sweep (uses the built-in pulse keyframe — no bespoke CSS). */}
+      <div className="absolute bottom-0 left-0 right-0 h-1 bg-bolt-elements-background-depth-3 overflow-hidden">
+        <div className="h-full w-2/3 bg-bolt-elements-item-contentAccent motion-safe:animate-pulse" />
+      </div>
+    </div>
+    <div className="p-2 min-w-0">
+      <p className="text-[11px] font-medium text-bolt-elements-item-contentAccent truncate" title={name ?? undefined}>
+        {name ?? 'Uploading…'}
+      </p>
+      <p className="text-[10px] text-bolt-elements-textTertiary">Uploading…</p>
+    </div>
+  </div>
+));
 
-    return (
-      <div
-        className="group relative overflow-hidden rounded-xl border border-bolt-elements-borderColor bg-bolt-elements-background-depth-2 flex flex-col transition-all duration-150 motion-reduce:transition-none hover:border-bolt-elements-item-contentAccent/50 hover:shadow-lg hover:shadow-bolt-elements-item-contentAccent/5"
-        data-testid="resources-media-card"
-      >
-        {/* Thumbnail / glyph */}
-        <div className="relative aspect-[4/3] bg-bolt-elements-background-depth-1 flex items-center justify-center overflow-hidden">
-          {image ? (
-            <img
-              src={asset.url}
-              alt={name}
-              loading="lazy"
-              decoding="async"
-              className="h-full w-full object-cover"
+UploadingCard.displayName = 'ResourcesPanel.UploadingCard';
+
+const MediaCard = memo(({ asset, deleting, onDelete }: { asset: MediaAssetEntry; deleting: boolean; onDelete: () => void }) => {
+  const image = isImageAsset(asset);
+  const name = asset.name || asset.url.split('/').pop() || 'file';
+  const kind = kindOf(asset);
+  const meta = KIND_META[kind];
+  const ext = extOf(asset);
+  const when = formatRelativeTime(asset.uploaded);
+  const isGenerated = (asset.source || '').toLowerCase() === 'generated';
+
+  return (
+    <div
+      className="group relative overflow-hidden rounded-xl border border-bolt-elements-borderColor bg-bolt-elements-background-depth-2 flex flex-col transition-all duration-200 motion-reduce:transition-none hover:border-bolt-elements-item-contentAccent/50 hover:shadow-lg hover:shadow-bolt-elements-item-contentAccent/10 motion-safe:hover:-translate-y-0.5"
+      data-testid="resources-media-card"
+    >
+      {/* Thumbnail / glyph */}
+      <div className="relative aspect-[4/3] bg-bolt-elements-background-depth-1 flex items-center justify-center overflow-hidden">
+        {image ? (
+          <img
+            src={asset.url}
+            alt={name}
+            loading="lazy"
+            decoding="async"
+            className="h-full w-full object-cover transition-transform duration-300 motion-reduce:transition-none motion-safe:group-hover:scale-[1.04]"
+          />
+        ) : (
+          <>
+            {/* Kind-tinted radial backdrop so non-image tiles aren't flat black. */}
+            <div
+              aria-hidden
+              className={classNames('absolute inset-0 opacity-30', meta.neutral && 'text-bolt-elements-textTertiary')}
+              style={{ background: 'radial-gradient(70% 70% at 50% 40%, currentColor, transparent)', ...(meta.neutral ? {} : { color: meta.color }) }}
             />
-          ) : (
-            <div className={classNames(iconForAsset(asset), 'text-4xl text-bolt-elements-textTertiary')} aria-hidden />
+            <div
+              className={classNames(iconForAsset(asset), 'relative text-4xl', meta.neutral && 'text-bolt-elements-textSecondary')}
+              style={meta.neutral ? {} : { color: meta.ink }}
+              aria-hidden
+            />
+          </>
+        )}
+
+        {/* Kind badge — top-left, always visible; identifies the file type at a glance. */}
+        <span
+          className={classNames(
+            'absolute top-1.5 left-1.5 inline-flex items-center gap-0.5 rounded-md border px-1.5 py-px text-[9px] font-semibold uppercase tracking-wide backdrop-blur-sm bg-bolt-elements-background-depth-1/80',
+            meta.neutral && 'border-bolt-elements-borderColor text-bolt-elements-textSecondary',
           )}
+          style={meta.neutral ? {} : { borderColor: `color-mix(in oklch, ${meta.color} 45%, transparent)`, color: meta.ink }}
+          title={`${meta.label}${ext ? ` · ${ext}` : ''}`}
+        >
+          <div className={classNames(meta.icon, 'text-[11px]')} aria-hidden />
+          {ext || meta.label}
+        </span>
 
-          {/* Hover actions — open + delete. Keyboard-reachable (focus-within reveals). */}
-          <div className="absolute top-1.5 right-1.5 flex items-center gap-1 opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 transition-opacity motion-reduce:transition-none">
-            <a
-              href={asset.url}
-              target="_blank"
-              rel="noreferrer noopener"
-              aria-label={`Open ${name} in a new tab`}
-              title="Open in new tab"
-              className="min-h-[24px] min-w-[24px] flex items-center justify-center rounded-md border border-bolt-elements-borderColor bg-bolt-elements-background-depth-1/90 backdrop-blur text-bolt-elements-textSecondary hover:text-bolt-elements-item-contentAccent transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-bolt-elements-item-contentAccent"
-            >
-              <div className="i-ph:arrow-square-out text-sm" />
-            </a>
-            <button
-              type="button"
-              onClick={onDelete}
-              disabled={deleting}
-              aria-label={`Delete ${name}`}
-              title="Delete"
-              data-testid="resources-media-delete"
-              className="min-h-[24px] min-w-[24px] flex items-center justify-center rounded-md border border-red-400/40 bg-bolt-elements-background-depth-1/90 backdrop-blur text-red-400 enabled:hover:bg-red-400/15 disabled:opacity-50 disabled:cursor-not-allowed transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red-400 cursor-pointer"
-            >
-              <div className={classNames(deleting ? 'i-ph:circle-notch animate-spin motion-reduce:animate-none' : 'i-ph:trash', 'text-sm')} />
-            </button>
-          </div>
-        </div>
+        {/* Source badge — bottom-left, only when generated (distinguishes AI-made assets). */}
+        {isGenerated && (
+          <span
+            className="absolute bottom-1.5 left-1.5 inline-flex items-center gap-0.5 rounded-md border bg-bolt-elements-background-depth-1/80 backdrop-blur-sm px-1.5 py-px text-[9px] font-medium"
+            style={{ borderColor: `color-mix(in oklch, ${PURPLE} 45%, transparent)`, color: PURPLE_INK }}
+            title="Generated by AI"
+          >
+            <div className="i-ph:sparkle-duotone text-[11px]" aria-hidden /> AI
+          </span>
+        )}
 
-        {/* Caption */}
-        <div className="p-2 min-w-0">
-          <p className="text-[11px] font-medium text-bolt-elements-textPrimary truncate" title={name}>
-            {name}
-          </p>
-          <p className="text-[10px] text-bolt-elements-textTertiary tabular-nums">{formatBytes(asset.size)}</p>
+        {/* Hover actions — open + delete. Keyboard-reachable (focus-within reveals). */}
+        <div className="absolute top-1.5 right-1.5 flex items-center gap-1 opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 transition-opacity motion-reduce:transition-none">
+          <a
+            href={asset.url}
+            target="_blank"
+            rel="noreferrer noopener"
+            aria-label={`Open ${name} in a new tab`}
+            title="Open in new tab"
+            className={classNames(BTN_GHOST, 'min-h-[24px] min-w-[24px] p-1 bg-bolt-elements-background-depth-1/90 backdrop-blur text-bolt-elements-textSecondary')}
+          >
+            <div className="i-ph:arrow-square-out text-sm" />
+          </a>
+          <button
+            type="button"
+            onClick={onDelete}
+            disabled={deleting}
+            aria-label={`Delete ${name}`}
+            title="Delete"
+            data-testid="resources-media-delete"
+            className={classNames(BTN_DESTRUCTIVE, 'min-h-[24px] min-w-[24px] p-1')}
+          >
+            <div className={classNames(deleting ? 'i-ph:circle-notch animate-spin motion-reduce:animate-none' : 'i-ph:trash', 'text-sm')} />
+          </button>
         </div>
       </div>
-    );
-  },
-);
+
+      {/* Caption — name + size · relative time. */}
+      <div className="p-2 min-w-0">
+        <p className="text-[11px] font-medium text-bolt-elements-textPrimary truncate" title={name}>
+          {name}
+        </p>
+        <p className="text-[10px] text-bolt-elements-textTertiary tabular-nums flex items-center gap-1">
+          <span>{formatBytes(asset.size)}</span>
+          {when && (
+            <>
+              <span className="text-bolt-elements-textTertiary/50" aria-hidden>
+                ·
+              </span>
+              <span>{when}</span>
+            </>
+          )}
+        </p>
+      </div>
+    </div>
+  );
+});
 
 MediaCard.displayName = 'ResourcesPanel.MediaCard';
 
@@ -852,35 +1249,47 @@ const BuildFiles = memo(({ state, onRetry }: { state: FilesState; onRetry: () =>
   if (state.files.length === 0) {
     return (
       <div className="flex-1 flex flex-col items-center justify-center gap-3 p-8 text-center" data-testid="resources-files-empty">
-        <div className="i-ph:folder-dashed text-3xl text-bolt-elements-textTertiary" />
-        <p className="text-sm font-medium text-bolt-elements-textSecondary">No build files yet</p>
-        <p className="text-[11px] text-bolt-elements-textTertiary max-w-[260px]">
+        <div className="flex items-center justify-center h-14 w-14 rounded-2xl border border-bolt-elements-borderColor bg-bolt-elements-background-depth-2">
+          <div className="i-ph:folder-dashed-duotone text-3xl text-bolt-elements-textTertiary" aria-hidden />
+        </div>
+        <p className="text-sm font-semibold text-bolt-elements-textSecondary">No build files yet</p>
+        <p className="text-[11px] text-bolt-elements-textTertiary max-w-[260px] leading-relaxed">
           When your site is published, the files that make up its build appear here.
         </p>
       </div>
     );
   }
 
+  const totalBytes = state.files.reduce((sum, f) => sum + (f.size ?? 0), 0);
+
   return (
     <div className="flex-1 overflow-auto modern-scrollbar" data-testid="resources-files-list">
-      {state.prefix && (
-        <div className="px-4 py-2 text-[10px] text-bolt-elements-textTertiary font-mono truncate border-b border-bolt-elements-borderColor/40">
-          {state.prefix}
-        </div>
-      )}
+      {/* Prefix + count/size summary bar. */}
+      <div className="flex items-center gap-2 px-4 py-2 border-b border-bolt-elements-borderColor/40 sticky top-0 z-[1] bg-bolt-elements-background-depth-1/90 backdrop-blur">
+        <div className="i-ph:folder-open-duotone text-sm text-bolt-elements-item-contentAccent shrink-0" aria-hidden />
+        {state.prefix ? (
+          <span className="text-[10px] text-bolt-elements-textTertiary font-mono truncate flex-1" title={state.prefix}>
+            {state.prefix}
+          </span>
+        ) : (
+          <span className="text-[10px] text-bolt-elements-textTertiary flex-1">Published build files</span>
+        )}
+        <span className="text-[10px] text-bolt-elements-textSecondary tabular-nums shrink-0">
+          {state.files.length} file{state.files.length === 1 ? '' : 's'} · {formatBytes(totalBytes)}
+        </span>
+      </div>
+
       {state.files.map((file) => (
         <div
           key={file.key}
-          className="group flex items-center gap-2.5 px-4 py-2 border-b border-bolt-elements-borderColor/30 hover:bg-bolt-elements-item-backgroundActive transition-colors motion-reduce:transition-none"
+          className="group flex items-center gap-2.5 px-4 py-2 border-b border-bolt-elements-borderColor/25 hover:bg-bolt-elements-item-backgroundActive transition-colors motion-reduce:transition-none"
           data-testid="resources-file-row"
         >
-          <div className="i-ph:file-duotone text-sm text-bolt-elements-textTertiary shrink-0" aria-hidden />
+          <div className={classNames(iconForBuildFile(file), 'text-base text-bolt-elements-textTertiary group-hover:text-bolt-elements-item-contentAccent transition-colors shrink-0')} aria-hidden />
           <span className="text-[12px] font-mono text-bolt-elements-textPrimary truncate flex-1" title={file.name}>
             {file.name}
           </span>
-          <span className="text-[10px] text-bolt-elements-textTertiary tabular-nums shrink-0">
-            {formatBytes(file.size)}
-          </span>
+          <span className="text-[10px] text-bolt-elements-textTertiary tabular-nums shrink-0">{formatBytes(file.size)}</span>
           {file.url && (
             <a
               href={file.url}
@@ -888,7 +1297,7 @@ const BuildFiles = memo(({ state, onRetry }: { state: FilesState; onRetry: () =>
               rel="noreferrer noopener"
               aria-label={`Open ${file.name} in a new tab`}
               title="Open in new tab"
-              className="min-h-[24px] min-w-[24px] flex items-center justify-center rounded border border-bolt-elements-borderColor bg-bolt-elements-background-depth-2 text-bolt-elements-textSecondary hover:text-bolt-elements-item-contentAccent opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 transition-all motion-reduce:transition-none focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-bolt-elements-item-contentAccent shrink-0"
+              className={classNames(BTN_GHOST, 'min-h-[24px] min-w-[24px] p-1 shrink-0 opacity-0 group-hover:opacity-100 group-focus-within:opacity-100')}
             >
               <div className="i-ph:arrow-square-out text-xs" />
             </a>

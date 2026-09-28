@@ -129,7 +129,7 @@ export const DatabasePanel = memo(() => {
           role="tablist"
           aria-label="Database views"
           onKeyDown={onNavKeyDown}
-          className="flex items-center gap-1 rounded-lg bg-bolt-elements-background-depth-2 p-0.5"
+          className="flex items-center gap-1 rounded-lg bg-bolt-elements-background-depth-2 p-0.5 border border-bolt-elements-borderColor/60 shadow-[inset_0_1px_0_rgba(255,255,255,0.03)]"
         >
           {visibleNav.map((item) => {
             const active = subView === item.value;
@@ -144,10 +144,10 @@ export const DatabasePanel = memo(() => {
                 data-testid={`database-subnav-${item.value}`}
                 onClick={() => setSubView(item.value)}
                 className={classNames(
-                  'min-h-[24px] flex items-center gap-1.5 px-3 py-1 text-xs font-medium rounded-md transition-colors motion-reduce:transition-none',
+                  'min-h-[24px] flex items-center gap-1.5 px-3 py-1 text-xs font-medium rounded-md transition-all duration-150 motion-reduce:transition-none',
                   'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-bolt-elements-item-contentAccent cursor-pointer',
                   active
-                    ? 'bg-bolt-elements-item-contentAccent text-bolt-elements-background-depth-1 shadow-sm'
+                    ? 'bg-bolt-elements-item-contentAccent text-bolt-elements-background-depth-1 shadow-[0_2px_10px_-2px_rgba(0,229,255,0.5)]'
                     : 'text-bolt-elements-textTertiary hover:text-bolt-elements-textPrimary hover:bg-bolt-elements-background-depth-3',
                 )}
               >
@@ -389,9 +389,9 @@ const KvManager = memo(() => {
         type="button"
         onClick={onUnlock}
         data-testid="database-kv-unlock"
-        className="min-h-[24px] text-[13px] font-semibold px-5 py-2.5 rounded-lg bg-bolt-elements-item-contentAccent text-bolt-elements-background-depth-1 hover:opacity-90 transition-opacity flex items-center gap-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-offset-bolt-elements-background-depth-1 focus-visible:ring-bolt-elements-item-contentAccent cursor-pointer"
+        className="min-h-[24px] text-[13px] font-semibold px-5 py-2.5 rounded-lg bg-bolt-elements-item-contentAccent text-bolt-elements-background-depth-1 hover:shadow-[0_4px_20px_-4px_rgba(0,229,255,0.6)] hover:-translate-y-px active:translate-y-0 transition-all duration-150 motion-reduce:transition-none motion-reduce:hover:translate-y-0 flex items-center gap-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-offset-bolt-elements-background-depth-1 focus-visible:ring-bolt-elements-item-contentAccent cursor-pointer"
       >
-        <div className="i-ph:lock-key-open" /> Unlock KV storage
+        <div className="i-ph:lock-key-open" aria-hidden /> Unlock KV storage
       </button>
 
       <ul className="text-left text-[11px] text-bolt-elements-textTertiary space-y-1.5 max-w-[300px]">
