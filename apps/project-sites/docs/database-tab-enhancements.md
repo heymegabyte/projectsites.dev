@@ -69,11 +69,11 @@
   D1 Time Travel + now explained).
 - ✅ **Actions dropdown (New Table + History)** — shipped; removed the actions row + Seed/refresh buttons.
 - ✅ **Remove "Seed with AI" from the Tables toolbar** — shipped.
-- ⏳ **ADVANCED cross-table content SEARCH (loop TODO, top priority):** in `SiteTablesPanel`'s TableListView,
-  remove the "Use AI" + "Create Table" buttons and put an EXPANDING search bar that searches (a) table NAMES
-  and (b) table CONTENT across ALL tables — with stylized results that visually distinguish a table-name match
-  from an in-content match (table · column · row snippet). Needs a worker endpoint `POST /api/sites/:id/db/search`
-  (server-resolved per-site D1; iterate user tables; LIKE / FTS / AI-ranked; return {table,column,rowid,snippet})
-  + a `PS_SITEDB_SEARCH` bridge, wired to the expanding search UI. This is the next DB-loop slice.
+- ✅ **ADVANCED cross-table content SEARCH — SHIPPED 2026-09-28.** Worker `POST /api/sites/:id/db/search`
+  (table-name + text-column content scan, wildcard-escaped LIKE, bounded, returns `{nameMatches, contentMatches:[{table,column,rowid,snippet}], truncated}`; API-verified: `cus`→[customers], `acme`→content hits in
+  customers.name + orders.note). `PS_SITEDB_SEARCH` bridge (editor `requestDbSearch` + Angular handler). Frontend:
+  `TableListView` "Use AI"/"Create Table" removed → expanding search pill → stylized results ("Tables" name matches
+  + a distinct "In content" group with `<mark>`-highlighted snippets). FOLLOW-UP (loop): AI-ranking of results;
+  scroll-to-row on open; dedupe the `sitedb-search` test-id vs BrowseView's row filter.
 - ⏳ **10 progressive gorgeous+functional revisions of the Database section** — the DB loop (`72a83e2c`, every
   15m) performs these iteratively; each fire = one measurable visual+functional upgrade, verified live + deployed.
