@@ -15,7 +15,6 @@ import { cubicEasingFn } from '~/utils/easings';
 import { renderLogger } from '~/utils/logger';
 import { DatabasePanel } from './DatabasePanel';
 import { ResourcesPanel } from './ResourcesPanel';
-import { GitPanel } from './GitPanel';
 import { CreateMenu } from './CreateMenu';
 import { EditorPanel } from './EditorPanel';
 import { Preview } from './Preview';
@@ -58,17 +57,18 @@ const CHAT_TAB: TopTab = { value: 'chat', text: 'Chat', icon: 'i-ph:chat-circle-
 /**
  * Top editor tabs — order drives the tab strip left-to-right.
  *
- * **Git** (FIRE 7) is the read-first browser over the site's PUBLISHED R2 build + its commit history —
- * the complement to the live `Code` file-workbench: browse every published file + view its contents
- * (syntax-labelled) + a version timeline, without booting a container. Reads the site's OWN code only
- * (server-resolved + `requireOwnedSite`-guarded); diff/restore are deferred with honest "coming soon".
+ * The **Git** tab was RETIRED (Promote release workflow): the platform presents a single `main`
+ * line — no branch selector, staging, or PR — so a standalone Git browser tab no longer earns a
+ * top-level slot. Git history + the GitHub link now live in the Code-view Project hub
+ * (`ProjectHub.tsx`, `PS_CODE_HISTORY` bridge), and the file-browser logic (`GitPanel`,
+ * `git-browser-logic`) is preserved for the future Source-Control view beside the file explorer.
+ * A stale persisted `git` view normalizes to `code` below (the `data`→`database` precedent).
  */
 const TOP_TABS: TopTab[] = [
   { value: 'code', text: 'Code', icon: 'i-ph:code-duotone' },
   { value: 'preview', text: 'Preview', icon: 'i-ph:eye-duotone' },
   { value: 'database', text: 'Database', icon: 'i-ph:database-duotone' },
   { value: 'resources', text: 'Resources', icon: 'i-ph:stack-duotone' },
-  { value: 'git', text: 'Git', icon: 'i-ph:git-branch-duotone' },
 ];
 
 /**
@@ -167,15 +167,17 @@ export const Workbench = memo(
 
     /*
      * Normalize stale persisted views to a live tab so a returning user never lands on a blank panel.
-     * The shared-platform-D1 `Data` tab folded into `Database` (Brian 2026-09-27, FIRE 1) and the
-     * earlier `Functions` tab folds to `Code`. `Resources` is a LIVE tab again (FIRE: Resources) — it
-     * must NOT be normalized away. A `currentView` persisted as `data`/`functions` still type-checks
-     * (the legacy values remain in WorkbenchViewType) but no tab renders it — snap it to the survivor.
+     * The shared-platform-D1 `Data` tab folded into `Database` (Brian 2026-09-27, FIRE 1); the earlier
+     * `Functions` tab folds to `Code`; the `Git` tab was retired (Promote workflow) and folds to `Code`
+     * too — its git history lives in the Code-view Project hub now. `Resources` is a LIVE tab (FIRE:
+     * Resources) — it must NOT be normalized away. A `currentView` persisted as `data`/`functions`/`git`
+     * still type-checks (the legacy values remain in WorkbenchViewType) but no tab renders it — snap it
+     * to the survivor.
      */
     useEffect(() => {
       if (selectedView === 'data') {
         setSelectedView('database');
-      } else if (selectedView === 'functions') {
+      } else if (selectedView === 'functions' || selectedView === 'git') {
         setSelectedView('code');
       }
     }, [selectedView]);
@@ -514,9 +516,12 @@ export const Workbench = memo(
                         and the editor never re-inits (no flash). Active panel is
                         interactive + on top; the rest are opacity-0 + pointer-events-none
                         but alive. (Brian 2026-08-21) The Functions tab was removed (Brian
-                        2026-09-20); a persisted functions view falls back to Code so it
-                        never renders a blank editor body. */}
-                    <PanelLayer active={selectedView === 'code' || selectedView === 'functions'}>
+                        2026-09-20) and the Git tab was retired (Promote workflow); a
+                        persisted `functions`/`git` view falls back to Code so it never
+                        renders a blank editor body. */}
+                    <PanelLayer
+                      active={selectedView === 'code' || selectedView === 'functions' || selectedView === 'git'}
+                    >
                       <EditorPanel
                         editorDocument={currentDocument}
                         isStreaming={isStreaming}
@@ -551,13 +556,12 @@ export const Workbench = memo(
                     <PanelLayer active={selectedView === 'resources'}>
                       <ResourcesPanel />
                     </PanelLayer>
-                    {/* Git panel (FIRE 7) — read-first browser over the site's PUBLISHED R2 build + its
-                        commit history: file tree + syntax-labelled viewer + a version timeline, no
-                        container boot. Reads the site's OWN code only (server-resolved + ownership-guarded);
-                        diff/restore are deferred (honest "coming soon", never a dead control). */}
-                    <PanelLayer active={selectedView === 'git'}>
-                      <GitPanel />
-                    </PanelLayer>
+                    {/* The Git panel's top-level TAB was retired (Promote release workflow) — the platform
+                        presents one `main` line, so a standalone Git browser tab no longer earns a slot.
+                        `GitPanel` + `git-browser-logic` are PRESERVED (not deleted): git history is reachable
+                        from the Code-view Project hub (`ProjectHub.tsx`, `PS_CODE_HISTORY` bridge), and the
+                        published-file browser will be re-mounted as the Source-Control view beside the file
+                        explorer in a later slice. A stale persisted `git` view normalizes to `code` above. */}
                     {/* Chat panel — a first-class tab panel, tablet/mobile only.
                         It cross-fades via the SAME PanelLayer mechanism as Code /
                         Preview / Data, driven by selectedView === 'chat'.
