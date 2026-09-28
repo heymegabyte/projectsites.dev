@@ -8,7 +8,6 @@ import {
   type OnInit,
 } from '@angular/core';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
-import { DatePipe } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { ActivatedRoute, Router, RouterLink } from '@angular/router';
 import { ApiService } from '../../../services/api.service';
@@ -68,7 +67,7 @@ const INFRA_META: Readonly<Record<InfraDep, { glyph: string; label: string }>> =
 @Component({
   selector: 'app-admin-app-detail',
   standalone: true,
-  imports: [FormsModule, RouterLink, RevealDirective, RollingCounterComponent, HlmInputDirective, DatePipe, AppSecretInputComponent],
+  imports: [FormsModule, RouterLink, RevealDirective, RollingCounterComponent, HlmInputDirective, AppSecretInputComponent],
   template: `
     <div class="p-7 flex-1 overflow-y-auto animate-fade-in max-md:p-4 space-y-6">
 
@@ -411,7 +410,6 @@ const INFRA_META: Readonly<Record<InfraDep, { glyph: string; label: string }>> =
                     <div class="instances-row instances-row-head">
                       <div class="instances-col">Subdomain</div>
                       <div class="instances-col">Status</div>
-                      <div class="instances-col">Created</div>
                       <div class="instances-col instances-col-menu"></div>
                     </div>
                     @for (inst of instances(); track inst.id) {
@@ -421,9 +419,6 @@ const INFRA_META: Readonly<Record<InfraDep, { glyph: string; label: string }>> =
                         </div>
                         <div class="instances-col">
                           <span class="instances-pill instances-pill--{{ inst.status }}">{{ inst.status }}</span>
-                        </div>
-                        <div class="instances-col instances-col-time">
-                          {{ inst.created_at | date: 'short' }}
                         </div>
                         <div class="instances-col instances-col-menu">
                           <button
@@ -1022,7 +1017,7 @@ const INFRA_META: Readonly<Record<InfraDep, { glyph: string; label: string }>> =
     }
     .instances-row {
       display: grid;
-      grid-template-columns: 1fr 120px 140px 40px;
+      grid-template-columns: 1fr 120px 40px;
       gap: 0.6rem; align-items: center;
       padding: 0.65rem 0.85rem;
       border-bottom: 1px solid rgba(255,255,255,0.05);
@@ -1037,7 +1032,6 @@ const INFRA_META: Readonly<Record<InfraDep, { glyph: string; label: string }>> =
       padding: 0.5rem 0.85rem;
     }
     .instances-col { display: flex; align-items: center; min-width: 0; }
-    .instances-col-time { color: rgba(255,255,255,0.6); font-size: 0.7rem; }
     .instances-col-menu { justify-content: flex-end; position: relative; }
     .instances-code {
       font-family: 'JetBrains Mono', ui-monospace, monospace;
