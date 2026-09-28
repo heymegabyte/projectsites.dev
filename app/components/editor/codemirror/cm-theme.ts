@@ -1,6 +1,10 @@
 import { Compartment, type Extension } from '@codemirror/state';
 import { EditorView } from '@codemirror/view';
-import { vscodeDark } from '@uiw/codemirror-theme-vscode';
+// Deep-import the DARK theme ONLY. The package barrel ('@uiw/codemirror-theme-vscode') re-exports
+// ./light.js (gutter `#fff` / `#237893`) and ships without `sideEffects:false`, so a barrel import
+// bundles the white literal even when unused. The ProjectSites embed is dark-locked — never light —
+// so importing esm/dark.js directly keeps the bundle 100% white-free. Do NOT revert to the barrel.
+import { vscodeDark } from '@uiw/codemirror-theme-vscode/esm/dark.js';
 import type { Theme } from '~/types/theme.js';
 import type { EditorSettings } from './CodeMirrorEditor.js';
 
