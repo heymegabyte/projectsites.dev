@@ -565,7 +565,16 @@ src/
 | GET | `/api/sites/:id/logs` | Get site audit logs |
 | GET | `/api/sites/:id/readiness` | Production-readiness grade for one site (#9; reads latest `workflow.build_validation` audit) |
 | GET | `/api/sites/:siteId/db/tables` | Data Platform: list a site's OWN per-site D1 tables (lazy-provision; flag `per_site_data`, DARK → 404) |
-| GET | `/api/sites/:siteId/db/tables/:table` | Data Platform: browse one table's rows in the site's OWN D1 (paginated; flag-gated) |
+| GET | `/api/sites/:siteId/db/tables/:table` | Data Platform: browse one table's rows in the site's OWN D1 (paginated, exposes `_rowid`; flag-gated) |
+| POST | `/api/sites/:siteId/db/tables` | Data Platform P1: create a table (manual name + typed columns) in the site's OWN D1 (flag-gated) |
+| DELETE | `/api/sites/:siteId/db/tables/:table` | Data Platform P1: drop a table (flag-gated) |
+| POST | `/api/sites/:siteId/db/tables/:table/rows` | Data Platform P1: insert one row (real non-PK cols only, bound; flag-gated) |
+| PATCH | `/api/sites/:siteId/db/tables/:table/rows/:rowid` | Data Platform P1: update one row by `_rowid` (flag-gated) |
+| DELETE | `/api/sites/:siteId/db/tables/:table/rows/:rowid` | Data Platform P1: delete one row by `_rowid` (flag-gated) |
+| POST | `/api/sites/:siteId/db/tables/:table/columns` | Data Platform P1: add one nullable column (flag-gated) |
+| PATCH | `/api/sites/:siteId/db/tables/:table/columns/:column` | Data Platform P1: rename a column (flag-gated) |
+| DELETE | `/api/sites/:siteId/db/tables/:table/columns/:column` | Data Platform P1: drop a column (flag-gated) |
+| POST | `/api/sites/:siteId/db/query` | Data Platform P1: raw single-statement SQL console vs the site's OWN isolated D1 (row-capped; flag-gated) |
 | GET | `/api/readiness?ids=a,b,c` | Batch readiness grades for ≤100 sites in one request (#9 follow-on; org-scoped, `{id: data\|null}`) |
 | POST | `/api/sites/:id/reset` | Reset site (rebuild) |
 | POST | `/api/sites/:id/deploy` | Deploy zip to site |
