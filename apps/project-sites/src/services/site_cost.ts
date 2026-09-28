@@ -121,7 +121,12 @@ export const DEFAULT_UNIT_PRICES = {
   d1RowsWritten: { label: 'D1 rows written', unit: 'rows', priceUsd: 1.0, divisor: 1_000_000 },
   d1Storage: { label: 'D1 storage', unit: 'GB-mo', priceUsd: 0.75, divisor: 1 },
   r2StorageStd: { label: 'R2 storage', unit: 'GB-mo', priceUsd: 0.015, divisor: 1 },
-  r2ClassA: { label: 'R2 Class A (write/list)', unit: 'operations', priceUsd: 4.5, divisor: 1_000_000 },
+  r2ClassA: {
+    label: 'R2 Class A (write/list)',
+    unit: 'operations',
+    priceUsd: 4.5,
+    divisor: 1_000_000,
+  },
   r2ClassB: { label: 'R2 Class B (read)', unit: 'operations', priceUsd: 0.36, divisor: 1_000_000 },
 } as const;
 
@@ -215,11 +220,19 @@ async function cfGraphql(
     });
     if (!res.ok) {
       console.warn(
-        JSON.stringify({ level: 'warn', service: 'site_cost', event: 'graphql_http', status: res.status }),
+        JSON.stringify({
+          level: 'warn',
+          service: 'site_cost',
+          event: 'graphql_http',
+          status: res.status,
+        }),
       );
       return null;
     }
-    const json = (await res.json()) as { data?: Record<string, unknown>; errors?: Array<{ message: string }> };
+    const json = (await res.json()) as {
+      data?: Record<string, unknown>;
+      errors?: Array<{ message: string }>;
+    };
     if (json.errors?.length) {
       console.warn(
         JSON.stringify({
@@ -279,14 +292,23 @@ async function fetchWorkerUsage(
             limit: 1000
             filter: { scriptName: $s, datetime_geq: $from, datetime_leq: $to }
           ) {
-            sum { requests }
-            quantiles { cpuTimeP50 }
+            sum {
+              requests
+            }
+            quantiles {
+              cpuTimeP50
+            }
           }
         }
       }
     }
   `;
-  const data = await cfGraphql(auth, query, { a: accountTag, s: scriptName, from: period.from, to: period.to });
+  const data = await cfGraphql(auth, query, {
+    a: accountTag,
+    s: scriptName,
+    from: period.from,
+    to: period.to,
+  });
   const account = firstAccount(data);
   if (!account) return { requests: 0, cpuMs: 0, ok: false };
   const rows = account['workersInvocationsAdaptive'];
@@ -294,7 +316,7 @@ async function fetchWorkerUsage(
   // `workersInvocationsAdaptive` reports CPU only as a per-invocation quantile (µs), not a sum. Approximate
   // total CPU-ms = median-per-request × requests (a Wave-1 estimate; refined in Wave 2 pricing_engine).
   const cpuMicrosP50 = Array.isArray(rows)
-    ? (rows[0] as { quantiles?: { cpuTimeP50?: number } } | undefined)?.quantiles?.cpuTimeP50 ?? 0
+    ? ((rows[0] as { quantiles?: { cpuTimeP50?: number } } | undefined)?.quantiles?.cpuTimeP50 ?? 0)
     : 0;
   const cpuMs = (Number(cpuMicrosP50) / 1000) * requests;
   return { requests, cpuMs, ok: true };
@@ -315,8 +337,15 @@ async function fetchD1Usage(
             limit: 1000
             filter: { databaseId: $db, date_geq: $from, date_leq: $to }
           ) {
-            sum { readQueries writeQueries rowsRead rowsWritten }
-            max { databaseSizeBytes }
+            sum {
+              readQueries
+              writeQueries
+              rowsRead
+              rowsWritten
+            }
+            max {
+              databaseSizeBytes
+            }
           }
         }
       }
@@ -333,7 +362,8 @@ async function fetchD1Usage(
   let storageBytes = 0;
   if (Array.isArray(rows)) {
     for (const row of rows) {
-      const b = Number((row as { max?: { databaseSizeBytes?: number } }).max?.databaseSizeBytes ?? 0) || 0;
+      const b =
+        Number((row as { max?: { databaseSizeBytes?: number } }).max?.databaseSizeBytes ?? 0) || 0;
       if (b > storageBytes) storageBytes = b;
     }
   }
@@ -360,8 +390,12 @@ async function fetchR2Operations(
             limit: 10000
             filter: { bucketName: $b, date_geq: $from, date_leq: $to }
           ) {
-            sum { requests }
-            dimensions { actionType }
+            sum {
+              requests
+            }
+            dimensions {
+              actionType
+            }
           }
         }
       }
@@ -380,7 +414,9 @@ async function fetchR2Operations(
   let classB = 0;
   if (Array.isArray(rows)) {
     for (const row of rows) {
-      const action = String((row as { dimensions?: { actionType?: string } }).dimensions?.actionType ?? '');
+      const action = String(
+        (row as { dimensions?: { actionType?: string } }).dimensions?.actionType ?? '',
+      );
       const n = Number((row as { sum?: { requests?: number } }).sum?.requests ?? 0) || 0;
       if (CLASS_B.has(action)) classB += n;
       else classA += n;
@@ -404,7 +440,10 @@ async function fetchR2Storage(
             limit: 10000
             filter: { bucketName: $b, date_geq: $from, date_leq: $to }
           ) {
-            max { objectCount payloadSize }
+            max {
+              objectCount
+              payloadSize
+            }
           }
         }
       }
@@ -509,7 +548,9 @@ async function assembleBreakdown(
   if (opts.scriptName) {
     const w = await fetchWorkerUsage(auth, accountTag, opts.scriptName, period);
     anyProbeFailed ||= !w.ok;
-    components.push(priceLine('worker_requests', 1, w.requests, DEFAULT_UNIT_PRICES.workerRequests));
+    components.push(
+      priceLine('worker_requests', 1, w.requests, DEFAULT_UNIT_PRICES.workerRequests),
+    );
     components.push(priceLine('worker_cpu', 1, w.cpuMs, DEFAULT_UNIT_PRICES.workerCpu));
   }
 
@@ -518,9 +559,16 @@ async function assembleBreakdown(
     const d = await fetchD1Usage(auth, accountTag, opts.databaseId, period);
     anyProbeFailed ||= !d.ok;
     components.push(priceLine('d1_rows_read', 1, d.rowsRead, DEFAULT_UNIT_PRICES.d1RowsRead));
-    components.push(priceLine('d1_rows_written', 1, d.rowsWritten, DEFAULT_UNIT_PRICES.d1RowsWritten));
     components.push(
-      priceLine('d1_storage', 1, storageGbMonths(d.storageBytes, period), DEFAULT_UNIT_PRICES.d1Storage),
+      priceLine('d1_rows_written', 1, d.rowsWritten, DEFAULT_UNIT_PRICES.d1RowsWritten),
+    );
+    components.push(
+      priceLine(
+        'd1_storage',
+        1,
+        storageGbMonths(d.storageBytes, period),
+        DEFAULT_UNIT_PRICES.d1Storage,
+      ),
     );
   }
 
@@ -534,7 +582,12 @@ async function assembleBreakdown(
     components.push(priceLine('r2_class_a', 1, ops.classA, DEFAULT_UNIT_PRICES.r2ClassA));
     components.push(priceLine('r2_class_b', 1, ops.classB, DEFAULT_UNIT_PRICES.r2ClassB));
     components.push(
-      priceLine('r2_storage', 1, storageGbMonths(store.storageBytes, period), DEFAULT_UNIT_PRICES.r2StorageStd),
+      priceLine(
+        'r2_storage',
+        1,
+        storageGbMonths(store.storageBytes, period),
+        DEFAULT_UNIT_PRICES.r2StorageStd,
+      ),
     );
   }
 
