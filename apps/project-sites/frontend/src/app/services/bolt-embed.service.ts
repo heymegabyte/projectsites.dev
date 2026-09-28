@@ -190,11 +190,24 @@ interface PsMessage {
     | 'delete'
     // PS_RESET_REQUEST (Danger Zone / greenfield reset — FIRE 8): preview the delete-list, or execute the wipe.
     | 'preview'
-    | 'execute';
+    | 'execute'
+    // PS_R2 (Resources → Buckets): per-site R2 bucket + object management ops.
+    | 'listBuckets'
+    | 'createBucket'
+    | 'deleteBucket'
+    | 'address'
+    | 'setPublic'
+    | 'promote'
+    | 'listObjects'
+    | 'deleteObject';
   /** PS_RESET_REQUEST (execute op): the type-to-confirm text (site slug or "RESET"); re-validated server-side. */
   readonly confirmText?: string;
   /** PS_R2_REQUEST: the R2 bucket binding name (required for the objects + object ops). */
   readonly bucket?: string;
+  /** PS_R2 (Resources → Buckets, createBucket): make a public base URL available. */
+  readonly public?: boolean;
+  /** PS_R2 (Resources → Buckets, setPublic): the desired public state. */
+  readonly makePublic?: boolean;
   /** PS_R2_REQUEST (objects op): grouping delimiter (e.g. `/`) for folder-like prefix navigation. */
   readonly delimiter?: string;
   /** PS_VEC_REQUEST: the Vectorize index name (required for the `index` describe op). */
@@ -364,6 +377,39 @@ function decodeDataUrl(dataUrl: string): { buffer: ArrayBuffer; mime: string } {
   const view = new Uint8Array(buffer);
   for (let i = 0; i < binary.length; i++) view[i] = binary.charCodeAt(i);
   return { buffer, mime };
+}
+
+/** True when an R2 route's 404 body carries the DARK-flag "not enabled" message (vs a real not-found). */
+function r2NotEnabled(err: HttpErrorResponse): boolean {
+  const message = (err.error as { error?: { message?: string } } | null)?.error?.message;
+  return typeof message === 'string' && message.includes('not enabled');
+}
+
+/** Extract the worker's human error message from an R2 error response, when present. */
+function r2ErrMessage(err: unknown): string | undefined {
+  if (err instanceof HttpErrorResponse) {
+    const message = (err.error as { error?: { message?: string } } | null)?.error?.message;
+    if (typeof message === 'string' && message) return message;
+  }
+  return undefined;
+}
+
+/** Encode an R2 object key for the `…/objects/*` wildcard path (keeps `/` so folder paths survive). */
+function encodeR2Key(key: string): string {
+  return key
+    .split('/')
+    .map((seg) => encodeURIComponent(seg))
+    .join('/');
+}
+
+/** Read a Blob into a base64 data URL (the shape the editor's download bridge consumes). */
+function blobToDataUrl(blob: Blob): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(String(reader.result));
+    reader.onerror = () => reject(new Error('Could not read blob'));
+    reader.readAsDataURL(blob);
+  });
 }
 
 /**
@@ -2467,6 +2513,168 @@ export class BoltEmbedService {
                 } else {
                   reply({ ok: false, error: 'Could not load site files.' });
                 }
+              },
+            });
+          break;
+        }
+        case 'PS_R2': {
+          // Resources → Buckets — the embedded editor has no cross-origin session, so it asks US (we
+          // hold currentSite + the ApiService bearer) to run one bucket/object management op against
+          // the worker's /api/sites/:id/r2/* endpoints. Reply PS_R2_RESULT. Dark behind `r2_buckets` →
+          // a 404 "not enabled" translates to `{ok:false, enabled:false}`; a 503 needs-creds body
+          // translates to `{ok:false, needsCreds:true}` so the tab can render the actionable message.
+          const iframe = this.iframeEl;
+          const site = this.currentSite;
+          const cid = msg.correlationId;
+          const reply = (payload: Record<string, unknown>): void => {
+            iframe?.contentWindow?.postMessage({ type: 'PS_R2_RESULT', correlationId: cid, ...payload }, EDITOR_BASE);
+          };
+          if (!site) {
+            reply({ ok: false, error: 'No site selected' });
+            break;
+          }
+          const base = `/sites/${site.id}/r2/buckets`;
+          const bucket = typeof msg.bucket === 'string' ? encodeURIComponent(msg.bucket) : '';
+          const onErr = (err: unknown, fallback: string): void => {
+            if (err instanceof HttpErrorResponse && err.status === 404 && r2NotEnabled(err)) {
+              reply({ ok: false, enabled: false });
+            } else if (err instanceof HttpErrorResponse && err.status === 503) {
+              reply({ ok: false, needsCreds: true, error: r2ErrMessage(err) ?? fallback });
+            } else {
+              reply({ ok: false, error: r2ErrMessage(err) ?? fallback });
+            }
+          };
+          const op = msg.op;
+          if (op === 'listBuckets') {
+            this.api
+              .get<{ data?: { buckets?: unknown[]; objectOpsAvailable?: boolean } }>(base, undefined, { silent: true })
+              .subscribe({
+                next: (res) =>
+                  reply({ ok: true, buckets: res?.data?.buckets ?? [], objectOpsAvailable: !!res?.data?.objectOpsAvailable }),
+                error: (err) => onErr(err, 'Could not load buckets.'),
+              });
+          } else if (op === 'createBucket') {
+            this.api
+              .post<{ data?: unknown }>(base, { name: msg.name, public: msg.public ?? false }, { silent: true })
+              .subscribe({ next: (res) => reply({ ok: true, bucket: res?.data }), error: (err) => onErr(err, 'Could not create the bucket.') });
+          } else if (op === 'deleteBucket' && bucket) {
+            this.api
+              .delete<{ data?: { objectsDeleted?: number } }>(`${base}/${bucket}`, { silent: true })
+              .subscribe({ next: (res) => reply({ ok: true, objectsDeleted: res?.data?.objectsDeleted ?? 0 }), error: (err) => onErr(err, 'Could not delete the bucket.') });
+          } else if (op === 'address' && bucket) {
+            this.api
+              .get<{ data?: unknown }>(`${base}/${bucket}/address`, undefined, { silent: true })
+              .subscribe({ next: (res) => reply({ ok: true, address: res?.data }), error: (err) => onErr(err, 'Could not read the address.') });
+          } else if (op === 'setPublic' && bucket) {
+            this.api
+              .post<{ data?: unknown }>(`${base}/${bucket}/public`, { public: msg.makePublic ?? false }, { silent: true })
+              .subscribe({ next: (res) => reply({ ok: true, bucket: res?.data }), error: (err) => onErr(err, 'Could not change public access.') });
+          } else if (op === 'promote' && bucket) {
+            this.api
+              .post<{ data?: { objectsCopied?: number; production?: unknown } }>(`${base}/${bucket}/promote`, {}, { silent: true })
+              .subscribe({ next: (res) => reply({ ok: true, objectsCopied: res?.data?.objectsCopied ?? 0, bucket: res?.data?.production }), error: (err) => onErr(err, 'Could not promote the bucket.') });
+          } else if (op === 'listObjects' && bucket) {
+            const params: Record<string, string> = {};
+            if (typeof msg.prefix === 'string' && msg.prefix) params['prefix'] = msg.prefix;
+            if (typeof msg.delimiter === 'string' && msg.delimiter) params['delimiter'] = msg.delimiter;
+            if (typeof msg.cursor === 'string' && msg.cursor) params['cursor'] = msg.cursor;
+            this.api
+              .get<{ data?: { objects?: unknown[]; prefixes?: string[]; cursor?: string; truncated?: boolean } }>(
+                `${base}/${bucket}/objects`,
+                Object.keys(params).length ? params : undefined,
+                { silent: true },
+              )
+              .subscribe({
+                next: (res) =>
+                  reply({ ok: true, objects: res?.data?.objects ?? [], prefixes: res?.data?.prefixes ?? [], cursor: res?.data?.cursor, truncated: !!res?.data?.truncated }),
+                error: (err) => onErr(err, 'Could not list objects.'),
+              });
+          } else if (op === 'deleteObject' && bucket && typeof msg.key === 'string') {
+            this.api
+              .delete<{ ok?: boolean }>(`${base}/${bucket}/objects/${encodeR2Key(msg.key)}`, { silent: true })
+              .subscribe({ next: () => reply({ ok: true }), error: (err) => onErr(err, 'Could not delete the object.') });
+          } else {
+            reply({ ok: false, error: 'Unsupported bucket operation' });
+          }
+          break;
+        }
+        case 'PS_R2_UPLOAD': {
+          // Resources → Buckets — upload ONE object. The editor read the file locally + handed us a
+          // base64 data URL; we decode it, build multipart FormData (worker reads `form.get('file')`),
+          // and PUT it to /api/sites/:id/r2/buckets/:bucket/objects/{key}. Reply PS_R2_UPLOAD_RESULT.
+          const iframe = this.iframeEl;
+          const site = this.currentSite;
+          const cid = msg.correlationId;
+          const reply = (payload: Record<string, unknown>): void => {
+            iframe?.contentWindow?.postMessage({ type: 'PS_R2_UPLOAD_RESULT', correlationId: cid, ...payload }, EDITOR_BASE);
+          };
+          if (!site) {
+            reply({ ok: false, error: 'No site selected' });
+            break;
+          }
+          const bucket = typeof msg.bucket === 'string' ? encodeURIComponent(msg.bucket) : '';
+          const key = typeof msg.key === 'string' ? msg.key : '';
+          if (!bucket || !key) {
+            reply({ ok: false, error: 'Missing bucket or key' });
+            break;
+          }
+          let decoded: { buffer: ArrayBuffer; mime: string };
+          try {
+            decoded = decodeDataUrl(typeof msg.dataUrl === 'string' ? msg.dataUrl : '');
+          } catch {
+            reply({ ok: false, error: 'Could not read the file.' });
+            break;
+          }
+          const contentType = typeof msg.contentType === 'string' && msg.contentType ? msg.contentType : decoded.mime;
+          const form = new FormData();
+          form.append('file', new Blob([decoded.buffer], { type: contentType }), key.split('/').pop() || 'file');
+          this.api
+            .postFormData<{ ok?: boolean; data?: { key?: string; size?: number } }>(`/sites/${site.id}/r2/buckets/${bucket}/objects/${encodeR2Key(key)}`, form, { silent: true })
+            .subscribe({
+              next: (res) => reply({ ok: true, key: res?.data?.key ?? key, size: res?.data?.size }),
+              error: (err) => {
+                if (err instanceof HttpErrorResponse && err.status === 404 && r2NotEnabled(err)) reply({ ok: false, enabled: false });
+                else if (err instanceof HttpErrorResponse && err.status === 503) reply({ ok: false, needsCreds: true, error: r2ErrMessage(err) ?? 'Object uploads need R2 S3 credentials.' });
+                else if (err instanceof HttpErrorResponse && err.status === 413) reply({ ok: false, error: 'That file is too large.' });
+                else reply({ ok: false, error: r2ErrMessage(err) ?? 'Upload failed.' });
+              },
+            });
+          break;
+        }
+        case 'PS_R2_DOWNLOAD': {
+          // Resources → Buckets — download ONE object. We GET the bytes (Blob) from the worker + return
+          // them as a base64 data URL the editor can preview / save. Reply PS_R2_DOWNLOAD_RESULT.
+          const iframe = this.iframeEl;
+          const site = this.currentSite;
+          const cid = msg.correlationId;
+          const reply = (payload: Record<string, unknown>): void => {
+            iframe?.contentWindow?.postMessage({ type: 'PS_R2_DOWNLOAD_RESULT', correlationId: cid, ...payload }, EDITOR_BASE);
+          };
+          if (!site) {
+            reply({ ok: false, error: 'No site selected' });
+            break;
+          }
+          const bucket = typeof msg.bucket === 'string' ? encodeURIComponent(msg.bucket) : '';
+          const key = typeof msg.key === 'string' ? msg.key : '';
+          if (!bucket || !key) {
+            reply({ ok: false, error: 'Missing bucket or key' });
+            break;
+          }
+          this.api
+            .getBlob(`/sites/${site.id}/r2/buckets/${bucket}/objects/${encodeR2Key(key)}`, { silent: true })
+            .subscribe({
+              next: async (blob) => {
+                try {
+                  const dataUrl = await blobToDataUrl(blob);
+                  reply({ ok: true, dataUrl, contentType: blob.type, size: blob.size });
+                } catch {
+                  reply({ ok: false, error: 'Could not read the download.' });
+                }
+              },
+              error: (err) => {
+                if (err instanceof HttpErrorResponse && err.status === 404 && r2NotEnabled(err)) reply({ ok: false, enabled: false });
+                else if (err instanceof HttpErrorResponse && err.status === 503) reply({ ok: false, needsCreds: true, error: r2ErrMessage(err) ?? 'Object downloads need R2 S3 credentials.' });
+                else reply({ ok: false, error: r2ErrMessage(err) ?? 'Could not download the object.' });
               },
             });
           break;

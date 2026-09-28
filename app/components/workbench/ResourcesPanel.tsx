@@ -41,6 +41,7 @@ import {
   type SiteBuildFileEntry,
 } from '~/lib/embed/embedded-mode';
 import { ResourceOverviewPanel } from './ResourceOverviewPanel';
+import { BucketsPanel } from './BucketsPanel';
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
@@ -51,8 +52,8 @@ const ENVIRONMENTS: { value: ResourceEnvironment; label: string }[] = [
   { value: 'preview', label: 'Preview' },
 ];
 
-/** The two asset sections this panel surfaces. */
-type Section = 'media' | 'files';
+/** The three asset sections this panel surfaces. */
+type Section = 'media' | 'files' | 'buckets';
 
 type MediaState =
   | { status: 'loading' }
@@ -603,8 +604,11 @@ export const ResourcesPanel = memo(() => {
             onDelete={onDeleteAsset}
             onRetry={() => void loadMedia()}
           />
-        ) : (
+        ) : section === 'files' ? (
           <BuildFiles state={files} onRetry={() => void loadFiles()} />
+        ) : (
+          // Buckets — the per-site R2 manager. Self-managing (its own load/refresh + object browser).
+          <BucketsPanel />
         )}
       </div>
 
@@ -654,74 +658,84 @@ const Header = memo(
             'radial-gradient(90% 120% at 100% 0%, color-mix(in oklch, #7c3aed 10%, transparent), transparent 46%)',
         }}
       />
-      <div className="relative flex items-center gap-3 px-4 pt-3">
-        <div className="flex items-center justify-center h-9 w-9 rounded-xl border border-bolt-elements-item-contentAccent/30 bg-bolt-elements-item-contentAccent/[0.08] shadow-inner shadow-bolt-elements-item-contentAccent/10 shrink-0">
-          <div className="i-ph:images-square-duotone text-xl text-bolt-elements-item-contentAccent" />
-        </div>
-        <div className="min-w-0 flex-1">
-          <h2 className="text-sm font-semibold text-bolt-elements-textPrimary tracking-tight">Resources</h2>
-          <StorageSummaryLine usage={usage} />
-        </div>
-
-        <div className="ml-auto flex items-center gap-2 shrink-0">
-          {/* Environment selector */}
-          <div
-            className="flex items-center rounded-lg border border-bolt-elements-borderColor bg-bolt-elements-background-depth-2 p-0.5"
-            role="group"
-            aria-label="Environment"
-          >
-            {ENVIRONMENTS.map((env) => {
-              const active = environment === env.value;
-              return (
-                <button
-                  key={env.value}
-                  type="button"
-                  onClick={() => onEnvironment(env.value)}
-                  aria-pressed={active}
-                  data-testid={`resources-env-${env.value}`}
-                  className={classNames(
-                    'min-h-[24px] px-2.5 py-1 text-[11px] font-medium rounded-md transition-colors motion-reduce:transition-none focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-bolt-elements-item-contentAccent cursor-pointer',
-                    active
-                      ? 'bg-bolt-elements-item-contentAccent text-bolt-elements-background-depth-1 shadow-sm shadow-bolt-elements-item-contentAccent/25'
-                      : 'text-bolt-elements-textTertiary hover:text-bolt-elements-textPrimary',
-                  )}
-                >
-                  {env.label}
-                </button>
-              );
-            })}
+      {/* Top chrome (icon · title · storage · env · Advanced · Refresh) is media/files-specific — the
+          Buckets tab renders its OWN full header (create + refresh), so hide this row there to avoid a
+          double header. The tab strip below stays on every tab. */}
+      {section !== 'buckets' && (
+        <div className="relative flex items-center gap-3 px-4 pt-3">
+          <div className="flex items-center justify-center h-9 w-9 rounded-xl border border-bolt-elements-item-contentAccent/30 bg-bolt-elements-item-contentAccent/[0.08] shadow-inner shadow-bolt-elements-item-contentAccent/10 shrink-0">
+            <div className="i-ph:images-square-duotone text-xl text-bolt-elements-item-contentAccent" />
+          </div>
+          <div className="min-w-0 flex-1">
+            <h2 className="text-sm font-semibold text-bolt-elements-textPrimary tracking-tight">Resources</h2>
+            <StorageSummaryLine usage={usage} />
           </div>
 
-          {/* Advanced — the deeper per-kind CF-primitive console (kept reachable). */}
-          <button
-            type="button"
-            onClick={onOpenConsole}
-            title="Advanced — every Cloudflare resource this site uses"
-            data-testid="resources-open-console"
-            className={classNames(BTN_GHOST, 'min-h-[26px] px-2.5 py-1 text-[11px]')}
-          >
-            <div className="i-ph:stack text-sm" /> Advanced
-          </button>
+          <div className="ml-auto flex items-center gap-2 shrink-0">
+            {/* Environment selector */}
+            <div
+              className="flex items-center rounded-lg border border-bolt-elements-borderColor bg-bolt-elements-background-depth-2 p-0.5"
+              role="group"
+              aria-label="Environment"
+            >
+              {ENVIRONMENTS.map((env) => {
+                const active = environment === env.value;
+                return (
+                  <button
+                    key={env.value}
+                    type="button"
+                    onClick={() => onEnvironment(env.value)}
+                    aria-pressed={active}
+                    data-testid={`resources-env-${env.value}`}
+                    className={classNames(
+                      'min-h-[24px] px-2.5 py-1 text-[11px] font-medium rounded-md transition-colors motion-reduce:transition-none focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-bolt-elements-item-contentAccent cursor-pointer',
+                      active
+                        ? 'bg-bolt-elements-item-contentAccent text-bolt-elements-background-depth-1 shadow-sm shadow-bolt-elements-item-contentAccent/25'
+                        : 'text-bolt-elements-textTertiary hover:text-bolt-elements-textPrimary',
+                    )}
+                  >
+                    {env.label}
+                  </button>
+                );
+              })}
+            </div>
 
-          {/* Refresh */}
-          <button
-            type="button"
-            onClick={onRefresh}
-            aria-label="Refresh resources"
-            title="Refresh"
-            className={classNames(BTN_SECONDARY, 'min-h-[26px] min-w-[26px] px-1.5 py-1')}
-          >
-            <div className="i-ph:arrows-clockwise text-sm" />
-          </button>
+            {/* Advanced — the deeper per-kind CF-primitive console (kept reachable). */}
+            <button
+              type="button"
+              onClick={onOpenConsole}
+              title="Advanced — every Cloudflare resource this site uses"
+              data-testid="resources-open-console"
+              className={classNames(BTN_GHOST, 'min-h-[26px] px-2.5 py-1 text-[11px]')}
+            >
+              <div className="i-ph:stack text-sm" /> Advanced
+            </button>
+
+            {/* Refresh */}
+            <button
+              type="button"
+              onClick={onRefresh}
+              aria-label="Refresh resources"
+              title="Refresh"
+              className={classNames(BTN_SECONDARY, 'min-h-[26px] min-w-[26px] px-1.5 py-1')}
+            >
+              <div className="i-ph:arrows-clockwise text-sm" />
+            </button>
+          </div>
         </div>
-      </div>
+      )}
 
-      {/* Section tabs — Media library | Site files */}
-      <div className="relative flex items-center gap-1 px-4 pt-2.5 pb-2" role="tablist" aria-label="Resource sections">
+      {/* Section tabs — Media library | Site files | Buckets */}
+      <div
+        className={classNames('relative flex items-center gap-1 px-4 pb-2', section === 'buckets' ? 'pt-3' : 'pt-2.5')}
+        role="tablist"
+        aria-label="Resource sections"
+      >
         {(
           [
             { value: 'media', label: 'Media library', icon: 'i-ph:images-square' },
             { value: 'files', label: 'Site files', icon: 'i-ph:folder-open' },
+            { value: 'buckets', label: 'Buckets', icon: 'i-ph:bucket' },
           ] as const
         ).map((tab) => {
           const active = section === tab.value;

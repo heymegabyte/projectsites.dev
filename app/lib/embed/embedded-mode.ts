@@ -1464,6 +1464,171 @@ export interface ResSiteFilesResponseMessage {
   error?: string;
 }
 
+// ── Resources Buckets bridge messages (Resources → Buckets tab) ─────────────────────────────────
+//
+// The per-site R2 Buckets surface. The embedded editor has no cross-origin session, so the admin
+// (which holds `selectedSite` + the bearer) proxies each op to the worker's `/api/sites/:id/r2/*`
+// endpoints. Bucket CRUD + object browse ride ONE verb (`PS_R2` with an `op`), so the union stays
+// small; object bytes (upload/download) ride their own verbs (large payloads). DARK behind the
+// `r2_buckets` flag → a 404 whose message includes "not enabled" → `{ok:false, enabled:false}`.
+
+/** A per-site bucket in a {@link R2Response} list — display name + address bundle + flags. */
+export interface BucketEntry {
+  /** The tenant-facing display name (what the owner typed / what ops target). */
+  name: string;
+  /** The site's default (auto-provisioned) bucket, pinned first in the UI. */
+  isDefault?: boolean;
+  /** Whether a public base URL is enabled. */
+  public?: boolean;
+  /** The public base URL when `public` is true. */
+  publicUrl?: string | null;
+  /** `preview` | `production`. */
+  environment?: string;
+  /** ISO creation timestamp. */
+  createdAt?: string;
+  /** The copyable address bundle (S3 endpoint + binding name + bucket + public URL). */
+  address?: BucketAddress;
+}
+
+/** The copyable "address" of a bucket — one-click copy on the card. */
+export interface BucketAddress {
+  s3Endpoint: string;
+  bucketName: string;
+  bindingName: string;
+  publicUrl: string | null;
+  accountId: string | null;
+}
+
+/** A single object in a {@link R2Response} object listing. */
+export interface BucketObjectEntry {
+  key: string;
+  size: number;
+  uploadedAt: string | null;
+  contentType?: string | null;
+}
+
+/**
+ * Child → Parent (Resources — Buckets): one bucket/object management op. `op` selects the action; the
+ * admin maps it to the matching `/api/sites/:id/r2/*` worker call. Object BYTES (upload/download) use
+ * the dedicated {@link BucketUploadRequestMessage} / {@link BucketDownloadRequestMessage} verbs.
+ */
+export interface R2RequestMessage {
+  type: 'PS_R2';
+  correlationId: string;
+  /** The management op. */
+  op:
+    | 'listBuckets'
+    | 'createBucket'
+    | 'deleteBucket'
+    | 'address'
+    | 'setPublic'
+    | 'promote'
+    | 'listObjects'
+    | 'deleteObject';
+  /** The target bucket display name (all ops except `listBuckets`/`createBucket`). */
+  bucket?: string;
+  /** `createBucket`: the new bucket's display name. */
+  name?: string;
+  /** `createBucket`: make a public base URL available. */
+  public?: boolean;
+  /** `setPublic`: the desired public state. */
+  makePublic?: boolean;
+  /** `listObjects`: key prefix (folder path). */
+  prefix?: string;
+  /** `listObjects`: folder delimiter (usually `/`). */
+  delimiter?: string;
+  /** `listObjects`: pagination cursor from the previous page. */
+  cursor?: string;
+  /** `deleteObject`: the object key to remove. */
+  key?: string;
+}
+
+/** Parent → Child: the admin's reply to {@link R2RequestMessage}. */
+export interface R2ResponseMessage {
+  type: 'PS_R2_RESULT';
+  correlationId?: string;
+  ok: boolean;
+  /** Echoed op. */
+  op?: string;
+  /** `listBuckets`: the site's buckets. */
+  buckets?: BucketEntry[];
+  /** `listBuckets`: whether object ops (S3 creds) are available — the FE advertises this. */
+  objectOpsAvailable?: boolean;
+  /** `createBucket`/`address`/`setPublic`/`promote`: the affected bucket. */
+  bucket?: BucketEntry;
+  /** `address`: the standalone address bundle. */
+  address?: BucketAddress;
+  /** `listObjects`: the page of objects. */
+  objects?: BucketObjectEntry[];
+  /** `listObjects`: the "folders" at this level (common prefixes). */
+  prefixes?: string[];
+  /** `listObjects`: cursor for the next page (absent → last page). */
+  cursor?: string;
+  /** `listObjects`: true when more pages remain. */
+  truncated?: boolean;
+  /** `deleteBucket`: objects removed while emptying. */
+  objectsDeleted?: number;
+  /** `promote`: objects copied preview → production. */
+  objectsCopied?: number;
+  /** `false` when the surface's flag is off (the dark-flag 404) → the tab stays hidden. */
+  enabled?: boolean;
+  /** `true` when object ops need R2 S3 credentials (the actionable needs-creds state). */
+  needsCreds?: boolean;
+  error?: string;
+}
+
+/**
+ * Child → Parent (Resources — Buckets): upload ONE object. The editor read the file locally (base64
+ * data URL) + hands it to the admin, which PUTs it to `/api/sites/:id/r2/buckets/:bucket/objects/{key}`.
+ */
+export interface BucketUploadRequestMessage {
+  type: 'PS_R2_UPLOAD';
+  correlationId: string;
+  bucket: string;
+  /** The object key (path within the bucket, e.g. `images/logo.png`). */
+  key: string;
+  contentType: string;
+  /** File contents as a base64 data URL. */
+  dataUrl: string;
+}
+
+/** Parent → Child: reply to {@link BucketUploadRequestMessage}. */
+export interface BucketUploadResponseMessage {
+  type: 'PS_R2_UPLOAD_RESULT';
+  correlationId?: string;
+  ok: boolean;
+  key?: string;
+  size?: number;
+  enabled?: boolean;
+  needsCreds?: boolean;
+  error?: string;
+}
+
+/**
+ * Child → Parent (Resources — Buckets): download ONE object. The admin GETs the bytes from the worker
+ * and returns them as a base64 data URL the editor can preview / save. Kept a distinct verb (large body).
+ */
+export interface BucketDownloadRequestMessage {
+  type: 'PS_R2_DOWNLOAD';
+  correlationId: string;
+  bucket: string;
+  key: string;
+}
+
+/** Parent → Child: reply to {@link BucketDownloadRequestMessage}. */
+export interface BucketDownloadResponseMessage {
+  type: 'PS_R2_DOWNLOAD_RESULT';
+  correlationId?: string;
+  ok: boolean;
+  /** The object bytes as a base64 data URL. */
+  dataUrl?: string;
+  contentType?: string;
+  size?: number;
+  enabled?: boolean;
+  needsCreds?: boolean;
+  error?: string;
+}
+
 export type ParentToChildMessage =
   | SubmitPromptMessage
   | ImportFilesMessage
@@ -1493,6 +1658,9 @@ export type ParentToChildMessage =
   | ResMediaResponseMessage
   | MediaUploadResponseMessage
   | ResSiteFilesResponseMessage
+  | R2ResponseMessage
+  | BucketUploadResponseMessage
+  | BucketDownloadResponseMessage
   | PSToastMessage;
 export type ChildToParentMessage =
   | BoltReadyMessage
@@ -1521,6 +1689,9 @@ export type ChildToParentMessage =
   | ResMediaRequestMessage
   | MediaUploadRequestMessage
   | ResSiteFilesRequestMessage
+  | R2RequestMessage
+  | BucketUploadRequestMessage
+  | BucketDownloadRequestMessage
   | PSErrorMessage
   | PSTelemetryMessage
   | PSToastMessage;
@@ -2067,6 +2238,38 @@ export function requestResSiteFiles(
   return requestFromParent<ResSiteFilesResponseMessage>(
     { type: 'PS_RES_SITE_FILES', correlationId: nextBridgeCorrelationId(), version: input.version, environment: input.environment },
     'PS_RES_SITE_FILES_RESULT',
+  );
+}
+
+/**
+ * Resources → Buckets: one bucket/object management op. Resolves with the parent's
+ * {@link R2ResponseMessage} (the admin proxies to `/api/sites/:id/r2/*`). Bytes (upload/download) use
+ * {@link requestBucketUpload} / {@link requestBucketDownload}.
+ */
+export function requestR2(input: Omit<R2RequestMessage, 'type' | 'correlationId'>): Promise<R2ResponseMessage> {
+  return requestFromParent<R2ResponseMessage>(
+    { type: 'PS_R2', correlationId: nextBridgeCorrelationId(), ...input },
+    'PS_R2_RESULT',
+  );
+}
+
+/** Upload one object to a bucket (base64 data URL). Resolves with the parent's {@link BucketUploadResponseMessage}. */
+export function requestBucketUpload(
+  input: { bucket: string; key: string; contentType: string; dataUrl: string },
+): Promise<BucketUploadResponseMessage> {
+  return requestFromParent<BucketUploadResponseMessage>(
+    { type: 'PS_R2_UPLOAD', correlationId: nextBridgeCorrelationId(), ...input },
+    'PS_R2_UPLOAD_RESULT',
+  );
+}
+
+/** Download one object from a bucket. Resolves with the parent's {@link BucketDownloadResponseMessage}. */
+export function requestBucketDownload(
+  input: { bucket: string; key: string },
+): Promise<BucketDownloadResponseMessage> {
+  return requestFromParent<BucketDownloadResponseMessage>(
+    { type: 'PS_R2_DOWNLOAD', correlationId: nextBridgeCorrelationId(), ...input },
+    'PS_R2_DOWNLOAD_RESULT',
   );
 }
 

@@ -1,0 +1,65 @@
+/**
+ * @module libs/features/r2_buckets/schemas
+ * @description Zod I/O schemas for the per-site R2 Buckets API. Every request body crossing the
+ * worker boundary is validated here (per `zod-everywhere`); types are inferred, never hand-duplicated.
+ */
+import { z } from 'zod';
+
+/** The flag gating the entire per-site R2 Buckets surface (default-off / DARK). */
+export const R2_BUCKETS_FLAG = 'r2_buckets' as const;
+
+/**
+ * A tenant-facing bucket display name — what the owner types. Sanitized + site-prefixed server-side
+ * into the real R2 bucket name; validated here so a hostile/oversized name never reaches provisioning.
+ */
+export const BucketDisplayNameSchema = z
+  .string()
+  .trim()
+  .min(1)
+  .max(30)
+  .regex(/^[A-Za-z0-9][A-Za-z0-9 _-]*$/, 'Use letters, numbers, spaces, dashes or underscores');
+
+/** Body for `POST /r2/buckets` — create a bucket. */
+export const CreateBucketBodySchema = z
+  .object({
+    name: BucketDisplayNameSchema,
+    /** Make a public base URL available (r2.dev). Default private. */
+    public: z.boolean().optional(),
+    /** Optional data-residency hint (eu | fedramp). */
+    jurisdiction: z.enum(['eu', 'fedramp']).optional(),
+  })
+  .strict();
+export type CreateBucketBody = z.infer<typeof CreateBucketBodySchema>;
+
+/** Query for `GET /r2/buckets/:bucket/objects` — prefix + pagination + folder delimiter. */
+export const ListObjectsQuerySchema = z.object({
+  prefix: z.string().max(1024).optional(),
+  cursor: z.string().max(4096).optional(),
+  delimiter: z.string().max(4).optional(),
+  limit: z.coerce.number().int().min(1).max(1000).optional(),
+});
+export type ListObjectsQuery = z.infer<typeof ListObjectsQuerySchema>;
+
+/** Body for `POST /r2/buckets/:bucket/public` — toggle public access. */
+export const SetPublicBodySchema = z.object({ public: z.boolean() }).strict();
+
+/** Body for a JSON (base64) upload fallback when multipart isn't used. */
+export const UploadJsonBodySchema = z
+  .object({
+    key: z.string().min(1).max(1024),
+    contentType: z.string().max(255).optional(),
+    /** base64 data URL (`data:<mime>;base64,<...>`) OR bare base64. */
+    dataUrl: z.string().min(1),
+  })
+  .strict();
+export type UploadJsonBody = z.infer<typeof UploadJsonBodySchema>;
+
+/** A single object descriptor in a list response (mirrors `SiteR2Object`). */
+export const ObjectEntrySchema = z.object({
+  key: z.string(),
+  size: z.number(),
+  uploadedAt: z.string().nullable(),
+  etag: z.string().optional(),
+  contentType: z.string().nullable().optional(),
+});
+export type ObjectEntry = z.infer<typeof ObjectEntrySchema>;

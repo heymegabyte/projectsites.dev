@@ -359,6 +359,16 @@ export interface Env {
   AWS_DEFAULT_REGION?: string;
   /** Verified SES sender, e.g. noreply@mail.projectsites.dev. var. */
   SES_FROM_EMAIL?: string;
+  /**
+   * R2 S3-compatible API access key id — enables per-site R2 OBJECT ops (list/put/get/delete) in the
+   * Buckets feature. R2 has no REST object API, only S3, so object ops SigV4-sign against
+   * `{CF_ACCOUNT_ID}.r2.cloudflarestorage.com`. Absent → bucket CRUD (REST) still works but object ops
+   * return an actionable "needs R2 S3 creds" error. Mint at dash.cloudflare.com → R2 → Manage API tokens.
+   * wrangler secret.
+   */
+  R2_S3_ACCESS_KEY_ID?: string;
+  /** R2 S3-compatible API secret access key — pairs with `R2_S3_ACCESS_KEY_ID`. wrangler secret. */
+  R2_S3_SECRET_ACCESS_KEY?: string;
   /** HMAC secret for the inbound SES bounce/complaint webhook (Hookdeck/SNS
    * forwards SES events here, HMAC-signed). wrangler secret. */
   SES_WEBHOOK_SECRET?: string;

@@ -100,6 +100,15 @@ export const FLAG_REGISTRY: Record<string, FlagDefinition> = {
     owner_email: 'brian@megabyte.space',
     stage: 'experimental',
   },
+  r2_buckets: {
+    default_enabled: false,
+    default_rollout_percent: 0,
+    description:
+      "Per-site R2 bucket manager — the editor Resources → Buckets tab. Owners manage their site's OWN Cloudflare R2 buckets (the R2 analog of the per-site D1 Tables surface).\n\n• Worker: libs/features/r2_buckets/handlers.ts serves GET/POST /api/sites/:siteId/r2/buckets, DELETE /:bucket, GET /:bucket/address, POST /:bucket/{public,promote}, and list/upload/download/delete under /:bucket/objects[/*]. Bucket CRUD via the CF R2 REST API (server global key + CF_ACCOUNT_ID); object ops via the R2 S3 API (SigV4) when R2_S3_ACCESS_KEY_ID + R2_S3_SECRET_ACCESS_KEY are set, else an actionable 503 needs-creds message.\n• Isolation is server-resolved: real bucket names are site-prefixed (ps-site-{siteId}-{name}) + recorded in site_r2_allocations; ownsSiteData IDOR-guards every route; the shared SITES_BUCKET names are denylisted (FORBIDDEN_BUCKET_NAMES). A client never names a raw bucket.\n• Off (default, DARK) → every route 404s (never 403 / leak) + the FE hides the tab → zero real R2 resources are created. On → sites can create/browse their own buckets + objects.",
+    key: 'r2_buckets',
+    owner_email: 'brian@megabyte.space',
+    stage: 'experimental',
+  },
   abuse_takedown: {
     default_enabled: false,
     default_rollout_percent: 0,

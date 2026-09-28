@@ -149,6 +149,23 @@ export const FLAG_DOCS: Record<string, FlagDocs> = {
       'Off → every rebuild runs the full 5-call research pipeline',
     ],
   },
+  r2_buckets: {
+    checklist: [
+      "Per-site R2 bucket manager in the editor Resources → Buckets tab",
+      'Create/list/delete buckets + browse/upload/download/delete objects',
+      'Bucket CRUD via CF R2 REST; object ops via R2 S3 API (SigV4) or an actionable needs-creds message',
+      'Server-resolved isolation: site-prefixed names + ownsSiteData IDOR guard + FORBIDDEN_BUCKET_NAMES denylist',
+      'Off (default, DARK) → every route 404s + FE hides the tab → zero real R2 resources',
+    ],
+    explanation:
+      "Per-site R2 bucket manager (the R2 analog of the per-site D1 Tables surface). An owner manages their site's OWN Cloudflare R2 buckets from the editor Resources → Buckets tab: create/list/delete buckets, browse/upload/download/delete objects, copy the S3 address bundle, toggle public access, and promote preview→production. Bucket CRUD runs through the CF R2 REST API with the server global key; object ops SigV4-sign against the R2 S3 API when R2_S3_ACCESS_KEY_ID + R2_S3_SECRET_ACCESS_KEY are set (else a clear 503 needs-creds message, so bucket CRUD still works). Every route is org-owned (ownsSiteData IDOR guard), the real bucket names are site-prefixed + denylist-guarded against the shared SITES_BUCKET, and the whole surface is DARK behind this flag.",
+    smoke_test: [
+      'Enable → open the editor Resources → Buckets tab → the site has a default bucket + a Create button',
+      'Create a bucket → the copy-address bundle (S3 endpoint + binding + public URL) appears',
+      'Off → GET /api/sites/:id/r2/buckets returns 404 "Buckets are not enabled" + the tab is hidden',
+    ],
+    e2e_tests: ['e2e/r2-buckets.spec.ts'],
+  },
   // ── Restored 2026-08-13 (1:1 with registry.ts): docs for the 33 over-pruned dark-launch flags.
   abuse_takedown: {
     checklist: [
