@@ -10,6 +10,11 @@ export default defineConfig({
   // in e2e/admin/. Entries whose basename recurs in a subdir MUST be anchored with
   // an explicit 'e2e/'-relative glob (see the two anchored entries below).
   testMatch: [
+    // Prod E2E specs use the `.e2e.ts` suffix (vs `.spec.ts` = CI/dev). This glob
+    // enrolls the Promote golden-path spec (`promote-workflow.e2e.ts`) + every sibling
+    // prod `*.e2e.ts` so they run under this prod config. Anchored to `e2e/` so a bare
+    // basename can't pull a stale twin from a subdir.
+    'e2e/**/*.e2e.ts',
     'feature-journey.spec.ts',
     'health.spec.ts',
     'golden-path.spec.ts',

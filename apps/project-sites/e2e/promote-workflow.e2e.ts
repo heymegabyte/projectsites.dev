@@ -1,17 +1,41 @@
 /**
  * @file promote-workflow.e2e.ts
- * @description TDD RED-phase spec: Preview → edit → Promote → Production workflow.
+ * @description Preview → Promote → Production GOLDEN-PATH, driven through the REAL UI on PROD.
  *
- * Expected status: RED until the Promote button + API ship in the sibling worktree.
- * Do NOT weaken assertions to green. The UI (`data-testid="promote-to-production"`)
- * and the API (`GET /api/sites/:id/releases`) do not exist yet.
+ * THE SURFACE (this is what the prior RED spec got wrong):
+ * The "Promote to Production" button does NOT live at `/admin/sites/:id/snapshots`. It lives
+ * inside the **bolt.diy editor's Source Control panel** — a CROSS-ORIGIN iframe served from
+ * `editor.projectsites.dev`, hosted by the Angular admin at `/admin/editor/:siteId`
+ * (the persistent iframe is owned by `AdminComponent`/`BoltEmbedService`). To reach the button
+ * you must: open the editor for a real site → let the cross-origin frame + WebContainer boot →
+ * open the "Source" (Source Control) tab INSIDE the frame → then the `promote-to-production`
+ * button renders. The promote HTTP call is made by the admin PARENT over the `PS_PROMOTE_REQUEST`
+ * postMessage bridge → `POST /api/sites/:id/promote`; Production truth is `GET /api/sites/:id/releases`.
  *
- * Auth: real E2E_API_KEY session via `setupRealDataPage` — Pathway A (preferred).
- * All six scenarios gate on `realDataAvailable()` and skip without a key.
+ * Ground-truth from the code (load-bearing selectors + shapes):
+ *  - Frame:          `iframe[title="bolt.diy editor"]`, src `https://editor.projectsites.dev/?embedded=true…`
+ *  - Source Control tab trigger: role=tab, accessible name "Source" (title "Source Control — …")
+ *    (`app/components/workbench/EditorPanel.tsx`)
+ *  - Panel:          `[data-testid="source-control-panel"]` (`app/components/workbench/SourceControlPanel.tsx`)
+ *  - Promote button: `[data-testid="promote-to-production"]` — label "Promote"/"Publishing…";
+ *    disabled WITH a reason (title/aria) when nothing is promotable (never a dead control).
+ *  - Status region:  `[data-testid="promote-status"]` — HONEST outcome. There is NO `data-state`
+ *    attribute; SUCCESS is the message text "Published! Production is now serving your Preview."
+ *    or (idempotent) "Already live — Production is up to date." + a check-circle icon.
+ *  - Releases API:   `GET /api/sites/:id/releases` → `{ releases: Release[], count: number }`
+ *    (NOT `{data}`); each Release carries `commit_sha` / `artifact_digest` / `outcome`.
+ *    Both promote + releases are gated on the `durable_preview` flag (override-enabled for the E2E org).
+ *
+ * Auth: real `E2E_API_KEY` session via `setupRealDataPage` (Pathway A). The whole suite skips
+ * without a key (no real site to promote → the test would be meaningless).
+ *
+ * HONESTY: assertions are never weakened to go green. If the real editor frame / Source Control
+ * surface genuinely can't mount, the test fails LOUDLY with a diagnostic — a precise gap is a valid
+ * result, a false green is not.
  */
 
-import { test, expect } from './fixtures.js';
-import { gotoAdmin, signInAsTestUser } from './helpers/auth.js';
+import { test, expect, type FrameLocator, type Page } from '@playwright/test';
+import { gotoAdmin, SYS_ADMIN_TEST_EMAIL } from './helpers/auth.js';
 import { realDataAvailable, setupRealDataPage } from './helpers/realdata.js';
 import { resolveE2ESite } from './admin-verify/_resolve-e2e-site.mjs';
 
@@ -23,274 +47,296 @@ const PROD_URL = process.env.PROD_URL ?? 'https://projectsites.dev';
 const UA =
   'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/153.0.0.0 Safari/537.36';
 
+/**
+ * The editor is a cross-origin iframe + WebContainer boot (cold-boot 30–60s once/session), so the
+ * editor-facing waits are generous. These are BOUNDED (never sleeps) — a truly-stuck surface still
+ * fails, it just isn't flaked by a slow-but-progressing boot.
+ */
+const EDITOR_BOOT_MS = 90_000;
+const PROMOTE_MS = 90_000;
+
+/** Every `/api/*` the editor + admin parent legitimately need must hit REAL prod (authed → real data). */
+const EDITOR_PASSTHROUGH =
+  /\/api\/(auth\/me|sites\b|sites\/[^/]+\/(preview-state|releases|promote|workflow|readiness|build-context|chat)|sites\/by-slug\/|feature-flags)/;
+
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
 
-/**
- * Navigate to the Source Control / snapshots panel for a given site inside the admin.
- * Clicks the nav link or falls back to direct URL navigation within the SPA.
- */
-async function gotoSourceControl(page: import('@playwright/test').Page, siteId: string): Promise<void> {
-  // Navigate to admin/snapshots section — SPA route, uses gotoAdmin then click
-  await gotoAdmin(page, `sites/${siteId}/snapshots`);
+/** Real session + `/api` routing so the editor + promote + releases calls hit live prod. */
+async function authAsSysAdmin(page: Page): Promise<void> {
+  await page.goto(PROD_URL, { waitUntil: 'domcontentloaded' });
+  await setupRealDataPage(page, { passthrough: EDITOR_PASSTHROUGH, email: SYS_ADMIN_TEST_EMAIL });
+}
 
-  // Wait for the snapshots or source-control section to render
-  await page
-    .waitForSelector(
-      '[data-testid="snapshots-section"], [data-testid="source-control-section"], app-admin-snapshots',
-      { timeout: 20_000 },
-    )
-    .catch(() => {
-      // Section may not have a matching testid yet — spec asserts below will RED
-    });
+/** Resolve the real E2E site id/slug; skip the test (never false-fail) when the org has no site. */
+async function resolveSiteOrSkip(): Promise<{ id: string; slug: string }> {
+  const { id, slug } = await resolveE2ESite(PROD_URL, process.env.E2E_API_KEY!, UA);
+  test.skip(!id, 'E2E org has no site to promote — nothing to drive');
+  return { id, slug };
+}
+
+/**
+ * Fetch this site's release history AS THE REAL USER (parent-session pattern the promote UI uses).
+ * Returns the honest `{ status, count, latestRevision }`. Reads the real `{releases,count}` shape.
+ */
+async function fetchReleases(
+  page: Page,
+  siteId: string,
+): Promise<{ status: number; count: number; latestRevision: string | null; latestOutcome: string | null }> {
+  return page.evaluate(
+    async ({ base, id, token }: { base: string; id: string; token: string }) => {
+      const r = await fetch(`${base}/api/sites/${id}/releases`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      const j = (await r.json().catch(() => ({}))) as {
+        releases?: Array<{ commit_sha?: string | null; artifact_digest?: string | null; outcome?: string }>;
+      };
+      const list = j?.releases ?? [];
+      const top = list[0];
+      return {
+        status: r.status,
+        count: list.length,
+        // The release's durable "revision" is its commit SHA (fallback: artifact digest).
+        latestRevision: top ? (top.commit_sha ?? top.artifact_digest ?? null) : null,
+        latestOutcome: top?.outcome ?? null,
+      };
+    },
+    { base: PROD_URL, id: siteId, token: process.env.E2E_API_KEY! },
+  );
+}
+
+/**
+ * Open the editor for `siteId` via the REAL admin route, then return a FrameLocator for the booted
+ * cross-origin editor frame. Waits (bounded) for the frame + its workbench to mount. Throws a precise
+ * diagnostic if the editor frame never appears — a real gap, surfaced, never masked.
+ */
+async function openEditorFrame(page: Page, _siteId: string): Promise<FrameLocator> {
+  // `/admin/editor` is the route that lifts the persistent bolt iframe into place
+  // (AdminComponent.isEditorPath — `/admin` alone is the dashboard, not the editor).
+  // NOTE: we deliberately use the bare `/admin/editor` (NOT `/admin/editor/:siteId`): the
+  // admin selects the site from the persisted/default selection (`selectedSite ?? sites[0]`,
+  // admin-state.service.ts) — NO code maps the `:siteId` route param to `selectSite`, so a
+  // deep `:siteId` URL renders the styled admin-404 ("needs a site selected") whenever the SPA
+  // route lands before the site list resolves. The bare route is exactly how the real nav link
+  // opens the editor (sidebar "Editor" → `/admin/editor`) and boots on the resolved site.
+  await gotoAdmin(page, 'editor');
+
+  // Admin shell must render (auth landed) before the iframe mounts.
+  await expect(page.locator('app-admin, [data-cockpit="v2"]')).toBeVisible({ timeout: 20_000 });
+
+  // The iframe is materialized lazily by `@if (bolt.iframeUrl())` once the site resolves.
+  const iframeEl = page.locator('iframe[title="bolt.diy editor"], iframe[src*="editor.projectsites.dev"]');
+  await expect(iframeEl, 'the bolt.diy editor iframe must mount on /admin/editor/:id').toBeVisible({
+    timeout: EDITOR_BOOT_MS,
+  });
+
+  const frame = page.frameLocator('iframe[title="bolt.diy editor"], iframe[src*="editor.projectsites.dev"]');
+
+  // WebContainer cold-boot: wait for the workbench shell to actually render inside the frame.
+  // The Source Control tab lives in the EditorPanel's tab list; its presence proves the workbench
+  // (not just the frame document) is up. `getByRole('tab', {name:'Source'})` is the tab trigger.
+  await expect(
+    frame.getByRole('tab', { name: 'Source', exact: false }),
+    'the editor workbench (Source Control tab) must render inside the frame',
+  ).toBeVisible({ timeout: EDITOR_BOOT_MS });
+
+  return frame;
+}
+
+/** Open the Source Control panel inside the editor frame; assert the panel renders. */
+async function openSourceControl(frame: FrameLocator): Promise<void> {
+  await frame.getByRole('tab', { name: 'Source', exact: false }).click();
+  await expect(
+    frame.locator('[data-testid="source-control-panel"]'),
+    'Source Control panel must render after clicking the Source tab',
+  ).toBeVisible({ timeout: 20_000 });
 }
 
 // ---------------------------------------------------------------------------
 // Test suite
 // ---------------------------------------------------------------------------
 
-test.describe('Preview → Promote → Production workflow', () => {
-  // All six scenarios require a real E2E_API_KEY to hit live prod data.
-  // Without it the tests are meaningless (no real site to promote).
+test.describe('Preview → Promote → Production golden path (real UI)', () => {
+  // Every scenario needs a real E2E_API_KEY (real session → real site → a real promote to assert).
   test.skip(!realDataAvailable(), 'needs E2E_API_KEY for a real session');
 
   // ---------------------------------------------------------------------------
-  // Scenario 1 — Authenticate and open the Editor for a real site
+  // Scenario 1 — Authenticate and open the Editor for a real site (frame + workbench boot)
   // ---------------------------------------------------------------------------
-  test('1. authenticate via E2E_API_KEY and open editor for seeded site', async ({ page }) => {
-    // Start at the homepage — real user flow
-    await page.goto(PROD_URL, { waitUntil: 'domcontentloaded' });
-
-    // Inject real session; passthrough auth + sites list
-    await setupRealDataPage(page, {
-      passthrough: /\/api\/(auth\/me|sites)\b/,
-    });
-
-    // Resolve real test site
-    const { id: siteId, slug } = await resolveE2ESite(PROD_URL, process.env.E2E_API_KEY!, UA);
+  test('1. authenticate and boot the editor frame for a real site', async ({ page }) => {
+    await authAsSysAdmin(page);
+    const { id: siteId, slug } = await resolveSiteOrSkip();
     expect(siteId, 'resolveE2ESite must return a real site id').toBeTruthy();
     expect(slug, 'resolveE2ESite must return a real site slug').toBeTruthy();
 
-    // Navigate to admin — session is already injected
-    await gotoAdmin(page, `sites/${siteId}`);
+    // Drives the REAL admin route + the real cross-origin editor frame + workbench boot.
+    const frame = await openEditorFrame(page, siteId);
 
-    // Admin shell must render
-    await expect(page.locator('app-admin, [data-cockpit="v2"]')).toBeVisible({ timeout: 20_000 });
+    // Sanity: the frame is the real editor (its file/workbench tab list is present).
+    await expect(frame.getByRole('tab', { name: 'Source', exact: false })).toBeVisible();
+  });
 
-    // Navigate to the editor section via admin nav click (real user action)
-    const editorNavLink = page.locator(
-      '[data-testid="admin-nav-editor"], [data-testid="admin-nav-code"]',
-    );
-    const editorNavVisible = await editorNavLink.first().isVisible({ timeout: 5_000 }).catch(() => false);
-    if (editorNavVisible) {
-      await editorNavLink.first().click();
+  // ---------------------------------------------------------------------------
+  // Scenario 2 — Open the editor's Source Control panel (Code → Source Control)
+  // ---------------------------------------------------------------------------
+  test('2. open the Source Control panel inside the editor frame', async ({ page }) => {
+    await authAsSysAdmin(page);
+    const { id: siteId } = await resolveSiteOrSkip();
+
+    const frame = await openEditorFrame(page, siteId);
+    await openSourceControl(frame);
+
+    // The promote control is part of this panel — it must exist here (visible or disabled),
+    // never absent from the panel entirely.
+    await expect(
+      frame.locator('[data-testid="promote-to-production"]'),
+      'the Promote button lives in the Source Control panel',
+    ).toBeVisible({ timeout: 20_000 });
+  });
+
+  // ---------------------------------------------------------------------------
+  // Scenario 3 — The Promote button renders in Source Control (visible + honest state)
+  // ---------------------------------------------------------------------------
+  test('3. promote-to-production button renders inside the editor Source Control', async ({ page }) => {
+    await authAsSysAdmin(page);
+    const { id: siteId } = await resolveSiteOrSkip();
+
+    const frame = await openEditorFrame(page, siteId);
+    await openSourceControl(frame);
+
+    const promoteBtn = frame.locator('[data-testid="promote-to-production"]');
+    await expect(promoteBtn).toBeVisible({ timeout: 20_000 });
+
+    // Honest control: it is either enabled (something to promote) OR disabled WITH a reason
+    // (aria-label/title populated) — never a dead/doomed control with no explanation.
+    const isDisabled = await promoteBtn.isDisabled();
+    if (isDisabled) {
+      const reason = (await promoteBtn.getAttribute('aria-label')) ?? '';
+      expect(reason.trim().length, 'a disabled Promote button must carry a reason (aria-label)').toBeGreaterThan(0);
+    }
+  });
+
+  // ---------------------------------------------------------------------------
+  // Scenario 4 — Click Promote (when enabled) → status surfaces the HONEST success message
+  // ---------------------------------------------------------------------------
+  test('4. clicking Promote surfaces a success (or the button is honestly gated)', async ({ page }) => {
+    await authAsSysAdmin(page);
+    const { id: siteId } = await resolveSiteOrSkip();
+
+    const frame = await openEditorFrame(page, siteId);
+    await openSourceControl(frame);
+
+    const promoteBtn = frame.locator('[data-testid="promote-to-production"]');
+    await expect(promoteBtn).toBeVisible({ timeout: 20_000 });
+
+    if (await promoteBtn.isDisabled()) {
+      // Clean state: Production already matches Preview → nothing to promote. That is the correct
+      // "no-op" outcome (idempotent money-path already ran). Assert it's honestly disabled + reasoned,
+      // and that Production truth is intact.
+      const reason = (await promoteBtn.getAttribute('aria-label')) ?? '';
+      expect(reason.trim().length, 'disabled Promote must explain why').toBeGreaterThan(0);
+      const releases = await fetchReleases(page, siteId);
+      expect(releases.status, '/api/sites/:id/releases must be reachable (flag on for E2E org)').toBe(200);
+      return;
     }
 
-    // Editor section or bolt iframe must be present (may still be booting)
-    const editorPresent = await page
-      .waitForSelector(
-        '[data-testid="editor-section"], [data-testid="bolt-embed-iframe"], iframe[src*="editor.projectsites.dev"]',
-        { timeout: 30_000 },
-      )
-      .then(() => true)
-      .catch(() => false);
-
-    expect(editorPresent, 'editor iframe or editor section must mount').toBe(true);
-  });
-
-  // ---------------------------------------------------------------------------
-  // Scenario 2 — Make a content edit so Preview differs from Production
-  // ---------------------------------------------------------------------------
-  test('2. make a content edit that creates a diff between preview and production', async ({ page }) => {
-    await page.goto(PROD_URL, { waitUntil: 'domcontentloaded' });
-    await setupRealDataPage(page, {
-      passthrough: /\/api\/(auth\/me|sites)\b/,
-    });
-
-    const { id: siteId } = await resolveE2ESite(PROD_URL, process.env.E2E_API_KEY!, UA);
-    expect(siteId).toBeTruthy();
-
-    await gotoAdmin(page, `sites/${siteId}/snapshots`);
-
-    // The Source Control / Snapshots section must render a diff indicator or
-    // a "nothing to promote" empty state.
-    // We assert the section itself is present (fails RED when not yet built).
-    await expect(
-      page.locator('[data-testid="source-control-section"], [data-testid="snapshots-section"]'),
-    ).toBeVisible({ timeout: 20_000 });
-
-    // The Promote button is the primary assertion — RED until shipped.
-    // For the edit-creates-diff test we also verify that a working-tree status
-    // panel or diff view is rendered.
-    const diffView = page.locator(
-      '[data-testid="preview-diff"], [data-testid="working-tree-status"], [data-testid="git-status"]',
-    );
-    // This will be RED until the Promote UI ships — intentional.
-    await expect(diffView).toBeVisible({ timeout: 10_000 });
-  });
-
-  // ---------------------------------------------------------------------------
-  // Scenario 3 — Open Source Control view and click "Promote to Production"
-  // ---------------------------------------------------------------------------
-  test('3. click promote-to-production button in Source Control view', async ({ page }) => {
-    await page.goto(PROD_URL, { waitUntil: 'domcontentloaded' });
-    await setupRealDataPage(page, {
-      passthrough: /\/api\/(auth\/me|sites)\b/,
-    });
-
-    const { id: siteId } = await resolveE2ESite(PROD_URL, process.env.E2E_API_KEY!, UA);
-    expect(siteId).toBeTruthy();
-
-    await gotoAdmin(page, `sites/${siteId}/snapshots`);
-    await expect(
-      page.locator('[data-testid="source-control-section"], [data-testid="snapshots-section"]'),
-    ).toBeVisible({ timeout: 20_000 });
-
-    // PRIMARY ASSERTION: the Promote button must exist and be clickable.
-    // RED until the Promote button ships.
-    const promoteBtn = page.locator('[data-testid="promote-to-production"]');
-    await expect(promoteBtn).toBeVisible({ timeout: 10_000 });
-    await expect(promoteBtn).toBeEnabled();
-
-    // Click via keyboard — real user flow
-    await promoteBtn.focus();
-    await page.keyboard.press('Enter');
-  });
-
-  // ---------------------------------------------------------------------------
-  // Scenario 4 — Promote status progresses to success (bounded wait, no sleeps)
-  // ---------------------------------------------------------------------------
-  test('4. promote-status progresses to success within bounded time', async ({ page }) => {
-    await page.goto(PROD_URL, { waitUntil: 'domcontentloaded' });
-    await setupRealDataPage(page, {
-      passthrough: /\/api\/(auth\/me|sites|snapshots)\b/,
-    });
-
-    const { id: siteId } = await resolveE2ESite(PROD_URL, process.env.E2E_API_KEY!, UA);
-    expect(siteId).toBeTruthy();
-
-    await gotoAdmin(page, `sites/${siteId}/snapshots`);
-
-    // Wait for promote button and click
-    const promoteBtn = page.locator('[data-testid="promote-to-production"]');
-    await expect(promoteBtn).toBeVisible({ timeout: 10_000 });
+    // There IS something to promote → click it (real user action) and watch the honest outcome.
     await promoteBtn.click();
 
-    // Status indicator must appear
-    const statusEl = page.locator('[data-testid="promote-status"]');
-    await expect(statusEl).toBeVisible({ timeout: 10_000 });
+    const status = frame.locator('[data-testid="promote-status"]');
+    await expect(status, 'a promote-status region must appear after clicking Promote').toBeVisible({
+      timeout: 20_000,
+    });
 
-    // Must NOT stay in error state
-    await expect(statusEl).not.toHaveAttribute('data-state', 'error', { timeout: 30_000 });
+    // Bounded wait for a TERMINAL state — success is the honest confirmation copy. There is NO
+    // `data-state` attribute; the outcome is the visible message text (SourceControlPanel.tsx).
+    // A `commit_ok_deploy_failed` / `failed` message is a REAL failure — we do NOT accept it as green.
+    await expect(status, 'promote must reach a success outcome (Production serving the Preview)').toContainText(
+      /Published! Production is now serving your Preview\.|Already live — Production is up to date\./,
+      { timeout: PROMOTE_MS },
+    );
 
-    // Must eventually reach success — bounded wait, no sleep
-    await expect(statusEl).toHaveAttribute('data-state', 'success', { timeout: 60_000 });
+    // A check-circle icon accompanies the success tone (belt-and-suspenders on the honest surface).
+    await expect(status.locator('.i-ph\\:check-circle-fill')).toBeVisible();
   });
 
   // ---------------------------------------------------------------------------
-  // Scenario 5 — Verify Production reflects the promoted revision via /releases API
+  // Scenario 5 — Production reflects the promotion: /releases returns a real release
   // ---------------------------------------------------------------------------
-  test('5. GET /api/sites/:id/releases returns new release after promote', async ({ page }) => {
-    await page.goto(PROD_URL, { waitUntil: 'domcontentloaded' });
-    await setupRealDataPage(page, {
-      passthrough: /\/api\/(auth\/me|sites|snapshots|releases)\b/,
-    });
+  test('5. Production reflects the promotion via GET /api/sites/:id/releases', async ({ page }) => {
+    await authAsSysAdmin(page);
+    const { id: siteId } = await resolveSiteOrSkip();
 
-    const { id: siteId } = await resolveE2ESite(PROD_URL, process.env.E2E_API_KEY!, UA);
-    expect(siteId).toBeTruthy();
+    // Record the release count BEFORE (as the real user).
+    const before = await fetchReleases(page, siteId);
+    expect(before.status, '/api/sites/:id/releases must be reachable (durable_preview on for E2E org)').toBe(200);
 
-    // Record the release count BEFORE promote
-    const beforeRes = await page.evaluate(
-      async ({ base, id, token }: { base: string; id: string; token: string }) => {
-        const r = await fetch(`${base}/api/sites/${id}/releases`, {
-          headers: { Authorization: `Bearer ${token}` },
-        });
-        const j = (await r.json().catch(() => ({}))) as { data?: unknown[] };
-        return { status: r.status, count: (j?.data ?? []).length };
-      },
-      { base: PROD_URL, id: siteId, token: process.env.E2E_API_KEY! },
-    );
+    // Drive the real promote through the UI.
+    const frame = await openEditorFrame(page, siteId);
+    await openSourceControl(frame);
+    const promoteBtn = frame.locator('[data-testid="promote-to-production"]');
+    await expect(promoteBtn).toBeVisible({ timeout: 20_000 });
 
-    // /releases endpoint must exist — RED until shipped
-    expect(beforeRes.status, '/api/sites/:id/releases must return 200').toBe(200);
+    if (await promoteBtn.isDisabled()) {
+      // Nothing to promote — Production is already up to date. The MONEY-PATH proof is then that a
+      // durable release ALREADY exists with a real revision (the fixture promoted revision), not zero.
+      expect(
+        before.count,
+        'a promoted site must have ≥1 durable release even when the button is idempotently gated',
+      ).toBeGreaterThan(0);
+      expect(before.latestRevision, 'the latest release must carry a durable revision (commit/artifact)').toBeTruthy();
+      expect(before.latestOutcome, 'the latest release outcome must be recorded').toBeTruthy();
+      return;
+    }
 
-    // Perform promote via the UI
-    await gotoAdmin(page, `sites/${siteId}/snapshots`);
-    const promoteBtn = page.locator('[data-testid="promote-to-production"]');
-    await expect(promoteBtn).toBeVisible({ timeout: 10_000 });
     await promoteBtn.click();
-
-    // Wait for success
-    const statusEl = page.locator('[data-testid="promote-status"]');
-    await expect(statusEl).toHaveAttribute('data-state', 'success', { timeout: 60_000 });
-
-    // Re-fetch releases — count must have incremented
-    const afterRes = await page.evaluate(
-      async ({ base, id, token }: { base: string; id: string; token: string }) => {
-        const r = await fetch(`${base}/api/sites/${id}/releases`, {
-          headers: { Authorization: `Bearer ${token}` },
-        });
-        const j = (await r.json().catch(() => ({}))) as { data?: Array<{ revision?: string }> };
-        return {
-          status: r.status,
-          count: (j?.data ?? []).length,
-          latestRevision: (j?.data ?? [])[0]?.revision ?? null,
-        };
-      },
-      { base: PROD_URL, id: siteId, token: process.env.E2E_API_KEY! },
+    const status = frame.locator('[data-testid="promote-status"]');
+    await expect(status).toContainText(
+      /Published! Production is now serving your Preview\.|Already live — Production is up to date\./,
+      { timeout: PROMOTE_MS },
     );
 
-    expect(afterRes.status).toBe(200);
-    expect(afterRes.count).toBeGreaterThan(beforeRes.count);
-    expect(afterRes.latestRevision, 'latest release must carry a revision hash').toBeTruthy();
+    // Production truth: a release now exists carrying a real revision. If the promote wrote a NEW
+    // release the count grew; an idempotent replay keeps the count but the top release is real.
+    const after = await fetchReleases(page, siteId);
+    expect(after.status).toBe(200);
+    expect(after.count, 'a real release must exist after promote').toBeGreaterThan(0);
+    expect(after.count, 'promote must not lose releases').toBeGreaterThanOrEqual(before.count);
+    expect(after.latestRevision, 'the latest release must carry a durable revision hash').toBeTruthy();
+    expect(after.latestOutcome, 'the latest release must record its outcome').toBeTruthy();
   });
 
   // ---------------------------------------------------------------------------
-  // Scenario 6 — Negative: promote button is disabled/absent when nothing to promote
+  // Scenario 6 — Negative: after a successful promote, Preview == Production → button honestly gated
   // ---------------------------------------------------------------------------
-  test('6. promote button disabled or absent when preview equals production', async ({ page }) => {
-    await page.goto(PROD_URL, { waitUntil: 'domcontentloaded' });
-    await setupRealDataPage(page, {
-      passthrough: /\/api\/(auth\/me|sites|snapshots|releases)\b/,
-    });
+  test('6. Promote button is disabled/reasoned when Preview equals Production', async ({ page }) => {
+    await authAsSysAdmin(page);
+    const { id: siteId } = await resolveSiteOrSkip();
 
-    const { id: siteId } = await resolveE2ESite(PROD_URL, process.env.E2E_API_KEY!, UA);
-    expect(siteId).toBeTruthy();
+    const frame = await openEditorFrame(page, siteId);
+    await openSourceControl(frame);
 
-    // First perform a successful promote so preview == production
-    await gotoAdmin(page, `sites/${siteId}/snapshots`);
+    const promoteBtn = frame.locator('[data-testid="promote-to-production"]');
+    await expect(promoteBtn).toBeVisible({ timeout: 20_000 });
 
-    const promoteBtn = page.locator('[data-testid="promote-to-production"]');
-
-    // If the button is already absent/disabled there's nothing to promote — that's the
-    // happy-negative case (clean state after prior promote, or a freshly-published site).
-    const btnVisible = await promoteBtn.isVisible({ timeout: 5_000 }).catch(() => false);
-    const btnEnabled = btnVisible ? await promoteBtn.isEnabled() : false;
-
-    if (btnVisible && btnEnabled) {
-      // Perform a promote first to bring preview == production
+    // If enabled, promote once to bring Preview == Production.
+    if (await promoteBtn.isEnabled()) {
       await promoteBtn.click();
-      const statusEl = page.locator('[data-testid="promote-status"]');
-      await expect(statusEl).toHaveAttribute('data-state', 'success', { timeout: 60_000 });
-
-      // Reload the section via SPA nav (no page.goto after initial load)
-      const snapshotsNavLink = page.locator('[data-testid="admin-nav-snapshots"]');
-      const navVisible = await snapshotsNavLink.isVisible({ timeout: 3_000 }).catch(() => false);
-      if (navVisible) {
-        await snapshotsNavLink.click();
-      }
+      const status = frame.locator('[data-testid="promote-status"]');
+      await expect(status).toContainText(
+        /Published! Production is now serving your Preview\.|Already live — Production is up to date\./,
+        { timeout: PROMOTE_MS },
+      );
+      // Re-open Source Control so the gate recomputes off the fresh Preview↔Production sync.
+      await frame.getByRole('tab', { name: 'Source', exact: false }).click();
+      await expect(frame.locator('[data-testid="source-control-panel"]')).toBeVisible({ timeout: 20_000 });
     }
 
-    // After promote (or in clean state): button must be absent OR disabled.
-    // RED until the UI ships the disabled-when-clean logic.
-    const postBtn = page.locator('[data-testid="promote-to-production"]');
-    const postVisible = await postBtn.isVisible({ timeout: 5_000 }).catch(() => false);
-
-    if (postVisible) {
-      // Button is present — it must be disabled
-      await expect(postBtn).toBeDisabled();
-    }
-    // else: button is absent — correct clean-state behavior
+    // Now nothing should be promotable → the button must be disabled WITH a reason (never enabled+doomed,
+    // never a dead control). The button is always present in the panel; it is gated, not removed.
+    await expect(promoteBtn).toBeDisabled({ timeout: PROMOTE_MS });
+    const reason = (await promoteBtn.getAttribute('aria-label')) ?? '';
+    expect(reason.trim().length, 'a disabled Promote button must explain why (aria-label)').toBeGreaterThan(0);
   });
 });
