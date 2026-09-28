@@ -67,9 +67,21 @@ lone 200.
    `listResources`/`getResource`) — REUSED, not reimplemented. Guard test
    `src/__tests__/site_wfp_hosting_flag.test.ts`. (Also fixed a pre-existing red: `r2_buckets` docs
    referenced a missing `e2e/r2-buckets.spec.ts` — created it, deploy gate now green.) **coupled**
-2. **`deploySiteToWfp(env, siteId, {slot, version})`** — build the per-site worker (Workers Assets from
-   the site's R2 `dist/` + the shims + Functions), upload to `site-<id>-preview` | `site-<id>`,
-   idempotent; record the registry row. Reuse the assets-upload-session recipe. `assertSiteOwned`. **coupled**
+2. ✅ **`deploySiteToWfp(env, siteId, {slot, version})`** — DONE (2026-09-28).
+   `src/services/wfp_site_hosting.ts` (thin service): resolves `slug`+`version` from the OWNED site
+   (`current_build_version` fallback), enumerates the R2 build (`sites/{slug}/{version}/*` — the actual
+   flat layout `upload-final` writes, not a literal `dist/`), builds a dependency-free SPA-fallback
+   serving shim, uploads the site's OWN static assets via the **assets-upload-session** recipe REUSED
+   from `cloudflare_provisioner` (POST `…/scripts/<slot>/assets-upload-session` → jwt+buckets →
+   `/workers/assets/upload?base64=true` → completion jwt), then PUTs the shim with an `ASSETS` binding to
+   the dispatch slot `site-<id>` | `site-<id>-preview` (slot name REUSED from `wfp_dispatch.siteFunctionsScriptName`).
+   Records the slot via `recordResource` (`wfp_namespace` concept, `preview|production` env, `userWorkerScript`,
+   `deployedVersion`) with **source+artifact SHA-256 digests** in `usage_json` for promotion idempotency.
+   `assertSiteOwned` gates it (404-on-foreign, ZERO CF calls on rejection); short-lived `CF_API_TOKEN`
+   Bearer only; **fail-soft** typed `{ok:false}` on every miss/error (unconfigured, empty build, CF reject,
+   record fail) — never throws into the serving path. Unit test `src/__tests__/wfp_site_hosting.test.ts`
+   (7 cases: ownership reject, unconfigured, prod slot upload+record, preview slot, version fallback,
+   empty build, CF PUT reject). tsc + jest green. **coupled**
 3. **Serving preference** — additive branch in `serveSiteFromR2`/`index.ts`: flag ON + WfP prod script
    present → `dispatchToUserWorker('site-<id>', req)`; preview hosts → `-preview`; **else unchanged R2**;
    fail-soft to R2 on any dispatch error. **coupled**
