@@ -37,6 +37,19 @@ import { deploySiteToWfp } from '../services/wfp_site_hosting.js';
 const OWNER_ORG = 'org_owner';
 const OWNED_SITE = 'abc123de-f012-7abc-9def-0123456789ab';
 
+// Exact Cloudflare REST surfaces the WfP hosting deploy MUST hit. These are the
+// FULL paths (not substrings) — asserting them exactly is what makes the malformed
+// `/workers/scripts/dispatch/namespaces/...` URL (CF 10405) fail RED. The dispatch-scoped
+// script path sits DIRECTLY under `.../workers/`, never under `.../workers/scripts/`.
+const CF_BASE = 'https://api.cloudflare.com/client/v4';
+const PROD_SCRIPT = 'site-abc123de-f012-7abc-9def-0123456789ab';
+const PREVIEW_SCRIPT = 'site-abc123de-f012-7abc-9def-0123456789ab-preview';
+const dispatchPath = (script: string) =>
+  `${CF_BASE}/accounts/acct_server/workers/dispatch/namespaces/project-sites-endpoints/scripts/${script}`;
+const SESSION_URL = (script: string) => `${dispatchPath(script)}/assets-upload-session`;
+const SCRIPT_PUT_URL = (script: string) => dispatchPath(script);
+const ASSET_UPLOAD_URL = `${CF_BASE}/accounts/acct_server/workers/assets/upload?base64=true`;
+
 /** A minimal R2 bucket double: list() returns keys, get() returns a body. */
 function fakeBucket(files: Record<string, string>) {
   const keys = Object.keys(files);
@@ -103,13 +116,14 @@ beforeEach(() => {
   mockDbQueryOne.mockReset().mockResolvedValue(SITE_ROW);
   mockRecordResource.mockReset().mockResolvedValue({ ok: true, id: 'row_wfp_1' });
 
-  // Every CF REST call succeeds: assets-upload-session → jwt+buckets, asset upload → jwt,
+  // Every CF REST call succeeds: assets-upload-session → jwt + a non-empty bucket (so the
+  // asset-upload POST actually fires and its exact URL can be asserted), asset upload → jwt,
   // script PUT → success. Keyed by URL so order-independence is asserted.
   fetchMock = jest.fn(async (input: RequestInfo | URL) => {
     const url = String(input);
     if (url.includes('/assets-upload-session')) {
       return new Response(
-        JSON.stringify({ success: true, result: { jwt: 'jwt_start', buckets: [] } }),
+        JSON.stringify({ success: true, result: { jwt: 'jwt_start', buckets: [['deadbeef']] } }),
         { status: 200 },
       );
     }
@@ -177,27 +191,41 @@ describe('deploySiteToWfp', () => {
     expect(typeof res.artifactDigest).toBe('string');
     expect(res.artifactDigest.length).toBeGreaterThan(0);
 
-    // The assets-upload-session was opened against the production script path.
+    // (1) The assets-upload-session POST hit the EXACT dispatch-scoped path (full URL, not a
+    // substring) with method POST. The OLD malformed `.../workers/scripts/dispatch/namespaces/...`
+    // URL fails this exact-match → RED, which is why the loose `toContain` let the bug ship.
     const sessionCall = fetchMock.mock.calls.find((c) =>
       String(c[0]).includes('/assets-upload-session'),
     );
     expect(sessionCall).toBeDefined();
-    expect(String(sessionCall![0])).toContain(
-      '/dispatch/namespaces/project-sites-endpoints/scripts/site-abc123de-f012-7abc-9def-0123456789ab/assets-upload-session',
-    );
+    expect(String(sessionCall![0])).toBe(SESSION_URL(PROD_SCRIPT));
+    expect((sessionCall![1] as RequestInit | undefined)?.method).toBe('POST');
 
-    // The script PUT went to the same production slot in the dispatch namespace.
+    // (2) The asset-bucket upload POST hit the exact global assets endpoint with method POST.
+    const assetCall = fetchMock.mock.calls.find((c) =>
+      String(c[0]).includes('/workers/assets/upload'),
+    );
+    expect(assetCall).toBeDefined();
+    expect(String(assetCall![0])).toBe(ASSET_UPLOAD_URL);
+    expect((assetCall![1] as RequestInit | undefined)?.method).toBe('POST');
+
+    // (3) The script PUT hit the EXACT dispatch-scoped path (full URL, not a substring) with
+    // method PUT — `.../workers/dispatch/namespaces/{ns}/scripts/{script}`.
     const putCall = fetchMock.mock.calls.find(
-      (c) =>
-        (c[1] as RequestInit | undefined)?.method === 'PUT' &&
-        String(c[0]).includes('/scripts/site-abc123de-f012-7abc-9def-0123456789ab') &&
-        !String(c[0]).includes('assets-upload-session'),
+      (c) => (c[1] as RequestInit | undefined)?.method === 'PUT',
     );
     expect(putCall).toBeDefined();
+    expect(String(putCall![0])).toBe(SCRIPT_PUT_URL(PROD_SCRIPT));
     // Uses the short-lived Bearer creds server-side, never the global key.
     expect((putCall![1] as RequestInit).headers).toMatchObject({
       authorization: 'Bearer cf_token_secret',
     });
+
+    // Regression guard: NO CF call may ever use the malformed standalone-script prefix
+    // `/workers/scripts/dispatch/namespaces/...` — that's the shape that returned CF 10405.
+    for (const c of fetchMock.mock.calls) {
+      expect(String(c[0])).not.toContain('/workers/scripts/dispatch/namespaces/');
+    }
 
     // Recorded the slot in the registry with the WfP concept + slot + script + version + digests.
     expect(mockRecordResource).toHaveBeenCalledTimes(1);
@@ -226,12 +254,18 @@ describe('deploySiteToWfp', () => {
     expect(res.scriptName).toBe('site-abc123de-f012-7abc-9def-0123456789ab-preview');
     expect(res.slot).toBe('preview');
 
+    // Exact dispatch-scoped preview path (full URL) + method PUT — never `/workers/scripts/...`.
     const putCall = fetchMock.mock.calls.find(
-      (c) =>
-        (c[1] as RequestInit | undefined)?.method === 'PUT' &&
-        String(c[0]).includes('/scripts/site-abc123de-f012-7abc-9def-0123456789ab-preview'),
+      (c) => (c[1] as RequestInit | undefined)?.method === 'PUT',
     );
     expect(putCall).toBeDefined();
+    expect(String(putCall![0])).toBe(SCRIPT_PUT_URL(PREVIEW_SCRIPT));
+    // And the preview assets-upload-session hit the exact preview dispatch path.
+    const sessionCall = fetchMock.mock.calls.find((c) =>
+      String(c[0]).includes('/assets-upload-session'),
+    );
+    expect(sessionCall).toBeDefined();
+    expect(String(sessionCall![0])).toBe(SESSION_URL(PREVIEW_SCRIPT));
 
     const recorded = mockRecordResource.mock.calls[0][1] as Record<string, unknown>;
     expect(recorded).toMatchObject({

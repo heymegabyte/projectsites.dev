@@ -206,6 +206,10 @@ const SERVING_SHIM = `export default {
  * Open an assets-upload-session for `scriptPath`, upload every static asset, and
  * return the completion JWT (`null` when the account already has all buckets).
  *
+ * `scriptPath` MUST be the dispatch-namespace-scoped path
+ * (`dispatch/namespaces/{ns}/scripts/{script}`) — it is appended directly after
+ * `.../workers/`, so passing a bare `scripts/{name}` here targets the WRONG API.
+ *
  * Mirrors `cloudflare_provisioner.uploadPayloadAssets` (doc §Reuse) but sources the
  * manifest + bytes from the site's R2 build instead of the Payload bundle zip.
  */
@@ -219,8 +223,11 @@ async function uploadSiteAssets(
   const manifest: Record<string, { hash: string; size: number }> = {};
   for (const a of assets) manifest[a.path] = { hash: a.hash, size: a.bytes.length };
 
+  // `scriptPath` is ALREADY the dispatch-namespace-scoped path
+  // (`dispatch/namespaces/{ns}/scripts/{script}`) — it sits directly under `.../workers/`,
+  // NOT under `.../workers/scripts/` (that hits the standalone-script API → CF 10405).
   const start = await fetch(
-    `${CF_BASE}/accounts/${accountId}/workers/scripts/${scriptPath}/assets-upload-session`,
+    `${CF_BASE}/accounts/${accountId}/workers/${scriptPath}/assets-upload-session`,
     {
       method: 'POST',
       headers: { authorization: `Bearer ${token}`, 'content-type': 'application/json' },
@@ -230,15 +237,17 @@ async function uploadSiteAssets(
   const startJson = (await start.json().catch(() => ({}))) as {
     success?: boolean;
     result?: { jwt?: string; buckets?: string[][] };
-    errors?: unknown;
+    errors?: Array<{ code?: number; message?: string }>;
   };
   if (!start.ok || !startJson.success) {
+    // Surface the HTTP status + CF error code (e.g. 10405) so a future auth-scheme/URL
+    // regression is greppable, not an opaque "failed: []".
+    const cfCode = startJson.errors?.[0]?.code;
     return {
       ok: false,
-      error: `assets-upload-session failed: ${JSON.stringify(startJson.errors ?? '')}`.slice(
-        0,
-        400,
-      ),
+      error:
+        `assets-upload-session failed (status ${start.status}, code ${cfCode ?? 'none'}): ` +
+        `${JSON.stringify(startJson.errors ?? '')}`.slice(0, 400),
       status: start.status,
     };
   }
@@ -352,9 +361,12 @@ export async function deploySiteToWfp(
 
   // 6. Slot name — reuse the SSOT normaliser (`site-<id>` | `site-<id>-preview`).
   const scriptName = siteFunctionsScriptName(siteId, { preview: opts.slot === 'preview' });
-  const scriptPath = `${namespace}/scripts/${scriptName}`; // dispatch namespace scoping
-  // The assets/session/script endpoints live under the dispatch namespace path.
-  const dispatchScriptPath = `dispatch/namespaces/${scriptPath}`;
+  // The dispatch-namespace-scoped script path — the ONLY correct WfP shape
+  // (`dispatch/namespaces/{ns}/scripts/{script}`). It is ALREADY namespace-scoped, so
+  // callers append it directly after `.../workers/` — NEVER under `.../workers/scripts/`
+  // (that routes to the standalone-script API → CF 10405 "Method not allowed for this
+  // authentication scheme"). Matches `wfp_dispatch.ts` + `cloudflare_provisioner.scriptPath`.
+  const dispatchScriptPath = `dispatch/namespaces/${namespace}/scripts/${scriptName}`;
 
   // 7. Upload the static assets onto the script (Workers Static Assets).
   const assetRes = await uploadSiteAssets(accountId, token, dispatchScriptPath, ordered);
@@ -392,9 +404,16 @@ export async function deploySiteToWfp(
     headers: { authorization: `Bearer ${token}` },
     body: form,
   });
-  const putJson = (await put.json().catch(() => ({}))) as { success?: boolean; errors?: unknown };
+  const putJson = (await put.json().catch(() => ({}))) as {
+    success?: boolean;
+    errors?: Array<{ code?: number; message?: string }>;
+  };
   if (!put.ok || !putJson.success) {
-    const error = `script upload failed: ${JSON.stringify(putJson.errors ?? '')}`.slice(0, 400);
+    // Include HTTP status + CF error code (e.g. 10405) so a URL/auth-scheme regression is greppable.
+    const cfCode = putJson.errors?.[0]?.code;
+    const error =
+      `script upload failed (status ${put.status}, code ${cfCode ?? 'none'}): ` +
+      `${JSON.stringify(putJson.errors ?? '')}`.slice(0, 400);
     logWfpDeployFailure(error, siteId, opts.slot);
     return { ok: false, error, status: put.status };
   }
