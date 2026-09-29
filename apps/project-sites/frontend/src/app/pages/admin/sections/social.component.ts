@@ -43,48 +43,16 @@ import { FormsModule } from '@angular/forms';
 import { ActivatedRoute, Router } from '@angular/router';
 import { RevealDirective } from '../../../directives/reveal.directive';
 import { RollingCounterComponent } from '../../../components/rolling-counter/rolling-counter.component';
-import { InlineErrorComponent } from '../../../components/states';
 import { HlmInputDirective, HlmSelectDirective, HlmTablistDirective } from '../../../ui';
-import { IntegrationHelpComponent, type IntegrationHelpRow } from '../../../components/integration-help/integration-help.component';
 import { AdminStateService } from '../admin-state.service';
 import { ApiService } from '../../../services/api.service';
 import { ToastService } from '../../../services/toast.service';
 import { SocialCalendarComponent } from './social-calendar.component';
 import { SocialAutoPilotDialogComponent } from './social-auto-pilot-dialog.component';
 import { SocialPasteConnectDialogComponent, isValidPublicHttpsUrl } from './social-paste-connect-dialog.component';
-
-type PlatformId =
-  | 'twitter'
-  | 'linkedin'
-  | 'facebook'
-  | 'instagram'
-  | 'threads'
-  | 'bluesky'
-  | 'reddit'
-  | 'mastodon'
-  | 'discord'
-  | 'slack'
-  | 'telegram';
-
-interface PlatformDef {
-  id: PlatformId;
-  label: string;
-  charLimit: number;
-  color: string;
-  glyph: string; // inline SVG path data
-  /** Connects via a pasted token/app-password (no OAuth popup). The worker's
-   *  GET /connect returns a paste_key spec + POST /paste accepts the creds. */
-  pasteKey?: boolean;
-}
-
-interface SocialAccount {
-  id?: string;
-  platform: PlatformId;
-  connected: boolean;
-  handle?: string;
-  avatar_url?: string;
-  expires_at?: string;
-}
+// Connected-accounts LEFT pane — split out (presentational). Owns the platform
+// TYPES; PLATFORMS catalog stays here and is passed down via [platforms].
+import { SocialAccountsComponent, type PlatformId, type PlatformDef, type SocialAccount } from './social-accounts.component';
 
 interface MediaItem {
   id: string;
@@ -235,7 +203,7 @@ const PLATFORMS: readonly PlatformDef[] = [
   selector: 'app-admin-social',
   standalone: true,
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [CommonModule, FormsModule, RevealDirective, RollingCounterComponent, HlmInputDirective, HlmSelectDirective, HlmTablistDirective, InlineErrorComponent, IntegrationHelpComponent, SocialCalendarComponent, SocialAutoPilotDialogComponent, SocialPasteConnectDialogComponent],
+  imports: [CommonModule, FormsModule, RevealDirective, RollingCounterComponent, HlmInputDirective, HlmSelectDirective, HlmTablistDirective, SocialAccountsComponent, SocialCalendarComponent, SocialAutoPilotDialogComponent, SocialPasteConnectDialogComponent],
   template: `
 <div class="social-wrap" [class.is-loading]="loading()">
 
@@ -310,41 +278,14 @@ const PLATFORMS: readonly PlatformDef[] = [
   <div class="three-pane">
 
     <!-- ─────────── LEFT: ACCOUNTS ─────────── -->
-    <aside class="pane-accounts" appReveal aria-label="Connected accounts">
-      <div class="pane-h">Connected accounts</div>
-      @if (accountsError()) {
-        <app-inline-error
-          class="block mb-2"
-          data-testid="social-accounts-error"
-          message="Couldn't load connection states — badges may be out of date."
-          (retry)="retryAccounts()" />
-      }
-      <div class="acct-list">
-        @for (p of platforms; track p.id) {
-          @let acct = accountFor(p.id);
-          <article class="acct-card" [class.is-on]="acct?.connected" [style.--brand]="p.color">
-            <div class="acct-glyph" aria-hidden="true">
-              <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor"><path [attr.d]="p.glyph"/></svg>
-            </div>
-            <div class="acct-meta">
-              <div class="acct-label">{{ p.label }}</div>
-              @if (acct?.connected) {
-                <div class="acct-handle">{{ acct?.handle || 'connected' }}</div>
-              } @else {
-                <div class="acct-handle dim">Not connected</div>
-              }
-            </div>
-            <span class="acct-pill" [class.is-on]="acct?.connected">{{ acct?.connected ? 'Live' : 'Off' }}</span>
-            @if (acct?.connected) {
-              <button class="acct-btn" type="button" (click)="disconnect(p.id)" [disabled]="isDisconnectingAcct(p.id)" [attr.aria-busy]="isDisconnectingAcct(p.id)" [attr.aria-label]="'Disconnect ' + p.label">{{ isDisconnectingAcct(p.id) ? 'Disconnecting…' : 'Disconnect' }}</button>
-            } @else {
-              <button class="acct-btn primary" type="button" (click)="connect(p.id)" [attr.aria-label]="'Connect ' + p.label">+ Connect</button>
-            }
-            <app-integration-help class="acct-help" [rows]="socialHelpRows(p)" [subject]="p.label" [testid]="'social-help-' + p.id" />
-          </article>
-        }
-      </div>
-    </aside>
+    <app-social-accounts
+      [platforms]="platforms"
+      [accounts]="accounts()"
+      [accountsError]="accountsError()"
+      [disconnectingPids]="disconnectingPids()"
+      (connect)="connect($event)"
+      (disconnect)="disconnect($event)"
+      (retry)="retryAccounts()" />
 
     <!-- ─────────── CENTER: TAB CONTENT ─────────── -->
     <section class="pane-main">
@@ -973,37 +914,7 @@ const PLATFORMS: readonly PlatformDef[] = [
         .auto-pilot-toggle, .auto-pilot-toggle__track, .auto-pilot-toggle__dot, .auto-pilot-btn { transition: none !important; }
       }
 
-      /* ── Auto-Pilot dialog ── */
-
-      .acct-card.is-on { border-color: color-mix(in oklch, var(--brand) 35%, transparent); }
-      .acct-card:hover { transform: translateY(-1px); box-shadow: 0 4px 14px color-mix(in oklch, var(--brand) 14%, transparent); }
-      /* While accounts reload, dim the cards so the provisional "Off" states read
-         as loading (not a definitive "Not connected"). Wires the .is-loading host. */
-      .social-wrap.is-loading .acct-card { opacity: 0.5; transition: opacity 0.2s ease; }
-      .acct-glyph {
-        width: 28px; height: 28px; border-radius: 8px;
-        background: color-mix(in oklch, var(--brand) 14%, transparent);
-        color: var(--brand); display: grid; place-items: center;
-      }
-      .acct-meta { min-width: 0; grid-column: 2; }
-      /* #12 help disclosure spans the whole card as a thin second row. */
-      .acct-help { grid-column: 1 / -1; }
-      .acct-label { font-size: 0.76rem; font-weight: 600; color: var(--ps-ink, #f4f4ff); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-      .acct-handle { font-size: 0.66rem; color: color-mix(in oklch, var(--ps-ink, #f4f4ff) 55%, transparent); }
-      .acct-handle.dim { color: color-mix(in oklch, var(--ps-ink, #f4f4ff) 65%, transparent); }
-      .acct-pill {
-        grid-row: 1; grid-column: 3; font-size: 0.56rem; font-weight: 700; text-transform: uppercase;
-        padding: 2px 7px; border-radius: 999px;
-        background: color-mix(in oklch, #ff5470 14%, transparent); color: #ff8a9d;
-      }
-      .acct-pill.is-on { background: color-mix(in oklch, #34d399 18%, transparent); color: #6ee7b7; }
-      .acct-btn {
-        grid-column: 1 / -1; padding: 5px 10px; border-radius: 7px; border: 1px solid color-mix(in oklch, var(--ps-ink, #f4f4ff) 10%, transparent);
-        background: transparent; color: color-mix(in oklch, var(--ps-ink, #f4f4ff) 75%, transparent);
-        font-size: 0.7rem; cursor: pointer; transition: all 0.16s ease; font-family: inherit; font-weight: 600;
-      }
-      .acct-btn:hover { color: var(--ps-ink, #f4f4ff); border-color: color-mix(in oklch, var(--brand) 40%, transparent); }
-      .acct-btn.primary { background: color-mix(in oklch, var(--brand) 14%, transparent); border-color: color-mix(in oklch, var(--brand) 35%, transparent); color: var(--brand); }
+      /* Connected-accounts (.acct-*) CSS moved to social-accounts.component.ts. */
 
       /* ── Center / composer ── */
       .pane-main { min-width: 0; display: flex; flex-direction: column; gap: 12px; }
@@ -1326,7 +1237,7 @@ const PLATFORMS: readonly PlatformDef[] = [
       @keyframes fadeIn { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
 
       @media (prefers-reduced-motion: reduce) {
-        .acct-card:hover, .chip:hover, .btn-ai:hover, .btn-primary:hover { transform: none; }
+        .chip:hover, .btn-ai:hover, .btn-primary:hover { transform: none; }
         .social-wrap { animation: none; }
       }
     `,
@@ -1617,29 +1528,6 @@ export class AdminSocialComponent implements OnInit {
 
   readonly platforms = PLATFORMS;
 
-  /**
-   * Accurate-by-construction `?` help rows for a platform connect card (#12) —
-   * derived from the platform's own label + pasteKey flag, so it never claims a
-   * scope or retention policy we can't honour.
-   */
-  protected socialHelpRows(p: PlatformDef): readonly IntegrationHelpRow[] {
-    const oauth = !p.pasteKey;
-    return [
-      { k: 'Account', v: `A ${p.label} account.` },
-      {
-        k: 'Connect via',
-        v: oauth
-          ? `Secure OAuth — you approve access on ${p.label}; we never see your password.`
-          : `Paste an app password / access token from ${p.label}.`,
-      },
-      { k: 'Required?', v: `Optional — connect only to publish to ${p.label}.` },
-      {
-        k: 'Your data',
-        v: `Your ${oauth ? 'access token' : 'token'} is encrypted at rest (AES-GCM). Disconnect anytime to remove it.`,
-      },
-    ];
-  }
-
   /* ── Signals ── */
   readonly loading = signal(false);
   readonly saving = signal(false);
@@ -1730,11 +1618,9 @@ export class AdminSocialComponent implements OnInit {
     return this.deletingPostIds().has(id);
   }
   /** Platform ids with an in-flight account disconnect — guards the toast-armed
-   *  action against a double-DELETE + drives the row's "Disconnecting…" state. */
+   *  action against a double-DELETE + drives the row's "Disconnecting…" state
+   *  (passed to <app-social-accounts> which renders the per-row busy state). */
   readonly disconnectingPids = signal<Set<string>>(new Set());
-  isDisconnectingAcct(pid: string): boolean {
-    return this.disconnectingPids().has(pid);
-  }
 
   /* Auto-Pilot */
   readonly autoPilotEnabled = signal(false);
