@@ -39,10 +39,17 @@ const { postToParentSpy, onParentMessageSpy, parentHandlers } = vi.hoisted(() =>
   return { postToParentSpy, onParentMessageSpy, parentHandlers };
 });
 
-const { requestDbLoadSampleSpy, requestDbAiSeedSpy, postToastToParentSpy } = vi.hoisted(() => ({
+const { requestDbLoadSampleSpy, requestDbAiSeedSpy, postToastToParentSpy, requestDbAddColumnSpy } = vi.hoisted(() => ({
   requestDbLoadSampleSpy: vi.fn(async () => ({ type: 'PS_DB_LOAD_SAMPLE_RESULT', ok: true, tablesCreated: 1, tables: ['sample'] })),
   requestDbAiSeedSpy: vi.fn(async () => ({ type: 'PS_DB_AI_SEED_RESULT', ok: true, rowsInserted: 10, table: 'posts' })),
   postToastToParentSpy: vi.fn(),
+  // Add-column now flows through the dedicated typed bridge (POST /db/tables/:table/columns), NOT an
+  // ALTER-via-mutate. Reply `{ ok, column }` so the panel proceeds to its post-success reads.
+  requestDbAddColumnSpy: vi.fn(async ({ name }: { table: string; name: string; type: string }) => ({
+    type: 'PS_SITEDB_ADD_COLUMN_RESPONSE',
+    ok: true,
+    column: name,
+  })),
 }));
 
 vi.mock('~/lib/embed/embedded-mode', () => ({
@@ -55,7 +62,7 @@ vi.mock('~/lib/embed/embedded-mode', () => ({
   // The panel also imports these DDL/edit senders; stub them so the module's named imports resolve.
   requestDbCreateTable: vi.fn(async () => ({ type: 'PS_SITEDB_CREATE_TABLE_RESPONSE', ok: true })),
   requestDbDropTable: vi.fn(async () => ({ type: 'PS_SITEDB_DROP_TABLE_RESPONSE', ok: true })),
-  requestDbAddColumn: vi.fn(async () => ({ type: 'PS_SITEDB_ADD_COLUMN_RESPONSE', ok: true })),
+  requestDbAddColumn: requestDbAddColumnSpy,
   requestDbRenameColumn: vi.fn(async () => ({ type: 'PS_SITEDB_RENAME_COLUMN_RESPONSE', ok: true })),
   requestDbDropColumn: vi.fn(async () => ({ type: 'PS_SITEDB_DROP_COLUMN_RESPONSE', ok: true })),
   requestDbSearch: vi.fn(async () => ({ type: 'PS_SITEDB_SEARCH_RESPONSE', ok: true, nameMatches: [], contentMatches: [] })),
@@ -187,6 +194,43 @@ async function replyMutateOk(rowsWritten = 1): Promise<void> {
   });
 }
 
+/**
+ * Settle the two post-success reads a column add / AI-column triggers: `loadGeneratedCols`
+ * (a `pragma_table_xinfo` read via `PS_RES_MUTATE_REQUEST`) then `loadRows`
+ * (`PS_SITEDB_ROWS_REQUEST`). Replying flushes both awaited bridge promises so nothing dangles
+ * into the next test (an unsettled promise flips `setState` outside `act` → cross-test pollution).
+ */
+async function replyGeneratedColsAndRows(rows = RICH_ROWS): Promise<void> {
+  const pragmaId = lastReqIdOfType('PS_RES_MUTATE_REQUEST');
+  await act(async () => {
+    fireReply({
+      type: 'PS_RES_MUTATE_RESPONSE',
+      correlationId: pragmaId,
+      ok: true,
+      kind: 'd1',
+      action: 'exec',
+      result: { ok: true, data: { action: 'exec', rows: [], rowsWritten: 0, rowsRead: 0, changedDb: false } },
+    });
+  });
+
+  const rowsId = lastReqIdOfType('PS_SITEDB_ROWS_REQUEST');
+  if (rowsId) {
+    await act(async () => {
+      fireReply({
+        type: 'PS_SITEDB_ROWS_RESPONSE',
+        correlationId: rowsId,
+        ok: true,
+        table: 'posts',
+        columns: RICH_COLUMNS,
+        rows,
+        limit: 500,
+        offset: 0,
+        total: rows.length,
+      });
+    });
+  }
+}
+
 /** The visible cell text of every rendered grid cell (post-filter/sort, current page). */
 function gridCellTexts(): string[] {
   return screen.queryAllByTestId('sitedb-grid-cell').map((c) => c.textContent?.trim() ?? '');
@@ -210,6 +254,16 @@ beforeEach(() => {
   parentHandlers.clear();
   requestDbAiSeedSpy.mockClear();
   postToastToParentSpy.mockClear();
+  requestDbAddColumnSpy.mockClear();
+  // The grid PERSISTS its per-table view mode (grid/gallery/kanban/…) to localStorage and restores it on
+  // table open. Every block re-opens the SAME db id + table ("db-grid"/"posts"), so a prior test that
+  // switched to gallery would bleed that mode into the next test's fresh panel (grid rows never render →
+  // renderedTitles() empty). Clear it so each test starts from the default grid view.
+  try {
+    window.localStorage.clear();
+  } catch {
+    // localStorage unavailable in this environment — nothing persisted, nothing to clear.
+  }
   vi.stubGlobal('fetch', vi.fn());
 });
 
@@ -718,7 +772,7 @@ describe('delete row + bulk delete', () => {
 // ─── Add column ────────────────────────────────────────────────────────────────
 
 describe('add column', () => {
-  it('opens the add-column form and dispatches an ALTER TABLE ADD COLUMN', async () => {
+  it('opens the add-column form and adds a column via the dedicated add-column bridge', async () => {
     await openRichTable();
 
     await act(async () => {
@@ -733,23 +787,23 @@ describe('add column', () => {
       nameInput.dispatchEvent(new Event('input', { bubbles: true }));
     });
 
-    postToParentSpy.mockClear();
+    requestDbAddColumnSpy.mockClear();
 
     await act(async () => {
       screen.getByTestId('sitedb-add-column-submit').click();
     });
 
+    // Add-column now flows through the typed `POST /db/tables/:table/columns` bridge (a nullable TEXT
+    // column by default), NOT an ALTER-via-mutate. The dedicated sender carries the table + column + type.
     await waitFor(() => {
-      expect(postToParentSpy).toHaveBeenCalledWith(
-        expect.objectContaining({
-          type: 'PS_RES_MUTATE_REQUEST',
-          confirm: true,
-          input: expect.objectContaining({
-            sql: expect.stringMatching(/ALTER TABLE "posts" ADD COLUMN "author"/),
-          }),
-        }),
+      expect(requestDbAddColumnSpy).toHaveBeenCalledWith(
+        expect.objectContaining({ table: 'posts', name: 'author', type: 'TEXT' }),
       );
     });
+
+    // On success the panel re-reads generated cols (pragma_table_xinfo) + reloads rows — settle both so
+    // no pending bridge promise dangles into the next test.
+    await replyGeneratedColsAndRows();
   });
 });
 
@@ -805,7 +859,7 @@ describe('AI-native features', () => {
     expect(globalThis.fetch).toHaveBeenCalledWith('/api/llmcall', expect.objectContaining({ method: 'POST' }));
   });
 
-  it('AI generate-column panel opens and calls /api/llmcall then ALTERs', async () => {
+  it('AI generate-column panel opens, calls /api/llmcall, then adds the column via the bridge + backfills', async () => {
     (globalThis.fetch as unknown as ReturnType<typeof vi.fn>).mockResolvedValue({
       ok: true,
       json: async () => ({ text: '{"name":"score","type":"INTEGER","expr":"views * 2"}' }),
@@ -823,6 +877,7 @@ describe('AI-native features', () => {
       input.dispatchEvent(new Event('input', { bubbles: true }));
     });
 
+    requestDbAddColumnSpy.mockClear();
     postToParentSpy.mockClear();
 
     await act(async () => {
@@ -832,13 +887,42 @@ describe('AI-native features', () => {
     await waitFor(() => {
       expect(globalThis.fetch).toHaveBeenCalledWith('/api/llmcall', expect.anything());
     });
-    // ADD COLUMN dispatched from the AI plan.
+    // The AI plan's column is created through the typed add-column bridge, NOT an ALTER-via-mutate. A
+    // numeric AI type (INTEGER/REAL) maps to the panel's `number` field kind → sqliteType REAL.
+    await waitFor(() => {
+      expect(requestDbAddColumnSpy).toHaveBeenCalledWith(
+        expect.objectContaining({ table: 'posts', name: 'score', type: 'REAL' }),
+      );
+    });
+
+    // A successful add re-reads generated cols + reloads rows INSIDE the add flow — settle those first so
+    // the add resolves and the AI backfill can dispatch.
+    await replyGeneratedColsAndRows();
+
+    // Then the panel runs the model's backfill (`UPDATE … SET score = (views * 2)`) via the exec bridge and
+    // reloads rows again — settle both so no pending promise dangles into the next test.
     await waitFor(() => {
       expect(postToParentSpy).toHaveBeenCalledWith(
         expect.objectContaining({
-          input: expect.objectContaining({ sql: expect.stringMatching(/ADD COLUMN "score"/) }),
+          type: 'PS_RES_MUTATE_REQUEST',
+          input: expect.objectContaining({ sql: expect.stringMatching(/UPDATE "posts" SET "score"/) }),
         }),
       );
+    });
+    await replyMutateOk(3);
+    await act(async () => {
+      const rowsId = lastReqIdOfType('PS_SITEDB_ROWS_REQUEST');
+      fireReply({
+        type: 'PS_SITEDB_ROWS_RESPONSE',
+        correlationId: rowsId,
+        ok: true,
+        table: 'posts',
+        columns: RICH_COLUMNS,
+        rows: RICH_ROWS,
+        limit: 500,
+        offset: 0,
+        total: RICH_ROWS.length,
+      });
     });
   });
 

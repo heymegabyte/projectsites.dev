@@ -21,7 +21,7 @@
  *  6. KV manager — clicking Unlock swaps the upsell for the REAL per-site KV browser.
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { render, screen, cleanup, fireEvent, within } from '@testing-library/react';
+import { render, screen, cleanup, fireEvent, within, act, waitFor } from '@testing-library/react';
 import React from 'react';
 
 // ─── Embed bridge mock (mirrors SiteTablesPanel.spec) ───────────────────────────
@@ -104,21 +104,27 @@ describe('DatabasePanel — consolidated per-site data surface (concise nav)', (
     expect(screen.queryByTestId('database-subnav-history')).toBeNull();
   });
 
-  it('shows the Tables actions toolbar (Seed with AI / Import / New table / History) as buttons', () => {
+  it('shows the Tables actions (New table / Import / History) as buttons in the embedded header Actions menu', () => {
     render(<DatabasePanel />);
 
-    // Tables is the default view; its actions toolbar hosts the entries removed from the nav.
-    expect(screen.getByTestId('database-tables-toolbar')).toBeTruthy();
-    expect(screen.getByTestId('database-action-seed')).toBeTruthy();
-    expect(screen.getByTestId('database-action-import')).toBeTruthy();
-    expect(screen.getByTestId('database-action-schema')).toBeTruthy();
-    expect(screen.getByTestId('database-action-history')).toBeTruthy();
+    // The Tables view embeds SiteTablesPanel; its header hosts the single "Actions" dropdown that carries
+    // the entries removed from the top nav (New Table / Import / History / Refresh) — all real buttons.
+    const actions = screen.getByTestId('sitedb-actions');
+    expect(actions).toBeTruthy();
+    fireEvent.click(actions);
+
+    expect(screen.getByTestId('sitedb-action-new-table')).toBeTruthy();
+    expect(screen.getByTestId('sitedb-action-import')).toBeTruthy();
+    expect(screen.getByTestId('sitedb-action-history')).toBeTruthy();
+    expect(screen.getByTestId('sitedb-action-refresh')).toBeTruthy();
   });
 
-  it('opens a modal overlay hosting the Import panel when the Import action is clicked', () => {
+  it('opens a modal overlay hosting the Import panel when the Import action is chosen', () => {
     render(<DatabasePanel />);
 
-    fireEvent.click(screen.getByTestId('database-action-import'));
+    // Open the embedded header Actions menu, then choose Import → DatabasePanel mounts the Import overlay.
+    fireEvent.click(screen.getByTestId('sitedb-actions'));
+    fireEvent.click(screen.getByTestId('sitedb-action-import'));
 
     const overlay = screen.getByTestId('database-action-overlay');
     expect(overlay).toBeTruthy();
@@ -127,10 +133,39 @@ describe('DatabasePanel — consolidated per-site data surface (concise nav)', (
     expect(within(overlay).getByTestId('import-dropzone')).toBeTruthy();
   });
 
-  it('opens the AI-seed panel overlay + asks the per-site bridge for the table list when Seed action is clicked', () => {
+  it('opens the AI-seed panel overlay + asks the per-site bridge for the table list from the empty launchpad', async () => {
     render(<DatabasePanel />);
 
-    fireEvent.click(screen.getByTestId('database-action-seed'));
+    // SiteTablesPanel fetches the table list on mount — reply with an empty DB so the launchpad renders.
+    await waitFor(() => {
+      const req = postToParentSpy.mock.calls.find(
+        (c) => (c[0] as { type?: string })?.type === 'PS_SITEDB_TABLES_REQUEST',
+      );
+      expect(req).toBeTruthy();
+    });
+
+    const tablesReqId = postToParentSpy.mock.calls
+      .map((c) => c[0])
+      .reverse()
+      .find((m: unknown) => (m as { type?: string })?.type === 'PS_SITEDB_TABLES_REQUEST') as {
+      correlationId?: string;
+    };
+
+    await act(async () => {
+      for (const handler of parentHandlers) {
+        handler({
+          type: 'PS_SITEDB_TABLES_RESPONSE',
+          correlationId: tablesReqId?.correlationId,
+          ok: true,
+          databaseId: 'db',
+          provisioned: true,
+          tables: [],
+        });
+      }
+    });
+
+    // The empty-state launchpad's "Use AI to load sample data" tile fires onSeedWithAi → the AI-seed overlay.
+    fireEvent.click(screen.getByTestId('sitedb-empty-seed'));
 
     const overlay = screen.getByTestId('database-action-overlay');
     expect(within(overlay).getByTestId('ai-seed-panel')).toBeTruthy();
