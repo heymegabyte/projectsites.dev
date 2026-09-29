@@ -1611,9 +1611,9 @@ export class AdminDashboardComponent {
    * Command-center site-status summary (P4) — derived from the ALREADY-loaded
    * `state.sites()` (no new fetch), bucketed via the shared `getStatusClass`
    * map. Each bucket is a metric→record link to the FIRST matching site's detail
-   * (`/admin/sites/:id`): this single-site admin has no `/admin/sites` LIST route
-   * (that path soft-404s), so the tile drills straight into the site itself —
-   * where a failed build is retried, fulfilling the "open to retry" affordance.
+   * (`/admin/sites/:id`). The `/admin/sites` LIST route resolves a real
+   * AdminSitesComponent grid, but these tiles deep-link straight to the site
+   * itself — where a failed build is retried, fulfilling the "open to retry" affordance.
    * Only non-zero buckets render; `attention` (error/failed) is surfaced first.
    */
   readonly siteStatusSummary = computed(() => {
@@ -1685,7 +1685,7 @@ export class AdminDashboardComponent {
       label: 'Sites live',
       value: live,
       display: null,
-      sub: live === 1 ? 'published + serving' : 'published + serving',
+      sub: live === 1 ? 'site published + serving' : 'sites published + serving',
       glyph: 'globe',
       tone: live > 0 ? 'good' : 'neutral',
       numeric: true,
