@@ -16,6 +16,7 @@ let membership: { org_id: string } | null = { org_id: 'org_1' };
 
 jest.mock('../services/auth.js', () => ({ getSession: jest.fn(async () => null) }));
 jest.mock('../lib/wait-until.js', () => ({ safeWaitUntil: jest.fn() }));
+jest.mock('../lib/sentry.js', () => ({ captureException: jest.fn() }));
 jest.mock('../services/db.js', () => ({ dbQueryOne: jest.fn(async () => membership) }));
 jest.mock('../modules/feature_flags/services.js', () => ({
   isFlagOn: jest.fn(async () => flagOn),
@@ -33,8 +34,10 @@ jest.mock('../auth/better-auth.js', () => ({
 
 import { authMiddleware } from '../middleware/auth.js';
 import { dbQueryOne } from '../services/db.js';
+import { captureException } from '../lib/sentry.js';
 
 const dbMock = dbQueryOne as unknown as jest.Mock;
+const captureMock = captureException as unknown as jest.Mock;
 
 function ctx(authHeader?: string) {
   const vars = new Map<string, unknown>();
@@ -42,6 +45,7 @@ function ctx(authHeader?: string) {
   const c = {
     env: { DB: {} },
     req: {
+      method: 'GET',
       header: (k: string) => (k === 'Authorization' ? authHeader : undefined),
       raw: { headers: new Headers() },
     },
@@ -61,6 +65,7 @@ describe('Better Auth session bridge', () => {
     baThrows = false;
     membership = { org_id: 'org_1' };
     dbMock.mockClear();
+    captureMock.mockClear();
   });
 
   it('resolves userId + orgId from the BA cookie session when no bearer token', async () => {
@@ -92,6 +97,45 @@ describe('Better Auth session bridge', () => {
     await expect(authMiddleware(c, next)).resolves.toBeUndefined();
     expect(vars.get('userId')).toBeUndefined();
     expect(nexted()).toBe(1);
+  });
+
+  it('LOGS the swallowed error (console.warn + Sentry) while the fall-through stays identical', async () => {
+    baThrows = true;
+    const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => undefined);
+    try {
+      const { c, next, vars, nexted } = ctx(undefined);
+      await expect(authMiddleware(c, next)).resolves.toBeUndefined();
+
+      // Fall-through UNCHANGED: unauthenticated, request still proceeds.
+      expect(vars.get('userId')).toBeUndefined();
+      expect(vars.get('orgId')).toBeUndefined();
+      expect(nexted()).toBe(1);
+
+      // The KV/session error is now OBSERVABLE, not swallowed silently.
+      expect(warnSpy).toHaveBeenCalledTimes(1);
+      const payload = JSON.parse(warnSpy.mock.calls[0][0] as string);
+      expect(payload.level).toBe('warn');
+      expect(payload.msg).toContain('better_auth session bridge failed');
+      expect(payload.err).toContain('boom');
+
+      // Sentry breadcrumb fired with the better_auth_session tag.
+      expect(captureMock).toHaveBeenCalledTimes(1);
+      expect(captureMock.mock.calls[0][2]).toMatchObject({ path: 'better_auth_session' });
+    } finally {
+      warnSpy.mockRestore();
+    }
+  });
+
+  it('does NOT log on the happy path (no error swallowed)', async () => {
+    const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => undefined);
+    try {
+      const { c, next } = ctx(undefined);
+      await authMiddleware(c, next);
+      expect(warnSpy).not.toHaveBeenCalled();
+      expect(captureMock).not.toHaveBeenCalled();
+    } finally {
+      warnSpy.mockRestore();
+    }
   });
 
   it('no BA session → userId stays unset, request continues', async () => {

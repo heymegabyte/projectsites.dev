@@ -14,6 +14,7 @@
 
 import type { MiddlewareHandler } from 'hono';
 import type { Env, Variables } from '../types/env.js';
+import { captureException } from '../lib/sentry.js';
 
 export interface RateLimitOptions {
   /** Maximum requests allowed in the window */
@@ -257,8 +258,25 @@ export function rateLimitMiddleware(opts: RateLimitOptions): MiddlewareHandler<{
       // Increment counter with TTL
       await c.env.CACHE_KV.put(key, String(count + 1), { expirationTtl: opts.windowSeconds });
       limited = true;
-    } catch {
+    } catch (err) {
       // KV unavailable → fail open: fall through to run the handler unmetered.
+      // LOG so a KV outage is visible (fail-open silently drops rate limiting —
+      // a masked CACHE_KV failure otherwise looks identical to normal traffic).
+      // Behavior is UNCHANGED: we still fall through and run the handler unmetered.
+      console.warn(
+        JSON.stringify({
+          level: 'warn',
+          msg: 'rate_limit KV unavailable — failing open (unmetered)',
+          prefix: opts.prefix,
+          err: String(err),
+          requestId: c.get('requestId'),
+        }),
+      );
+      captureException(c.env, err, {
+        path: `rate_limit:${opts.prefix}`,
+        method: c.req.method,
+        traceId: c.get('requestId'),
+      });
     }
 
     await next();

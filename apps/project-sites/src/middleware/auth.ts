@@ -16,6 +16,7 @@ import type { Env, Variables } from '../types/env.js';
 import { getSession } from '../services/auth.js';
 import { dbQueryOne } from '../services/db.js';
 import { safeWaitUntil } from '../lib/wait-until.js';
+import { captureException } from '../lib/sentry.js';
 // NOTE: `makeAuth` is lazy-imported at its single callsite below (inside the
 // `better_auth` flag gate) — the better-auth npm pkg pulls a deep ESM-only dep
 // tree, and eagerly importing it here made it load at module-eval, crashing every
@@ -158,8 +159,25 @@ export const authMiddleware: MiddlewareHandler<{
           }
         }
       }
-    } catch {
-      /* Better Auth session resolution is best-effort — never block the request */
+    } catch (err) {
+      /* Better Auth session resolution is best-effort — never block the request.
+       * LOG so a masked D1/session outage is visible: this catch swallows
+       * getSession + the fallback `users`/`memberships` lookups, and the request
+       * falls through as UNAUTHENTICATED (fail-safe). That fall-through is
+       * UNCHANGED — we only surface the error so an outage isn't invisible. */
+      console.warn(
+        JSON.stringify({
+          level: 'warn',
+          msg: 'better_auth session bridge failed — continuing unauthenticated',
+          err: String(err),
+          requestId: c.get('requestId'),
+        }),
+      );
+      captureException(c.env, err, {
+        path: 'better_auth_session',
+        method: c.req.method,
+        traceId: c.get('requestId'),
+      });
     }
   }
 
