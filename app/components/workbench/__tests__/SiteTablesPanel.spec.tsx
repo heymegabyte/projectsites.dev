@@ -383,6 +383,147 @@ describe('SiteTablesPanel — tables present + row grid', () => {
     expect(cellTexts.some((t) => t.includes('Second post'))).toBe(true);
   });
 
+  it('enables Calendar + renders the month grid when a strict-ISO date column exists', async () => {
+    render(<SiteTablesPanel />);
+
+    await waitFor(() => {
+      expect(postToParentSpy).toHaveBeenCalledWith(expect.objectContaining({ type: 'PS_SITEDB_TABLES_REQUEST' }));
+    });
+
+    await act(async () => {
+      fireReply({
+        type: 'PS_SITEDB_TABLES_RESPONSE',
+        correlationId: lastCorrelationId(),
+        ok: true,
+        databaseId: 'db-cal',
+        provisioned: true,
+        tables: [{ name: 'events' }],
+      });
+    });
+
+    postToParentSpy.mockClear();
+
+    await act(async () => {
+      screen.getAllByTestId('sitedb-table-open')[0].click();
+    });
+
+    await waitFor(() => {
+      expect(postToParentSpy).toHaveBeenCalledWith(
+        expect.objectContaining({ type: 'PS_SITEDB_ROWS_REQUEST', table: 'events' }),
+      );
+    });
+
+    await act(async () => {
+      fireReply({
+        type: 'PS_SITEDB_ROWS_RESPONSE',
+        correlationId: lastCorrelationId(),
+        ok: true,
+        table: 'events',
+        columns: [
+          { name: 'id', type: 'INTEGER', notnull: 1, pk: 1 },
+          { name: 'title', type: 'TEXT', notnull: 0, pk: 0 },
+          { name: 'starts_on', type: 'TEXT', notnull: 0, pk: 0 },
+        ],
+        rows: [
+          { id: 1, title: 'Launch', starts_on: '2024-03-05' },
+          { id: 2, title: 'Review', starts_on: '2024-03-05' },
+          { id: 3, title: 'Retro', starts_on: '2024-03-18' },
+        ],
+        limit: 25,
+        offset: 0,
+        total: 3,
+      });
+    });
+
+    // Calendar toggle is present + NOT disabled (a date column exists).
+    const calBtn = screen.getByTestId('sitedb-view-calendar') as HTMLButtonElement;
+    expect(calBtn).toBeTruthy();
+    expect(calBtn.disabled).toBe(false);
+
+    // Switch to the calendar view.
+    await act(async () => {
+      calBtn.click();
+    });
+
+    // Month grid renders (seeded from the latest data day — March 2024).
+    expect(screen.getByTestId('sitedb-calendar')).toBeTruthy();
+    expect(screen.getByTestId('sitedb-calendar-grid')).toBeTruthy();
+    expect(screen.getByTestId('sitedb-calendar-month').textContent).toContain('March 2024');
+
+    // The two rows on 2024-03-05 bucket into that day cell; the one on 2024-03-18 into its own.
+    const days = screen.getAllByTestId('sitedb-calendar-day');
+    const mar05 = days.find((d) => d.getAttribute('data-day') === '2024-03-05');
+    const mar18 = days.find((d) => d.getAttribute('data-day') === '2024-03-18');
+    expect(mar05?.getAttribute('data-count')).toBe('2');
+    expect(mar18?.getAttribute('data-count')).toBe('1');
+    expect(screen.getAllByTestId('sitedb-calendar-event').length).toBe(3);
+  });
+
+  it('disables the Calendar toggle (with a reason) when the table has no date column', async () => {
+    render(<SiteTablesPanel />);
+
+    await waitFor(() => {
+      expect(postToParentSpy).toHaveBeenCalledWith(expect.objectContaining({ type: 'PS_SITEDB_TABLES_REQUEST' }));
+    });
+
+    await act(async () => {
+      fireReply({
+        type: 'PS_SITEDB_TABLES_RESPONSE',
+        correlationId: lastCorrelationId(),
+        ok: true,
+        databaseId: 'db-nodate',
+        provisioned: true,
+        tables: [{ name: 'widgets' }],
+      });
+    });
+
+    postToParentSpy.mockClear();
+
+    await act(async () => {
+      screen.getAllByTestId('sitedb-table-open')[0].click();
+    });
+
+    await waitFor(() => {
+      expect(postToParentSpy).toHaveBeenCalledWith(
+        expect.objectContaining({ type: 'PS_SITEDB_ROWS_REQUEST', table: 'widgets' }),
+      );
+    });
+
+    await act(async () => {
+      fireReply({
+        type: 'PS_SITEDB_ROWS_RESPONSE',
+        correlationId: lastCorrelationId(),
+        ok: true,
+        table: 'widgets',
+        columns: [
+          { name: 'id', type: 'INTEGER', notnull: 1, pk: 1 },
+          { name: 'name', type: 'TEXT', notnull: 0, pk: 0 },
+          { name: 'qty', type: 'INTEGER', notnull: 0, pk: 0 },
+        ],
+        rows: [
+          { id: 1, name: 'Bolt', qty: 4 },
+          { id: 2, name: 'Nut', qty: 9 },
+        ],
+        limit: 25,
+        offset: 0,
+        total: 2,
+      });
+    });
+
+    // Calendar toggle is present but DISABLED with a reason (never a dead/doomed view).
+    const calBtn = screen.getByTestId('sitedb-view-calendar') as HTMLButtonElement;
+    expect(calBtn).toBeTruthy();
+    expect(calBtn.disabled).toBe(true);
+    expect(calBtn.getAttribute('title')).toContain('date column');
+
+    // Clicking the disabled toggle does not switch to the calendar surface (grid stays).
+    await act(async () => {
+      calBtn.click();
+    });
+    expect(screen.queryByTestId('sitedb-calendar')).toBeNull();
+    expect(screen.getByTestId('sitedb-grid')).toBeTruthy();
+  });
+
   it('renders the export menu (CSV/TSV/JSON) when rows are present', async () => {
     render(<SiteTablesPanel />);
 

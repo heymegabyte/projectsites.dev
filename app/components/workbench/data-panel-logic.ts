@@ -2415,6 +2415,45 @@ export function monthMatrix(year: number, month: number): CalendarCell[] {
 }
 
 /**
+ * Bucket the CURRENT PAGE's ALREADY-loaded rows by the UTC calendar day of their `dateField` value into a
+ * `dayKey → rows[]` map (key via {@link isoDayKey}, matching `monthMatrix` cell keys). A row whose value is
+ * NOT an unambiguous ISO date — a number (even `20240101`), a zone-less datetime, junk, or null — is simply
+ * DROPPED (it can't be placed on a day honestly), so the calendar never invents a day via `new Date()`
+ * coercion. Insertion order is preserved within each bucket. Pure; renders CLIENT-SIDE — NO new fetch.
+ *
+ * @param rows - the loaded page rows
+ * @param dateField - the date column (from {@link calendarDateField})
+ * @returns a map from UTC `YYYY-MM-DD` day key to the rows that fall on that day (empty when none qualify)
+ * @example bucketRowsByDate([{d:'2024-01-01'},{d:'2024-01-02'}], 'd').size          // 2
+ * @example bucketRowsByDate([{d:'2024-01-01T23:30:00-05:00'}], 'd')                 // { '2024-01-02' → [row] }
+ * @example bucketRowsByDate([{d:20240101},{d:'2024-01-01T12:00:00'}], 'd').size     // 0 (both ambiguous)
+ */
+export function bucketRowsByDate(
+  rows: readonly Record<string, unknown>[],
+  dateField: string,
+): Map<string, Record<string, unknown>[]> {
+  const m = new Map<string, Record<string, unknown>[]>();
+
+  for (const r of rows) {
+    const key = isoDayKey(r[dateField]);
+
+    if (key === null) {
+      continue; // not an unambiguous ISO date → this row doesn't place on the calendar
+    }
+
+    const bucket = m.get(key);
+
+    if (bucket) {
+      bucket.push(r);
+    } else {
+      m.set(key, [r]);
+    }
+  }
+
+  return m;
+}
+
+/**
  * The card-title column for the gallery: the configured field when it's a real column, else a sensible
  * default — the first column that isn't an id/`*_id` (a more meaningful title than a raw id), falling
  * back to the first column. Returns null only for an empty column set. Pure.

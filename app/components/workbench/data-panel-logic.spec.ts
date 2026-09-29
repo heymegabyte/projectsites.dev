@@ -72,6 +72,7 @@ import {
   monthFromDayKey,
   addCalendarMonth,
   monthMatrix,
+  bucketRowsByDate,
   viewQueryFingerprint,
   clampPageSize,
   PAGE_SIZE_OPTIONS,
@@ -1302,6 +1303,62 @@ describe('monthMatrix (42-cell Sunday-first UTC month grid)', () => {
   it('day-keys are contiguous and match isoDayKey/bucketRowsByDate day format', () => {
     const cells = monthMatrix(2024, 0);
     expect(cells.every((c) => /^\d{4}-\d{2}-\d{2}$/.test(c.dayKey))).toBe(true);
+  });
+});
+
+describe('bucketRowsByDate (group the loaded page rows by their UTC calendar day)', () => {
+  it('buckets rows under the isoDayKey of the chosen date column', () => {
+    const rows = [
+      { id: 1, created_at: '2024-01-01' },
+      { id: 2, created_at: '2024-01-01' },
+      { id: 3, created_at: '2024-01-02' },
+    ];
+    const m = bucketRowsByDate(rows, 'created_at');
+    expect([...m.keys()].sort()).toEqual(['2024-01-01', '2024-01-02']);
+    expect(m.get('2024-01-01')).toHaveLength(2);
+    expect(m.get('2024-01-02')).toHaveLength(1);
+    // day-keys match the calendar grid + monthMatrix format
+    expect([...m.keys()].every((k) => /^\d{4}-\d{2}-\d{2}$/.test(k))).toBe(true);
+  });
+
+  it('converts a zone-marked datetime to its UTC day (never a local-time shift)', () => {
+    const rows = [{ id: 1, at: '2024-01-01T23:30:00-05:00' }]; // 04:30 UTC next day
+    const m = bucketRowsByDate(rows, 'at');
+    expect([...m.keys()]).toEqual(['2024-01-02']);
+    expect(m.get('2024-01-02')).toHaveLength(1);
+  });
+
+  it('DROPS rows whose date-column value is not an unambiguous ISO date (never new Date() coercion)', () => {
+    const rows = [
+      { id: 1, created_at: '2024-01-01' }, // placed
+      { id: 2, created_at: 20240101 }, // a number is NOT a date → dropped
+      { id: 3, created_at: '2024-01-01T12:00:00' }, // zone-less → ambiguous → dropped
+      { id: 4, created_at: 'not a date' }, // junk → dropped
+      { id: 5, created_at: null }, // null → dropped
+    ];
+    const m = bucketRowsByDate(rows, 'created_at');
+    expect([...m.keys()]).toEqual(['2024-01-01']);
+    expect(m.get('2024-01-01')).toHaveLength(1);
+    expect(m.get('2024-01-01')?.[0].id).toBe(1);
+  });
+
+  it('returns an empty map when no row has a usable date value (an honestly-empty calendar)', () => {
+    const rows = [
+      { id: 1, name: 'x' },
+      { id: 2, name: 'y' },
+    ];
+    expect(bucketRowsByDate(rows, 'name').size).toBe(0);
+    expect(bucketRowsByDate([], 'created_at').size).toBe(0);
+  });
+
+  it('preserves row order within a day bucket', () => {
+    const rows = [
+      { id: 3, d: '2024-05-10' },
+      { id: 1, d: '2024-05-10' },
+      { id: 2, d: '2024-05-10' },
+    ];
+    const bucket = bucketRowsByDate(rows, 'd').get('2024-05-10');
+    expect(bucket?.map((r) => r.id)).toEqual([3, 1, 2]);
   });
 });
 

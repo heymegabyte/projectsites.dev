@@ -106,6 +106,12 @@ import {
   kanbanGroupKey,
   defaultKanbanGroupField,
   KANBAN_MAX_GROUPS,
+  calendarDateField,
+  bucketRowsByDate,
+  monthMatrix,
+  monthFromDayKey,
+  addCalendarMonth,
+  type CalendarCell,
   FILTER_OP_OPTIONS,
   filterOpIsValueFree,
   normalizeFilterOp,
@@ -481,6 +487,13 @@ export const SiteTablesPanel = memo(
      * the `kanban` view; ignored by grid/gallery.
      */
     const [groupField, setGroupField] = useState<string | null>(null);
+
+    /**
+     * The date column driving the CALENDAR view (null → auto-detect the first strict-ISO date column via
+     * {@link calendarDateField}). Persisted per-table alongside {@link viewMode}. Only meaningful in the
+     * `calendar` view; ignored by grid/gallery/kanban.
+     */
+    const [dateField, setDateField] = useState<string | null>(null);
     const [selectedRowKeys, setSelectedRowKeys] = useState<Set<string>>(new Set());
     const [bulkBusy, setBulkBusy] = useState(false);
     const [addingRow, setAddingRow] = useState(false);
@@ -780,6 +793,7 @@ export const SiteTablesPanel = memo(
       setColMenuOpen(false);
       setViewMode('grid');
       setGroupField(null);
+      setDateField(null);
       setSelectedRowKeys(new Set());
       setAddingRow(false);
       setCellSel(null);
@@ -836,9 +850,10 @@ export const SiteTablesPanel = memo(
           return;
         }
 
-        const saved = JSON.parse(raw) as { mode?: unknown; group?: unknown };
+        const saved = JSON.parse(raw) as { mode?: unknown; group?: unknown; date?: unknown };
         setViewMode(normalizeViewMode(typeof saved.mode === 'string' ? saved.mode : undefined));
         setGroupField(typeof saved.group === 'string' ? saved.group : null);
+        setDateField(typeof saved.date === 'string' ? saved.date : null);
       } catch {
         // no stored preference / storage blocked — keep the defaults
       }
@@ -856,12 +871,12 @@ export const SiteTablesPanel = memo(
       try {
         window.localStorage.setItem(
           viewStorageKey(selectedTable),
-          JSON.stringify({ mode: viewMode, group: groupField }),
+          JSON.stringify({ mode: viewMode, group: groupField, date: dateField }),
         );
       } catch {
         // storage unavailable (sandboxed / private mode) — persistence is best-effort
       }
-    }, [selectedTable, viewMode, groupField, viewStorageKey]);
+    }, [selectedTable, viewMode, groupField, dateField, viewStorageKey]);
 
     const flashComingSoon = useCallback((label: string) => {
       setComingSoon(label);
@@ -2535,6 +2550,8 @@ export const SiteTablesPanel = memo(
             onSetViewMode={setViewMode}
             groupField={groupField}
             onSetGroupField={setGroupField}
+            dateField={dateField}
+            onSetDateField={setDateField}
             onAddCondition={() => setConditions((c) => addCondition(c))}
             onRemoveCondition={(i) => setConditions((c) => removeCondition(c, i))}
             onUpdateCondition={(i, patch) => setConditions((c) => updateCondition(c, i, patch))}
@@ -3747,6 +3764,9 @@ interface BrowseViewProps extends EditProps {
   /** Rev 10 — the kanban group-by column (null → auto-pick); only used by the kanban view. */
   groupField: string | null;
   onSetGroupField: (col: string | null) => void;
+  /** The calendar date column (null → auto-detect the first strict-ISO date column); only used by the calendar view. */
+  dateField: string | null;
+  onSetDateField: (col: string | null) => void;
   onAddCondition: () => void;
   onRemoveCondition: (i: number) => void;
   onUpdateCondition: (i: number, patch: Partial<FilterCondition>) => void;
@@ -3828,6 +3848,8 @@ const BrowseView = memo((props: BrowseViewProps) => {
     onSetViewMode,
     groupField,
     onSetGroupField,
+    dateField,
+    onSetDateField,
     onAddCondition,
     onRemoveCondition,
     onUpdateCondition,
@@ -3867,6 +3889,15 @@ const BrowseView = memo((props: BrowseViewProps) => {
    */
   const effectiveGroupField =
     groupField && shownNames.includes(groupField) ? groupField : defaultKanbanGroupField(shownNames, pageRows);
+
+  /**
+   * The date column driving the calendar: the owner's pick when it's a real column, else auto-detect the
+   * first strict-ISO date column on the page (via {@link calendarDateField} → {@link isoDayKey}, so a
+   * numeric id is never mistaken for a date). Null when NO column holds an unambiguous date — the Calendar
+   * toggle is then disabled-with-reason, never a dead/blank view.
+   */
+  const effectiveDateField = calendarDateField(shownNames, pageRows, dateField);
+  const hasDateColumn = effectiveDateField !== null;
 
   const rowVirtualizer = useVirtualizer({
     count: pageRows.length,
@@ -3924,26 +3955,74 @@ const BrowseView = memo((props: BrowseViewProps) => {
             </select>
           </label>
         )}
-        {/* View toggle: Grid | Gallery | Kanban */}
-        <div className="flex items-center rounded-md border border-bolt-elements-borderColor overflow-hidden shrink-0" role="group" aria-label="View mode">
-          {(['grid', 'gallery', 'kanban'] as const).map((v) => (
-            <button
-              key={v}
-              type="button"
-              onClick={() => onSetViewMode(v)}
-              data-testid={`sitedb-view-${v}`}
-              aria-pressed={viewMode === v}
-              title={v === 'grid' ? 'Grid view' : v === 'gallery' ? 'Gallery view' : 'Kanban board'}
-              className={classNames(
-                'min-h-[24px] px-2 py-1 text-[11px] flex items-center gap-1 transition-colors cursor-pointer focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-bolt-elements-item-contentAccent',
-                viewMode === v
-                  ? 'bg-bolt-elements-item-backgroundAccent/20 text-bolt-elements-item-contentAccent'
-                  : 'text-bolt-elements-textTertiary hover:text-bolt-elements-textPrimary',
-              )}
+        {/* Calendar date-column picker (only in calendar view) — lets the owner pick which date drives the grid. */}
+        {viewMode === 'calendar' && hasDateColumn && (
+          <label className="flex items-center gap-1 shrink-0 text-[11px] text-bolt-elements-textTertiary">
+            <span className="i-ph:calendar-blank" aria-hidden />
+            <span className="sr-only">Calendar date column</span>
+            <select
+              value={effectiveDateField ?? ''}
+              onChange={(e) => onSetDateField(e.target.value || null)}
+              data-testid="sitedb-calendar-datecol"
+              aria-label="Calendar date column"
+              className="min-h-[24px] rounded border border-bolt-elements-borderColor bg-bolt-elements-background-depth-2 px-1.5 py-0.5 text-[11px] text-bolt-elements-textPrimary focus:outline-none focus:border-[#00e5ff80] focus:ring-1 focus:ring-bolt-elements-item-contentAccent cursor-pointer"
             >
-              <div className={v === 'grid' ? 'i-ph:table' : v === 'gallery' ? 'i-ph:squares-four' : 'i-ph:kanban'} />
-            </button>
-          ))}
+              {shownNames.map((n) => (
+                <option key={n} value={n}>
+                  {n}
+                </option>
+              ))}
+            </select>
+          </label>
+        )}
+        {/* View toggle: Grid | Gallery | Kanban | Calendar */}
+        <div className="flex items-center rounded-md border border-bolt-elements-borderColor overflow-hidden shrink-0" role="group" aria-label="View mode">
+          {(['grid', 'gallery', 'kanban', 'calendar'] as const).map((v) => {
+            // Calendar needs a strict-ISO date column — disable (with reason) rather than ship a doomed view.
+            const disabled = v === 'calendar' && !hasDateColumn;
+            const icon =
+              v === 'grid'
+                ? 'i-ph:table'
+                : v === 'gallery'
+                  ? 'i-ph:squares-four'
+                  : v === 'kanban'
+                    ? 'i-ph:kanban'
+                    : 'i-ph:calendar-dots';
+            const title = disabled
+              ? 'Calendar needs a date column (no date column in this table)'
+              : v === 'grid'
+                ? 'Grid view'
+                : v === 'gallery'
+                  ? 'Gallery view'
+                  : v === 'kanban'
+                    ? 'Kanban board'
+                    : 'Calendar view';
+
+            return (
+              <button
+                key={v}
+                type="button"
+                onClick={() => onSetViewMode(v)}
+                disabled={disabled}
+                data-testid={`sitedb-view-${v}`}
+                aria-pressed={viewMode === v}
+                title={title}
+                className={classNames(
+                  'min-h-[24px] px-2 py-1 text-[11px] flex items-center gap-1 transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-bolt-elements-item-contentAccent',
+                  disabled
+                    ? 'text-bolt-elements-textTertiary/40 cursor-not-allowed'
+                    : 'cursor-pointer',
+                  !disabled && viewMode === v
+                    ? 'bg-bolt-elements-item-backgroundAccent/20 text-bolt-elements-item-contentAccent'
+                    : !disabled
+                      ? 'text-bolt-elements-textTertiary hover:text-bolt-elements-textPrimary'
+                      : '',
+                )}
+              >
+                <div className={icon} />
+              </button>
+            );
+          })}
         </div>
       </div>
 
@@ -4163,6 +4242,13 @@ const BrowseView = memo((props: BrowseViewProps) => {
               columns={shownColumns}
               rows={pageRows}
               groupField={effectiveGroupField}
+              onRowClick={onRowClick}
+            />
+          ) : viewMode === 'calendar' && effectiveDateField ? (
+            <CalendarView
+              columns={shownColumns}
+              rows={pageRows}
+              dateField={effectiveDateField}
               onRowClick={onRowClick}
             />
           ) : (
@@ -5921,6 +6007,198 @@ const KanbanView = memo(
 );
 
 KanbanView.displayName = 'SiteTablesPanel.KanbanView';
+
+// ── Calendar view (post-arc — month grid over the loaded page rows, by a strict-ISO date column) ──
+
+/** Sunday-first weekday headers, matching monthMatrix's Sunday-first 42-cell grid. */
+const CALENDAR_WEEKDAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'] as const;
+
+/** Max row chips rendered inside a single day cell before the rest collapse into a "+N" note. */
+const CALENDAR_MAX_PER_DAY = 3;
+
+/**
+ * A lightweight month calendar over the ALREADY-loaded page rows, bucketed by the UTC calendar day of
+ * dateField (via bucketRowsByDate to isoDayKey — strict ISO only, NEVER new Date() coercion). Renders
+ * CLIENT-SIDE from the loaded page — NO new fetch. Each in-month day cell lists its rows (a title field
+ * when one exists, else the raw date value), keyboard-reachable. Prev/next steps the visible month; the
+ * initial month is seeded from the LATEST day present in the data (so a calendar always opens on rows).
+ * Rows whose date value isn't an unambiguous ISO date simply don't place (honest — never invented onto a
+ * day). Pure presentational; plain React + CSS grid, no calendar dependency.
+ */
+const CalendarView = memo(
+  ({
+    columns,
+    rows,
+    dateField,
+    onRowClick,
+  }: {
+    columns: ColumnInfo[];
+    rows: Record<string, unknown>[];
+    dateField: string;
+    onRowClick: (row: Record<string, unknown>) => void;
+  }) => {
+    const names = columns.map((c) => c.name);
+    // Label each row by a title field that ISN'T the date column (the date is already the cell's day).
+    const titleField = galleryTitleField(names.filter((n) => n !== dateField));
+
+    // Bucket the loaded rows by their UTC day — the single source for both cell contents and month seeding.
+    const buckets = useMemo(() => bucketRowsByDate(rows, dateField), [rows, dateField]);
+
+    // Seed the visible month from the LATEST day present (so the calendar opens on data), else today (UTC).
+    const seedMonth = useMemo(() => {
+      const keys = [...buckets.keys()];
+
+      if (keys.length > 0) {
+        keys.sort();
+
+        const seeded = monthFromDayKey(keys[keys.length - 1]);
+
+        if (seeded) {
+          return seeded;
+        }
+      }
+
+      const now = new Date();
+
+      return { year: now.getUTCFullYear(), month: now.getUTCMonth() };
+    }, [buckets]);
+
+    const [view, setView] = useState(seedMonth);
+
+    // Re-seed when the underlying data's month changes (new table / new page with a different latest day).
+    useEffect(() => {
+      setView(seedMonth);
+    }, [seedMonth]);
+
+    const cells = useMemo(() => monthMatrix(view.year, view.month), [view.year, view.month]);
+    const monthLabel = new Date(Date.UTC(view.year, view.month, 1)).toLocaleDateString(undefined, {
+      month: 'long',
+      year: 'numeric',
+      timeZone: 'UTC',
+    });
+
+    // Honest empty — no row on the page carries a usable date (never a blank/doomed grid).
+    if (buckets.size === 0) {
+      return (
+        <div className="flex-1 flex items-center justify-center p-6 text-center" data-testid="sitedb-calendar">
+          <p className="text-[12px] text-bolt-elements-textTertiary max-w-xs">
+            No rows on this page have a date in{' '}
+            <span className="font-mono text-bolt-elements-textSecondary">{dateField}</span> to place on the calendar.
+          </p>
+        </div>
+      );
+    }
+
+    const rowLabel = (row: Record<string, unknown>): string => {
+      const raw = titleField ? row[titleField] : row[dateField];
+
+      return raw === null || raw === undefined || raw === '' ? '(untitled)' : String(raw);
+    };
+
+    return (
+      <div className="flex-1 flex flex-col min-h-0 overflow-hidden" data-testid="sitedb-calendar">
+        {/* Month nav row */}
+        <div className="flex items-center gap-2 px-3 py-2 border-b border-bolt-elements-borderColor shrink-0">
+          <button
+            type="button"
+            onClick={() => setView((v) => addCalendarMonth(v.year, v.month, -1))}
+            data-testid="sitedb-calendar-prev"
+            aria-label="Previous month"
+            title="Previous month"
+            className="min-h-[24px] min-w-[24px] flex items-center justify-center rounded hover:bg-bolt-elements-item-backgroundActive text-bolt-elements-textSecondary hover:text-bolt-elements-textPrimary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-bolt-elements-item-contentAccent cursor-pointer"
+          >
+            <div className="i-ph:caret-left text-sm" />
+          </button>
+          <span
+            data-testid="sitedb-calendar-month"
+            className="text-[12px] font-semibold text-bolt-elements-textPrimary min-w-[10ch] text-center tabular-nums"
+          >
+            {monthLabel}
+          </span>
+          <button
+            type="button"
+            onClick={() => setView((v) => addCalendarMonth(v.year, v.month, 1))}
+            data-testid="sitedb-calendar-next"
+            aria-label="Next month"
+            title="Next month"
+            className="min-h-[24px] min-w-[24px] flex items-center justify-center rounded hover:bg-bolt-elements-item-backgroundActive text-bolt-elements-textSecondary hover:text-bolt-elements-textPrimary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-bolt-elements-item-contentAccent cursor-pointer"
+          >
+            <div className="i-ph:caret-right text-sm" />
+          </button>
+          <span className="ml-auto text-[10.5px] font-mono text-bolt-elements-textTertiary">
+            by <span className="text-bolt-elements-textSecondary">{dateField}</span>
+          </span>
+        </div>
+
+        {/* Weekday header */}
+        <div className="grid grid-cols-7 shrink-0 border-b border-bolt-elements-borderColor bg-bolt-elements-background-depth-1/60">
+          {CALENDAR_WEEKDAYS.map((d) => (
+            <div
+              key={d}
+              className="px-2 py-1 text-[10px] font-mono uppercase tracking-wider text-bolt-elements-textTertiary text-center"
+            >
+              {d}
+            </div>
+          ))}
+        </div>
+
+        {/* Month grid */}
+        <div className="flex-1 overflow-auto modern-scrollbar p-2">
+          <div className="grid grid-cols-7 gap-1" data-testid="sitedb-calendar-grid">
+            {cells.map((cell: CalendarCell) => {
+              const dayRows = buckets.get(cell.dayKey) ?? [];
+              const shown = dayRows.slice(0, CALENDAR_MAX_PER_DAY);
+              const overflow = dayRows.length - shown.length;
+
+              return (
+                <div
+                  key={cell.dayKey}
+                  data-testid="sitedb-calendar-day"
+                  data-day={cell.dayKey}
+                  data-count={dayRows.length}
+                  className={classNames(
+                    'min-h-[76px] rounded-lg border p-1 flex flex-col gap-0.5 transition-colors',
+                    cell.inMonth
+                      ? 'border-bolt-elements-borderColor bg-bolt-elements-background-depth-2'
+                      : 'border-transparent bg-bolt-elements-background-depth-1/40',
+                  )}
+                >
+                  <div
+                    className={classNames(
+                      'text-[10px] font-mono tabular-nums px-0.5 shrink-0',
+                      cell.inMonth ? 'text-bolt-elements-textSecondary' : 'text-bolt-elements-textTertiary/50',
+                    )}
+                  >
+                    {cell.dayOfMonth}
+                  </div>
+                  <div className="flex flex-col gap-0.5 min-h-0">
+                    {shown.map((row, i) => (
+                      <button
+                        key={i}
+                        type="button"
+                        onClick={() => onRowClick(row)}
+                        data-testid="sitedb-calendar-event"
+                        title={rowLabel(row)}
+                        className="text-left truncate rounded px-1 py-0.5 text-[10.5px] border border-bolt-elements-item-contentAccent/30 bg-bolt-elements-item-backgroundAccent/10 text-bolt-elements-textPrimary hover:bg-bolt-elements-item-backgroundAccent/20 hover:border-[#00e5ff66] transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-bolt-elements-item-contentAccent cursor-pointer"
+                      >
+                        {rowLabel(row)}
+                      </button>
+                    ))}
+                    {overflow > 0 && (
+                      <span className="px-1 text-[10px] text-bolt-elements-textTertiary">＋{overflow} more</span>
+                    )}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      </div>
+    );
+  },
+);
+
+CalendarView.displayName = 'SiteTablesPanel.CalendarView';
 
 // ── Row detail drawer ──────────────────────────────────────────────────────
 
