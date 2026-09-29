@@ -18,7 +18,16 @@ import { validateBuild, type BuildFile } from '../services/build_validators';
 // Mirror build_validators.ts isText() — decode the same text set the R2 loader decodes;
 // binaries carry only their byte size.
 const TEXT_EXTENSIONS = [
-  '.html', '.htm', '.css', '.js', '.mjs', '.json', '.xml', '.txt', '.svg', '.webmanifest',
+  '.html',
+  '.htm',
+  '.css',
+  '.js',
+  '.mjs',
+  '.json',
+  '.xml',
+  '.txt',
+  '.svg',
+  '.webmanifest',
 ];
 const isTextPath = (p: string): boolean => TEXT_EXTENSIONS.some((e) => p.toLowerCase().endsWith(e));
 
