@@ -2339,6 +2339,75 @@ describe('editorKindForColumn (declared-type-first editor prefill; honest lossle
   });
 });
 
+describe('per-type editor round-trip (Rev 4 — the editor a column opens can re-commit its own value)', () => {
+  /*
+   * The closed loop the rich per-type editors promise: for a stored value of a declared-type column,
+   * the editor kind chosen to PREFILL it (editorKindForColumn) MUST accept that same prefilled value
+   * back through coerceCellInput WITHOUT a manual type switch and WITHOUT loss — otherwise opening a
+   * cell then hitting save would throw or silently change the value. Each row: [declaredType, stored].
+   */
+  const cases: ReadonlyArray<readonly [string, unknown]> = [
+    ['TEXT', 'hello'],
+    ['VARCHAR(255)', "O'Brien"],
+    ['INTEGER', 42],
+    ['REAL', 3.5],
+    ['DECIMAL(10,2)', '9.99'],
+    ['BOOLEAN', 1],
+    ['BOOL', '0'],
+    ['DATE', '2024-01-31'],
+    ['DATETIME', '2024-01-31 12:30:00'],
+    ['TIMESTAMP', '2024-01-31T09:00'],
+    ['JSON', '{"a":1}'],
+  ];
+
+  it.each(cases)('%s cell prefilled from %p re-coerces without a type switch or a throw', (declaredType, stored) => {
+    const editor = editorKindForColumn(declaredType, stored);
+
+    // The prefilled editor value must coerce back cleanly with the SAME kind the column opened.
+    expect(() => coerceCellInput(editor.kind, editor.value)).not.toThrow();
+  });
+
+  it('a boolean cell binds a value SQLite stores as 0/1 (true→1, false→0) through buildUpdateByPk', () => {
+    // editorKindForColumn opens the boolean editor; coerceCellInput yields a JS boolean; the D1 /query
+    // boundary stores a bound boolean as INTEGER 1/0 — assert the bound param is the boolean, positionally.
+    const on = coerceCellInput('boolean', editorKindForColumn('BOOLEAN', 1).value); // 'true' → true
+    const off = coerceCellInput('boolean', editorKindForColumn('BOOL', '0').value); // 'false' → false
+    expect(on).toBe(true);
+    expect(off).toBe(false);
+
+    const stmtOn = buildUpdateByPk('t', ['id'], { id: 5, flag: 0 }, 'flag', on);
+    expect(stmtOn.sql).toBe('UPDATE "t" SET "flag" = ?1 WHERE "id" = ?2');
+    expect(stmtOn.params).toEqual([true, 5]); // bound boolean → SQLite INTEGER 1
+
+    const stmtOff = buildUpdateByPk('t', ['id'], { id: 5, flag: 1 }, 'flag', off);
+    expect(stmtOff.params).toEqual([false, 5]); // bound boolean → SQLite INTEGER 0
+  });
+
+  it('a NULL edit binds SQL null (never the string "null"), through the same UPDATE-by-PK path', () => {
+    const value = coerceCellInput('null', 'ignored'); // Set NULL affordance
+    expect(value).toBeNull();
+
+    const stmt = buildUpdateByPk('t', ['id'], { id: 9, note: 'x' }, 'note', value);
+    expect(stmt.params).toEqual([null, 9]); // bound SQL NULL, not 'null'
+  });
+
+  it('an unparseable JSON edit is BLOCKED before any write (no dead control, no bad row)', () => {
+    // The JSON editor validates BEFORE the write: coerce throws, so buildUpdateByPk is never reached.
+    expect(() => coerceCellInput('json', '{ not: valid }')).toThrow(RowMutationError);
+  });
+
+  it('a non-numeric number edit is BLOCKED before any write', () => {
+    expect(() => coerceCellInput('number', 'abc')).toThrow(RowMutationError);
+  });
+
+  it('an ambiguous date string is REJECTED, never new Date()-coerced (strict ISO discipline)', () => {
+    // "01/31/2024" would parse under new Date() but is NOT YYYY-MM-DD — the editor must reject it.
+    expect(() => coerceCellInput('date', '01/31/2024')).toThrow(RowMutationError);
+    // A time-bearing value in the DATE editor is rejected too (no silent truncation to date-only).
+    expect(() => coerceCellInput('date', '2024-01-31T12:00')).toThrow(RowMutationError);
+  });
+});
+
 describe('buildInsertStatement (parameterized INSERT — never concatenates values)', () => {
   it('builds quoted identifiers + ?N placeholders + aligned params', () => {
     const stmt = buildInsertStatement('todos', ['title', 'done'], ['Buy milk', 0]);
