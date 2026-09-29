@@ -504,21 +504,27 @@ const CHECK_REGISTRY: Readonly<Record<string, readonly E2eCheck[]>> = {
   ],
   model_registry: [
     {
-      expectStatus: 404,
+      expectStatus: 401,
       kind: 'http',
-      label: '/v1/models flag-gated OFF today → 404',
+      label: '/v1/models live (beta) — unauthed → 401 OpenAI error envelope',
       url: '/v1/models',
     },
     {
-      expectStatus: 404,
+      expectStatus: 401,
       kind: 'http',
-      label: '/api/router/pick flag-gated OFF today → 404 (folded ai_auto_router)',
-      url: '/api/router/pick',
+      label: '/v1/models/:id live (beta) — unauthed → 401 (virtual id resolves with a psk_ key)',
+      url: '/v1/models/projectsites-auto',
     },
     {
       expectStatus: 404,
       kind: 'http',
-      label: '/api/router/stats flag-gated OFF today → 404',
+      label: '/api/router/pick is POST-only — GET → 404 (folded ai_auto_router)',
+      url: '/api/router/pick',
+    },
+    {
+      expectStatus: 401,
+      kind: 'http',
+      label: '/api/router/stats live (beta) — unauthed → 401 (org-session-gated)',
       url: '/api/router/stats?org_id=demo-org',
     },
     {

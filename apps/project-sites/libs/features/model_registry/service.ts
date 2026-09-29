@@ -202,6 +202,74 @@ export const MODEL_ALIASES: ModelAliasRecord[] = [
 ];
 
 // ---------------------------------------------------------------------------
+// Virtual service models (campaign lane-4, §7 — OpenAI-compatible public API)
+// ---------------------------------------------------------------------------
+
+/**
+ * `created` epoch for the virtual service models: 2026-09-29T00:00:00Z, the
+ * campaign §7 ship date. Fixed (not `Date.now()`) so the catalog is stable
+ * across requests and cacheable byte-for-byte.
+ */
+export const VIRTUAL_MODEL_CREATED = 1790640000;
+
+/** A provider-agnostic virtual model the platform routes on the caller's behalf. */
+export interface VirtualServiceModel {
+  /** OpenAI-style model id callers pass to /v1/chat/completions. */
+  id: string;
+  /** What the platform optimizes for when this id is requested. */
+  description: string;
+}
+
+/**
+ * The four virtual service models REQUIRED by the OpenAI-compat acceptance
+ * contract (e2e/ai-api/openai-compat.e2e.ts). They are routing intents, not
+ * upstream models — the platform picks the concrete provider/model at call
+ * time, so they are always listed and always `_available`.
+ */
+export const VIRTUAL_SERVICE_MODELS: readonly VirtualServiceModel[] = [
+  {
+    id: 'projectsites-auto',
+    description: 'Workload-aware auto-routing — the platform picks the cheapest sufficient model.',
+  },
+  {
+    id: 'projectsites-fast',
+    description: 'Lowest-latency routing — favors edge/volume-tier models for quick completions.',
+  },
+  {
+    id: 'projectsites-balanced',
+    description: 'Balanced cost/quality routing for general-purpose completions.',
+  },
+  {
+    id: 'projectsites-premium',
+    description: 'Highest-quality routing — favors premium frontier models.',
+  },
+];
+
+/**
+ * Look up a virtual service model by id.
+ *
+ * @param id - The requested model id (e.g. `'projectsites-auto'`).
+ * @returns The VirtualServiceModel, or null when the id is not virtual.
+ *
+ * @example
+ * findVirtualModel('projectsites-fast') // → { id: 'projectsites-fast', … }
+ * findVirtualModel('edge-fast')         // → null (that's an alias, not virtual)
+ */
+export function findVirtualModel(id: string): VirtualServiceModel | null {
+  return VIRTUAL_SERVICE_MODELS.find((v) => v.id === id) ?? null;
+}
+
+/**
+ * Look up a registry alias by id.
+ *
+ * @param id - The requested model id (e.g. `'deepseek-fast'`).
+ * @returns The ModelAliasRecord, or null when unknown.
+ */
+export function findModelAlias(id: string): ModelAliasRecord | null {
+  return MODEL_ALIASES.find((a) => a.id === id) ?? null;
+}
+
+// ---------------------------------------------------------------------------
 // Availability helpers
 // ---------------------------------------------------------------------------
 

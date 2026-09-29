@@ -104,6 +104,18 @@ describe('POST /api/router/pick (model_registry)', () => {
     expect(res.status).toBe(200);
     expect(mockAutoRoute).toHaveBeenCalledWith(env, { prompt: 'demo prompt', orgId: 'org-real' });
   });
+
+  it('400s on a non-string prompt (Zod boundary — promotion retrofit, gotcha #10) + never calls the service', async () => {
+    const res = await post('org-real', '/api/router/pick', { prompt: 123 });
+    expect(res.status).toBe(400);
+    expect(mockAutoRoute).not.toHaveBeenCalled();
+  });
+
+  it('400s on an over-long prompt + never calls the service', async () => {
+    const res = await post('org-real', '/api/router/pick', { prompt: 'x'.repeat(8001) });
+    expect(res.status).toBe(400);
+    expect(mockAutoRoute).not.toHaveBeenCalled();
+  });
 });
 
 describe('GET /api/router/stats (model_registry)', () => {

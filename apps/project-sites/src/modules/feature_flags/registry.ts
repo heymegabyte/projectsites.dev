@@ -384,13 +384,13 @@ export const FLAG_REGISTRY: Record<string, FlagDefinition> = {
     stage: 'stable',
   },
   model_registry: {
-    default_enabled: false,
-    default_rollout_percent: 0,
+    default_enabled: true,
+    default_rollout_percent: 100,
     description:
-      "OpenAI-compatible GET /v1/models catalog plus the workload-aware AI model router, both gated by this one flag (the standalone ai_auto_router duplicate was folded in 2026-08-14).\n\n• GET /v1/models returns {object:'list', data:[...]} of deepseek/anthropic/openai/gemini/grok/workers-ai aliases; a provider lists only when its key is set.\n• POST /api/router/pick classifies a prompt (simple/complex/creative/free-eligible) and routes to the cheapest sufficient model; GET /api/router/stats reports savings vs an always-Opus baseline.\n• Backend-only alias catalog + router the AI stack reads; no admin UI. Off (default) → all three routes 404.",
+      "OpenAI-compatible GET /v1/models + /v1/models/:id catalog plus the workload-aware AI model router, all gated by this one flag (the standalone ai_auto_router duplicate was folded in 2026-08-14; beta 2026-09-29 for campaign lane-4 §7).\n\n• GET /v1/models (Bearer psk_ API token; 401 OpenAI error envelope otherwise) returns {object:'list', data:[...]} — the 4 virtual service models (projectsites-auto/fast/balanced/premium, always available) plus the 13 deepseek/anthropic/openai/gemini/grok/workers-ai aliases; an alias is _available only when a provider key is set. GET /v1/models/:id looks one up (OpenAI-shaped model_not_found 404 for unknown ids).\n• POST /api/router/pick (authed org; Zod-validated body) classifies a prompt and routes to the cheapest sufficient model; GET /api/router/stats reports savings vs an always-Opus baseline.\n• Backend catalog + router the AI stack reads; no admin UI. Off → all four routes 404 dark.\n• Acceptance: e2e/ai-api/openai-compat.e2e.ts; units libs/features/model_registry/__tests__/.",
     key: 'model_registry',
     owner_email: 'brian@megabyte.space',
-    stage: 'experimental',
+    stage: 'beta', // beta 2026-09-29: /v1/models contract green (42 units), reversible via killswitch
   },
   onboarding_copilot: {
     default_enabled: false,

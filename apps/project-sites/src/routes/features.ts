@@ -639,13 +639,19 @@ const json = async (c: { req: { json: () => Promise<unknown> } }) =>
 
 // AI model router — folded under model_registry (the AI-model platform flag);
 // the standalone ai_auto_router flag was retired 2026-08-14 as a duplicate.
+// Zod boundary added 2026-09-29 when the flag was promoted to beta (per the
+// documented per-feature-on-promotion retrofit — CLAUDE.md gotcha #10).
+const RouterPickBodySchema = z.object({ prompt: z.string().min(1).max(8000).optional() });
 features.post('/api/router/pick', requireFlag('model_registry'), async (c) => {
   const orgId = c.get('orgId');
   if (!orgId) return c.json({ error: 'unauthorized' }, 401);
-  const body = (await c.req.json().catch(() => ({}))) as { prompt?: string };
+  const parsed = RouterPickBodySchema.safeParse(await c.req.json().catch(() => ({})));
+  if (!parsed.success) {
+    return c.json({ error: 'invalid_body', details: parsed.error.flatten().fieldErrors }, 400);
+  }
   return c.json(
     await experimentalFeatures.autoRoutePrompt(c.env, {
-      prompt: body.prompt ?? 'demo prompt',
+      prompt: parsed.data.prompt ?? 'demo prompt',
       orgId,
     }),
   );

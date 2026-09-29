@@ -617,18 +617,21 @@ export const FLAG_DOCS: Record<string, FlagDocs> = {
   },
   model_registry: {
     checklist: [
-      'OpenAI-compatible GET /v1/models catalog',
+      'OpenAI-compatible GET /v1/models catalog + GET /v1/models/:id lookup (Bearer psk_ auth)',
+      '4 virtual service models: projectsites-auto / -fast / -balanced / -premium (always available)',
       'ProviderCapabilityRegistry + ModelAliasRegistry',
       'Aliases: deepseek / anthropic / openai / gemini / grok / workers-ai',
-      'Per-provider availability gating (key present → listed)',
+      'Per-provider availability gating (key present → _available)',
       'Workload-aware AI router (POST /api/router/pick + GET /api/router/stats), same flag',
     ],
     explanation:
-      'Serves an OpenAI-compatible GET /v1/models catalog backed by the ProviderCapabilityRegistry + ModelAliasRegistry — the deepseek / anthropic / openai / gemini / grok / workers-ai alias map with per-provider availability gating (a provider only lists its models when its key is configured). This one flag also gates the workload-aware AI router (the standalone ai_auto_router duplicate was folded in 2026-08-14): POST /api/router/pick classifies a prompt and picks the cheapest sufficient model, GET /api/router/stats reports savings vs an always-Opus baseline. When off, /v1/models and both /api/router/* routes 404.',
+      'Serves an OpenAI-compatible GET /v1/models catalog (Bearer psk_ API token required; missing/invalid → 401 in the OpenAI error envelope) listing the 4 virtual service models — projectsites-auto/fast/balanced/premium, routing intents the platform always serves — plus the ProviderCapabilityRegistry + ModelAliasRegistry alias map (deepseek / anthropic / openai / gemini / grok / workers-ai) with per-provider availability gating (an alias is _available only when a provider key is configured). GET /v1/models/:id looks up one model (200 for virtual ids + aliases; OpenAI-shaped model_not_found 404 otherwise). This one flag also gates the workload-aware AI router (the standalone ai_auto_router duplicate was folded in 2026-08-14): POST /api/router/pick (Zod-validated body) classifies a prompt and picks the cheapest sufficient model, GET /api/router/stats reports savings vs an always-Opus baseline. Beta 2026-09-29 (campaign lane-4 §7); when off, all four routes 404 dark.',
     smoke_test: [
-      'GET /v1/models → {object:"list", data:[{id, owned_by, …}]} for configured providers only',
-      'POST /api/router/pick {"prompt":"Add a pricing section"} → {classification, picked_model, estimated_cost_usd, alternatives}',
-      'Disable the flag → /v1/models and /api/router/* all 404',
+      'GET /v1/models with a valid "Authorization: Bearer psk_…" → {object:"list", data:[…]} including projectsites-auto/fast/balanced/premium',
+      'GET /v1/models with no Authorization → 401 {error:{message,type,code:"invalid_api_key"}}',
+      'GET /v1/models/projectsites-auto (authed) → 200 {id, object:"model", created, owned_by:"projectsites"}; unknown id → 404 model_not_found',
+      'POST /api/router/pick {"prompt":"Add a pricing section"} (authed org) → {classification, picked_model, …}; {"prompt":123} → 400 invalid_body',
+      'Kill the flag → /v1/models, /v1/models/:id and /api/router/* all 404 dark',
     ],
   },
   onboarding_copilot: {
@@ -1418,9 +1421,10 @@ export const FLAG_SPEC_EXTRAS: Record<string, Pick<FlagDocs, 'e2e_tests' | 'scre
   },
   model_registry: {
     e2e_tests: [
-      'GET /v1/models flag-gated OFF today → 404',
-      'POST /api/router/pick flag-gated OFF today → 404 (folded ai_auto_router)',
-      'GET /api/router/stats flag-gated OFF today → 404',
+      '/v1/models live (beta) — unauthed → 401 OpenAI error envelope',
+      '/v1/models/:id live (beta) — unauthed → 401 (virtual id resolves with a psk_ key)',
+      '/api/router/pick is POST-only — GET → 404 (folded ai_auto_router)',
+      '/api/router/stats live (beta) — unauthed → 401 (org-session-gated)',
       'registry entry present for model_registry',
       'worker health responds',
       'unknown /v1 path stays 404 (not SPA soft-200)',
