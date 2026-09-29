@@ -680,10 +680,3 @@ export const APPS_CATALOG: ReadonlyArray<CatalogApp> = [
     supported: true,
   },
 ];
-
-/** Lookup an app by id — throws if missing so callers fail loud. */
-export function findApp(id: string): CatalogApp {
-  const app = APPS_CATALOG.find((a) => a.id === id);
-  if (!app) throw new Error(`Unknown app id: ${id}`);
-  return app;
-}

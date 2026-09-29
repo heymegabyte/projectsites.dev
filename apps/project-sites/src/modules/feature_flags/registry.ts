@@ -752,7 +752,3 @@ export type FlagKey = keyof typeof FLAG_REGISTRY;
 export function listFlags(): FlagDefinition[] {
   return Object.values(FLAG_REGISTRY);
 }
-
-export function getDefaultFlag(key: string): FlagDefinition | undefined {
-  return FLAG_REGISTRY[key];
-}

@@ -34,17 +34,3 @@ export function uuidv7(): string {
   const raw = ts + hex.slice(12, 32);
   return `${raw.slice(0, 8)}-${raw.slice(8, 12)}-7${raw.slice(12, 15)}-${raw.slice(15, 19)}-${raw.slice(19, 31)}`;
 }
-
-/**
- * Mint a UUIDv4 (maximum entropy, no embedded timestamp) string.
- *
- * @returns A `xxxxxxxx-xxxx-4xxx-xxxx-xxxxxxxxxxxx` string.
- *
- * @example
- * ```ts
- * const token = uuidv4(); // session token — must not leak creation time
- * ```
- */
-export function uuidv4(): string {
-  return crypto.randomUUID();
-}

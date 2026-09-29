@@ -158,33 +158,6 @@ export function captureException(
   });
 }
 
-/**
- * Adds a breadcrumb to Sentry for the current request context.
- * In the full SDK this attaches to the scope; here we log structured
- * JSON that Sentry's envelope API accepts as an event attachment.
- *
- * Use BEFORE risky operations: external API calls, D1 writes, billing ops.
- */
-export function addBreadcrumb(
-  _env: Env,
-  message: string,
-  category = 'default',
-  data?: Record<string, unknown>,
-): void {
-  // Breadcrumbs are scope-attached in the SDK. In raw-envelope mode we
-  // piggyback on the next exception event by stashing in a module-level
-  // array. For the thin client, structured JSON logging + Workers Tracing
-  // OTLP spans provide richer context — Sentry breadcrumbs are secondary.
-  console.warn(
-    JSON.stringify({
-      level: 'info',
-      msg: `sentry:breadcrumb: ${message}`,
-      category,
-      data: data ?? {},
-    }),
-  );
-}
-
 // ── Envelope transport ─────────────────────────────────────────────────────
 
 /**
