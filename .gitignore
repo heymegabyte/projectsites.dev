@@ -114,3 +114,4 @@ editor-vqa/
 # `.recipient-allowlist.local.example.json` (placeholders) is committed. The loader
 # (scripts/recipient-allowlist.mjs) fails CLOSED when this file is absent.
 apps/project-sites/.recipient-allowlist.local.json
+.claude/run-the-loop/.fire-lease.json
