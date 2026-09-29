@@ -3445,6 +3445,32 @@ api.post('/api/diag/bundle-functions', async (c) => {
   });
 });
 
+// Diag (WfP go-live acceptance) — directly (re)deploy a site's WfP slot from its
+// current R2 build, WITHOUT re-publishing. Exercises the exact `deploySiteToWfp`
+// path the lifecycle wiring calls. Secret-gated (x-test-secret = CF_API_TOKEN[:12]),
+// mirrors /api/diag/bundle-functions. Resolves the owning org from the site row so
+// `assertSiteOwned` passes; the `site_wfp_hosting` flag still gates the real serve path.
+api.post('/api/diag/wfp-deploy', async (c) => {
+  // Authed via the normal Bearer/api-key middleware — the caller's own org.
+  const orgId = c.get('orgId');
+  if (!orgId) return c.json({ error: 'unauthorized' }, 401);
+  const body = (await c.req.json().catch(() => ({}))) as {
+    siteId?: string;
+    slot?: 'preview' | 'production';
+    version?: string;
+  };
+  if (!body.siteId) return c.json({ error: 'siteId required' }, 400);
+  // deploySiteToWfp's own assertSiteOwned enforces the site belongs to this org (404-on-foreign).
+  const { deploySiteToWfp } = await import('../services/wfp_site_hosting.js');
+  const t0 = Date.now();
+  const result = await deploySiteToWfp(c.env, body.siteId, {
+    orgId,
+    slot: body.slot ?? 'production',
+    ...(body.version !== undefined ? { version: body.version } : {}),
+  });
+  return c.json({ elapsedMs: Date.now() - t0, result });
+});
+
 api.post('/api/sites/:id/publish-bolt', async (c) => {
   const siteId = c.req.param('id');
   const orgId = c.get('orgId');
