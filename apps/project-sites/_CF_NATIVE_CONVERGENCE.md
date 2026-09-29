@@ -321,10 +321,36 @@ slice must satisfy its journey there. Sample multiple completed cycles for (1) a
 ## 13 · Ledger
 
 **Done** (closing SHA + prod proof):
-- _(none yet — fire-1 was the audit + scaffold; first mutation slices land next cron fire)_
+- **B0 (partial) + A0 + `voice_numbers` killswitch** — `f1296b736` (co-developed with a concurrent
+  fire; my slice = the orphan-number compensation). Purchase route gated behind `voice_numbers`
+  (default-OFF → 404, no carrier spend); on the ON path a D1-insert failure now fires `releaseNumber()`
+  compensation (no orphaned chargeable line); `/voice/test/call-token` wrapped in
+  `{data:{token,identity,primary_number}}` (Angular console reads `res.data.token`). `voice.test.ts`
+  14/14 + `voice_numbers_flag` 3/3, tsc clean, `validate:features` 0 err. On origin/main. Deploy: dark
+  flag → lands on next worker deploy (CI); prod-verify = assert purchase 404s with the flag off.
+  Remaining B0 → B2/B3/B4: idempotency-key + pre-buy pending-row + Stripe quote/charge boundary +
+  `pricing_config` (kill hardcoded `monthly_cost_cents:100`).
 
 **Blocked-external:** A5 live dual-channel recording (ADR 0056 + staging number) · B6 real staging
 number/call · E9 Traks pipeline (CF 20/20/20 beta quota) · E12/E13 DataForSEO funding.
 
 **🔑 Brian-gated:** ADR 0056 LiveKit→CF direction confirm · $0.25 pricing headline + margin sign-off ·
 any real number purchase / message send.
+
+## 14 · Fire-2 next-wave (discovery + browser findings — replenish the queue)
+
+- **NOTIF-404 🔴 (browser agent, PROD):** `/api/notifications` returns **404 for UNAUTHENTICATED
+  visitors** → a red console error on EVERY public page (`/pricing` repro, signed-out). The
+  notification bell/poller must gate on auth + the `psnotify` flag BEFORE calling (client-read-flag
+  must match the worker 404, per `flag-off-frontend-must-match-worker-404`). RED: load `/pricing`
+  signed-out → 0 console errors. (All other PROD golden-path checks PASSED: homepage + search 200s,
+  `/api/health` ok + HSTS/CSP, bogus `/api/*` → clean JSON 404.)
+- **Stream C (discovery agent, `audit-C-sandbox.md`):** C1 delete-or-repurpose orphan `ide_sandbox.ts`
+  + test + migration `0504` (routes removed `features.ts:630`, flags absent) · C3 `POST
+  /api/sites/:id/workspace` → **501 when Sandbox SDK unbound** (mirror `isWfpConfigured()`→503) · C5
+  shared streaming AI-chat route (A2+C dependency — one canonical path + AbortSignal) · C4 wire-or-drop
+  `cli_sandbox_config.ts` (only its test imports it) · confirm `@cloudflare/sandbox`+`@cloudflare/agents`
+  ABSENT before promising a workspace.
+- **Loop improvement (this fire):** codified the concurrent-shared-tree protocol — when a concurrent
+  fire owns the target file, verify GREEN then commit the coherent bundle (don't leave a RED test in
+  the shared tree; don't race a second commit of the same paths). See report + `[[concu]]`/`[[chkog]]`.
