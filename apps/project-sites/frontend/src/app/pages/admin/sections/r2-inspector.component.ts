@@ -72,7 +72,7 @@ interface R2ObjectResponse {
         </label>
         <select
           id="r2-bucket"
-          class="bg-black/30 border border-white/12 rounded-lg px-3 py-2 text-[0.85rem] text-white min-w-[220px]"
+          class="bg-[var(--ps-bg-secondary)] border border-[color:var(--ps-border-subtle)] rounded-lg px-3 py-2 text-[0.85rem] text-white min-w-[220px]"
           [value]="selectedBucket() ?? ''"
           (change)="onBucketChange($event)"
           data-testid="r2-bucket-select"
@@ -96,7 +96,7 @@ interface R2ObjectResponse {
               <input
                 id="r2-prefix"
                 type="text"
-                class="w-full bg-black/30 border border-white/12 rounded-lg px-3 py-2 text-[0.85rem] text-white"
+                class="w-full bg-[var(--ps-bg-secondary)] border border-[color:var(--ps-border-subtle)] rounded-lg px-3 py-2 text-[0.85rem] text-white"
                 [value]="prefixFilter()"
                 (input)="onPrefixInput($event)"
                 placeholder="e.g. sites/"
@@ -127,17 +127,26 @@ interface R2ObjectResponse {
                   "
                 />
               } @else {
-                <ul class="flex flex-col gap-0.5 m-0 p-0 list-none" data-testid="r2-object-list">
-                  @for (o of objects(); track o.key) {
-                    <li>
+                <ul
+                  class="flex flex-col gap-0.5 m-0 p-0 list-none"
+                  data-testid="r2-object-list"
+                  role="listbox"
+                  aria-label="Objects"
+                  (keydown)="onListKeydown($event)"
+                >
+                  @for (o of objects(); track o.key; let i = $index) {
+                    <li role="presentation">
                       <button
                         type="button"
-                        class="w-full flex items-center gap-2 text-left px-3 py-1.5 rounded hover:bg-white/8"
+                        role="option"
+                        [id]="'r2-opt-' + i"
+                        class="w-full flex items-center gap-2 text-left px-3 py-1.5 rounded hover:bg-[var(--ps-bg-hover)]"
                         [style.background]="
-                          selectedKey() === o.key ? 'rgba(255,255,255,0.10)' : null
+                          selectedKey() === o.key ? 'var(--ps-border-hover)' : null
                         "
-                        [attr.aria-pressed]="selectedKey() === o.key"
-                        (click)="selectObject(o.key)"
+                        [attr.aria-selected]="selectedKey() === o.key"
+                        [attr.tabindex]="rovingIndex() === i ? 0 : -1"
+                        (click)="selectObject(o.key, i)"
                       >
                         <span class="text-[0.82rem] font-mono truncate grow min-w-0">{{
                           o.key
@@ -172,7 +181,7 @@ interface R2ObjectResponse {
                   <app-error-card [title]="objLoadError()!" (retry)="loadObject()" />
                 } @else if (obj(); as o) {
                   <div
-                    class="bg-black/25 border border-white/10 rounded-xl p-4"
+                    class="bg-black/25 border border-[color:var(--ps-border-hover)] rounded-xl p-4"
                     data-testid="r2-object-panel"
                   >
                     @if (!o.found) {
@@ -193,7 +202,7 @@ interface R2ObjectResponse {
                         <dd class="text-white font-mono break-all m-0">{{ o.etag ?? '—' }}</dd>
                       </dl>
                       @if (o.customMetadata && hasKeys(o.customMetadata)) {
-                        <div class="mt-3 pt-3 border-t border-white/8">
+                        <div class="mt-3 pt-3 border-t border-[color:var(--ps-bg-hover)]">
                           <p class="text-[0.72rem] text-text-secondary mb-1">Custom metadata</p>
                           <pre
                             class="text-[0.74rem] text-text-secondary font-mono whitespace-pre-wrap break-words m-0"
@@ -206,7 +215,7 @@ interface R2ObjectResponse {
               } @else {
                 <app-empty-state
                   title="No object selected"
-                  message="Select an object to inspect its metadata."
+                  message="Select an object from the list to view its metadata (size, uploaded, content-type, ETag)."
                 />
               }
             </section>
@@ -235,6 +244,8 @@ export class R2InspectorComponent implements OnInit {
   readonly hasMore = computed(() => this.truncated());
 
   readonly selectedKey = signal<string | null>(null);
+  /** Roving-tabindex focus position for the ARIA 1.2 listbox (index into objects()). */
+  readonly rovingIndex = signal(0);
   readonly objLoading = signal(false);
   readonly objLoadError = signal<string | null>(null);
   readonly obj = signal<R2ObjectResponse | null>(null);
@@ -288,6 +299,7 @@ export class R2InspectorComponent implements OnInit {
     this.truncated.set(false);
     this.cursor.set(undefined);
     this.selectedKey.set(null);
+    this.rovingIndex.set(0);
     this.obj.set(null);
     this.objectsLoadError.set(null);
   }
@@ -322,10 +334,43 @@ export class R2InspectorComponent implements OnInit {
     if (this.truncated()) this.loadObjects();
   }
 
-  selectObject(key: string): void {
+  selectObject(key: string, index?: number): void {
     this.selectedKey.set(key);
+    if (index != null) this.rovingIndex.set(index);
     this.obj.set(null);
     this.loadObject();
+  }
+
+  /**
+   * ARIA 1.2 listbox keyboard model for the object list. Arrow keys move the
+   * roving tabindex + focus; Home/End jump to the ends. Enter/Space activate
+   * natively (each option is a real <button>), so they're left to the browser.
+   */
+  onListKeydown(e: KeyboardEvent): void {
+    const count = this.objects().length;
+    if (count === 0) return;
+    const current = this.rovingIndex();
+    let next = current;
+    switch (e.key) {
+      case 'ArrowDown':
+        next = Math.min(current + 1, count - 1);
+        break;
+      case 'ArrowUp':
+        next = Math.max(current - 1, 0);
+        break;
+      case 'Home':
+        next = 0;
+        break;
+      case 'End':
+        next = count - 1;
+        break;
+      default:
+        return;
+    }
+    e.preventDefault();
+    this.rovingIndex.set(next);
+    const el = document.getElementById(`r2-opt-${next}`);
+    el?.focus();
   }
 
   loadObject(): void {

@@ -276,6 +276,14 @@
   --ps-elev-3: color-mix(in oklch, var(--ps-bg, #060610) 78%, var(--ps-ink, #f4f4ff) 22%);
   --ps-hairline: color-mix(in oklch, var(--ps-ink, #f4f4ff) 8%, transparent);
   --ps-hairline-hi: color-mix(in oklch, var(--ps-ink, #f4f4ff) 14%, transparent);
+  // Admin form-control tokens — tokenized from the raw white/black alpha
+  // utilities the R2 Inspector used inline. Mixed against literal white/black
+  // (NOT --ps-ink #f4f4ff / --ps-bg #060610) so the rendered color is byte
+  // identical to the Tailwind white/N + black/N it replaces.
+  --ps-border-subtle: color-mix(in oklch, white 12%, transparent);
+  --ps-bg-secondary: color-mix(in oklch, black 30%, transparent);
+  --ps-bg-hover: color-mix(in oklch, white 8%, transparent);
+  --ps-border-hover: color-mix(in oklch, white 10%, transparent);
 }
 
 // ── Light-theme overrides ─────────────────────────────────────────
