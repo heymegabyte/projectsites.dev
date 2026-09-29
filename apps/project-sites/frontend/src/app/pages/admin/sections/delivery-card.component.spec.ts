@@ -1,5 +1,6 @@
 import { TestBed } from '@angular/core/testing';
 import { By } from '@angular/platform-browser';
+import { provideRouter } from '@angular/router';
 import type { DeliverySummary } from '../../../services/api.service';
 import { DeliveryCardComponent, describeSampling } from './delivery-card.component';
 
@@ -35,7 +36,10 @@ const REAL: DeliverySummary = {
 };
 
 function setup(delivery: DeliverySummary | null, windowDays = 7) {
-  TestBed.configureTestingModule({ imports: [DeliveryCardComponent] });
+  TestBed.configureTestingModule({
+    imports: [DeliveryCardComponent],
+    providers: [provideRouter([])],
+  });
   const fixture = TestBed.createComponent(DeliveryCardComponent);
   fixture.componentRef.setInput('delivery', delivery);
   fixture.componentRef.setInput('windowDays', windowDays);

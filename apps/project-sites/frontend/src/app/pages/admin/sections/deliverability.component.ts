@@ -104,7 +104,7 @@ interface DeliverabilityResponse {
             <button
               hlmBtn
               data-testid="deliverability-check-btn"
-              class="min-h-[40px] bg-primary text-dark font-medium border-transparent hover:bg-primary/90 disabled:opacity-50 disabled:cursor-not-allowed focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 focus-visible:ring-offset-dark"
+              class="min-h-[40px] bg-primary text-dark font-medium border-transparent hover:bg-primary/90 disabled:bg-white/10 disabled:text-white/60 disabled:border-white/15 disabled:cursor-not-allowed focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 focus-visible:ring-offset-dark"
               [disabled]="loading() || domainInvalid() || flagDisabled()"
               [attr.aria-busy]="loading()"
               (click)="check()"

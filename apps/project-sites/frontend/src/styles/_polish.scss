@@ -241,6 +241,17 @@
   // ~14:1, and as small text still clears AA. Consumers use var(--ps-warning) rather
   // than a hard-coded #ffd166 (was inline drift on the api-tokens reveal dialog).
   --ps-warning: #ffd166;
+  // HTTP status-class fills for the edge-delivery card's status bars (delivery-card).
+  // Kept as distinct amber/red hues (NOT --ps-warning/--ps-danger) so the rendered
+  // colors match the historical inline hexes exactly; a status bar is a GRAPHICAL
+  // element needing ≥3:1 on #060610 (4xx amber ~10:1, 5xx red ~4.6:1). Consumers use
+  // var(--ps-status-4xx) / var(--ps-status-5xx) rather than a hard-coded hex.
+  --ps-status-4xx: #f5a524;
+  --ps-status-5xx: #f5405e;
+  // Error-text tint — legible warm-red small text on the dark base (delivery-card
+  // .dl-warn + .dl-error-code). Clears AA (~7:1 on #060610). Consumers use
+  // var(--ps-error-text) rather than a hard-coded #ffb4c0.
+  --ps-error-text: #ffb4c0;
   // Sentiment scale — for voice/SMS call-sentiment bars + chips (positive / neutral
   // / negative). Derived in OKLCH from the brand success/accent/danger so they read
   // as one on-brand family, never off-the-shelf traffic-light greens/reds. Positive

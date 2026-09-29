@@ -17,6 +17,7 @@
  * classes carry a WORD (success / server error…), not colour alone (WCAG use-of-color).
  */
 import { ChangeDetectionStrategy, Component, computed, input } from '@angular/core';
+import { RouterLink } from '@angular/router';
 
 import type { DeliverySummary } from '../../../services/api.service';
 
@@ -73,6 +74,7 @@ function formatBytes(n: number): string {
   changeDetection: ChangeDetectionStrategy.OnPush,
   selector: 'app-delivery-card',
   standalone: true,
+  imports: [RouterLink],
   styles: [
     `
       .dl {
@@ -145,15 +147,15 @@ function formatBytes(n: number): string {
         border-radius: 999px;
       }
       .dl-status-row[data-class='4xx'] .dl-bar-fill {
-        background: #f5a524;
+        background: var(--ps-status-4xx, #f5a524);
       }
       .dl-status-row[data-class='5xx'] .dl-bar-fill {
-        background: #f5405e;
+        background: var(--ps-status-5xx, #f5405e);
       }
       .dl-warn {
         margin: 0;
         font-size: 0.72rem;
-        color: #ffb4c0;
+        color: var(--ps-error-text, #ffb4c0);
         background: rgba(245, 64, 94, 0.1);
         border-radius: 6px;
         padding: 0.4rem 0.6rem;
@@ -218,7 +220,7 @@ function formatBytes(n: number): string {
         box-sizing: border-box;
       }
       .dl-error-code {
-        color: #f5405e;
+        color: var(--ps-status-5xx, #f5405e);
         font-weight: 700;
       }
       .dl-error-visits {
@@ -283,6 +285,50 @@ function formatBytes(n: number): string {
         font-size: 0.78rem;
         color: var(--text-secondary, #9aa0b4);
         line-height: 1.5;
+      }
+      /* Launchpad CTA for the no-custom-domain empty state — routes to
+         the Domains admin so the owner has an obvious next step (not just prose). */
+      .dl-cta {
+        align-self: flex-start;
+        display: inline-flex;
+        align-items: center;
+        gap: 0.4rem;
+        margin-top: 0.55rem;
+        padding: 0.4rem 0.8rem;
+        font-size: 0.76rem;
+        font-weight: 600;
+        color: var(--ps-accent, #00e5ff);
+        text-decoration: none;
+        border-radius: var(--ps-radius-sm, 8px);
+        border: 1px solid color-mix(in oklch, var(--ps-accent, #00e5ff) 32%, transparent);
+        background: color-mix(in oklch, var(--ps-accent, #00e5ff) 8%, transparent);
+        transition:
+          background 140ms ease,
+          border-color 140ms ease,
+          transform 140ms ease;
+      }
+      .dl-cta:hover {
+        background: color-mix(in oklch, var(--ps-accent, #00e5ff) 16%, transparent);
+        border-color: color-mix(in oklch, var(--ps-accent, #00e5ff) 55%, transparent);
+        transform: translateY(-1px);
+      }
+      .dl-cta span {
+        transition: transform 140ms ease;
+      }
+      .dl-cta:hover span {
+        transform: translateX(2px);
+      }
+      @media (prefers-reduced-motion: reduce) {
+        .dl-cta,
+        .dl-cta span {
+          transition: none;
+        }
+        .dl-cta:hover {
+          transform: none;
+        }
+        .dl-cta:hover span {
+          transform: none;
+        }
       }
       @media (max-width: 480px) {
         .dl-status-row {
@@ -449,6 +495,10 @@ function formatBytes(n: number): string {
             shared projectsites.dev zone. Connect a custom domain to see status codes, cache
             hit-rate, and bandwidth.
           </p>
+          <a class="dl-cta" data-testid="an-dl-add-domain-cta" routerLink="/admin/domains">
+            Connect a custom domain
+            <span aria-hidden="true">→</span>
+          </a>
         }
       } @else {
         <p class="dl-empty" data-testid="an-dl-unavailable">
