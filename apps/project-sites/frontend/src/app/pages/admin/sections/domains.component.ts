@@ -130,7 +130,7 @@ const STRATEGY_LABEL: Readonly<Record<string, string>> = {
         </div>
         @if (state.selectedSite()) {
           <button class="btn-ghost" (click)="loadHostnames()" [disabled]="loadingHostnames()" [brnTooltip]="'Reload connected domains'">
-            <span class="inline-block text-center min-w-[8ch]">{{ loadingHostnames() ? '…' : 'Refresh' }}</span>
+            <span class="inline-block text-center min-w-[11ch]">{{ loadingHostnames() ? 'Refreshing…' : 'Refresh' }}</span>
           </button>
         }
       </header>

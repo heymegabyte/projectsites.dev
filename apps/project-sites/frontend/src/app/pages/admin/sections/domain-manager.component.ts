@@ -13,6 +13,7 @@ import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { FormsModule } from '@angular/forms';
 import { ApiService } from '../../../services/api.service';
 import { ToastService } from '../../../services/toast.service';
+import { FocusTrapDirective } from '../../../directives/focus-trap.directive';
 
 type Availability = 'idle' | 'checking' | 'ok' | 'bad';
 
@@ -42,7 +43,7 @@ type Availability = 'idle' | 'checking' | 'ok' | 'bad';
   selector: 'app-domain-manager',
   standalone: true,
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [FormsModule],
+  imports: [FormsModule, FocusTrapDirective],
   template: `
     <span class="dm-root">
       <button type="button" class="dm-trigger" (click)="toggle($event)"
@@ -57,7 +58,8 @@ type Availability = 'idle' | 'checking' | 'ok' | 'bad';
       </button>
 
       @if (open()) {
-        <div class="dm-pop" role="dialog" aria-label="URL & domains" (click)="$event.stopPropagation()" data-testid="domain-manager-pop">
+        <div class="dm-pop" role="dialog" aria-modal="true" aria-label="URL & domains"
+             [focusTrap]="open()" (click)="$event.stopPropagation()" data-testid="domain-manager-pop">
           <!-- ── Platform subdomain ── -->
           <div class="dm-sec">
             <div class="dm-sec-h">Platform subdomain</div>
