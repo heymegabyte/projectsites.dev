@@ -568,6 +568,51 @@ export interface SiteDbRowsResponseMessage {
 }
 
 /**
+ * Child → Parent (per-site D1 — inline row edit, Revision 1): update ONE cell of ONE row in a table in
+ * the site's OWN dedicated D1, targeted by its stable SQLite `rowid` (the `_rowid` the browse surface
+ * exposes). The admin (which holds `selectedSite` + the bearer) calls
+ * `PATCH /api/sites/:siteId/db/tables/:table/rows/:rowid` with `{ values: { [column]: value } }` and
+ * replies with {@link SiteDbUpdateRowResponseMessage}. This is the id that exists for EVERY ordinary row
+ * even when the table declares NO primary key — so it kills the old "no primary key ⇒ read-only"
+ * limitation. The value is bound server-side, never interpolated. Gated by the `per_site_data` flag
+ * (DARK → 404 → `enabled:false`). Mirrors {@link SiteDbRenameColumnRequestMessage}.
+ */
+export interface SiteDbUpdateRowRequestMessage {
+  type: 'PS_SITEDB_UPDATE_ROW_REQUEST';
+  correlationId: string;
+
+  /** The table holding the row (the worker re-validates the identifier server-side). */
+  table: string;
+
+  /** The stable SQLite `rowid` of the row to update (the `_rowid` the browse surface exposes). */
+  rowid: number;
+
+  /** The single column to write (the worker allowlist-validates it against the table's real columns). */
+  column: string;
+
+  /** The new value to bind — a SQLite scalar (`string | number | boolean | null`), never interpolated. */
+  value: string | number | boolean | null;
+}
+
+/**
+ * Parent → Child (per-site D1 — inline row edit): the admin's reply to {@link SiteDbUpdateRowRequestMessage}.
+ * `ok:true` when the row was updated (`updated` = rows written). A real DDL/validation error rides in
+ * `error` (surfaced verbatim). `enabled:false` when the `per_site_data` flag is dark (the 404 "not enabled").
+ */
+export interface SiteDbUpdateRowResponseMessage {
+  type: 'PS_SITEDB_UPDATE_ROW_RESPONSE';
+  correlationId?: string;
+  ok: boolean;
+
+  /** How many rows were written (1 on a successful single-row update; 0 if the rowid didn't match). */
+  updated?: number;
+
+  /** `false` when the `per_site_data` flag is off (the dark-flag 404) → the surface stays hidden. */
+  enabled?: boolean;
+  error?: string;
+}
+
+/**
  * Child → Parent (per-site D1 SQL console): run ONE raw SQL statement against the site's OWN dedicated
  * D1. The admin (which holds `selectedSite` + the bearer) calls `POST /api/sites/:siteId/db/query` with
  * `{ sql, params }` and replies with {@link SiteDbQueryResponseMessage}. The statement only ever touches
@@ -2076,6 +2121,7 @@ export type ParentToChildMessage =
   | AskResponseMessage
   | SiteDbTablesResponseMessage
   | SiteDbRowsResponseMessage
+  | SiteDbUpdateRowResponseMessage
   | SiteDbQueryResponseMessage
   | SiteDbSearchResponseMessage
   | SiteDbCreateTableResponseMessage
@@ -2117,6 +2163,7 @@ export type ChildToParentMessage =
   | AskRequestMessage
   | SiteDbTablesRequestMessage
   | SiteDbRowsRequestMessage
+  | SiteDbUpdateRowRequestMessage
   | SiteDbQueryRequestMessage
   | SiteDbSearchRequestMessage
   | SiteDbCreateTableRequestMessage
@@ -2765,6 +2812,30 @@ export function requestDbRenameColumn(
       name: input.name,
     },
     'PS_SITEDB_RENAME_COLUMN_RESPONSE',
+  );
+}
+
+/**
+ * Revision 1 — update ONE cell of ONE row in the site's OWN dedicated D1, targeted by its stable
+ * SQLite `rowid` (the `_rowid` the browse surface exposes), via
+ * `PATCH /api/sites/:siteId/db/tables/:table/rows/:rowid`. This is the id that exists for EVERY
+ * ordinary row even when the table has NO primary key — so it kills the "no primary key ⇒ read-only"
+ * limitation. Resolves with the parent's {@link SiteDbUpdateRowResponseMessage} — `ok:true` (+ `updated`)
+ * on success, a verbatim `error` on failure, or `enabled:false` when the `per_site_data` flag is dark.
+ */
+export function requestDbUpdateRow(
+  input: { table: string; rowid: number; column: string; value: string | number | boolean | null },
+): Promise<SiteDbUpdateRowResponseMessage> {
+  return requestFromParent<SiteDbUpdateRowResponseMessage>(
+    {
+      type: 'PS_SITEDB_UPDATE_ROW_REQUEST',
+      correlationId: nextBridgeCorrelationId(),
+      table: input.table,
+      rowid: input.rowid,
+      column: input.column,
+      value: input.value,
+    },
+    'PS_SITEDB_UPDATE_ROW_RESPONSE',
   );
 }
 

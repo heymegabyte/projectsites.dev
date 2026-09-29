@@ -3312,6 +3312,129 @@ export function rowPkKey(row: Record<string, unknown>, pkColumns: readonly strin
 }
 
 /**
+ * The synthetic per-row handle the browse endpoint attaches to EVERY row (`SELECT rowid AS _rowid,
+ * * FROM …`). It is the stable SQLite `rowid`, which exists for every ordinary table row even when
+ * the table declares NO primary key — so it's the id the grid targets for inline edit + delete via
+ * the dedicated `PATCH|DELETE …/rows/:rowid` endpoints. Not a real column: never rendered, never
+ * editable.
+ */
+export const ROWID_KEY = '_rowid';
+
+/**
+ * The STABLE identity of a browsed row, for the inline-edit engine's optimistic patch + Undo. Prefers
+ * the PRIMARY-KEY identity ({@link rowPkKey}) when the table has a PK; otherwise FALLS BACK to the
+ * row's `_rowid` handle so a PK-LESS table is STILL fully editable (Revision 1 — kills the old
+ * "no primary key ⇒ read-only" limitation). Returns `null` only when the row has NEITHER a resolvable
+ * PK NOR a usable `_rowid` (nothing safe to target). Pure.
+ *
+ * @param row - the browsed row (carries real columns + the `_rowid` handle)
+ * @param pkColumns - the table's primary-key column(s), in order (from `pkFromTableInfo`) — may be empty
+ * @returns a stable key string (PK JSON, or `"_rowid:<n>"`), or `null` when unresolvable
+ * @example rowStableKey({ id: 42, _rowid: 7 }, ['id'])   // '[42]'      (PK wins)
+ * @example rowStableKey({ _rowid: 7, body: 'x' }, [])    // '_rowid:7'  (no PK → rowid)
+ * @example rowStableKey({ body: 'x' }, [])               // null        (nothing to target)
+ */
+export function rowStableKey(row: Record<string, unknown>, pkColumns: readonly string[]): string | null {
+  const pk = rowPkKey(row, pkColumns);
+
+  if (pk !== null) {
+    return pk;
+  }
+
+  const rowid = row[ROWID_KEY];
+
+  if (typeof rowid === 'number' && Number.isInteger(rowid)) {
+    return `${ROWID_KEY}:${rowid}`;
+  }
+
+  // Some runtimes surface an integer rowid as a numeric string — accept that too.
+  if (typeof rowid === 'string' && /^\d+$/.test(rowid.trim())) {
+    return `${ROWID_KEY}:${rowid.trim()}`;
+  }
+
+  return null;
+}
+
+/**
+ * Read the integer `_rowid` from a browsed row (the handle the `PATCH|DELETE …/rows/:rowid` endpoints
+ * target). Returns `null` when the row has no usable rowid. Pure.
+ *
+ * @example rowRowid({ _rowid: 7 })    // 7
+ * @example rowRowid({ _rowid: '7' })  // 7
+ * @example rowRowid({ id: 1 })        // null
+ */
+export function rowRowid(row: Record<string, unknown>): number | null {
+  const rowid = row[ROWID_KEY];
+
+  if (typeof rowid === 'number' && Number.isInteger(rowid)) {
+    return rowid;
+  }
+
+  if (typeof rowid === 'string' && /^\d+$/.test(rowid.trim())) {
+    return Number.parseInt(rowid.trim(), 10);
+  }
+
+  return null;
+}
+
+/** The columns / flags the edit-gate reasons over — the open table's PK, generated cols, and rowid availability. */
+export interface RowEditContext {
+  /** The open table's primary-key column(s) (from `pkFromTableInfo`) — empty for a PK-less table. */
+  pkCols: readonly string[];
+
+  /** GENERATED (computed) columns — SQLite rejects writing them, so they stay read-only. */
+  generatedCols: ReadonlySet<string>;
+
+  /** True when the browsed rows carry a usable `_rowid` handle (they always do from the browse endpoint). */
+  hasRowid: boolean;
+}
+
+/** The editability verdict for ONE column — `editable`, plus a human `reason` when it isn't. */
+export interface RowEditGate {
+  editable: boolean;
+  reason?: string;
+}
+
+/**
+ * Decide whether ONE column's cells are editable — the Revision 1 gate that KILLS the "no primary key
+ * ⇒ read-only" limitation. A column is editable when the row is safely targetable (a PK exists, OR a
+ * `_rowid` handle exists) AND the column isn't the PK, a generated column, or the synthetic `_rowid`
+ * handle itself. Pure — the panel wires the same verdict into every cell.
+ *
+ * @param column - the column name under consideration
+ * @param ctx - the open table's PK / generated-col / rowid context
+ * @returns `{ editable }` (+ a `reason` string when locked)
+ * @example isRowEditableColumn('body', { pkCols: [], generatedCols: new Set(), hasRowid: true }).editable // true
+ * @example isRowEditableColumn('id',   { pkCols: ['id'], generatedCols: new Set(), hasRowid: true }).editable // false
+ */
+export function isRowEditableColumn(column: string, ctx: RowEditContext): RowEditGate {
+  const col = (column ?? '').trim();
+
+  // The synthetic rowid handle is never a user-editable value.
+  if (col === ROWID_KEY) {
+    return { editable: false, reason: 'Internal row handle — not an editable value.' };
+  }
+
+  // Nothing safe to target: no PK AND no rowid → the whole row is read-only.
+  if (ctx.pkCols.length === 0 && !ctx.hasRowid) {
+    return {
+      editable: false,
+      reason: 'This table has no primary key and no row id, so a cell can’t be safely targeted for edit.',
+    };
+  }
+
+  if (ctx.pkCols.some((c) => (c ?? '').trim() === col)) {
+    return { editable: false, reason: 'Primary-key column — the key can’t be edited here.' };
+  }
+
+  if (ctx.generatedCols.has(col)) {
+    return { editable: false, reason: 'Generated column — its value is computed by the database.' };
+  }
+
+  return { editable: true };
+}
+
+/**
  * Build a PARAMETERIZED bulk `DELETE` targeting MANY rows by primary key. Single-column PK →
  * `WHERE "id" IN (?1, ?2, …)`; composite PK → `WHERE ("a"=?1 AND "b"=?2) OR (…) …`. Every identifier
  * is validated + quoted; every PK value is a bound `?N` — nothing is concatenated, and a non-empty

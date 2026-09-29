@@ -61,6 +61,7 @@ import {
   requestDbAddColumn,
   requestDbRenameColumn,
   requestDbDropColumn,
+  requestDbUpdateRow,
   type ParentToChildMessage,
   type SiteDbTablesResponseMessage,
   type SiteDbRowsResponseMessage,
@@ -75,6 +76,11 @@ import {
   pkFromTableInfo,
   RowMutationError,
   rowPkKey,
+  // ── Revision 1 — rowid inline edit (kills "no-PK = read-only") ──
+  ROWID_KEY,
+  rowStableKey,
+  rowRowid,
+  isRowEditableColumn,
   // ── grid engine ──
   cycleSortMulti,
   sortRows,
@@ -912,27 +918,26 @@ export const SiteTablesPanel = memo(
 
     // ── Edit helpers ──────────────────────────────────────────────────────────
 
-    /** A column is editable only when there's a resolvable PK, it isn't part of the PK, and isn't generated. */
+    /**
+     * Whether the open table's browsed rows carry the stable `_rowid` handle (Revision 1). Every row
+     * from the browse endpoint (`SELECT rowid AS _rowid, *`) has one for an ordinary table — so this is
+     * the fallback identity that keeps a PK-LESS table editable. Derived from the loaded rows (a WITHOUT
+     * ROWID / virtual table would omit it, in which case a PK-less table stays honestly read-only).
+     */
+    const hasRowid = useMemo(
+      () => (rows.status === 'ready' && rows.page.rows.length > 0 ? rowRowid(rows.page.rows[0]) !== null : false),
+      [rows],
+    );
+
+    /**
+     * A column is editable when the row is safely targetable (a PK exists, OR a `_rowid` handle exists)
+     * and the column isn't the PK, a generated column, or the synthetic `_rowid` handle. Delegates to the
+     * pure {@link isRowEditableColumn} gate — killing the old "no primary key ⇒ read-only" limitation.
+     */
     const editableColumn = useCallback(
-      (col: string): { editable: boolean; reason?: string } => {
-        if (pkCols.length === 0) {
-          return {
-            editable: false,
-            reason: 'This table has no primary key, so a cell can’t be safely targeted for edit.',
-          };
-        }
-
-        if (pkCols.includes(col)) {
-          return { editable: false, reason: 'Primary-key column — the key can’t be edited here.' };
-        }
-
-        if (generatedCols.has(col)) {
-          return { editable: false, reason: 'Generated column — its value is computed by the database.' };
-        }
-
-        return { editable: true };
-      },
-      [pkCols, generatedCols],
+      (col: string): { editable: boolean; reason?: string } =>
+        isRowEditableColumn(col, { pkCols, generatedCols, hasRowid }),
+      [pkCols, generatedCols, hasRowid],
     );
 
     /** Open the typed editor for one cell — seed kind + value from the column's DECLARED type. */
@@ -944,9 +949,10 @@ export const SiteTablesPanel = memo(
           return;
         }
 
-        const pkKey = rowPkKey(row, pkCols);
+        // Stable identity: the PK when present, else the row's `_rowid` — so a PK-less row still opens.
+        const stableKey = rowStableKey(row, pkCols);
 
-        if (pkKey === null) {
+        if (stableKey === null) {
           return;
         }
 
@@ -955,7 +961,7 @@ export const SiteTablesPanel = memo(
         const { kind, value } = editorKindForColumn(col.type, row[col.name]);
         setEditKind(kind);
         setEditValue(value);
-        setEditing({ pkKey, column: col.name });
+        setEditing({ pkKey: stableKey, column: col.name });
       },
       [editableColumn, pkCols],
     );
@@ -984,9 +990,62 @@ export const SiteTablesPanel = memo(
     }, []);
 
     /**
-     * Commit the open cell edit: OPTIMISTICALLY update the local grid, send a param-bound
-     * `UPDATE … WHERE pk=?` to the site's OWN D1, and on failure ROLL BACK + surface the error. On
-     * success, arm a one-click local Undo (the reverse UPDATE).
+     * Write ONE cell to the site's OWN D1 by the row's stable identity. When the table has a PRIMARY
+     * KEY, send a param-bound `UPDATE … WHERE pk=?` over the exec-SQL bridge (unchanged). When it has NO
+     * PK, target the row by its stable SQLite `rowid` (`_rowid`) via the dedicated `PATCH …/rows/:rowid`
+     * bridge — the Revision 1 path that keeps a PK-less table fully editable. Normalizes both to
+     * `{ ok, error? }`; never throws.
+     */
+    const writeCell = useCallback(
+      async (
+        table: string,
+        row: Record<string, unknown>,
+        column: string,
+        value: BoundValue,
+      ): Promise<{ ok: boolean; error?: string }> => {
+        // PK path: the proven param-bound UPDATE-by-PK over the exec-SQL bridge.
+        if (pkCols.length > 0) {
+          let stmt: { sql: string; params: BoundValue[] };
+
+          try {
+            stmt = buildUpdateByPk(table, pkCols, row, column, value);
+          } catch (e) {
+            return { ok: false, error: e instanceof RowMutationError ? e.message : 'Could not build the statement.' };
+          }
+
+          return execSql(stmt.sql, stmt.params, true);
+        }
+
+        // No-PK path (Revision 1): target the row by its stable `_rowid` via PATCH …/rows/:rowid.
+        const rowid = rowRowid(row);
+
+        if (rowid === null) {
+          return { ok: false, error: 'This row has no stable id, so it can’t be edited.' };
+        }
+
+        try {
+          const reply = await requestDbUpdateRow({ table, rowid, column, value });
+
+          if (reply.enabled === false || (reply.error && reply.error.includes(DISABLED_404))) {
+            return { ok: false, error: DISABLED_404 };
+          }
+
+          if (!reply.ok) {
+            return { ok: false, error: reply.error || 'The edit could not be saved.' };
+          }
+
+          return { ok: true };
+        } catch (err) {
+          return { ok: false, error: err instanceof Error ? err.message : 'The database could not be reached.' };
+        }
+      },
+      [pkCols, execSql],
+    );
+
+    /**
+     * Commit the open cell edit: OPTIMISTICALLY update the local grid, WRITE via {@link writeCell}
+     * (UPDATE-by-PK when a PK exists, else PATCH-by-`_rowid`), and on failure ROLL BACK + surface the
+     * error. On success, arm a one-click local Undo (the reverse write).
      */
     const submitEdit = useCallback(
       async (row: Record<string, unknown>, col: ColumnInfo) => {
@@ -1005,19 +1064,11 @@ export const SiteTablesPanel = memo(
           return;
         }
 
-        let stmt: { sql: string; params: BoundValue[] };
-
-        try {
-          stmt = buildUpdateByPk(table, pkCols, row, col.name, value);
-        } catch (e) {
-          setEditError(e instanceof RowMutationError ? e.message : 'Could not build the statement.');
-          return;
-        }
-
         const previous = row[col.name];
-        const pkKey = rowPkKey(row, pkCols);
+        // Stable identity: PK when present, else the row's `_rowid` — so a PK-less row is targetable.
+        const stableKey = rowStableKey(row, pkCols);
 
-        // Optimistic: patch the row in place immediately (by PK identity) so the UI responds instantly.
+        // Optimistic: patch the row in place immediately (by stable identity) so the UI responds instantly.
         setRows((cur) => {
           if (cur.status !== 'ready') {
             return cur;
@@ -1027,15 +1078,15 @@ export const SiteTablesPanel = memo(
             status: 'ready',
             page: {
               ...cur.page,
-              rows: cur.page.rows.map((r) => (rowPkKey(r, pkCols) === pkKey ? { ...r, [col.name]: value } : r)),
+              rows: cur.page.rows.map((r) => (rowStableKey(r, pkCols) === stableKey ? { ...r, [col.name]: value } : r)),
             },
           };
         });
-        setDetailRow((cur) => (cur && rowPkKey(cur, pkCols) === pkKey ? { ...cur, [col.name]: value } : cur));
+        setDetailRow((cur) => (cur && rowStableKey(cur, pkCols) === stableKey ? { ...cur, [col.name]: value } : cur));
         setEditBusy(true);
         setEditError('');
 
-        const res = await execSql(stmt.sql, stmt.params, true);
+        const res = await writeCell(table, row, col.name, value);
 
         setEditBusy(false);
 
@@ -1050,11 +1101,15 @@ export const SiteTablesPanel = memo(
               status: 'ready',
               page: {
                 ...cur.page,
-                rows: cur.page.rows.map((r) => (rowPkKey(r, pkCols) === pkKey ? { ...r, [col.name]: previous } : r)),
+                rows: cur.page.rows.map((r) =>
+                  rowStableKey(r, pkCols) === stableKey ? { ...r, [col.name]: previous } : r,
+                ),
               },
             };
           });
-          setDetailRow((cur) => (cur && rowPkKey(cur, pkCols) === pkKey ? { ...cur, [col.name]: previous } : cur));
+          setDetailRow((cur) =>
+            cur && rowStableKey(cur, pkCols) === stableKey ? { ...cur, [col.name]: previous } : cur,
+          );
           setEditError(res.error || 'The edit could not be saved.');
 
           return;
@@ -1063,16 +1118,17 @@ export const SiteTablesPanel = memo(
         // Committed — close the editor + arm Undo.
         setEditing(null);
 
-        if (pkKey !== null) {
-          armUndo({ kind: 'cell', table, column: col.name, pkKey, previous, next: value });
+        if (stableKey !== null) {
+          armUndo({ kind: 'cell', table, column: col.name, pkKey: stableKey, previous, next: value });
         }
       },
-      [rows, editKind, editValue, pkCols, execSql, armUndo],
+      [rows, editKind, editValue, pkCols, writeCell, armUndo],
     );
 
     /**
      * Toggle a BOOLEAN cell directly from the grid (checkbox) — a one-click optimistic write, no editor.
-     * Same optimistic + rollback + undo contract as {@link submitEdit}. No-op for a non-editable column.
+     * Same optimistic + rollback + undo contract as {@link submitEdit}, and the same PK-or-`_rowid`
+     * write routing via {@link writeCell}. No-op for a non-editable column.
      */
     const toggleBooleanCell = useCallback(
       async (row: Record<string, unknown>, col: ColumnInfo) => {
@@ -1084,16 +1140,8 @@ export const SiteTablesPanel = memo(
         const isOn = cur === 1 || cur === true || cur === '1' || cur === 'true';
         const next: BoundValue = isOn ? 0 : 1;
         const previous = cur;
-        const pkKey = rowPkKey(row, pkCols);
+        const stableKey = rowStableKey(row, pkCols);
         const table = rows.page.table;
-
-        let stmt: { sql: string; params: BoundValue[] };
-
-        try {
-          stmt = buildUpdateByPk(table, pkCols, row, col.name, next);
-        } catch {
-          return;
-        }
 
         setRows((s) => {
           if (s.status !== 'ready') {
@@ -1104,12 +1152,12 @@ export const SiteTablesPanel = memo(
             status: 'ready',
             page: {
               ...s.page,
-              rows: s.page.rows.map((r) => (rowPkKey(r, pkCols) === pkKey ? { ...r, [col.name]: next } : r)),
+              rows: s.page.rows.map((r) => (rowStableKey(r, pkCols) === stableKey ? { ...r, [col.name]: next } : r)),
             },
           };
         });
 
-        const res = await execSql(stmt.sql, stmt.params, true);
+        const res = await writeCell(table, row, col.name, next);
 
         if (!res.ok) {
           setRows((s) => {
@@ -1121,7 +1169,9 @@ export const SiteTablesPanel = memo(
               status: 'ready',
               page: {
                 ...s.page,
-                rows: s.page.rows.map((r) => (rowPkKey(r, pkCols) === pkKey ? { ...r, [col.name]: previous } : r)),
+                rows: s.page.rows.map((r) =>
+                  rowStableKey(r, pkCols) === stableKey ? { ...r, [col.name]: previous } : r,
+                ),
               },
             };
           });
@@ -1130,11 +1180,11 @@ export const SiteTablesPanel = memo(
           return;
         }
 
-        if (pkKey !== null) {
-          armUndo({ kind: 'cell', table, column: col.name, pkKey, previous, next });
+        if (stableKey !== null) {
+          armUndo({ kind: 'cell', table, column: col.name, pkKey: stableKey, previous, next });
         }
       },
-      [rows, editableColumn, pkCols, execSql, armUndo],
+      [rows, editableColumn, pkCols, writeCell, armUndo],
     );
 
     /** Undo the last committed mutation (cell / insert / delete) by re-issuing its reverse statement. */
@@ -1148,21 +1198,14 @@ export const SiteTablesPanel = memo(
 
       try {
         if (undo.kind === 'cell') {
-          const currentRow = rows.page.rows.find((r) => rowPkKey(r, pkCols) === undo.pkKey);
+          // Re-target the same row by its STABLE identity (PK when present, else `_rowid`).
+          const currentRow = rows.page.rows.find((r) => rowStableKey(r, pkCols) === undo.pkKey);
 
           if (!currentRow || undo.table !== liveTable) {
             return;
           }
 
-          let stmt: { sql: string; params: BoundValue[] };
-
-          try {
-            stmt = buildUpdateByPk(undo.table, pkCols, currentRow, undo.column, undo.previous as BoundValue);
-          } catch {
-            return;
-          }
-
-          const res = await execSql(stmt.sql, stmt.params, true);
+          const res = await writeCell(undo.table, currentRow, undo.column, undo.previous as BoundValue);
 
           if (res.ok) {
             const restored = undo.previous;
@@ -1176,7 +1219,7 @@ export const SiteTablesPanel = memo(
                     page: {
                       ...cur.page,
                       rows: cur.page.rows.map((r) =>
-                        rowPkKey(r, pkCols) === targetKey ? { ...r, [targetCol]: restored } : r,
+                        rowStableKey(r, pkCols) === targetKey ? { ...r, [targetCol]: restored } : r,
                       ),
                     },
                   },
@@ -1210,7 +1253,7 @@ export const SiteTablesPanel = memo(
         setUndoBusy(false);
         clearUndo();
       }
-    }, [undo, rows, pkCols, execSql, clearUndo, loadRows]);
+    }, [undo, rows, pkCols, execSql, writeCell, clearUndo, loadRows]);
 
     // ── Derived grid data (visible columns · filtered/sorted rows · current page) ────────
     const allColumns = rows.status === 'ready' ? rows.page.columns : [];
@@ -4738,7 +4781,7 @@ const GridRow = memo((props: GridRowProps) => {
     onEditCancel,
   } = props;
 
-  const thisKey = rowPkKey(row, pkCols);
+  const thisKey = rowStableKey(row, pkCols);
 
   return (
     <div
@@ -4998,7 +5041,7 @@ const RowDrawer = memo(
       return () => window.removeEventListener('keydown', onKey);
     }, [onClose]);
 
-    const thisKey = rowPkKey(row, pkCols);
+    const thisKey = rowStableKey(row, pkCols);
 
     return (
       <div className="absolute inset-0 z-20 flex justify-end" role="dialog" aria-modal="true" aria-label="Row detail">

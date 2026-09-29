@@ -52,6 +52,14 @@ vi.mock('~/lib/embed/embedded-mode', () => ({
   onParentMessage: onParentMessageSpy,
   requestDbLoadSample: requestDbLoadSampleSpy,
   requestDbAiSeed: requestDbAiSeedSpy,
+  // The panel also imports these DDL/edit senders; stub them so the module's named imports resolve.
+  requestDbCreateTable: vi.fn(async () => ({ type: 'PS_SITEDB_CREATE_TABLE_RESPONSE', ok: true })),
+  requestDbDropTable: vi.fn(async () => ({ type: 'PS_SITEDB_DROP_TABLE_RESPONSE', ok: true })),
+  requestDbAddColumn: vi.fn(async () => ({ type: 'PS_SITEDB_ADD_COLUMN_RESPONSE', ok: true })),
+  requestDbRenameColumn: vi.fn(async () => ({ type: 'PS_SITEDB_RENAME_COLUMN_RESPONSE', ok: true })),
+  requestDbDropColumn: vi.fn(async () => ({ type: 'PS_SITEDB_DROP_COLUMN_RESPONSE', ok: true })),
+  requestDbSearch: vi.fn(async () => ({ type: 'PS_SITEDB_SEARCH_RESPONSE', ok: true, nameMatches: [], contentMatches: [] })),
+  requestDbUpdateRow: vi.fn(async () => ({ type: 'PS_SITEDB_UPDATE_ROW_RESPONSE', ok: true, updated: 1 })),
 }));
 
 vi.mock('@tanstack/react-virtual', () => ({
@@ -73,6 +81,10 @@ import {
   moveColumn,
   clampPageSize,
   PAGE_SIZE_OPTIONS,
+  // Revision 1 — rowid inline edit (kill the "no-PK = read-only" limitation).
+  ROWID_KEY,
+  rowStableKey,
+  isRowEditableColumn,
 } from '../data-panel-logic';
 
 // ─── Helpers ────────────────────────────────────────────────────────────────
@@ -130,10 +142,11 @@ async function openRichTable(rows = RICH_ROWS): Promise<void> {
     });
   });
 
-  const tableRows = screen.getAllByTestId('sitedb-table-row');
+  // Click the inner open-button (the row wrapper div has no onClick).
+  const openButtons = screen.getAllByTestId('sitedb-table-open');
 
   await act(async () => {
-    tableRows[0].click();
+    openButtons[0].click();
   });
 
   await waitFor(() => {
@@ -878,5 +891,78 @@ describe('undo a delete', () => {
       expect(screen.getByTestId('sitedb-undo')).toBeTruthy();
     });
     expect(screen.getByTestId('sitedb-undo').textContent).toContain('Deleted');
+  });
+});
+
+/*
+ * ─── Revision 1 — rowid inline cell editing (pure edit-gate) ──────────────────
+ *
+ * Kills the "no primary key ⇒ read-only" limitation. Every browsed row exposes
+ * the SQLite `rowid` under `_rowid` (the browse endpoint SELECTs `rowid AS
+ * _rowid, *`). These pure functions are the STABLE-KEY + EDIT-GATE the panel
+ * uses so a PK-less table is still fully editable — the row is targeted by its
+ * `_rowid` via the dedicated `PATCH …/rows/:rowid` endpoint.
+ */
+describe('Revision 1 — rowStableKey + isRowEditableColumn (pure edit-gate)', () => {
+  it('ROWID_KEY is the "_rowid" convention the browse endpoint emits', () => {
+    expect(ROWID_KEY).toBe('_rowid');
+  });
+
+  it('rowStableKey prefers the PRIMARY KEY identity when a PK exists', () => {
+    const row = { id: 42, _rowid: 7, title: 'Alpha' };
+    // With a PK, the key is the PK identity (unchanged from rowPkKey), NOT the rowid.
+    expect(rowStableKey(row, ['id'])).toBe(JSON.stringify([42]));
+  });
+
+  it('rowStableKey FALLS BACK to _rowid when there is NO primary key', () => {
+    const row = { _rowid: 7, title: 'Alpha', body: 'x' };
+    // No PK columns → the stable key is the rowid handle, so the row is still targetable.
+    expect(rowStableKey(row, [])).toBe('_rowid:7');
+  });
+
+  it('rowStableKey is null only when there is NEITHER a PK NOR a _rowid', () => {
+    expect(rowStableKey({ title: 'Alpha' }, [])).toBeNull();
+    // A composite-PK row missing one key part is still unresolvable (matches rowPkKey).
+    expect(rowStableKey({ a: 1 }, ['a', 'b'])).toBeNull();
+  });
+
+  it('isRowEditableColumn: a PK-LESS table is EDITABLE for a normal column when _rowid is present', () => {
+    const gate = isRowEditableColumn('title', {
+      pkCols: [],
+      generatedCols: new Set<string>(),
+      hasRowid: true,
+    });
+    expect(gate.editable).toBe(true);
+  });
+
+  it('isRowEditableColumn: PK-less AND no _rowid stays read-only (nothing safe to target)', () => {
+    const gate = isRowEditableColumn('title', {
+      pkCols: [],
+      generatedCols: new Set<string>(),
+      hasRowid: false,
+    });
+    expect(gate.editable).toBe(false);
+    expect(gate.reason).toBeTruthy();
+  });
+
+  it('isRowEditableColumn: the synthetic _rowid handle itself is never editable', () => {
+    const gate = isRowEditableColumn(ROWID_KEY, {
+      pkCols: [],
+      generatedCols: new Set<string>(),
+      hasRowid: true,
+    });
+    expect(gate.editable).toBe(false);
+  });
+
+  it('isRowEditableColumn: a PK column stays locked; a generated column stays locked', () => {
+    const pk = isRowEditableColumn('id', { pkCols: ['id'], generatedCols: new Set<string>(), hasRowid: true });
+    expect(pk.editable).toBe(false);
+
+    const gen = isRowEditableColumn('slug', {
+      pkCols: ['id'],
+      generatedCols: new Set(['slug']),
+      hasRowid: true,
+    });
+    expect(gen.editable).toBe(false);
   });
 });

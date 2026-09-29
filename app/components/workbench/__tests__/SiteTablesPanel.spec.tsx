@@ -53,10 +53,12 @@ const { postToParentSpy, onParentMessageSpy, parentHandlers } = vi.hoisted(() =>
   return { postToParentSpy, onParentMessageSpy, parentHandlers };
 });
 
-const { requestDbLoadSampleSpy, requestDbAiSeedSpy, postToastToParentSpy } = vi.hoisted(() => ({
+const { requestDbLoadSampleSpy, requestDbAiSeedSpy, postToastToParentSpy, requestDbUpdateRowSpy } = vi.hoisted(() => ({
   requestDbLoadSampleSpy: vi.fn(async () => ({ type: 'PS_DB_LOAD_SAMPLE_RESULT', ok: true, tablesCreated: 1, tables: ['sample'] })),
   requestDbAiSeedSpy: vi.fn(async () => ({ type: 'PS_DB_AI_SEED_RESULT', ok: true, rowsInserted: 10, table: 'posts' })),
   postToastToParentSpy: vi.fn(),
+  // Revision 1 — the dedicated rowid UPDATE sender (PATCH …/rows/:rowid). Defaults to a success reply.
+  requestDbUpdateRowSpy: vi.fn(async () => ({ type: 'PS_SITEDB_UPDATE_ROW_RESPONSE', ok: true, updated: 1 })),
 }));
 
 vi.mock('~/lib/embed/embedded-mode', () => ({
@@ -66,6 +68,15 @@ vi.mock('~/lib/embed/embedded-mode', () => ({
   onParentMessage: onParentMessageSpy,
   requestDbLoadSample: requestDbLoadSampleSpy,
   requestDbAiSeed: requestDbAiSeedSpy,
+  requestDbUpdateRow: requestDbUpdateRowSpy,
+  // The panel also imports these DDL senders; stub them so the module's named imports resolve
+  // (an `undefined` import can break the table-open path under this harness).
+  requestDbCreateTable: vi.fn(async () => ({ type: 'PS_SITEDB_CREATE_TABLE_RESPONSE', ok: true })),
+  requestDbDropTable: vi.fn(async () => ({ type: 'PS_SITEDB_DROP_TABLE_RESPONSE', ok: true })),
+  requestDbAddColumn: vi.fn(async () => ({ type: 'PS_SITEDB_ADD_COLUMN_RESPONSE', ok: true })),
+  requestDbRenameColumn: vi.fn(async () => ({ type: 'PS_SITEDB_RENAME_COLUMN_RESPONSE', ok: true })),
+  requestDbDropColumn: vi.fn(async () => ({ type: 'PS_SITEDB_DROP_COLUMN_RESPONSE', ok: true })),
+  requestDbSearch: vi.fn(async () => ({ type: 'PS_SITEDB_SEARCH_RESPONSE', ok: true, nameMatches: [], contentMatches: [] })),
 }));
 
 /*
@@ -308,7 +319,8 @@ describe('SiteTablesPanel — tables present + row grid', () => {
     postToParentSpy.mockClear();
 
     await act(async () => {
-      tableRows[0].click();
+      // Click the inner open-button (the row wrapper div has no onClick).
+      screen.getAllByTestId('sitedb-table-open')[0].click();
     });
 
     // A PS_SITEDB_ROWS_REQUEST must have been sent
@@ -393,7 +405,8 @@ describe('SiteTablesPanel — tables present + row grid', () => {
     postToParentSpy.mockClear();
 
     await act(async () => {
-      tableRows[0].click();
+      // Click the inner open-button (the row wrapper div has no onClick).
+      screen.getAllByTestId('sitedb-table-open')[0].click();
     });
 
     await waitFor(() => {
@@ -456,7 +469,8 @@ describe('SiteTablesPanel — tables present + row grid', () => {
     postToParentSpy.mockClear();
 
     await act(async () => {
-      tableRows[0].click();
+      // Click the inner open-button (the row wrapper div has no onClick).
+      screen.getAllByTestId('sitedb-table-open')[0].click();
     });
 
     await waitFor(() => {
@@ -504,7 +518,8 @@ describe('SiteTablesPanel — tables present + row grid', () => {
     postToParentSpy.mockClear();
 
     await act(async () => {
-      tableRows[0].click();
+      // Click the inner open-button (the row wrapper div has no onClick).
+      screen.getAllByTestId('sitedb-table-open')[0].click();
     });
 
     await waitFor(() => {
@@ -702,7 +717,8 @@ describe('SiteTablesPanel — FIRE 2 inline edit + undo (per-site D1)', () => {
     const tableRows = screen.getAllByTestId('sitedb-table-row');
 
     await act(async () => {
-      tableRows[0].click();
+      // Click the inner open-button (the row wrapper div has no onClick).
+      screen.getAllByTestId('sitedb-table-open')[0].click();
     });
 
     /*
@@ -885,5 +901,215 @@ describe('SiteTablesPanel — FIRE 2 inline edit + undo (per-site D1)', () => {
     // No cell editor opened; the row drawer opened instead (PK cells fall through to row-click).
     expect(screen.queryByTestId('sitedb-cell-editing')).toBeNull();
     expect(screen.getByTestId('sitedb-row-drawer')).toBeTruthy();
+  });
+});
+
+/*
+ * ─── Revision 1 — rowid inline cell editing (NO-PK table) ─────────────────────
+ *
+ * The "no primary key ⇒ read-only" limitation is dead. A table WITHOUT a PK is
+ * still fully editable: every browsed row carries `_rowid` (the browse endpoint
+ * SELECTs `rowid AS _rowid, *`), and an edit routes through the dedicated
+ * `PS_SITEDB_UPDATE_ROW` bridge → `PATCH …/rows/:rowid` (never the PK-only
+ * exec-SQL path). These cases prove: (1) an editable cell in a PK-less table
+ * opens the typed editor + Save dispatches `requestDbUpdateRow({table, rowid,
+ * column, value})`; (2) the optimistic value shows + Undo arms on success.
+ */
+describe('SiteTablesPanel — Revision 1 rowid inline edit (no-PK table)', () => {
+  beforeEach(() => {
+    postToParentSpy.mockClear();
+    onParentMessageSpy.mockClear();
+    parentHandlers.clear();
+    requestDbUpdateRowSpy.mockClear();
+    requestDbUpdateRowSpy.mockResolvedValue({ type: 'PS_SITEDB_UPDATE_ROW_RESPONSE', ok: true, updated: 1 });
+  });
+
+  afterEach(() => {
+    cleanup();
+    parentHandlers.clear();
+  });
+
+  /** Drive to a browsed table that has NO primary key but exposes `_rowid` per row. */
+  async function openPklessTable(): Promise<void> {
+    render(<SiteTablesPanel />);
+
+    await waitFor(() => {
+      expect(postToParentSpy).toHaveBeenCalledWith(expect.objectContaining({ type: 'PS_SITEDB_TABLES_REQUEST' }));
+    });
+
+    await act(async () => {
+      fireReply({
+        type: 'PS_SITEDB_TABLES_RESPONSE',
+        correlationId: lastCorrelationId(),
+        ok: true,
+        databaseId: 'db-rev1',
+        provisioned: true,
+        tables: [{ name: 'notes' }],
+      });
+    });
+
+    // The clickable element is the inner open-button (`sitedb-table-open`), not the row wrapper div.
+    const openButtons = screen.getAllByTestId('sitedb-table-open');
+
+    await act(async () => {
+      openButtons[0].click();
+    });
+
+    await waitFor(() => {
+      expect(postToParentSpy).toHaveBeenCalledWith(
+        expect.objectContaining({ type: 'PS_SITEDB_ROWS_REQUEST', table: 'notes' }),
+      );
+    });
+
+    const rowsReq = postToParentSpy.mock.calls
+      .map((c) => c[0])
+      .find((m: unknown) => (m as { type?: string })?.type === 'PS_SITEDB_ROWS_REQUEST') as
+      | { correlationId: string }
+      | undefined;
+
+    await act(async () => {
+      fireReply({
+        type: 'PS_SITEDB_ROWS_RESPONSE',
+        correlationId: rowsReq?.correlationId,
+        ok: true,
+        table: 'notes',
+        // No `pk:1` on any column — this table has NO primary key.
+        columns: [
+          { name: 'body', type: 'TEXT', notnull: 0, pk: 0 },
+          { name: 'author', type: 'TEXT', notnull: 0, pk: 0 },
+        ],
+        // Rows carry the synthetic `_rowid` handle from `SELECT rowid AS _rowid, *`.
+        rows: [{ _rowid: 7, body: 'First note', author: 'me' }],
+        limit: 25,
+        offset: 0,
+        total: 1,
+      });
+    });
+  }
+
+  it('an editable cell in a PK-less table opens the editor; Save dispatches requestDbUpdateRow by _rowid', async () => {
+    await openPklessTable();
+
+    // The grid is NOT read-only — a normal column cell opens the typed editor.
+    const cells = screen.getAllByTestId('sitedb-grid-cell');
+    const bodyCell = cells.find((c) => c.textContent?.includes('First note'));
+    expect(bodyCell).toBeTruthy();
+
+    await act(async () => {
+      bodyCell!.click();
+    });
+
+    // The typed editor opens for this cell (proves the no-PK guard is gone).
+    expect(screen.getByTestId('sitedb-cell-editing')).toBeTruthy();
+
+    // Change the value + Save.
+    const input = screen.getByTestId('data-edit-value') as HTMLInputElement;
+    await act(async () => {
+      input.focus();
+      const setter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value')?.set;
+      setter?.call(input, 'Edited note');
+      input.dispatchEvent(new Event('input', { bubbles: true }));
+    });
+
+    await act(async () => {
+      screen.getByTestId('data-edit-save').click();
+    });
+
+    // The dedicated rowid UPDATE sender was called with { table, rowid, column, value } — NOT the exec-SQL path.
+    await waitFor(() => {
+      expect(requestDbUpdateRowSpy).toHaveBeenCalledWith(
+        expect.objectContaining({ table: 'notes', rowid: 7, column: 'body', value: 'Edited note' }),
+      );
+    });
+
+    // The optimistic value is shown + the Undo affordance appears on success.
+    await waitFor(() => {
+      expect(screen.getByTestId('sitedb-undo')).toBeTruthy();
+    });
+  });
+
+  it('a failed rowid update rolls back the optimistic edit and surfaces the error', async () => {
+    requestDbUpdateRowSpy.mockResolvedValue({
+      type: 'PS_SITEDB_UPDATE_ROW_RESPONSE',
+      ok: false,
+      error: 'D1 write rejected',
+    });
+
+    await openPklessTable();
+
+    const cells = screen.getAllByTestId('sitedb-grid-cell');
+    const bodyCell = cells.find((c) => c.textContent?.includes('First note'));
+
+    await act(async () => {
+      bodyCell!.click();
+    });
+
+    const input = screen.getByTestId('data-edit-value') as HTMLInputElement;
+    await act(async () => {
+      const setter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value')?.set;
+      setter?.call(input, 'Broken');
+      input.dispatchEvent(new Event('input', { bubbles: true }));
+    });
+
+    await act(async () => {
+      screen.getByTestId('data-edit-save').click();
+    });
+
+    // The error surfaces (never silent) and the editor stays open; no Undo (the write never committed).
+    await waitFor(() => {
+      expect(screen.getByTestId('data-edit-error').textContent).toContain('D1 write rejected');
+    });
+    expect(screen.getByTestId('sitedb-cell-editing')).toBeTruthy();
+    expect(screen.queryByTestId('sitedb-undo')).toBeNull();
+  });
+});
+
+/*
+ * ─── PS_SITEDB_UPDATE_ROW message field contract ─────────────────────────────
+ * The request/response shape agree on field names — the runtime contract guard
+ * that catches drift between the child sender and the parent handler.
+ */
+describe('PS_SITEDB_UPDATE_ROW message field contract', () => {
+  it('PS_SITEDB_UPDATE_ROW_REQUEST carries type + correlationId + table + rowid + column + value', () => {
+    const req = {
+      type: 'PS_SITEDB_UPDATE_ROW_REQUEST' as const,
+      correlationId: 'rev1-id-1',
+      table: 'notes',
+      rowid: 7,
+      column: 'body',
+      value: 'Edited note',
+    };
+    expect(req.type).toBe('PS_SITEDB_UPDATE_ROW_REQUEST');
+    expect(typeof req.correlationId).toBe('string');
+    expect(typeof req.table).toBe('string');
+    expect(typeof req.rowid).toBe('number');
+    expect(typeof req.column).toBe('string');
+    expect(req.value).toBe('Edited note');
+  });
+
+  it('PS_SITEDB_UPDATE_ROW_RESPONSE ok=true carries updated count; correlationId links to the request', () => {
+    const requestCorrelationId = 'rev1-id-42';
+    const res = {
+      type: 'PS_SITEDB_UPDATE_ROW_RESPONSE' as const,
+      correlationId: requestCorrelationId,
+      ok: true,
+      updated: 1,
+    };
+    expect(res.ok).toBe(true);
+    expect(typeof res.updated).toBe('number');
+    expect(res.correlationId).toBe(requestCorrelationId);
+  });
+
+  it('PS_SITEDB_UPDATE_ROW_RESPONSE ok=false + enabled=false signals the dark flag', () => {
+    const res = {
+      type: 'PS_SITEDB_UPDATE_ROW_RESPONSE' as const,
+      correlationId: 'rev1-id-2',
+      ok: false,
+      enabled: false,
+      error: 'Per-site data is not enabled',
+    };
+    expect(res.ok).toBe(false);
+    expect(res.enabled).toBe(false);
+    expect(res.error).toContain('Per-site data is not enabled');
   });
 });
