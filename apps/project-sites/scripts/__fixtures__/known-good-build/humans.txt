@@ -1,0 +1,6 @@
+/* TEAM */
+Barbershop: Vito's Mens Salon
+Location: Lake Hiawatha, NJ, USA
+
+/* SITE */
+Built with: Vite, React, Tailwind CSS

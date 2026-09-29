@@ -1,0 +1,9 @@
+# Vito's Mens Salon
+
+> Classic barbering in Lake Hiawatha, NJ — cuts, hot-towel shaves, and beard care.
+
+## Pages
+- [Home](https://vitos-mens-salon.projectsites.dev/)
+- [About](https://vitos-mens-salon.projectsites.dev/about)
+- [Services](https://vitos-mens-salon.projectsites.dev/services)
+- [Contact](https://vitos-mens-salon.projectsites.dev/contact)
