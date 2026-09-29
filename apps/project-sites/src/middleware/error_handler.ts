@@ -1,92 +1,36 @@
 /**
  * @module middleware/error_handler
- * @description Global error handler for the Project Sites Worker.
+ * @description Global Hono error handler — thin composition over
+ * {@link module:middleware/error_taxonomy} (predicates + page copy) and
+ * {@link module:middleware/error_render} (branded HTML page + JSON envelope).
  *
- * Catches every uncaught error bubbling out of a route or middleware and
- * converts it into either:
- *
- * - A branded animated HTML page for browser clients (`Accept: text/html`),
- *   complete with Fira Code debug pane and recovery CTAs.
- * - A structured JSON envelope (`{ error: { code, message, request_id } }`)
- *   for API clients.
- *
- * Known {@link AppError} subclasses preserve their `statusCode` and `code`.
- * {@link ZodError} becomes a `VALIDATION_ERROR` 400. Anything else is logged
- * as `INTERNAL_ERROR` 500 and reported to Sentry + PostHog with the
- * correlation `requestId` for forensic linking.
+ * Behavior contract (locked by `src/__tests__/error_handler_integration.test.ts`):
+ * - {@link AppError} keeps its `statusCode`/`code` and serializes via `err.toJSON()`.
+ * - ZodError → `VALIDATION_ERROR` 400 with structured `details.issues[]`.
+ * - Malformed JSON body → clean `BAD_REQUEST` 400, warn-logged, never Sentry.
+ * - R2-disabled outage → calm `STORAGE_UNAVAILABLE` 503 + `Retry-After`.
+ * - Anything else → `INTERNAL_ERROR` 500 with the GENERIC public message; the raw
+ *   message/stack goes to logs + Sentry + PostHog only (never leaked to clients).
+ * - `/api/*` responses are ALWAYS JSON — never the branded HTML page — even when
+ *   Accept prefers text/html (fire-27: a browser `fetch('/api/…')` sends
+ *   `Accept: text/html,…` but the caller expects JSON).
  *
  * @packageDocumentation
  */
 
 import type { ErrorHandler } from 'hono';
-import { AppError, escapeHtml } from '@project-sites/shared';
-import { ZodError } from 'zod';
+import { AppError } from '@project-sites/shared';
 import type { Env, Variables } from '../types/env.js';
 import * as posthog from '../lib/posthog.js';
 import { captureException } from '../lib/sentry.js';
 import { createLogger } from '../observability/index.js';
+import { brandedErrorPage, buildErrorEnvelope, prefersHtml } from './error_render.js';
+import { isMalformedJsonBody, isStorageUnavailable, isZodErrorLike } from './error_taxonomy.js';
 
 /**
- * Generate a branded HTML error page matching the ProjectSites design system.
- * Uses Fira Code for debug info, animated gradients, and a cyber/terminal aesthetic.
- */
-function brandedErrorPage(opts: {
-  status: number;
-  code: string;
-  message: string;
-  requestId: string;
-  details?: string;
-}): string {
-  const titles: Record<number, string> = {
-    400: 'Bad Request',
-    401: 'Not Authorized',
-    403: 'Forbidden',
-    404: 'Not Found',
-    409: 'Conflict',
-    413: 'Too Large',
-    429: 'Too Many Requests',
-    500: 'Server Error',
-    502: 'Bad Gateway',
-    503: 'Service Unavailable',
-  };
-  const title = titles[opts.status] || `Error ${opts.status}`;
-  const suggestions: Record<number, string> = {
-    400: 'Check the request format and try again.',
-    401: 'Please <a href="https://projectsites.dev/" class="link">sign in</a> to continue.',
-    403: "You don't have permission to access this resource.",
-    404: 'This page doesn\'t exist. <a href="https://projectsites.dev/create" class="link">Build a site</a> instead?',
-    429: "You're sending too many requests. Wait a moment and try again.",
-    500: "Something went wrong on our end. We've been notified.",
-    502: 'Our upstream service is temporarily unavailable.',
-    503: "We're briefly offline for maintenance. Back shortly.",
-  };
-  const suggestion =
-    suggestions[opts.status] ||
-    'Try again or <a href="https://projectsites.dev/" class="link">go home</a>.';
-
-  return `<!DOCTYPE html><html lang="en"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${title} | ProjectSites</title><link href="https://fonts.googleapis.com/css2?family=Fira+Code:wght@300;400;500&family=Space+Grotesk:wght@400;600;700&display=swap" rel="stylesheet"><style>*{margin:0;padding:0;box-sizing:border-box}body{min-height:100vh;display:flex;align-items:center;justify-content:center;background:#0a0a0f;color:#e0e0e0;font-family:'Space Grotesk',sans-serif;overflow:hidden}@keyframes gradient{0%{background-position:0% 50%}50%{background-position:100% 50%}100%{background-position:0% 50%}}@keyframes float{0%,100%{transform:translateY(0)}50%{transform:translateY(-10px)}}@keyframes pulse{0%,100%{opacity:1}50%{opacity:.6}}@keyframes scanline{0%{top:-100%}100%{top:100%}}@keyframes blink{0%,100%{opacity:1}50%{opacity:0}}.bg{position:fixed;inset:0;background:linear-gradient(-45deg,#0a0a0f,#0d1117,#0a1628,#0f0a1e);background-size:400% 400%;animation:gradient 8s ease infinite}.grid{position:fixed;inset:0;background-image:linear-gradient(rgba(0,255,200,.03) 1px,transparent 1px),linear-gradient(90deg,rgba(0,255,200,.03) 1px,transparent 1px);background-size:60px 60px}.scanline{position:fixed;width:100%;height:4px;background:linear-gradient(90deg,transparent,rgba(0,255,200,.08),transparent);animation:scanline 4s linear infinite;z-index:0}.container{text-align:center;max-width:600px;padding:2rem;position:relative;z-index:1}.code{font-size:7rem;font-weight:700;background:linear-gradient(135deg,#00ffc8,#00d4ff,#7c3aed);-webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text;animation:float 3s ease-in-out infinite;line-height:1}.title{font-size:1.8rem;color:#c8d6e5;margin:.5rem 0}.msg{font-size:1.1rem;color:#8892a4;margin:1rem 0 2rem;line-height:1.6}.link{color:#00ffc8;text-decoration:none;border-bottom:1px solid rgba(0,255,200,.3);transition:all .3s}.link:hover{border-color:#00ffc8;text-shadow:0 0 8px rgba(0,255,200,.3)}.actions{display:flex;gap:1rem;justify-content:center;flex-wrap:wrap;margin-bottom:2rem}.btn{display:inline-block;padding:12px 28px;border-radius:50px;text-decoration:none;font-weight:600;font-family:inherit;transition:all .3s}.btn-primary{background:linear-gradient(135deg,#00ffc8,#00d4ff);color:#0a0a0f}.btn-primary:hover{transform:translateY(-3px);box-shadow:0 8px 30px rgba(0,255,200,.3)}.btn-ghost{background:transparent;color:#8892a4;border:1px solid rgba(255,255,255,.1)}.btn-ghost:hover{border-color:#00ffc8;color:#00ffc8}.debug{margin-top:2rem;text-align:left;background:rgba(0,255,200,.03);border:1px solid rgba(0,255,200,.08);border-radius:12px;padding:1.5rem;font-family:'Fira Code',monospace;font-size:.72rem;color:#4a9;line-height:2}.debug-title{color:#00ffc8;font-size:.8rem;margin-bottom:.5rem;font-weight:500;display:flex;align-items:center;gap:6px}.debug-title::after{content:'_';animation:blink 1s infinite}.debug span{color:#556}</style></head><body><div class="bg"></div><div class="grid"></div><div class="scanline"></div><div class="container"><div class="code">${opts.status}</div><h1 class="title">${title}</h1><p class="msg">${suggestion}</p><div class="actions"><a class="btn btn-primary" href="https://projectsites.dev/">Go Home</a><a class="btn btn-ghost" href="https://projectsites.dev/create">Build a Site</a></div><div class="debug"><div class="debug-title">// diagnostics</div><span>status:</span> ${opts.status} ${title}<br><span>code:</span> ${escapeHtml(opts.code)}<br><span>message:</span> ${escapeHtml(opts.message)}<br><span>request_id:</span> ${escapeHtml(opts.requestId)}<br><span>timestamp:</span> ${new Date().toISOString()}${opts.details ? '<br><span>details:</span> ' + escapeHtml(opts.details) : ''}</div></div></body></html>`;
-}
-
-/**
- * Check if the request prefers HTML over JSON (browser vs API client).
- */
-function prefersHtml(accept: string | undefined): boolean {
-  if (!accept) return false;
-  // Only return HTML if the client explicitly asks for text/html
-  // Do NOT match on */* (which curl and API clients send)
-  if (!accept.includes('text/html')) return false;
-  const jsonIdx = accept.indexOf('application/json');
-  if (jsonIdx === -1) return true;
-  return accept.indexOf('text/html') < jsonIdx;
-}
-
-/**
- * Global error handler.
+ * Global error handler for the Worker's Hono app.
  *
- * Returns branded HTML error pages for browser requests (Accept: text/html)
- * and structured JSON for API clients (Accept: application/json).
- *
- * Reports errors to Sentry and PostHog for observability.
+ * @see module documentation for the behavior contract per error class.
  */
 export const errorHandler: ErrorHandler<{
   Bindings: Env;
@@ -95,11 +39,6 @@ export const errorHandler: ErrorHandler<{
   const requestId = c.get('requestId') ?? 'unknown';
   const url = c.req.url;
   const method = c.req.method;
-  // `/api/*` errors are ALWAYS machine-readable JSON — never the branded HTML
-  // page — even when Accept prefers text/html (a browser doing `fetch('/api/…')`
-  // sends `Accept: text/html,…` but an SDK/fetch caller expects JSON; serving HTML
-  // is a soft-404 that breaks JSON parsing). Branded HTML stays for marketing/SPA
-  // routes. (fire-27: foreign/nonexistent /api/sites/:id/* served HTML-404.)
   const isHtml = !c.req.path.startsWith('/api/') && prefersHtml(c.req.header('accept'));
 
   // Safely access executionCtx (not available in test environments)
@@ -124,19 +63,17 @@ export const errorHandler: ErrorHandler<{
       }),
     );
 
-    if (err.statusCode >= 500) {
-      if (ctx) {
-        createLogger(c.env, ctx, {
-          service: 'error_handler',
-          environment: c.env.ENVIRONMENT ?? 'production',
-          request_id: requestId,
-        }).error('unhandled_error', { code: err.code, url, method }, err);
-        posthog.trackError(c.env, ctx, err.code, err.message, {
-          request_id: requestId,
-          status: err.statusCode,
-          url,
-        });
-      }
+    if (err.statusCode >= 500 && ctx) {
+      createLogger(c.env, ctx, {
+        service: 'error_handler',
+        environment: c.env.ENVIRONMENT ?? 'production',
+        request_id: requestId,
+      }).error('unhandled_error', { code: err.code, url, method }, err);
+      posthog.trackError(c.env, ctx, err.code, err.message, {
+        request_id: requestId,
+        status: err.statusCode,
+        url,
+      });
     }
 
     if (isHtml) {
@@ -153,12 +90,9 @@ export const errorHandler: ErrorHandler<{
     return c.json(err.toJSON(), err.statusCode as 400);
   }
 
-  // ZodError: validation failures
-  const isZodError =
-    err instanceof ZodError ||
-    (err && typeof err === 'object' && 'issues' in err && Array.isArray((err as ZodError).issues));
-  if (isZodError) {
-    const zodErr = err as ZodError;
+  // ZodError: validation failures → structured field issues, never a raw dump.
+  if (isZodErrorLike(err)) {
+    const zodErr = err as import('zod').ZodError;
     const issues = zodErr.issues.map((i) => ({
       path: i.path.join('.'),
       message: i.message,
@@ -190,24 +124,18 @@ export const errorHandler: ErrorHandler<{
       );
     }
     return c.json(
-      {
-        error: {
-          code: 'VALIDATION_ERROR',
-          message: 'Request validation failed',
-          request_id: requestId,
-          details: { issues },
-        },
-      },
+      buildErrorEnvelope({
+        code: 'VALIDATION_ERROR',
+        message: 'Request validation failed',
+        requestId,
+        details: { issues },
+      }),
       400,
     );
   }
 
-  // Malformed JSON body: a `SyntaxError` from `c.req.json()` is a CLIENT error,
-  // not a server fault. Map it to a clean 400 (logged at warn, never reported to
-  // Sentry) so every un-individually-guarded `await c.req.json()` read is safe by
-  // default. Gated on a JSON-ish message so an unrelated internal SyntaxError
-  // still surfaces as a 500.
-  if (err instanceof SyntaxError && /JSON/i.test(err.message)) {
+  // Malformed JSON body: a CLIENT error, not a server fault.
+  if (isMalformedJsonBody(err)) {
     console.warn(
       JSON.stringify({
         level: 'warn',
@@ -231,13 +159,11 @@ export const errorHandler: ErrorHandler<{
       );
     }
     return c.json(
-      {
-        error: {
-          code: 'BAD_REQUEST',
-          message: 'Malformed JSON in request body',
-          request_id: requestId,
-        },
-      },
+      buildErrorEnvelope({
+        code: 'BAD_REQUEST',
+        message: 'Malformed JSON in request body',
+        requestId,
+      }),
       400,
     );
   }
@@ -246,12 +172,8 @@ export const errorHandler: ErrorHandler<{
   const errorMessage = err instanceof Error ? err.message : 'Unknown error';
   const errorStack = err instanceof Error ? err.stack : undefined;
 
-  // Storage-unavailable (R2 disabled account-wide → CF error 10042) → a calm 503
-  // maintenance page instead of a scary 500. Every R2-served route (homepage,
-  // generated sites, app shell) throws this when R2 is off; degrade soft per
-  // fail-fast-build-fail-soft-prod (a missing storage backend is operational, not
-  // a code fault). See memory feedback_deploy_r2_reliability (2026-06-24 outage).
-  if (/enable R2|\(10042\)|R2 .*Dashboard/i.test(errorMessage)) {
+  // Storage-unavailable (R2 disabled account-wide) → calm 503, not a scary 500.
+  if (isStorageUnavailable(errorMessage)) {
     console.warn(
       JSON.stringify({
         level: 'error',
@@ -285,7 +207,7 @@ export const errorHandler: ErrorHandler<{
       );
     }
     return c.json(
-      { error: { code: 'STORAGE_UNAVAILABLE', message: friendly, request_id: requestId } },
+      buildErrorEnvelope({ code: 'STORAGE_UNAVAILABLE', message: friendly, requestId }),
       503,
       { 'Retry-After': '120' },
     );
@@ -325,7 +247,7 @@ export const errorHandler: ErrorHandler<{
     );
   }
   return c.json(
-    { error: { code: 'INTERNAL_ERROR', message: 'Internal server error', request_id: requestId } },
+    buildErrorEnvelope({ code: 'INTERNAL_ERROR', message: 'Internal server error', requestId }),
     500,
   );
 };
