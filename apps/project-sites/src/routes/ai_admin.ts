@@ -166,9 +166,22 @@ aiAdmin.post('/api/team/invites', async (c) => {
     (async () => {
       try {
         const { notifyOwnerEvent } = await import('../services/notify.js');
+        // CANONICAL PsnotifyEventSchema shape (`{ name, subscriberId, payload }`) — the
+        // legacy `{ event, tenantId, … }` novu-era object FAILED the schema →
+        // invalid_event → this bell silently never fired (fire-54).
         await notifyOwnerEvent(c.env, c.env.DB, {
           orgId,
-          event: { event: 'member.invited', tenantId: orgId, email, role },
+          workflowId: 'member.invited',
+          event: {
+            name: 'member.invited',
+            subscriberId: orgId,
+            payload: {
+              subject: 'Team invite sent',
+              body: `${email} was invited to your team as ${role}.`,
+              email,
+              role,
+            },
+          },
         });
       } catch {
         /* bell is best-effort */
@@ -410,9 +423,22 @@ aiAdmin.post('/api/team/invites/accept', async (c) => {
     (async () => {
       try {
         const { notifyOwnerEvent } = await import('../services/notify.js');
+        // CANONICAL PsnotifyEventSchema shape (`{ name, subscriberId, payload }`) — the
+        // legacy `{ event, tenantId, … }` novu-era object FAILED the schema →
+        // invalid_event → this bell silently never fired (fire-54).
         await notifyOwnerEvent(c.env, c.env.DB, {
           orgId: invite.org_id,
-          event: { event: 'member.joined', tenantId: invite.org_id, userId, role: invite.role },
+          workflowId: 'member.joined',
+          event: {
+            name: 'member.joined',
+            subscriberId: invite.org_id,
+            payload: {
+              subject: 'A teammate joined your organization',
+              body: `${invite.email} accepted their invite and joined as ${invite.role}.`,
+              userId,
+              role: invite.role,
+            },
+          },
         });
       } catch {
         /* bell is best-effort */

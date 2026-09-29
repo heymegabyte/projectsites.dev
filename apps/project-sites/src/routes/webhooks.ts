@@ -262,15 +262,25 @@ webhooks.post('/webhooks/stripe', async (c) => {
           if (meta.org_id) {
             try {
               const { notifyOwnerEvent } = await import('../services/notify.js');
+              // Stripe amounts are minor units (cents); fall back to 0/usd so
+              // the typed event always validates → the bell always fires.
+              const amountCents = Number((obj as { amount_total?: number }).amount_total ?? 0);
+              const currency = String((obj as { currency?: string }).currency ?? 'usd');
+              // CANONICAL PsnotifyEventSchema shape (`{ name, subscriberId, payload }`) —
+              // the legacy `{ event, tenantId, … }` novu-era object FAILED the schema →
+              // invalid_event → this bell silently never fired (fire-54).
               const p = notifyOwnerEvent(c.env, db, {
                 orgId: meta.org_id,
+                workflowId: 'payment.succeeded',
                 event: {
-                  event: 'payment.succeeded',
-                  tenantId: meta.org_id,
-                  // Stripe amounts are minor units (cents); fall back to 0/usd so
-                  // the typed event always validates → the bell always fires.
-                  amountCents: Number((obj as { amount_total?: number }).amount_total ?? 0),
-                  currency: String((obj as { currency?: string }).currency ?? 'usd'),
+                  name: 'payment.succeeded',
+                  subscriberId: meta.org_id,
+                  payload: {
+                    subject: 'Payment received — your plan is active 🎉',
+                    body: `We received your $${(amountCents / 100).toFixed(2)} ${currency.toUpperCase()} payment. Paid features are now unlocked.`,
+                    amountCents,
+                    currency,
+                  },
                 },
               });
               safeWaitUntil(c, p);
@@ -375,13 +385,27 @@ webhooks.post('/webhooks/stripe', async (c) => {
         if (failMeta.org_id) {
           try {
             const { notifyOwnerEvent } = await import('../services/notify.js');
+            const amountCents = Number((obj as { amount_due?: number }).amount_due ?? 0);
+            const currency = String((obj as { currency?: string }).currency ?? 'usd');
+            const billingUrl = 'https://projectsites.dev/admin/billing';
+            // CANONICAL PsnotifyEventSchema shape (`{ name, subscriberId, payload }`) —
+            // the legacy `{ event, tenantId, … }` novu-era object FAILED the schema →
+            // invalid_event → the owner was never told their payment failed (fire-54).
+            // The bell row deep-links the FIX (billing) via payload.action_url.
             const p = notifyOwnerEvent(c.env, db, {
               orgId: failMeta.org_id,
+              workflowId: 'payment.failed',
+              actionUrl: billingUrl,
               event: {
-                event: 'payment.failed',
-                tenantId: failMeta.org_id,
-                amountCents: Number((obj as { amount_due?: number }).amount_due ?? 0),
-                currency: String((obj as { currency?: string }).currency ?? 'usd'),
+                name: 'payment.failed',
+                subscriberId: failMeta.org_id,
+                payload: {
+                  subject: 'Payment failed — action needed',
+                  body: `Your $${(amountCents / 100).toFixed(2)} ${currency.toUpperCase()} payment could not be processed. Update your billing details to keep your plan active.`,
+                  amountCents,
+                  currency,
+                  action_url: billingUrl,
+                },
               },
             });
             safeWaitUntil(c, p);

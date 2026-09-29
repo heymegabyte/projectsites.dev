@@ -51,7 +51,7 @@ export interface NotifyOwnerDeps {
 /**
  * Notify the org owner that their site is live across BOTH channels: the
  * "Your Site Is Live!" email ({@link notifySiteBuilt}) and the in-app bell
- * (`build.finished` event via {@link notifyOwnerEvent}). Each channel is
+ * (canonical `build.complete` psnotify event via {@link notifyOwnerEvent}). Each channel is
  * independent + fail-soft — one failing never blocks the other or the publish.
  *
  * @param env - Worker env (needs `DB`).
@@ -89,15 +89,27 @@ export async function notifyOwnerSiteBuilt(
   }
 
   // Channel 2 — the in-app bell (resolves the owner subscriber internally).
+  // CANONICAL PsnotifyEventSchema shape (`{ name, subscriberId, payload }`) — the
+  // legacy `{ event, tenantId, siteId, previewUrl }` novu-era object FAILED the
+  // schema → invalid_event → the "your site is live" bell silently never fired on
+  // the bolt-publish path (fire-54). `build.complete` matches the workflow path's
+  // terminal-success channel + buckets to `site_lifecycle` in the DO. The live
+  // site URL rides as the bell row's `action_url` deep link.
   let belled = false;
   try {
     const res = await bell(env, env.DB, {
       orgId: input.orgId,
+      workflowId: 'build.complete',
+      actionUrl: previewUrl,
       event: {
-        event: 'build.finished',
-        tenantId: input.orgId,
-        siteId: input.siteId,
-        previewUrl,
+        name: 'build.complete',
+        subscriberId: input.orgId,
+        payload: {
+          subject: `${input.businessName || input.slug} is live 🎉`,
+          body: `Your site is published at ${input.slug}.projectsites.dev.`,
+          siteId: input.siteId,
+          action_url: previewUrl,
+        },
       },
     });
     belled = res.ok;

@@ -1,10 +1,22 @@
 // Global `jest` (NOT @jest/globals) so @swc/jest hoists the mock above the import.
 jest.mock('../services/db.js', () => ({ dbQueryOne: jest.fn() }));
+// Fire-54: mock the DO-write boundary so the END-TO-END bell path (real
+// notifyOwnerEvent → PsnotifyEventSchema → triggerPsnotify) is provable without a DO.
+jest.mock('../services/psnotify.js', () => {
+  const actual = jest.requireActual('../services/psnotify.js');
+  return { __esModule: true, ...actual, triggerPsnotify: jest.fn() };
+});
+jest.mock('../services/emit_event.js', () => ({
+  __esModule: true,
+  tryEmitEvent: jest.fn(async () => ({ inserted: true })),
+}));
 
 import { notifyOwnerSiteBuilt, resolveOwnerEmail } from '../services/notify_site_built';
 import { dbQueryOne } from '../services/db.js';
+import { triggerPsnotify } from '../services/psnotify.js';
 
 const mockDbQueryOne = dbQueryOne as unknown as jest.Mock;
+const mockTrigger = triggerPsnotify as unknown as jest.Mock;
 
 /**
  * Golden-path "customer notified" for the embedded-bolt publish path. Notifies
@@ -39,13 +51,23 @@ describe('notifyOwnerSiteBuilt', () => {
       siteUrl: 'https://acme.projectsites.dev',
       version: 'v1',
     });
+    // Fire-54: the bell MUST receive the CANONICAL PsnotifyEventSchema shape
+    // (`{ name, subscriberId, payload }`) — the legacy `{ event, tenantId, siteId,
+    // previewUrl }` novu-era object FAILS the schema → invalid_event → the
+    // "your site is live" bell silently never fired on the bolt-publish path.
     expect(d.bell).toHaveBeenCalledWith(env, env.DB, {
       orgId: 'org-1',
+      workflowId: 'build.complete',
+      actionUrl: 'https://acme.projectsites.dev',
       event: {
-        event: 'build.finished',
-        tenantId: 'org-1',
-        siteId: 's1',
-        previewUrl: 'https://acme.projectsites.dev',
+        name: 'build.complete',
+        subscriberId: 'org-1',
+        payload: expect.objectContaining({
+          siteId: 's1',
+          action_url: 'https://acme.projectsites.dev',
+          subject: expect.stringContaining('live'),
+          body: expect.stringContaining('acme.projectsites.dev'),
+        }),
       },
     });
   });
@@ -95,6 +117,47 @@ describe('notifyOwnerSiteBuilt', () => {
       d,
     );
     expect(r.belled).toBe(false);
+  });
+});
+
+// Fire-54 END-TO-END: with the DEFAULT bell (the real notifyOwnerEvent), the event
+// must clear PsnotifyEventSchema and actually reach the DO-write boundary
+// (triggerPsnotify) carrying the live-site deep link. This is the assertion the
+// original mock-only spec could not make — it happily "passed" the legacy shape
+// against an injected mock while prod silently no-op'd with invalid_event.
+describe('notifyOwnerSiteBuilt → REAL bell path reaches the psnotify DO write', () => {
+  const envWithOwner = {
+    DB: {
+      prepare: () => ({ bind: () => ({ first: async () => ({ email: 'owner@acme.com' }) }) }),
+    },
+  } as never;
+
+  beforeEach(() => {
+    jest.spyOn(console, 'warn').mockImplementation(() => {});
+    mockTrigger.mockReset().mockResolvedValue({ result: 'do-notif-1', success: true });
+  });
+  afterEach(() => jest.restoreAllMocks());
+
+  it('belled:true — the canonical event validates and the DO write fires with the site URL', async () => {
+    const r = await notifyOwnerSiteBuilt(
+      envWithOwner,
+      { orgId: 'org-1', siteId: 's1', slug: 'acme', version: 'v1', businessName: 'Acme Roofing' },
+      // bell OMITTED on purpose → the real notifyOwnerEvent runs (schema + transport).
+      { resolveEmail: jest.fn().mockResolvedValue('owner@acme.com'), notify: jest.fn() },
+    );
+    expect(r.belled).toBe(true);
+
+    expect(mockTrigger).toHaveBeenCalledTimes(1);
+    const ev = mockTrigger.mock.calls[0][1] as {
+      name: string;
+      subscriberId: string;
+      payload: Record<string, unknown>;
+    };
+    // The resolved OWNER email is the bell subscriber — never a raw org id.
+    expect(ev.subscriberId).toBe('owner@acme.com');
+    // One click on the bell row opens the freshly-published site.
+    expect(ev.payload.action_url ?? ev.payload.actionUrl).toBe('https://acme.projectsites.dev');
+    expect(String(ev.payload.subject)).toContain('live');
   });
 });
 

@@ -807,9 +807,25 @@ hostnames.post('/api/admin/domains/:hostnameId/verify', async (c) => {
         // Typed in-app bell event (best-effort, never blocks verification).
         try {
           const { notifyEvent } = await import('../../../src/services/notify.js');
+          const liveUrl = `https://${hostname.hostname}`;
+          // CANONICAL PsnotifyEventSchema shape (`{ name, subscriberId, payload }`) — the
+          // legacy `{ event, tenantId, … }` novu-era object FAILED the schema →
+          // invalid_event → this bell silently never fired (fire-54). The bell row
+          // deep-links the freshly-live domain via payload.action_url.
           const p = notifyEvent(c.env, {
             subscriberId: owner.email,
-            event: { event: 'domain.active', tenantId: orgId, hostname: hostname.hostname },
+            workflowId: 'domain.active',
+            actionUrl: liveUrl,
+            event: {
+              name: 'domain.active',
+              subscriberId: owner.email,
+              payload: {
+                subject: `${hostname.hostname} is live 🎉`,
+                body: 'Your custom domain is verified and now serving your site.',
+                hostname: hostname.hostname,
+                action_url: liveUrl,
+              },
+            },
           });
           try {
             c.executionCtx.waitUntil(p);
