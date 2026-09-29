@@ -1044,7 +1044,7 @@ describe('VALIDATOR_MODE strict enforcement (Lane 7: report→strict canary, def
     });
   });
 
-  it("(a) report-mode returns violations WITHOUT throwing (default, zero live change)", () => {
+  it('(a) report-mode returns violations WITHOUT throwing (default, zero live change)', () => {
     const report = validateBuild(brokenBuild());
     expect(report.ok).toBe(false);
     expect(report.errors.length).toBeGreaterThan(0);
@@ -1054,7 +1054,7 @@ describe('VALIDATOR_MODE strict enforcement (Lane 7: report→strict canary, def
     expect(assertBuildStrict(report, 'report')).toBe(report);
   });
 
-  it("(b) strict-mode THROWS a typed error on a blocking violation", () => {
+  it('(b) strict-mode THROWS a typed error on a blocking violation', () => {
     const report = validateBuild(brokenBuild());
     expect(report.ok).toBe(false);
     expect(() => assertBuildStrict(report, 'strict')).toThrow(BuildValidationStrictError);
@@ -1069,7 +1069,7 @@ describe('VALIDATOR_MODE strict enforcement (Lane 7: report→strict canary, def
     }
   });
 
-  it("(c) strict-mode passes a clean build without throwing", () => {
+  it('(c) strict-mode passes a clean build without throwing', () => {
     const report = validateBuild(completeBuild());
     expect(report.ok).toBe(true);
     expect(() => assertBuildStrict(report, 'strict')).not.toThrow();
