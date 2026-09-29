@@ -857,6 +857,123 @@ describe('AI-native features', () => {
   });
 });
 
+// ─── Revision 3 — bulk edit + fill-down (Airtable-style multi-cell) ───────────
+
+/** The grid cells of the Nth rendered row (0-based), in column order. */
+function rowCells(rowIndex: number): HTMLElement[] {
+  const rows = screen.queryAllByTestId('sitedb-grid-row');
+  return within(rows[rowIndex]).queryAllByTestId('sitedb-grid-cell');
+}
+
+/** Every `PS_RES_MUTATE_REQUEST` whose SQL is an UPDATE of the given column, in dispatch order. */
+function updateCallsForColumn(column: string): { input: { sql: string; params: unknown[] } }[] {
+  return postToParentSpy.mock.calls
+    .map((c) => c[0])
+    .filter(
+      (m: unknown) =>
+        (m as { type?: string })?.type === 'PS_RES_MUTATE_REQUEST' &&
+        typeof (m as { input?: { sql?: string } })?.input?.sql === 'string' &&
+        (m as { input: { sql: string } }).input.sql.includes(`UPDATE "posts" SET "${column}"`),
+    ) as { input: { sql: string; params: unknown[] } }[];
+}
+
+describe('Revision 3 — fill-down applies the top value to N-1 rows via the writeCell bridge', () => {
+  it('shift-click a column range + Cmd/Ctrl+D issues one UPDATE per lower selected row (N-1)', async () => {
+    await openRichTable();
+
+    // Column index 1 = "title". Plain-click sets the range anchor without opening the editor
+    // (a bare click on a text cell would open the editor; the range gesture is shift-click).
+    // Select the title cells of rows 0,1,2: anchor via click on row 0 title while holding a modifier,
+    // then shift-click row 2 to extend the range down the column.
+    const r0title = rowCells(0)[1];
+    const r2title = rowCells(2)[1];
+
+    // Anchor: modifier-click (adds the single cell to a fresh column selection, no editor).
+    await act(async () => {
+      r0title.dispatchEvent(new MouseEvent('click', { bubbles: true, metaKey: true }));
+    });
+    // Extend: shift-click the 3rd row's title cell → selects rows 0,1,2 in the title column.
+    await act(async () => {
+      r2title.dispatchEvent(new MouseEvent('click', { bubbles: true, shiftKey: true }));
+    });
+
+    // The fill-down affordance appears for a multi-cell selection.
+    const fillBtn = screen.getByTestId('sitedb-fill-down');
+    expect(fillBtn.textContent).toMatch(/fill down/i);
+
+    postToParentSpy.mockClear();
+
+    // Fill-down: click the affordance (Cmd/Ctrl+D is the keyboard equivalent).
+    await act(async () => {
+      fillBtn.click();
+    });
+
+    // Drive the sequential per-row writes: reply OK to each UPDATE mutate as it appears.
+    const seen = new Set<string>();
+
+    for (let step = 0; step < 6; step++) {
+      const id = lastReqIdOfType('PS_RES_MUTATE_REQUEST');
+
+      if (id && !seen.has(id)) {
+        seen.add(id);
+        await replyMutateOk(1);
+      }
+
+      await act(async () => {
+        await Promise.resolve();
+      });
+    }
+
+    // 3 selected rows (Alpha/Bravo/Charlie) → source Alpha, targets Bravo + Charlie = 2 UPDATEs.
+    const updates = updateCallsForColumn('title');
+    expect(updates).toHaveLength(2);
+    // Every write carries Alpha's title value bound as the first param.
+    expect(updates.every((u) => u.input.params[0] === 'Alpha')).toBe(true);
+  });
+
+  it('Cmd+D on the grid triggers the same fill-down for the active column selection', async () => {
+    await openRichTable();
+
+    const r0title = rowCells(0)[1];
+    const r1title = rowCells(1)[1];
+
+    await act(async () => {
+      r0title.dispatchEvent(new MouseEvent('click', { bubbles: true, metaKey: true }));
+    });
+    await act(async () => {
+      r1title.dispatchEvent(new MouseEvent('click', { bubbles: true, shiftKey: true }));
+    });
+
+    postToParentSpy.mockClear();
+
+    // Keyboard shortcut: Cmd/Ctrl+D on the grid.
+    await act(async () => {
+      const grid = screen.getByTestId('sitedb-grid');
+      grid.dispatchEvent(new KeyboardEvent('keydown', { key: 'd', metaKey: true, bubbles: true }));
+    });
+
+    const seen = new Set<string>();
+
+    for (let step = 0; step < 4; step++) {
+      const id = lastReqIdOfType('PS_RES_MUTATE_REQUEST');
+
+      if (id && !seen.has(id)) {
+        seen.add(id);
+        await replyMutateOk(1);
+      }
+
+      await act(async () => {
+        await Promise.resolve();
+      });
+    }
+
+    // 2 selected rows → 1 UPDATE (source Alpha → target Bravo).
+    const updates = updateCallsForColumn('title');
+    expect(updates).toHaveLength(1);
+    expect(updates[0].input.params[0]).toBe('Alpha');
+  });
+});
+
 // ─── Undo (delete → re-insert) ─────────────────────────────────────────────────
 
 describe('undo a delete', () => {

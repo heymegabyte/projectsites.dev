@@ -3377,6 +3377,96 @@ export function rowRowid(row: Record<string, unknown>): number | null {
   return null;
 }
 
+/**
+ * Extend a single-column cell selection from an ANCHOR to a TARGET — the pure math behind Airtable-style
+ * shift-click / shift-arrow range select DOWN (or up) a column. Given the row stable-keys in the CURRENT
+ * display order, returns the CONTIGUOUS run of keys between anchor and target (inclusive), always in list
+ * order (so a downward or upward extension yields the same ordered run). When the anchor is null/unknown,
+ * the selection collapses to just the target (the first shift with no prior anchor). When the target
+ * itself isn't in the list, returns `[]` (nothing to select). Pure — never mutates input.
+ *
+ * @param orderedKeys - row stable-keys in current display order (from `rowStableKey`, page order)
+ * @param anchorKey - the selection anchor (the cell the range extends FROM), or null
+ * @param targetKey - the cell the range extends TO (the shift-clicked / shift-arrowed cell)
+ * @returns the contiguous run of keys anchor→target inclusive, in display order
+ * @example extendCellSelection(['a','b','c','d'], 'b', 'd') // ['b','c','d']
+ * @example extendCellSelection(['a','b','c','d'], 'd', 'b') // ['b','c','d']  (order preserved)
+ * @example extendCellSelection(['a','b','c'], null, 'b')    // ['b']          (no anchor → just target)
+ * @example extendCellSelection(['a','b','c'], 'a', 'zzz')   // []             (target not present)
+ */
+export function extendCellSelection(
+  orderedKeys: readonly string[],
+  anchorKey: string | null,
+  targetKey: string,
+): string[] {
+  const target = orderedKeys.indexOf(targetKey);
+
+  if (target < 0) {
+    return [];
+  }
+
+  const anchor = anchorKey === null ? -1 : orderedKeys.indexOf(anchorKey);
+
+  if (anchor < 0) {
+    return [targetKey];
+  }
+
+  const lo = Math.min(anchor, target);
+  const hi = Math.max(anchor, target);
+
+  return orderedKeys.slice(lo, hi + 1);
+}
+
+/** One fill-down / bulk write intent — the target row and the value to write into the column. */
+export interface CellWriteIntent {
+  readonly row: Record<string, unknown>;
+  readonly value: unknown;
+}
+
+/**
+ * Plan a FILL-DOWN over a single-column cell selection — the pure write-planner the panel applies
+ * through the EXISTING per-row `writeCell` bridge (no new endpoint). The SOURCE value is the TOP
+ * selected row's value in `column` (top = first selected row in the CURRENT display order of `rows`,
+ * independent of Set insertion order); it is copied to every OTHER selected row, producing one
+ * `{ row, value }` intent per target. The source row is NEVER rewritten (it already holds that value),
+ * so filling N selected cells is exactly N-1 bridge writes. A single-cell (or empty) selection yields
+ * no writes. A `null`/`undefined` source value is carried down verbatim (fill-down can CLEAR cells).
+ * Pure — never mutates input; the panel owns the optimistic patch + per-row rollback + single Undo.
+ *
+ * @param rows - the rows in current display order (the loaded/filtered/sorted page-window set)
+ * @param column - the column being filled
+ * @param selectedKeys - the set of selected row stable-keys (one column's cell selection)
+ * @param keyOf - maps a row to its stable key (the panel passes `(r) => rowStableKey(r, pkCols)`)
+ * @returns the ordered list of `{ row, value }` writes (top value → each lower selected row)
+ * @example
+ *   // rows id 1..3 selected, column 'city', top = "Austin" → 2 writes to id 2 + id 3
+ *   fillDownWrites(rows, 'city', new Set(['[1]','[2]','[3]']), (r) => rowStableKey(r, ['id']))
+ */
+export function fillDownWrites(
+  rows: readonly Record<string, unknown>[],
+  column: string,
+  selectedKeys: ReadonlySet<string>,
+  keyOf: (row: Record<string, unknown>) => string | null,
+): CellWriteIntent[] {
+  if (selectedKeys.size < 2) {
+    return [];
+  }
+
+  // Selected rows IN DISPLAY ORDER — the first is the fill-down source, the rest are targets.
+  const selectedRows = rows.filter((r) => {
+    const k = keyOf(r);
+    return k !== null && selectedKeys.has(k);
+  });
+
+  if (selectedRows.length < 2) {
+    return [];
+  }
+
+  const sourceValue = selectedRows[0][column];
+
+  return selectedRows.slice(1).map((row) => ({ row, value: sourceValue }));
+}
+
 /** The columns / flags the edit-gate reasons over — the open table's PK, generated cols, and rowid availability. */
 export interface RowEditContext {
   /** The open table's primary-key column(s) (from `pkFromTableInfo`) — empty for a PK-less table. */

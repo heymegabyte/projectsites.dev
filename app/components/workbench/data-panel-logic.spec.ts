@@ -26,6 +26,10 @@ import {
   CsvImportError,
   pkFromTableInfo,
   generatedFromTableXinfo,
+  // ── Revision 3 — bulk edit + fill-down (Airtable-style multi-cell) ──
+  extendCellSelection,
+  fillDownWrites,
+  rowStableKey,
   browsePageInfo,
   sortToParams,
   browseSearchParam,
@@ -2829,5 +2833,105 @@ describe('planDropIndex (existing index → DROP INDEX DDL)', () => {
     const r = planDropIndex('   ');
     expect(r.ddl).toBeNull();
     expect(r.error).toMatch(/must not be empty/i);
+  });
+});
+
+/*
+ * ─── Revision 3 — bulk edit + fill-down (Airtable-style multi-cell selection) ──
+ *
+ * A cell-range selection is a set of row stable-keys within ONE column. `extendCellSelection`
+ * turns an anchor + a target (shift-click / shift-arrow) into the CONTIGUOUS run of keys between
+ * them in the current display order — so a user shift-extends a column selection down (or up).
+ * `fillDownWrites` is the pure write-planner the panel applies through the EXISTING per-row
+ * `writeCell` bridge: it copies the TOP selected cell's value to every OTHER selected row,
+ * producing one `{ row, value }` write intent per target row — i.e. fill-down of N rows is exactly
+ * N-1 bridge calls (the source row is already that value, so it is never rewritten).
+ */
+describe('extendCellSelection (shift-click / shift-arrow range over a column)', () => {
+  const keys = ['a', 'b', 'c', 'd', 'e'];
+
+  it('selects the contiguous run from anchor DOWN to target (inclusive, in list order)', () => {
+    expect(extendCellSelection(keys, 'b', 'd')).toEqual(['b', 'c', 'd']);
+  });
+
+  it('selects the contiguous run when the target is ABOVE the anchor (order stays list order)', () => {
+    expect(extendCellSelection(keys, 'd', 'b')).toEqual(['b', 'c', 'd']);
+  });
+
+  it('anchor === target selects exactly that one key', () => {
+    expect(extendCellSelection(keys, 'c', 'c')).toEqual(['c']);
+  });
+
+  it('falls back to just the target when the anchor is unknown/null', () => {
+    expect(extendCellSelection(keys, null, 'c')).toEqual(['c']);
+    expect(extendCellSelection(keys, 'zzz', 'c')).toEqual(['c']);
+  });
+
+  it('returns [] when the target itself is not in the list (nothing to select)', () => {
+    expect(extendCellSelection(keys, 'a', 'zzz')).toEqual([]);
+  });
+});
+
+describe('fillDownWrites (top selected value → every other selected row = N-1 bridge writes)', () => {
+  const rows = [
+    { id: 1, _rowid: 1, city: 'Austin' },
+    { id: 2, _rowid: 2, city: 'Boston' },
+    { id: 3, _rowid: 3, city: 'Chicago' },
+    { id: 4, _rowid: 4, city: 'Denver' },
+  ];
+  const keyOf = (r: Record<string, unknown>) => rowStableKey(r, ['id']);
+
+  it('copies the TOP selected row value to each lower selected row (source row excluded)', () => {
+    const selected = new Set(['[1]', '[2]', '[3]']); // rows id 1,2,3 selected
+    const writes = fillDownWrites(rows, 'city', selected, keyOf);
+
+    // Source = top selected row (id 1, "Austin"); targets = id 2 + id 3.
+    expect(writes.map((w) => w.row.id)).toEqual([2, 3]);
+    expect(writes.every((w) => w.value === 'Austin')).toBe(true);
+    // N selected → N-1 writes.
+    expect(writes).toHaveLength(2);
+  });
+
+  it('uses the FIRST selected row in display order as the source, regardless of Set order', () => {
+    const selected = new Set(['[3]', '[1]', '[4]']); // insertion order shuffled
+    const writes = fillDownWrites(rows, 'city', selected, keyOf);
+
+    // Display order → source is id 1 ("Austin"); targets id 3 + id 4.
+    expect(writes.map((w) => w.row.id)).toEqual([3, 4]);
+    expect(writes.every((w) => w.value === 'Austin')).toBe(true);
+  });
+
+  it('a single-cell selection produces NO writes (nothing below to fill)', () => {
+    expect(fillDownWrites(rows, 'city', new Set(['[2]']), keyOf)).toEqual([]);
+  });
+
+  it('an empty selection produces no writes', () => {
+    expect(fillDownWrites(rows, 'city', new Set(), keyOf)).toEqual([]);
+  });
+
+  it('carries a null source value down verbatim (clears the target cells)', () => {
+    const withNull = [
+      { id: 1, _rowid: 1, city: null },
+      { id: 2, _rowid: 2, city: 'Boston' },
+    ];
+    const writes = fillDownWrites(withNull, 'city', new Set(['[1]', '[2]']), keyOf);
+    expect(writes).toHaveLength(1);
+    expect(writes[0].row.id).toBe(2);
+    expect(writes[0].value).toBeNull();
+  });
+
+  it('works for a PK-less table via the _rowid stable key', () => {
+    const noPk = [
+      { _rowid: 10, tag: 'x' },
+      { _rowid: 11, tag: 'y' },
+      { _rowid: 12, tag: 'z' },
+    ];
+    const noPkKeyOf = (r: Record<string, unknown>) => rowStableKey(r, []);
+    const writes = fillDownWrites(noPk, 'tag', new Set(['_rowid:10', '_rowid:12']), noPkKeyOf);
+
+    // Source is the first selected in display order (_rowid 10, "x"); target is _rowid 12.
+    expect(writes).toHaveLength(1);
+    expect(writes[0].row._rowid).toBe(12);
+    expect(writes[0].value).toBe('x');
   });
 });

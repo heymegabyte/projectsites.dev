@@ -81,6 +81,10 @@ import {
   rowStableKey,
   rowRowid,
   isRowEditableColumn,
+  // ── Revision 3 — bulk edit + fill-down (Airtable-style multi-cell) ──
+  extendCellSelection,
+  fillDownWrites,
+  type CellWriteIntent,
   // ── grid engine ──
   cycleSortMulti,
   sortRows,
@@ -184,6 +188,18 @@ type UndoEntry =
       kind: 'delete';
       table: string;
       rows: Record<string, unknown>[];
+      label: string;
+    }
+  | {
+      /**
+       * A fill-down / bulk edit wrote ONE column across many rows — undo restores each row's PREVIOUS
+       * value in a single click (one Undo for the whole batch). Each entry pins the row's stable key so
+       * the reverse write re-targets the same row even after a refresh.
+       */
+      kind: 'cellBatch';
+      table: string;
+      column: string;
+      cells: { pkKey: string; previous: unknown }[];
       label: string;
     };
 
@@ -449,6 +465,36 @@ export const SiteTablesPanel = memo(
     const [bulkBusy, setBulkBusy] = useState(false);
     const [addingRow, setAddingRow] = useState(false);
 
+    /**
+     * Revision 3 — the ACTIVE multi-cell selection (one column, a set of row stable-keys). Powers
+     * Airtable-style shift-click / shift-arrow range select down a column, fill-down (Cmd/Ctrl+D), and
+     * bulk edit (editing once with a selection applies to all). Null when nothing is range-selected.
+     * `anchorKey` is the cell a shift-extension measures from.
+     */
+    const [cellSel, setCellSel] = useState<{ column: string; anchorKey: string | null; keys: Set<string> } | null>(
+      null,
+    );
+    const [fillBusy, setFillBusy] = useState(false);
+
+    /**
+     * Live refs read inside the selection handlers (which are declared BEFORE `pageRows`/`cellSel` are in
+     * scope for their deps): the current page's rows in DISPLAY order + the active cell selection. Same
+     * live-ref pattern the bridge listener uses ({@link pendingRef}) so a handler always sees fresh state.
+     */
+    const pageRowsRef = useRef<Record<string, unknown>[]>([]);
+    const cellSelRef = useRef<typeof cellSel>(null);
+    cellSelRef.current = cellSel;
+
+    /** Late-bound ref to the batch-write applier (defined below) so {@link submitEdit} can bulk-apply. */
+    const applyCellWritesRef = useRef<
+      | ((
+          table: string,
+          column: string,
+          intents: readonly CellWriteIntent[],
+        ) => Promise<{ pkKey: string; previous: unknown }[]>)
+      | null
+    >(null);
+
     /*
      * The repo has a known empty-deps stale-ref bug: a single `onParentMessage` listener
      * registered once in a `useEffect([])` closes over the FIRST render's state. We register
@@ -696,6 +742,7 @@ export const SiteTablesPanel = memo(
       setViewMode('grid');
       setSelectedRowKeys(new Set());
       setAddingRow(false);
+      setCellSel(null);
     }, []);
 
     const openTable = useCallback(
@@ -1115,8 +1162,45 @@ export const SiteTablesPanel = memo(
           return;
         }
 
-        // Committed — close the editor + arm Undo.
+        // Committed — close the editor.
         setEditing(null);
+
+        // Bulk edit: if this cell is part of a multi-cell column selection, apply the SAME value to every
+        // OTHER selected row (Airtable "edit once → fill the selection"), through the same per-row bridge —
+        // and arm ONE batch Undo covering the anchor + all propagated cells.
+        const sel = cellSelRef.current;
+        const isBulk =
+          sel !== null &&
+          sel.column === col.name &&
+          sel.keys.size > 1 &&
+          stableKey !== null &&
+          sel.keys.has(stableKey);
+
+        if (isBulk && stableKey !== null) {
+          const others = pageRowsRef.current.filter((r) => {
+            const k = rowStableKey(r, pkCols);
+            return k !== null && k !== stableKey && sel.keys.has(k);
+          });
+          const apply = applyCellWritesRef.current;
+          const wroteCells = apply
+            ? await apply(
+                table,
+                col.name,
+                others.map((r) => ({ row: r, value })),
+              )
+            : [];
+
+          // Fold the anchor cell + every successfully-propagated cell into ONE batch Undo (true previous values).
+          armUndo({
+            kind: 'cellBatch',
+            table,
+            column: col.name,
+            cells: [{ pkKey: stableKey, previous }, ...wroteCells],
+            label: `Edited ${wroteCells.length + 1} cell${wroteCells.length + 1 === 1 ? '' : 's'}`,
+          });
+
+          return;
+        }
 
         if (stableKey !== null) {
           armUndo({ kind: 'cell', table, column: col.name, pkKey: stableKey, previous, next: value });
@@ -1187,6 +1271,190 @@ export const SiteTablesPanel = memo(
       [rows, editableColumn, pkCols, writeCell, armUndo],
     );
 
+    /**
+     * Apply a batch of single-column cell writes (fill-down or bulk edit) through the EXISTING per-row
+     * {@link writeCell} bridge — one bridge call per row (UPDATE-by-PK when a PK exists, else
+     * PATCH-by-`_rowid`). OPTIMISTIC: patches every target row immediately; per-row ROLLBACK restores only
+     * the rows whose write failed (successful ones stay). Returns the successfully-written cells (key +
+     * previous value) so the CALLER can arm ONE combined `cellBatch` Undo — never double-arms. No-op for an
+     * empty plan. `intents` come from {@link fillDownWrites} (or the bulk-edit path).
+     */
+    const applyCellWrites = useCallback(
+      async (
+        table: string,
+        column: string,
+        intents: readonly CellWriteIntent[],
+      ): Promise<{ pkKey: string; previous: unknown }[]> => {
+        if (intents.length === 0) {
+          return [];
+        }
+
+        // Capture each target's stable key + previous value BEFORE the optimistic patch (for rollback + undo).
+        const targets = intents
+          .map((it) => ({ key: rowStableKey(it.row, pkCols), row: it.row, value: it.value as BoundValue }))
+          .filter((t): t is { key: string; row: Record<string, unknown>; value: BoundValue } => t.key !== null);
+
+        if (targets.length === 0) {
+          return [];
+        }
+
+        const prevByKey = new Map<string, unknown>();
+
+        for (const t of targets) {
+          prevByKey.set(t.key, t.row[column]);
+        }
+
+        const nextByKey = new Map<string, BoundValue>();
+
+        for (const t of targets) {
+          nextByKey.set(t.key, t.value);
+        }
+
+        // Optimistic: patch all target rows in place at once.
+        setRows((cur) =>
+          cur.status !== 'ready'
+            ? cur
+            : {
+                status: 'ready',
+                page: {
+                  ...cur.page,
+                  rows: cur.page.rows.map((r) => {
+                    const k = rowStableKey(r, pkCols);
+                    return k !== null && nextByKey.has(k) ? { ...r, [column]: nextByKey.get(k) } : r;
+                  }),
+                },
+              },
+        );
+        setFillBusy(true);
+
+        // Write each row; collect the keys that FAILED so we roll back only those.
+        const failedKeys = new Set<string>();
+        let firstError = '';
+
+        for (const t of targets) {
+          const res = await writeCell(table, t.row, column, t.value);
+
+          if (!res.ok) {
+            failedKeys.add(t.key);
+
+            if (!firstError) {
+              firstError = res.error || 'Some cells could not be saved.';
+            }
+          }
+        }
+
+        setFillBusy(false);
+
+        if (failedKeys.size > 0) {
+          // Roll back only the failed rows to their previous value.
+          setRows((cur) =>
+            cur.status !== 'ready'
+              ? cur
+              : {
+                  status: 'ready',
+                  page: {
+                    ...cur.page,
+                    rows: cur.page.rows.map((r) => {
+                      const k = rowStableKey(r, pkCols);
+                      return k !== null && failedKeys.has(k) ? { ...r, [column]: prevByKey.get(k) } : r;
+                    }),
+                  },
+                },
+          );
+          postToastToParent('error', firstError);
+        }
+
+        return targets
+          .filter((t) => !failedKeys.has(t.key))
+          .map((t) => ({ pkKey: t.key, previous: prevByKey.get(t.key) }));
+      },
+      [pkCols, writeCell],
+    );
+
+    applyCellWritesRef.current = applyCellWrites;
+
+    /**
+     * Handle a cell click/keyboard-select for the multi-cell selection engine. A modifier-click (meta/ctrl)
+     * starts (or toggles) a single-cell selection in that column; a SHIFT-click/arrow extends the selection
+     * as a contiguous run from the anchor down (or up) the SAME column via {@link extendCellSelection}. A
+     * plain click on a cell in a DIFFERENT column resets the selection. Selection is per-column: clicking a
+     * cell in another column while a selection exists starts fresh there. Pure state — no writes.
+     */
+    const selectCell = useCallback(
+      (row: Record<string, unknown>, column: string, mods: { shift: boolean; meta: boolean }) => {
+        const key = rowStableKey(row, pkCols);
+
+        if (key === null) {
+          return;
+        }
+
+        const orderedKeys = pageRowsRef.current
+          .map((r) => rowStableKey(r, pkCols))
+          .filter((k): k is string => k !== null);
+
+        setCellSel((cur) => {
+          // Shift extends within the same column from the existing anchor (or from this cell if none/other col).
+          if (mods.shift && cur && cur.column === column) {
+            const run = extendCellSelection(orderedKeys, cur.anchorKey, key);
+            return { column, anchorKey: cur.anchorKey ?? key, keys: new Set(run) };
+          }
+
+          // Meta/ctrl toggles this cell within the same-column selection (add/remove), keeping the anchor.
+          if (mods.meta && cur && cur.column === column) {
+            const keys = new Set(cur.keys);
+
+            if (keys.has(key)) {
+              keys.delete(key);
+            } else {
+              keys.add(key);
+            }
+
+            return keys.size === 0 ? null : { column, anchorKey: key, keys };
+          }
+
+          // Fresh single-cell selection anchored here (new column, or a plain modifier-click).
+          return { column, anchorKey: key, keys: new Set([key]) };
+        });
+      },
+      [pkCols],
+    );
+
+    const clearCellSel = useCallback(() => setCellSel(null), []);
+
+    /**
+     * FILL-DOWN the active column selection: copy the TOP selected cell's value to every lower selected
+     * cell via {@link fillDownWrites} → {@link applyCellWrites} (N selected → N-1 bridge writes). The
+     * source row keeps its value; targets get it optimistically, with per-row rollback + a single Undo.
+     * No-op unless ≥2 cells are selected in one column and the column is editable.
+     */
+    const fillDownSelection = useCallback(async () => {
+      const sel = cellSelRef.current;
+
+      if (rows.status !== 'ready' || !sel || sel.keys.size < 2 || fillBusy) {
+        return;
+      }
+
+      if (!editableColumn(sel.column).editable) {
+        postToastToParent('error', 'This column can’t be edited.');
+        return;
+      }
+
+      const table = rows.page.table;
+      const intents = fillDownWrites(pageRowsRef.current, sel.column, sel.keys, (r) => rowStableKey(r, pkCols));
+      const wroteCells = await applyCellWrites(table, sel.column, intents);
+
+      if (wroteCells.length > 0) {
+        armUndo({
+          kind: 'cellBatch',
+          table,
+          column: sel.column,
+          cells: wroteCells,
+          label: `Filled ${wroteCells.length} cell${wroteCells.length === 1 ? '' : 's'} down`,
+        });
+        postToastToParent('success', `Filled ${wroteCells.length} cell${wroteCells.length === 1 ? '' : 's'} down.`);
+      }
+    }, [rows, fillBusy, editableColumn, pkCols, applyCellWrites, armUndo]);
+
     /** Undo the last committed mutation (cell / insert / delete) by re-issuing its reverse statement. */
     const doUndo = useCallback(async () => {
       if (!undo || rows.status !== 'ready') {
@@ -1225,6 +1493,33 @@ export const SiteTablesPanel = memo(
                   },
             );
           }
+        } else if (undo.kind === 'cellBatch' && undo.table === liveTable && undo.cells.length > 0) {
+          // Reverse a fill-down / bulk edit → restore each row's previous value (one write per cell).
+          const restoredByKey = new Map(undo.cells.map((c) => [c.pkKey, c.previous]));
+
+          for (const c of undo.cells) {
+            const currentRow = rows.page.rows.find((r) => rowStableKey(r, pkCols) === c.pkKey);
+
+            if (currentRow) {
+              await writeCell(undo.table, currentRow, undo.column, c.previous as BoundValue);
+            }
+          }
+
+          const targetCol = undo.column;
+          setRows((cur) =>
+            cur.status !== 'ready'
+              ? cur
+              : {
+                  status: 'ready',
+                  page: {
+                    ...cur.page,
+                    rows: cur.page.rows.map((r) => {
+                      const k = rowStableKey(r, pkCols);
+                      return k !== null && restoredByKey.has(k) ? { ...r, [targetCol]: restoredByKey.get(k) } : r;
+                    }),
+                  },
+                },
+          );
         } else if (undo.kind === 'insert' && undo.table === liveTable && undo.pkCols.length > 0) {
           // Reverse an insert → DELETE the row by its PK values.
           const preds = undo.pkCols.map((c, i) => `${quoteIdent(c)} = ?${i + 1}`).join(' AND ');
@@ -1286,6 +1581,9 @@ export const SiteTablesPanel = memo(
       () => processedRows.slice(safePageIndex * pageSize, safePageIndex * pageSize + pageSize),
       [processedRows, safePageIndex, pageSize],
     );
+
+    // Keep the live page-rows ref current so the cell-selection handlers (declared earlier) see display order.
+    pageRowsRef.current = pageRows;
 
     // Any filter/search/sort/pagesize change resets to page 0 (never strand the user past the end).
     useEffect(() => {
@@ -1999,6 +2297,9 @@ export const SiteTablesPanel = memo(
             editBusy={editBusy}
             pkCols={pkCols}
             generatedCols={generatedCols}
+            // cell selection (fill-down + bulk edit)
+            cellSel={cellSel}
+            fillBusy={fillBusy}
             // handlers
             onBack={backToList}
             onSetSearch={setSearch}
@@ -2025,6 +2326,9 @@ export const SiteTablesPanel = memo(
             }}
             onRowClick={setDetailRow}
             onStartEdit={startEdit}
+            onCellSelect={selectCell}
+            onFillDown={fillDownSelection}
+            onClearCellSel={clearCellSel}
             onToggleBoolean={toggleBooleanCell}
             onEditKindChange={setEditKind}
             onEditValueChange={setEditValue}
@@ -2127,8 +2431,10 @@ export const SiteTablesPanel = memo(
             editBusy={editBusy}
             pkCols={pkCols}
             canMutateRows={canMutateRows}
+            cellSel={null}
             onDeleteRow={deleteRow}
             onStartEdit={startEdit}
+            onCellSelect={selectCell}
             onEditKindChange={setEditKind}
             onEditValueChange={setEditValue}
             onEditSave={submitEdit}
@@ -3028,7 +3334,11 @@ interface EditProps {
   editError: string;
   editBusy: boolean;
   pkCols: string[];
+  /** Revision 3 — the active single-column multi-cell selection (fill-down / bulk edit), or null. */
+  cellSel: { column: string; anchorKey: string | null; keys: Set<string> } | null;
   onStartEdit: (row: Record<string, unknown>, col: ColumnInfo) => void;
+  /** Range/toggle-select one cell (shift = extend run, meta/ctrl = toggle) — powers fill-down + bulk edit. */
+  onCellSelect: (row: Record<string, unknown>, column: string, mods: { shift: boolean; meta: boolean }) => void;
   onEditKindChange: (kind: CellInputKind) => void;
   onEditValueChange: (value: string) => void;
   onEditSave: (row: Record<string, unknown>, col: ColumnInfo) => void;
@@ -3194,6 +3504,8 @@ interface BrowseViewProps extends EditProps {
   selectedOnPage: number;
   canMutateRows: boolean;
   bulkBusy: boolean;
+  /** Revision 3 — a fill-down / bulk batch write is in flight (disables the Fill-down button). */
+  fillBusy: boolean;
   addingRow: boolean;
   addColOpen: boolean;
   aiPanel: null | 'filter' | 'column' | 'fill';
@@ -3224,6 +3536,10 @@ interface BrowseViewProps extends EditProps {
   onDeleteRow: (row: Record<string, unknown>) => void;
   onDeleteSelected: () => void;
   onClearSelection: () => void;
+  /** Revision 3 — fill the active column selection with its top value (Cmd/Ctrl+D). */
+  onFillDown: () => void;
+  /** Revision 3 — clear the active multi-cell selection. */
+  onClearCellSel: () => void;
   onAddRow: () => void;
   onOpenAddCol: () => void;
   onCloseAddCol: () => void;
@@ -3264,6 +3580,7 @@ const BrowseView = memo((props: BrowseViewProps) => {
     selectedOnPage,
     canMutateRows,
     bulkBusy,
+    fillBusy,
     addingRow,
     addColOpen,
     allColumns,
@@ -3298,6 +3615,8 @@ const BrowseView = memo((props: BrowseViewProps) => {
     onDeleteRow,
     onDeleteSelected,
     onClearSelection,
+    onFillDown,
+    onClearCellSel,
     onAddRow,
     onOpenAddCol,
     onCloseAddCol,
@@ -3587,7 +3906,27 @@ const BrowseView = memo((props: BrowseViewProps) => {
               onRowClick={onRowClick}
             />
           ) : (
-            <div ref={scrollRef} className="flex-1 overflow-auto modern-scrollbar min-h-0" data-testid="sitedb-grid">
+            <div
+              ref={scrollRef}
+              className="flex-1 overflow-auto modern-scrollbar min-h-0"
+              data-testid="sitedb-grid"
+              onKeyDown={(e) => {
+                // Cmd/Ctrl+D fills the active column selection down (Airtable's fill-down shortcut).
+                if ((e.metaKey || e.ctrlKey) && (e.key === 'd' || e.key === 'D')) {
+                  if (props.cellSel && props.cellSel.keys.size > 1) {
+                    e.preventDefault();
+                    onFillDown();
+                  }
+
+                  return;
+                }
+
+                // Escape clears an active multi-cell selection.
+                if (e.key === 'Escape' && props.cellSel) {
+                  onClearCellSel();
+                }
+              }}
+            >
               {/* Sticky header (frozen select + first column) — cyan under-hairline reads as a live typed header */}
               <div
                 className="sticky top-0 z-20 flex bg-bolt-elements-background-depth-2 border-b border-bolt-elements-borderColor shadow-[0_1px_0_rgba(0,229,255,0.18)]"
@@ -3727,7 +4066,9 @@ const BrowseView = memo((props: BrowseViewProps) => {
                       editError={props.editError}
                       editBusy={props.editBusy}
                       pkCols={pkCols}
+                      cellSel={props.cellSel}
                       onStartEdit={props.onStartEdit}
+                      onCellSelect={props.onCellSelect}
                       onEditKindChange={props.onEditKindChange}
                       onEditValueChange={props.onEditValueChange}
                       onEditSave={props.onEditSave}
@@ -3736,6 +4077,40 @@ const BrowseView = memo((props: BrowseViewProps) => {
                   );
                 })}
               </div>
+
+              {/* Fill-down bar — floats when a multi-cell column selection is active (Airtable-style). */}
+              {props.cellSel && props.cellSel.keys.size > 1 && (
+                <div
+                  className="sticky bottom-2 z-30 mx-auto mt-2 flex w-fit items-center gap-2 rounded-full border border-[#00e5ff55] bg-bolt-elements-background-depth-2/95 px-2 py-1 shadow-[0_6px_20px_-6px_rgba(0,229,255,0.4)] backdrop-blur"
+                  data-testid="sitedb-cell-select-bar"
+                  role="status"
+                >
+                  <span className="pl-1 text-[11px] tabular-nums text-bolt-elements-textSecondary">
+                    {props.cellSel.keys.size} cells · <span className="font-mono">{props.cellSel.column}</span>
+                  </span>
+                  <button
+                    type="button"
+                    onClick={onFillDown}
+                    disabled={fillBusy}
+                    data-testid="sitedb-fill-down"
+                    title="Copy the top selected value to every selected cell below (⌘/Ctrl+D)"
+                    className="inline-flex items-center gap-1 rounded-full border border-[#00e5ff66] bg-bolt-elements-item-backgroundAccent/15 px-2.5 py-1 text-[11px] font-medium text-bolt-elements-item-contentAccent enabled:hover:bg-bolt-elements-item-backgroundAccent/25 disabled:opacity-50 disabled:cursor-not-allowed transition-colors cursor-pointer focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-bolt-elements-item-contentAccent"
+                  >
+                    <div className={fillBusy ? 'i-ph:circle-notch animate-spin text-[12px]' : 'i-ph:arrow-line-down text-[12px]'} />
+                    <span className="min-w-[6ch] text-center">{fillBusy ? 'Filling…' : 'Fill down'}</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={onClearCellSel}
+                    aria-label="Clear cell selection"
+                    title="Clear selection (Esc)"
+                    data-testid="sitedb-cell-select-clear"
+                    className="min-h-[24px] min-w-[24px] flex items-center justify-center rounded-full text-bolt-elements-textTertiary hover:text-bolt-elements-textPrimary hover:bg-bolt-elements-background-depth-3 cursor-pointer focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-bolt-elements-item-contentAccent"
+                  >
+                    <div className="i-ph:x text-[11px]" />
+                  </button>
+                </div>
+              )}
             </div>
           )}
 
@@ -4893,7 +5268,9 @@ const GridRow = memo((props: GridRowProps) => {
     editError,
     editBusy,
     pkCols,
+    cellSel,
     onStartEdit,
+    onCellSelect,
     onEditKindChange,
     onEditValueChange,
     onEditSave,
@@ -4967,8 +5344,24 @@ const GridRow = memo((props: GridRowProps) => {
           );
         }
 
-        // A boolean cell toggles directly (no editor); other editable cells open the typed editor.
-        const clickHandler = () => {
+        // Is this cell part of the active single-column multi-cell selection (fill-down / bulk edit)?
+        const cellSelected =
+          cellSel !== null && cellSel.column === col.name && thisKey !== null && cellSel.keys.has(thisKey);
+
+        /*
+         * Click routing: a SHIFT or META/CTRL click on an editable cell is a SELECTION gesture (extend /
+         * toggle a column range for fill-down + bulk edit) — never opens the editor. A plain click keeps
+         * the existing behavior (boolean toggles via its checkbox; other editable cells open the typed
+         * editor; a locked cell opens the row detail).
+         */
+        const clickHandler = (e: React.MouseEvent) => {
+          if (gate.editable && (e.shiftKey || e.metaKey || e.ctrlKey)) {
+            e.preventDefault();
+            onCellSelect(row, col.name, { shift: e.shiftKey, meta: e.metaKey || e.ctrlKey });
+
+            return;
+          }
+
           if (fieldKind === 'boolean' && gate.editable) {
             return; // handled by the checkbox itself
           }
@@ -4985,14 +5378,30 @@ const GridRow = memo((props: GridRowProps) => {
             key={col.name}
             role="cell"
             tabIndex={0}
+            aria-selected={cellSelected || undefined}
             onClick={clickHandler}
             onKeyDown={(e) => {
+              // Shift+Arrow extends a column cell-selection down/up (keyboard-complete range select).
+              if (gate.editable && e.shiftKey && (e.key === 'ArrowDown' || e.key === 'ArrowUp')) {
+                e.preventDefault();
+                onCellSelect(row, col.name, { shift: true, meta: false });
+
+                return;
+              }
+
               if (e.key === 'Enter' || e.key === ' ') {
                 if (fieldKind === 'boolean' && gate.editable) {
                   return;
                 }
 
                 e.preventDefault();
+
+                // Meta/Ctrl+Enter/Space toggles this cell into the column selection (keyboard equivalent of meta-click).
+                if (gate.editable && (e.metaKey || e.ctrlKey)) {
+                  onCellSelect(row, col.name, { shift: false, meta: true });
+
+                  return;
+                }
 
                 if (gate.editable) {
                   onStartEdit(row, col);
@@ -5001,8 +5410,9 @@ const GridRow = memo((props: GridRowProps) => {
                 }
               }
             }}
-            title={gate.editable ? 'Click to edit' : (gate.reason ?? '')}
+            title={gate.editable ? 'Click to edit · Shift/⌘-click to select a column range' : (gate.reason ?? '')}
             data-testid="sitedb-grid-cell"
+            data-cell-selected={cellSelected ? '1' : undefined}
             style={{ width: COL_WIDTH, left: frozen && canMutateRows ? 36 : undefined }}
             className={classNames(
               'group relative shrink-0 text-xs font-mono tabular-nums truncate border-r border-bolt-elements-borderColor/20 flex items-center gap-1',
@@ -5010,6 +5420,9 @@ const GridRow = memo((props: GridRowProps) => {
               gate.editable && fieldKind !== 'boolean'
                 ? 'cursor-text hover:bg-bolt-elements-item-backgroundAccent/[0.06]'
                 : 'cursor-pointer',
+              cellSelected
+                ? 'bg-bolt-elements-item-backgroundAccent/25 ring-1 ring-inset ring-[color:var(--ps-accent,#00e5ff)]/70'
+                : '',
               frozen
                 ? 'sticky z-10 bg-bolt-elements-background-depth-1 group-hover/row:bg-bolt-elements-item-backgroundActive shadow-[6px_0_10px_-8px_rgba(0,0,0,0.6)]'
                 : '',
@@ -5021,7 +5434,7 @@ const GridRow = memo((props: GridRowProps) => {
               editable={gate.editable}
               onToggle={() => onToggleBoolean(row, col)}
             />
-            {gate.editable && fieldKind !== 'boolean' && (
+            {gate.editable && fieldKind !== 'boolean' && !cellSelected && (
               <div className="i-ph:pencil-simple text-[10px] text-bolt-elements-textTertiary opacity-0 group-hover:opacity-70 ml-auto shrink-0" />
             )}
           </div>
