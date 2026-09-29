@@ -461,6 +461,25 @@ describe('AdminSiteDetailComponent (tabs + logs + SQL console)', () => {
     expect(c.rollbackError()).toContain('boom');
     expect(c.pendingRollback()).withContext('dialog closed').toBeNull();
   });
+
+  // A prior success message must NOT persist beside a later failure — confirmRollback()
+  // clears rollbackResult at the START of every attempt, so a stale "Rolled back to X"
+  // and a fresh rollback-error can never show simultaneously (destructive-action honesty).
+  it('confirmRollback clears a stale success message when a later rollback fails', () => {
+    const post = jasmine.createSpy('post');
+    post.and.returnValue(of({ ok: true, snapshot_name: 'v3' }));
+    const { c } = make(post);
+    // First attempt succeeds → success message is set.
+    c.pendingRollback.set({ id: 'snap-1', snapshot_name: 'v3' } as never);
+    c.confirmRollback();
+    expect(c.rollbackResult()).withContext('success recorded on the first attempt').toBe('v3');
+    // Second attempt fails → the stale success must be gone, only the error remains.
+    post.and.returnValue(throwError(() => ({ error: { error: { message: 'later boom' } } })));
+    c.pendingRollback.set({ id: 'snap-2', snapshot_name: 'v4' } as never);
+    c.confirmRollback();
+    expect(c.rollbackResult()).withContext('stale success cleared before the failure').toBeNull();
+    expect(c.rollbackError()).toContain('boom');
+  });
 });
 
 describe('AdminSiteDetailComponent (cinematic entrance — matches sibling sections)', () => {

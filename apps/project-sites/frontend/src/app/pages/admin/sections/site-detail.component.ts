@@ -208,7 +208,7 @@ const VALID_TABS: readonly Tab[] = ['logs', 'snapshots', 'data', 'sql', 'schema'
               <span class="ws-dot" aria-hidden="true"></span>{{ wsStatus() === 'connected' ? 'connected' : wsStatus() }}
             </span>
           </div>
-          <div class="site-detail__logs" data-testid="site-logs-tail">
+          <div class="site-detail__logs" data-testid="site-logs-tail" aria-live="polite" aria-atomic="false">
             @for (row of filteredLogs(); track row.ts + row.message) {
               <div class="log-row" data-testid="site-logs-row" [attr.data-level]="row.level">
                 <time [attr.datetime]="row.ts">{{ formatTs(row.ts) }}</time>
@@ -260,7 +260,7 @@ const VALID_TABS: readonly Tab[] = ['logs', 'snapshots', 'data', 'sql', 'schema'
           </ul>
 
           @if (rollbackResult()) {
-            <p class="rollback-result">Rolled back to {{ rollbackResult() }}</p>
+            <p class="rollback-result" role="status" aria-live="polite">Rolled back to {{ rollbackResult() }}</p>
           }
           @if (rollbackError()) {
             <p class="rollback-error" role="alert" data-testid="rollback-error">{{ rollbackError() }}</p>
@@ -372,7 +372,7 @@ const VALID_TABS: readonly Tab[] = ['logs', 'snapshots', 'data', 'sql', 'schema'
           }
 
           @if (sqlResult(); as r) {
-            <div class="sql-result-meta">
+            <div class="sql-result-meta" role="status" aria-live="polite">
               <span class="sql-result-count">{{ r.rows.length }} {{ r.rows.length === 1 ? 'row' : 'rows' }} · {{ r.duration_ms }}ms</span>
               @if (r.rows_read != null || r.rows_written != null || r.d1_duration_ms != null) {
                 <span class="sql-cost" data-testid="sql-cost"
@@ -1155,6 +1155,10 @@ export class AdminSiteDetailComponent {
     if (!s) return;
     const id = this.siteId();
     this.rollbackError.set(null);
+    // Clear any prior success at the START of a new attempt so a stale "Rolled back to X"
+    // never lingers beside a fresh rollback-error (a success + a later failure must never
+    // show together — honesty for the most destructive admin action).
+    this.rollbackResult.set(null);
     this.api
       // {silent}: the catchError below sets the inline rollback-error panel
       // (the contextual failure surface) — suppress the generic ApiService toast
