@@ -375,25 +375,6 @@ export async function listEnvVars(
 }
 
 /**
- * Fetch a single env var by id, returning the decrypted plaintext.
- * SERVER-SIDE ONLY — for use inside resolver/dispatcher code paths.
- */
-export async function getEnvVar(
-  env: Env,
-  orgId: string,
-  id: string,
-): Promise<{ envVar: EnvVar; value: string } | null> {
-  const row = await dbQueryOne<EnvVarRow>(
-    env.DB,
-    `SELECT * FROM ai_env_vars WHERE org_id = ? AND id = ? AND deleted_at IS NULL`,
-    [orgId, id],
-  );
-  if (!row) return null;
-  const envVar = await rowToEnvVar(env, row, true);
-  return { envVar, value: envVar.value ?? '' };
-}
-
-/**
  * Soft-delete an env var (`deleted_at = now`). Returns true when a row was
  * actually flipped (id present + not already deleted), false otherwise.
  */

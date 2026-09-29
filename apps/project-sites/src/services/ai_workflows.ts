@@ -531,47 +531,6 @@ export interface ImageGenerationDispatch {
   status_url: string;
 }
 
-/**
- * Fire a Workflows v2 image-generation run for one image concept.
- *
- * Replaces the legacy synchronous `generateSectionImage` call inside the
- * site-generation pipeline. Each image becomes a resumable workflow
- * instance — DALL-E retry, Stability fallback, and R2 upload all run as
- * independent steps with their own 3-try / 30s-exponential retry budgets.
- *
- * When the `IMAGE_GENERATION_WORKFLOW` binding is unbound (dev), the helper
- * returns `null` so the caller can degrade gracefully.
- *
- * @example
- * ```ts
- * const dispatch = await dispatchImageGenerationWorkflow(env, {
- *   siteId: 's1',
- *   slug: 'acme',
- *   concept: 'hero',
- *   prompt: 'A wide cinematic photograph of …',
- *   size: '1792x1024',
- * });
- * if (dispatch) console.warn(dispatch.status_url);
- * ```
- */
-export async function dispatchImageGenerationWorkflow(
-  env: Env,
-  params: {
-    siteId: string;
-    slug: string;
-    concept: string;
-    prompt: string;
-    size?: '1024x1024' | '1792x1024' | '1024x1792';
-  },
-): Promise<ImageGenerationDispatch | null> {
-  if (!env.IMAGE_GENERATION_WORKFLOW) return null;
-  const id = `imgwf-${params.siteId}-${params.concept.replace(/[^a-zA-Z0-9_-]/g, '_').slice(0, 32)}-${Date.now()}`;
-  const inst = await env.IMAGE_GENERATION_WORKFLOW.create({ id, params });
-  return {
-    workflow_id: inst.id,
-    status_url: `/api/sites/${params.siteId}/workflows/image-generation/${inst.id}`,
-  };
-}
 
 // ── Prompt Registration (called at startup) ──────────────────
 

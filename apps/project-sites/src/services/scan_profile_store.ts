@@ -247,27 +247,3 @@ export async function deleteScanProfile(
     [new Date().toISOString(), new Date().toISOString(), id, orgId],
   );
 }
-
-/**
- * Mark a profile as freshly run (advances `last_run_at`). Called by the cron
- * geo-sweep after a successful run so {@link isProfileDue} schedules the next one.
- *
- * @param env - Worker env (needs `DB`).
- * @param orgId - The owning org.
- * @param id - The profile id.
- * @param nowMs - Completion time (epoch ms; injectable for determinism).
- * @returns `{ error, changes }`.
- */
-export async function markProfileRun(
-  env: Env,
-  orgId: string,
-  id: string,
-  nowMs: number = Date.now(),
-): Promise<{ error: string | null; changes: number }> {
-  return dbExecute(
-    env.DB,
-    `UPDATE scan_profiles SET last_run_at = ?, updated_at = ?
-      WHERE id = ? AND org_id = ? AND deleted_at IS NULL`,
-    [nowMs, new Date().toISOString(), id, orgId],
-  );
-}

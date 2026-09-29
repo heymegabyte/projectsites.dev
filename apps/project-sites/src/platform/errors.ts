@@ -42,10 +42,6 @@ export class NotFoundError extends AppError {
   readonly code = 'NOT_FOUND';
   readonly status = 404;
 }
-export class ConflictError extends AppError {
-  readonly code = 'CONFLICT';
-  readonly status = 409;
-}
 export class EntitlementError extends AppError {
   readonly code = 'ENTITLEMENT_REQUIRED';
   readonly status = 402;

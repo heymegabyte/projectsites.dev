@@ -681,16 +681,6 @@ export const APPS_CATALOG: ReadonlyArray<CatalogApp> = [
   },
 ];
 
-export const APP_CATEGORIES: ReadonlyArray<{ id: AppCategory; label: string; glyph: string }> = [
-  { id: 'analytics', label: 'Analytics', glyph: '📊' },
-  { id: 'knowledge', label: 'Knowledge', glyph: '📚' },
-  { id: 'productivity', label: 'Productivity', glyph: '✅' },
-  { id: 'marketing', label: 'Marketing', glyph: '📧' },
-  { id: 'ai', label: 'AI', glyph: '🤖' },
-  { id: 'agent-platform', label: 'Agents', glyph: '🪢' },
-  { id: 'ai-ops', label: 'AI ops', glyph: '🔬' },
-];
-
 /** Lookup an app by id — throws if missing so callers fail loud. */
 export function findApp(id: string): CatalogApp {
   const app = APPS_CATALOG.find((a) => a.id === id);
