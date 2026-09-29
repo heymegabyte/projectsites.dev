@@ -11,6 +11,7 @@ import {
   generateNoCookiesBadge,
   generateOpenNowBadge,
   injectSectionInstrumentation,
+  getContentType,
 } from '../services/site_serving';
 import type { Env } from '../types/env';
 import { DOMAINS, BRAND } from '@project-sites/shared';
@@ -429,6 +430,24 @@ describe('parseSitemapRoutes', () => {
   });
 });
 
+// The PWA manifest MUST be served as `application/manifest+json` — a `text/plain`
+// or `application/octet-stream` content-type makes browsers reject the manifest,
+// so `install`, maskable icons, shortcuts, and theme-color silently fail (perf-loop
+// #14 flagged manifest icons not loading). Locks the resolver's SSOT entry.
+describe('getContentType — webmanifest MIME (PWA install-ability)', () => {
+  it('resolves site.webmanifest to application/manifest+json', () => {
+    expect(getContentType('site.webmanifest')).toBe('application/manifest+json');
+  });
+
+  it('resolves a full path ending in .webmanifest too', () => {
+    expect(getContentType('/assets/site.webmanifest')).toBe('application/manifest+json');
+  });
+
+  it('is case-insensitive on the extension', () => {
+    expect(getContentType('/SITE.WEBMANIFEST')).toBe('application/manifest+json');
+  });
+});
+
 describe('serveSiteFromR2', () => {
   function createMockEnv(files: Record<string, string> = {}, opts: { status?: string } = {}) {
     return {
@@ -710,6 +729,41 @@ describe('serveSiteFromR2', () => {
     const response = await serveSiteFromR2(env, baseSite, '/');
     expect(response.headers.get('Cache-Control')).toContain('public');
     expect(response.headers.get('X-Site-Slug')).toBe('my-biz');
+  });
+
+  // ── Logo-icon serve-time fallback (never a broken <img>) ──
+  // The template Header requests `/logo-icon.png` first, then falls back (onError)
+  // to `/apple-touch-icon.png`. On the ~half of builds where BOTH are missing (a
+  // flaky logo-gen AND no favicon set), the request used to return an EMPTY 404 →
+  // a broken image on the site. Serve a minimal inline SVG placeholder (200,
+  // image/svg+xml) so the icon slot is never broken, on EVERY deployed site.
+  describe('logo-icon serve-time fallback (AL-411)', () => {
+    it('serves apple-touch-icon.png when logo-icon.png is missing (existing fallback, unchanged)', async () => {
+      const env = createMockEnv({
+        'sites/my-biz/v1/apple-touch-icon.png': 'PNGDATA',
+      });
+      const response = await serveSiteFromR2(env, baseSite, '/logo-icon.png');
+      expect(response.status).toBe(200);
+      expect(response.headers.get('Content-Type')).toBe('image/png');
+    });
+
+    it('serves an inline SVG placeholder (200, image/svg+xml) when BOTH logo-icon.png AND apple-touch-icon.png are missing', async () => {
+      const env = createMockEnv({}); // neither icon exists
+      const response = await serveSiteFromR2(env, baseSite, '/logo-icon.png');
+      expect(response.status).toBe(200); // NOT an empty 404
+      expect(response.headers.get('Content-Type')).toBe('image/svg+xml');
+      const body = await response.text();
+      expect(body).toContain('<svg');
+      expect(body).toContain('</svg>');
+    });
+
+    it('the SVG placeholder is cacheable + non-empty', async () => {
+      const env = createMockEnv({});
+      const response = await serveSiteFromR2(env, baseSite, '/logo-icon.png');
+      expect(response.headers.get('Cache-Control')).toContain('public');
+      const body = await response.text();
+      expect(body.length).toBeGreaterThan(0);
+    });
   });
 });
 

@@ -957,6 +957,55 @@ describe('GET /api/sites/search — LIKE wildcard sanitizing', () => {
   });
 });
 
+// ─── Short-query error state (distinguish "too short" from "no matches") ──────
+// The pre-built-site search returns `{ data: [] }` for a <2-char query, which is
+// BYTE-IDENTICAL to a valid query that genuinely found nothing. The homepage SPA
+// then cannot tell "keep typing" from "no results" — so it can't render the right
+// hint. Add a `meta.reason:'query_too_short'` (+ human message) ONLY on the
+// too-short path; `data: []` stays present for back-compat. A valid (≥2-char)
+// query never carries `meta.reason`.
+describe('GET /api/sites/search — short-query error state (query_too_short)', () => {
+  it('a <2-char query returns data:[] AND a distinguishing meta.reason:"query_too_short"', async () => {
+    const res = await makeRequest('/api/sites/search?q=a');
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.data).toEqual([]); // back-compat: data:[] always present
+    expect(body.meta?.reason).toBe('query_too_short');
+    expect(typeof body.meta?.message).toBe('string');
+    expect(body.meta.message.length).toBeGreaterThan(0);
+    // No DB hit for a query that can't run.
+    expect(mockDbQuery).not.toHaveBeenCalled();
+  });
+
+  it('a missing q returns the same query_too_short signal (no DB hit)', async () => {
+    const res = await makeRequest('/api/sites/search');
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.data).toEqual([]);
+    expect(body.meta?.reason).toBe('query_too_short');
+    expect(mockDbQuery).not.toHaveBeenCalled();
+  });
+
+  it('a whitespace-only query (trimmed <2) is query_too_short, not a real search', async () => {
+    const res = await makeRequest('/api/sites/search?q=' + encodeURIComponent(' '));
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.data).toEqual([]);
+    expect(body.meta?.reason).toBe('query_too_short');
+    expect(mockDbQuery).not.toHaveBeenCalled();
+  });
+
+  it('a VALID (≥2-char) query runs the search and carries NO meta.reason (honest-empty stays honest)', async () => {
+    mockDbQuery.mockResolvedValueOnce({ data: [], error: null });
+    const res = await makeRequest('/api/sites/search?q=vito');
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.data).toEqual([]); // honest-empty — the search ran and found nothing
+    expect(body.meta?.reason).toBeUndefined();
+    expect(mockDbQuery).toHaveBeenCalledTimes(1);
+  });
+});
+
 // ─── Search excludes lying-published (no-build) dead stubs ────────────────────
 // A `status='published'` row with `current_build_version IS NULL` is NOT a real,
 // viewable site — its subdomain serves the branded 503 ("the last build didn't

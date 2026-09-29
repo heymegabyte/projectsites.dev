@@ -38,7 +38,13 @@ search.get('/api/sites/search', async (c) => {
   const q = c.req.query('q');
 
   if (!q || q.trim().length < 2) {
-    return c.json({ data: [] });
+    // Distinguish "query too short" from a real "no matches" — both were byte-identical
+    // `{ data: [] }`, so the homepage SPA couldn't render the right hint (keep-typing vs
+    // no-results). `data: []` stays present (back-compat); `meta.reason` is the signal.
+    return c.json({
+      data: [],
+      meta: { reason: 'query_too_short', message: 'Enter at least 2 characters to search.' },
+    });
   }
 
   // Bound query length, and strip the user's own %/_ wildcards so they match

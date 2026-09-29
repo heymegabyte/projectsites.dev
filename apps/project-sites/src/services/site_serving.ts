@@ -706,6 +706,17 @@ export async function serveSiteFromR2(
           },
         });
       }
+      // BOTH icons absent (flaky logo-gen AND no favicon set) → the request used to
+      // return an EMPTY 404, leaving a broken <img> on the site. Serve a minimal
+      // inline SVG monogram (first letter of the business slug on a neutral tile) so
+      // the icon slot is NEVER broken — 200, image/svg+xml, no rebuild.
+      serveLog.debug('serve_logo_icon_svg_placeholder', { slug: site.slug });
+      return new Response(logoIconSvgPlaceholder(site.slug), {
+        headers: {
+          'Content-Type': 'image/svg+xml',
+          'Cache-Control': 'public, max-age=86400',
+        },
+      });
     }
 
     // Try assets/ directory (logo, favicon, discovered images — not versioned)
@@ -1944,6 +1955,28 @@ async function buildSiteResponse(
  * getContentType('marketing/main.js'); // 'application/javascript'
  * getContentType('/');                 // 'application/octet-stream' (no extension)
  */
+/**
+ * Minimal inline SVG placeholder for a site's square icon mark, used at serve-time
+ * when BOTH `/logo-icon.png` and `/apple-touch-icon.png` are missing from R2.
+ *
+ * Renders a neutral rounded tile with the business's first initial, so the header
+ * icon + favicon slot is never a broken `<img>`. Deterministic (no gradients that
+ * need extra defs), self-contained, and cheap. The letter is derived from the slug
+ * and hard-restricted to `[A-Z0-9]` so nothing user-controlled reaches the markup.
+ *
+ * @param slug - The site slug (its first alphanumeric char becomes the monogram).
+ * @returns An SVG document string (`image/svg+xml`).
+ */
+export function logoIconSvgPlaceholder(slug: string): string {
+  const initial = (slug.match(/[a-z0-9]/i)?.[0] ?? 'S').toUpperCase();
+  return (
+    `<svg xmlns="http://www.w3.org/2000/svg" width="512" height="512" viewBox="0 0 512 512" role="img" aria-label="Site icon">` +
+    `<rect width="512" height="512" rx="96" fill="#0a0a0f"/>` +
+    `<text x="50%" y="50%" dy="0.35em" text-anchor="middle" font-family="'Space Grotesk',system-ui,sans-serif" font-size="256" font-weight="700" fill="#00e5ff">${initial}</text>` +
+    `</svg>`
+  );
+}
+
 export function getContentType(path: string): string {
   const ext = path.split('.').pop()?.toLowerCase();
   const types: Record<string, string> = {
