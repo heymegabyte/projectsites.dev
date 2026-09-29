@@ -11,6 +11,13 @@
 
 ---
 
+### 2026-09-29 · fire-51 — first fire under the upgraded loop (BACKLOG frontier + 15 roles)
+- **3 slices landed + verified:** domains-a11y — `domain-manager` popover `aria-modal` + focus-trap (reused `FocusTrapDirective`) + refresh-button `min-w-[11ch]` (`71dcf4a8b`, frontend R2, Karma 2369✓); WfP-slot backfill script `scripts/backfill-wfp-slots.mjs` (`5676c8329`, proven on `search-verify` both slots `ok:true`; 2 published sites total; cross-org sweep needs an internal super-admin endpoint — queued); lockfile-drift CI gate `scripts/check-lockfile-drift.mjs` + `feature-architecture.yml` step (`cfc581dd7`, non-mutating copy→regen→restore, fail-open) — the §7 loop-improvement, kills the recurring `ERR_PNPM_OUTDATED_LOCKFILE` silent-red-deploy class.
+- **⭐ Golden-path (§6) found + fixed a REAL money-path defect:** `/create` gated required-field errors on submit-only → a keyboard/AT user who cleared a field hit a catch-22 (button disabled, no inline feedback, the click that sets `attempted` never fires). Fix: error-on-blur + clear-on-type + `aria-invalid` (WCAG 3.3.1). TDD (4 new spec cases). The agent died on ECONNRESET before pushing; the complete verified commit was SALVAGED via cherry-pick (`8b83e2434`, tsc 0), frontend R2.
+- **2 agents failed (queued, not re-fanned):** error_handler.ts extraction (Agent 2 output cut off mid-run — 0 commit, still 331 LOC → fire-52); golden-path journey CONTINUATION beyond the create fix (Agent 5 ECONNRESET → fire-52).
+- **Discovery rotated to the money-path CREATE/BUILD/editor arc** → ~10 new ground-truthed next-wave tasks folded into `BACKLOG.md` (owner-notify on build-complete/fail · homepage build-error state + retry · ProjectHub deploy unwired standalone · invite-expired error · promote DNS-wait guard · build-progress SSE · search no-results empty state · snapshot-restore unsaved guard · promote synced affordance).
+- **Checkpoint:** `subagent_tokens:0` (Agent 5 ECONNRESET) observed + 3 heavy waves this session → per the loop's context-budget HARD-STOP, fire-52 runs in a FRESH session; BACKLOG replenished + ready.
+
 ### 2026-09-29 · fire-50 — ⭐ WfP arc CLOSED on prod + 4 slices + F-flag + full standing roster
 - ⭐ **WfP site-hosting acceptance MET (Lane 2) — `x-ps-serve: wfp` PROVEN on prod.** Deployed the WfP
   production slot (`POST /api/diag/wfp-deploy`, site `search-verify`, `ok:true, assetCount:1`), enabled

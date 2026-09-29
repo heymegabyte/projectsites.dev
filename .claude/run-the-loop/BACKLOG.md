@@ -22,7 +22,7 @@
 
 ## money-path (Brian #1 — HIGH)
 
-- [ ] Backfill WfP slots for all existing sites (batched, idempotent)
+- [~] Backfill WfP slots for all existing sites (batched, idempotent) — fire-51: script `scripts/backfill-wfp-slots.mjs` shipped (`5676c8329`), proven on search-verify (both slots `ok:true`); cross-org sweep needs the internal super-admin endpoint (see § fire-51 replenish)
   - cadence: once
   - priority: high
   - category: architecture
@@ -359,7 +359,7 @@
 
 ## a11y
 
-- [ ] Domains VQA a11y — `domain-manager` popover `aria-modal` + focus-trap; button width jitter
+- [x] Domains VQA a11y — `domain-manager` popover `aria-modal` + focus-trap; button width jitter — SHIPPED fire-51 (`71dcf4a8b`, reused `FocusTrapDirective`, Karma 2369✓, frontend R2)
   - cadence: every-2-loops
   - priority: med
   - category: a11y
@@ -386,7 +386,7 @@
 
 ## architecture
 
-- [ ] error_handler.ts is 331 LOC — extract business logic out of middleware
+- [ ] error_handler.ts is 331 LOC — extract business logic out of middleware (fire-51 agent died mid-run, 0 commit — retry fire-52 via § fire-51 replenish CARRIED item)
   - cadence: every-4-loops
   - priority: med
   - category: architecture
@@ -590,7 +590,7 @@
 
 ## dx (recurring gates)
 
-- [ ] lockfile-drift CI/pre-commit gate
+- [x] lockfile-drift CI/pre-commit gate — SHIPPED fire-51 (`cfc581dd7`, non-mutating copy→regen→restore + CI gate)
   - cadence: once
   - priority: high
   - category: dx
@@ -654,6 +654,38 @@
     sub-ledgers. Keep every decision/command/warning/architecture/example/open-TODO; cut filler +
     inferable knowledge (`instruction-compression-playbook`). Keep this BACKLOG + DISCOVERIES + LEDGER
     optimized for future agents. Older detail lives in git history + sub-ledgers.
+
+---
+
+## fire-51 replenish — money-path CREATE/BUILD/editor (discovery, ground-truthed) + carried
+
+- [ ] Internal super-admin cross-org WfP-backfill endpoint (`POST /api/internal/wfp-backfill`)
+  - cadence: once · priority: high · category: architecture · estimate: 60m · depends_on: none · discovered_by: fire-51
+  - context: fire-51 shipped `scripts/backfill-wfp-slots.mjs` (proven on `search-verify`) but the diag endpoint is ORG-scoped (`assertSiteOwned`) so it only backfills the caller-org's sites (1 of 2 today). Build a super-admin-gated endpoint that iterates ALL published sites, resolves each `org_id` server-side, calls `deploySiteToWfp` (trusted internal sweep, no per-caller ownership), idempotent + rate-limited + fail-soft. Then run the full backfill so every site serves `x-ps-serve: wfp`. Corpus is only 2 sites now; matters as it grows.
+- [ ] Owner-notify on build-complete / build-fail (psnotify `build.*` channel never fires)
+  - cadence: every-2-loops · priority: high · category: bug · estimate: 60m · depends_on: none · discovered_by: fire-51
+  - context: `src/workflows/site-generation.ts` logs `workflow.owner_notified` but the psnotify DO `build.complete`/`build.failed` send is a stub — owner silently discovers via polling. Wire `notifyUser(ownerId, 'build.complete'|'build.failed', {siteId, slug, errorReason?})` into the final workflow step. Closes the money-path "did my site finish?" gap + the Billing-full E2E's build-signal dependency.
+- [ ] Homepage build-error state + one-click retry (4-screen machine has NO error state)
+  - cadence: every-2-loops · priority: high · category: bug · estimate: 60m · depends_on: none · discovered_by: fire-51
+  - context: `public/index.html` state machine (search→signin→details→waiting) has no `error` screen — a build timeout/API-flake/container-evict leaves the user staring at `waiting` forever. Add a 5th screen (`waiting → error|success`) surfacing the build error + idempotency-safe retry (by site_id). Money-path completion blocker.
+- [ ] Promote → "View Live" DNS-propagation guard (immediate click 404s)
+  - cadence: every-2-loops · priority: high · category: bug · estimate: 45m · depends_on: none · discovered_by: fire-51
+  - context: `SourceControlPanel`/`PromoteHeaderControl` declare "Published!" right after the WfP deploy, but the prod slot can take ~30-60s to propagate; "View Live Site" clicked immediately → 404. Add a post-deploy poll (≤5 checks/60s) that confirms `{slug}.projectsites.dev` 200s before the success/view-live state, or an honest "Waiting for propagation…" interstitial.
+- [ ] Editor build-progress SSE subscription (events emitted, editor never subscribes)
+  - cadence: every-4-loops · priority: med · category: feature · estimate: 90m · depends_on: none · discovered_by: fire-51
+  - context: `src/services/build_events.ts` writes `build_progress` events per stage (research→generate→validate→upload) but the editor renders a static "Building…" spinner for ~15min. Add `useBuildProgress(siteId)` → SSE `GET /api/sites/:siteId/build/events` → live stage labels + %. Reuse `SiteImportStatus`/`PS_GENERATION_STATUS` plumbing.
+- [ ] ProjectHub Deploy unwired in standalone (degrades to a hint outside admin bridge)
+  - cadence: every-8-loops · priority: med · category: bug · estimate: 45m · depends_on: none · discovered_by: fire-51
+  - context: `app/components/workbench/ProjectHub.tsx` — Deploy renders an "open from the admin" hint when not embedded (a doomed/dead control per `action-button-must-gate-on-server-precondition`). Wire a `PS_DEPLOY_REQUEST` bridge fallback so Deploy fires from ProjectHub directly.
+- [ ] CREATE funnel: invite-expired inline error + resend; search no-results empty state
+  - cadence: every-4-loops · priority: med · category: ux · estimate: 45m · depends_on: none · discovered_by: fire-51
+  - context: (a) `src/routes/search.ts` site-lookup gate — a stale/revoked invite fires a 401/410 with a generic error; render "Your invite has expired" + "Request a new one". (b) 0-result search (`meta.reason:'no_results'`) shows nothing → render "No sites found for '<q>'" + "Start a new site" CTA (`embarrassingly-easy` empty-state-as-launchpad).
+- [ ] ProjectHub snapshot-restore unsaved-changes guard + Promote "synced" affordance
+  - cadence: every-8-loops · priority: low · category: ux · estimate: 45m · depends_on: none · discovered_by: fire-51
+  - context: (a) `ProjectHub.tsx` "Restore snapshot" auto-applies over unsaved editor changes with no warning — add a confirm + "auto-backup first" checkbox (`createProjectSnapshot`). (b) `PromoteHeaderControl` disables with reason only in title/aria when Preview==Production — add a visible "synced ✓" badge so the disabled state is legible.
+- [ ] CARRIED fire-52: error_handler.ts extraction (Agent 2 died mid-run) + golden-path journey CONTINUATION
+  - cadence: once · priority: med · category: architecture · estimate: 90m · depends_on: none · discovered_by: fire-51
+  - context: error_handler.ts still 331 LOC — extract `brandedErrorPage`/`prefersHtml` → `src/lib/error_pages.ts` + R2 `10042→503` → typed `StorageUnavailableError` (the fire-51 agent's output was cut off, 0 commit). Golden-path: Agent 5 shipped the `/create` blur-error fix (`8b83e2434`) then ECONNRESET before continuing — resume the LONG money-path journey (build→editor→promote→view-live) fire-52. Note: MCP `forms.component` testid = N/A (verified fire-51: forms renders MCP pills, not connect buttons).
 
 ---
 
