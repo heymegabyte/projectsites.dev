@@ -467,7 +467,12 @@
             <label class="block text-[0.85rem] font-semibold text-light mb-1.5" for="create-phone">
               Phone <span class="text-gray-400 font-normal text-[0.75rem]">(optional)</span>
               @if (loadingPhone()) {
-                <span class="field-loading"></span>
+                <span
+                  class="field-loading"
+                  role="status"
+                  aria-live="polite"
+                  aria-label="AI is filling this field"
+                ></span>
               }
             </label>
             <input
@@ -518,6 +523,13 @@
           class="whitespace-nowrap gap-2 inline-flex items-center text-[0.85rem] font-semibold py-2 px-4 min-w-[240px] justify-center rounded-xl border border-primary/20 bg-primary/[0.08] text-primary cursor-pointer transition-all hover:bg-primary/[0.15] hover:border-primary/30 disabled:opacity-50 disabled:cursor-not-allowed"
           (click)="autoPopulate()"
           [disabled]="autoPopulating() || !businessName.trim()"
+          [attr.aria-label]="
+            autoPopulating()
+              ? 'Searching…'
+              : (businessName.trim()
+                  ? 'Auto-fill from Google Places'
+                  : 'Enter a business name first')
+          "
         >
           @if (autoPopulating()) {
             <span class="loading-dots"><span></span><span></span><span></span></span>
@@ -900,7 +912,12 @@
       <!-- Submit -->
       <button
         class="w-full mt-2 bg-primary text-dark font-semibold rounded-xl px-6 py-4 text-[1.05rem] hover:brightness-110 hover:shadow-[0_0_24px_rgba(0,229,255,0.4)] transition-all disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
-        [disabled]="submitting()"
+        [disabled]="submitting() || !businessName.trim() || !businessAddress.trim()"
+        [attr.aria-label]="
+          (!businessName.trim() || !businessAddress.trim())
+            ? 'Enter business name and address to continue'
+            : null
+        "
         (click)="submitBuild()"
       >
         @if (submitting()) {

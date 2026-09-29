@@ -305,3 +305,101 @@ describe('CreateComponent — address-search-unavailable nudge', () => {
     expect(notice).withContext('no nudge on an honest empty result').toBeNull();
   }));
 });
+
+/**
+ * Submit-button gating (conversion-path a11y). `submitBuild()` early-returns with an
+ * error toast when name OR address is empty — a "doomed click". The button must be
+ * DISABLED until BOTH required fields are filled (never present a control that will
+ * fail), and carry an aria-label explaining WHY it is disabled. Once both are filled
+ * the button enables.
+ */
+describe('CreateComponent — submit button gates on required fields', () => {
+  afterEach(() => {
+    localStorage.clear();
+    sessionStorage.clear();
+    TestBed.resetTestingModule();
+  });
+
+  function render(): ComponentFixture<CreateComponent> {
+    const api = {
+      searchBusinesses: jasmine.createSpy('searchBusinesses').and.returnValue(of({ data: [] })),
+      searchAddress: jasmine.createSpy('searchAddress').and.returnValue(of({ data: [] })),
+    };
+    const auth = {
+      isLoggedIn: jasmine.createSpy('isLoggedIn').and.returnValue(false),
+      getAutoCreate: jasmine.createSpy('getAutoCreate').and.returnValue(false),
+      setAutoCreate: jasmine.createSpy('setAutoCreate'),
+      getPendingBuild: jasmine.createSpy('getPendingBuild').and.returnValue(false),
+      setPendingBuild: jasmine.createSpy('setPendingBuild'),
+      getSelectedBusiness: jasmine.createSpy('getSelectedBusiness').and.returnValue(null),
+      getMode: jasmine.createSpy('getMode').and.returnValue('build'),
+    };
+    TestBed.configureTestingModule({
+      imports: [CreateComponent],
+      providers: [
+        provideRouter([]),
+        { provide: ApiService, useValue: api },
+        { provide: AuthService, useValue: auth },
+        { provide: GeolocationService, useValue: { lat: () => null, lng: () => null } },
+        {
+          provide: ToastService,
+          useValue: { error: () => undefined, success: () => undefined, info: () => undefined },
+        },
+        { provide: TelemetryService, useValue: { track: () => undefined } },
+        {
+          provide: ActivatedRoute,
+          useValue: { snapshot: { queryParams: {}, queryParamMap: { get: () => null } } },
+        },
+      ],
+    });
+    const fx = TestBed.createComponent(CreateComponent);
+    fx.detectChanges();
+    return fx;
+  }
+
+  /** The full-width primary submit button is the only `button.w-full` in the form. */
+  function submitBtn(fx: ComponentFixture<CreateComponent>): HTMLButtonElement | null {
+    return (fx.nativeElement as HTMLElement).querySelector<HTMLButtonElement>('button.w-full');
+  }
+
+  it('is DISABLED with an explanatory aria-label when both fields are empty', () => {
+    const fx = render();
+    const btn = submitBtn(fx);
+    expect(btn).withContext('the submit button must render').not.toBeNull();
+    expect(btn?.disabled).withContext('empty name + address → doomed click, must disable').toBe(
+      true,
+    );
+    expect(btn?.getAttribute('aria-label'))
+      .withContext('disabled reason announced to AT')
+      .toBe('Enter business name and address to continue');
+  });
+
+  it('stays DISABLED when only the name is filled (address still required)', () => {
+    const fx = render();
+    const c = fx.componentInstance;
+    c.businessName = "Vito's Mens Salon";
+    fx.detectChanges();
+    expect(submitBtn(fx)?.disabled).withContext('address still empty → still doomed').toBe(true);
+  });
+
+  it('stays DISABLED when only the address is filled (name still required)', () => {
+    const fx = render();
+    const c = fx.componentInstance;
+    c.businessAddress = '74 N Beverwyck Rd, Lake Hiawatha, NJ 07034';
+    fx.detectChanges();
+    expect(submitBtn(fx)?.disabled).withContext('name still empty → still doomed').toBe(true);
+  });
+
+  it('ENABLES (aria-label cleared) once both name and address are filled', () => {
+    const fx = render();
+    const c = fx.componentInstance;
+    c.businessName = "Vito's Mens Salon";
+    c.businessAddress = '74 N Beverwyck Rd, Lake Hiawatha, NJ 07034';
+    fx.detectChanges();
+    const btn = submitBtn(fx);
+    expect(btn?.disabled).withContext('both required fields present → clickable').toBe(false);
+    expect(btn?.getAttribute('aria-label'))
+      .withContext('no disabled reason once enabled')
+      .toBeNull();
+  });
+});
