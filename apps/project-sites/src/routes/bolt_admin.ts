@@ -18,26 +18,32 @@
  * cached iframe bundle that hasn't reloaded yet still functions when
  * the WAF rule is eventually loosened.
  *
- * ## Origin policy
+ * ## Auth policy (fire-56 — the marker is NEVER an auth grant in production)
  *
- * These endpoints are **not user-data-sensitive**: chat-state is
- * write-only mirror keyed by public slug, suggest-prompts is stateless
- * Llama inference, vision-OCR/transcribe take their input in the
- * request body and return derived text. To make them callable from the
- * cross-origin bolt iframe (`https://editor.projectsites.dev`) without
- * requiring session cookies (the iframe runs without parent cookies),
- * the routes accept ANY of these auth signals:
+ * In **production** every endpoint requires an AUTHENTICATED PRINCIPAL:
  *
- *   1. A valid session bearer token (admin-shell users)
- *   2. An `Origin` header matching `https://editor.projectsites.dev`
- *      or `https://projectsites.dev` (cross-origin iframe / same-origin
- *      admin shell)
- *   3. An `X-Bolt-Origin-Check: bolt-iframe` header (explicit signal
- *      for the iframe to opt into the relaxed auth path)
+ *   1. A session/API-key principal — `c.get('userId')` set by the global
+ *      auth middleware from `Authorization: Bearer <session|psk_…>`.
+ *   2. The machine principal — the bolt.diy fork's SERVER-side chat fetch
+ *      (`app/lib/modules/llm/providers/projectsites-ai.ts`) sends the
+ *      provisioned `PS_BOLT_SERVICE_TOKEN` as its Bearer (the AI SDK emits
+ *      `apiKey` as `Authorization: Bearer …`). Compared timing-safe here
+ *      after the session lookup misses.
  *
- * If none match, the request is rejected with 403. CORS allow-list for
- * `editor.projectsites.dev` is handled by the global CORS middleware
- * in `src/index.ts`.
+ * The BROWSER-called surfaces (chat-state mirror, suggest-prompts,
+ * vision-OCR, transcribe — fetched client-side from the iframe, which holds
+ * no bearer) additionally accept a real browser `Origin` in production, but
+ * ONLY when the request arrived on the `projectsites.dev` zone, where
+ * Cloudflare Bot Fight Mode challenges non-browser POSTs. The WAF-less
+ * `workers.dev` host never qualifies. The chat inference endpoints get NO
+ * origin allowance at all — principal or 401.
+ *
+ * The `X-Bolt-Origin-Check: bolt-iframe` marker and the localhost origins
+ * remain a **development-mode allowance only** (`ENVIRONMENT !== 'production'`,
+ * i.e. `wrangler dev` + local editor dev) — any curl can set both, so they
+ * grant nothing in production. Denials: 401 in production, 403 in dev.
+ * CORS allow-list for `editor.projectsites.dev` is handled by the global
+ * CORS middleware in `src/index.ts`.
  *
  * **NOTE (2026-05-24)**: Whisper is no longer wired from the editor
  * surface. `transcribe` remains live so the browser SpeechRecognition
@@ -59,7 +65,7 @@ const MODEL_TEXT = '@cf/meta/llama-3.1-8b-instruct-fp8' as const;
 const MODEL_VISION = '@cf/meta/llama-3.2-11b-vision-instruct' as const;
 const MODEL_WHISPER = '@cf/openai/whisper' as const;
 
-/** Trusted origins for the relaxed iframe-auth path. */
+/** Trusted origins for the DEV-ONLY relaxed iframe-auth path (never auth in production). */
 const TRUSTED_BOLT_ORIGINS = new Set([
   'https://editor.projectsites.dev',
   'https://projectsites.dev',
@@ -68,22 +74,93 @@ const TRUSTED_BOLT_ORIGINS = new Set([
 ]);
 
 /**
- * Gate every bolt admin endpoint with a soft-auth check.
- *
- * Accepts ANY of:
- *   - `c.get('userId')` set by the global auth middleware (real session)
- *   - `Origin` header in the trusted-bolt list
- *   - `X-Bolt-Origin-Check: bolt-iframe` header
- *
- * Returns `true` when the caller is authorised, `false` otherwise.
+ * The two real-product origins the embedded editor legitimately calls from in
+ * production. Localhost origins never graduate here.
  */
-function isBoltCallerAllowed(c: Context<{ Bindings: Env; Variables: Variables }>): boolean {
-  if (c.get('userId')) return true;
-  const origin = c.req.header('origin') ?? '';
-  if (origin && TRUSTED_BOLT_ORIGINS.has(origin)) return true;
-  const boltHeader = c.req.header('x-bolt-origin-check');
-  if (boltHeader === 'bolt-iframe') return true;
-  return false;
+const PROD_TRUSTED_BOLT_ORIGINS = new Set([
+  'https://editor.projectsites.dev',
+  'https://projectsites.dev',
+]);
+
+/**
+ * Constant-time string comparison for the service-token check — never
+ * short-circuit on the first differing byte of a credential.
+ */
+function timingSafeEqualStr(a: string, b: string): boolean {
+  const enc = new TextEncoder();
+  const ab = enc.encode(a);
+  const bb = enc.encode(b);
+  if (ab.length !== bb.length) return false;
+  let diff = 0;
+  for (let i = 0; i < ab.length; i++) diff |= (ab[i] ?? 0) ^ (bb[i] ?? 0);
+  return diff === 0;
+}
+
+/**
+ * Which auth contract an endpoint runs under.
+ *
+ * - `inference` — the `/chat` + `/chat/completions` AI endpoints (route real
+ *   provider spend through the AI Gateway): authenticated principal ONLY in
+ *   production, no origin allowance whatsoever.
+ * - `browser` — the iframe's client-side surfaces (chat-state mirror,
+ *   suggest-prompts, vision-OCR, transcribe): a principal, OR a real browser
+ *   Origin arriving via the Bot-Fight-Mode-screened `projectsites.dev` zone.
+ */
+type BoltSurface = 'inference' | 'browser';
+
+/**
+ * Authorize a bolt endpoint call; returns `null` when allowed, else the
+ * 401 (production) / 403 (dev) denial response.
+ *
+ * Production grants (see module JSDoc § Auth policy):
+ *   1. `c.get('userId')` — session Bearer / org API key via the global auth
+ *      middleware (real user principal).
+ *   2. `Authorization: Bearer <PS_BOLT_SERVICE_TOKEN>` — the editor fork's
+ *      server-side machine principal (timing-safe compare; the session lookup
+ *      already missed, so the raw bearer is compared against the secret).
+ *   3. `browser` surfaces only: a `PROD_TRUSTED_BOLT_ORIGINS` Origin on a
+ *      `projectsites.dev`-zone host (never `workers.dev`).
+ *
+ * Outside production the legacy allowances (trusted Origin incl. localhost,
+ * `X-Bolt-Origin-Check` marker) keep `wrangler dev` + local editor dev working.
+ * The marker header is NEVER an auth grant in production.
+ */
+function boltAuthDenial(
+  c: Context<{ Bindings: Env; Variables: Variables }>,
+  surface: BoltSurface,
+): Response | null {
+  // 1. Authenticated user principal (session Bearer or org API key).
+  if (c.get('userId')) return null;
+
+  // 2. Machine principal — the fork's server-side chat fetch.
+  const serviceToken = c.env.PS_BOLT_SERVICE_TOKEN ?? '';
+  const authHeader = c.req.header('authorization') ?? '';
+  if (serviceToken && authHeader.toLowerCase().startsWith('bearer ')) {
+    const bearer = authHeader.slice(7).trim();
+    if (bearer && timingSafeEqualStr(bearer, serviceToken)) return null;
+  }
+
+  if (c.env.ENVIRONMENT !== 'production') {
+    // Dev-mode allowance ONLY (wrangler dev / local editor): trusted Origin or
+    // the bolt-iframe marker. Any curl can set both — production ignores them.
+    const origin = c.req.header('origin') ?? '';
+    if (origin && TRUSTED_BOLT_ORIGINS.has(origin)) return null;
+    if (c.req.header('x-bolt-origin-check') === 'bolt-iframe') return null;
+    return c.json({ error: 'forbidden' }, 403);
+  }
+
+  // 3. PRODUCTION browser surfaces: the iframe holds no bearer, so its direct
+  // fetches authorize by a REAL browser Origin — accepted only via the
+  // projectsites.dev zone (Bot Fight Mode challenges non-browser POSTs there;
+  // the WAF-less workers.dev host gets no such allowance).
+  if (surface === 'browser') {
+    const origin = c.req.header('origin') ?? '';
+    const host = new URL(c.req.url).hostname;
+    const onZone = host === 'projectsites.dev' || host.endsWith('.projectsites.dev');
+    if (onZone && PROD_TRUSTED_BOLT_ORIGINS.has(origin)) return null;
+  }
+
+  return c.json({ error: 'unauthorized' }, 401);
 }
 
 /**
@@ -99,9 +176,8 @@ function isBoltCallerAllowed(c: Context<{ Bindings: Env; Variables: Variables }>
  * secrets live in the worker, never in a bolt cookie.
  */
 const boltChatHandler = async (c: Context<{ Bindings: Env; Variables: Variables }>) => {
-  if (!isBoltCallerAllowed(c)) {
-    return c.json({ error: 'forbidden' }, 403);
-  }
+  const denied = boltAuthDenial(c, 'inference');
+  if (denied) return denied;
   const body = (await c.req.json().catch(() => null)) as {
     messages?: { role: string; content: string }[];
     model?: string;
@@ -119,12 +195,11 @@ const boltChatHandler = async (c: Context<{ Bindings: Env; Variables: Variables 
   //
   // Audit (palette precedent): fire-and-forget `bolt.ai.answered` so editor-AI
   // usage is visible in the admin audit trail — first 40 chars of the last user
-  // turn only, never the streamed answer. The soft-auth gate may have no userId
-  // (iframe Origin header path) — use the orgId var or a bolt-iframe sentinel.
+  // turn only, never the streamed answer.
   const lastUser = [...(body.messages ?? [])].reverse().find((m) => m.role === 'user');
   // Only audit when the caller has a REAL session (orgId set by auth middleware).
-  // The header-only M2M path (the fork's server-side call) has no org to attribute
-  // to — and audit_logs.org_id has a FK to orgs(id), so a synthetic 'bolt-iframe'
+  // The service-token machine principal (the fork's server-side call) has no org
+  // to attribute to — and audit_logs.org_id has a FK to orgs(id), so a synthetic
   // sentinel would FK-violate and silently drop the write (live-verified). Skip
   // instead of fabricating an org.
   const orgId = c.get('orgId');
@@ -151,14 +226,13 @@ const boltChatHandler = async (c: Context<{ Bindings: Env; Variables: Variables 
 /**
  * Mirrors IDB chat-state to D1 once every 30s from the bolt.diy client.
  *
- * @see {@link isBoltCallerAllowed} for the relaxed auth contract.
+ * @see {@link boltAuthDenial} for the auth contract (browser surface).
  */
 const chatStateHandler = async (
   c: Context<{ Bindings: Env; Variables: Variables }>,
 ): Promise<Response> => {
-  if (!isBoltCallerAllowed(c)) {
-    return c.json({ error: 'forbidden' }, 403);
-  }
+  const denied = boltAuthDenial(c, 'browser');
+  if (denied) return denied;
 
   const slug = c.req.param('slug');
 
@@ -226,14 +300,13 @@ const chatStateHandler = async (
 /**
  * multipart/form-data audio → Whisper text.
  *
- * @see {@link isBoltCallerAllowed} for the relaxed auth contract.
+ * @see {@link boltAuthDenial} for the auth contract (browser surface).
  */
 const transcribeHandler = async (
   c: Context<{ Bindings: Env; Variables: Variables }>,
 ): Promise<Response> => {
-  if (!isBoltCallerAllowed(c)) {
-    return c.json({ error: 'forbidden' }, 403);
-  }
+  const denied = boltAuthDenial(c, 'browser');
+  if (denied) return denied;
 
   const start = Date.now();
 
@@ -276,14 +349,13 @@ const transcribeHandler = async (
 /**
  * { image_data_url } → { caption, ocrText }
  *
- * @see {@link isBoltCallerAllowed} for the relaxed auth contract.
+ * @see {@link boltAuthDenial} for the auth contract (browser surface).
  */
 const visionOcrHandler = async (
   c: Context<{ Bindings: Env; Variables: Variables }>,
 ): Promise<Response> => {
-  if (!isBoltCallerAllowed(c)) {
-    return c.json({ error: 'forbidden' }, 403);
-  }
+  const denied = boltAuthDenial(c, 'browser');
+  if (denied) return denied;
 
   let body: { image_data_url?: string };
 
@@ -334,14 +406,13 @@ const visionOcrHandler = async (
  * { tail: [{role, content}], max } → { suggestions: [{label, prompt}] }
  * Caches by tail hash in KV (60s TTL) to avoid repeated Llama calls.
  *
- * @see {@link isBoltCallerAllowed} for the relaxed auth contract.
+ * @see {@link boltAuthDenial} for the auth contract (browser surface).
  */
 const suggestPromptsHandler = async (
   c: Context<{ Bindings: Env; Variables: Variables }>,
 ): Promise<Response> => {
-  if (!isBoltCallerAllowed(c)) {
-    return c.json({ error: 'forbidden' }, 403);
-  }
+  const denied = boltAuthDenial(c, 'browser');
+  if (denied) return denied;
 
   let body: { tail?: Array<{ role?: string; content?: string }>; max?: number };
 

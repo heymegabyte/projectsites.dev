@@ -2,14 +2,16 @@
  * Route coverage for the bolt.diy editor-side admin endpoints (convergence r45).
  *
  * Exercises `src/routes/bolt_admin.ts` end-to-end through the real Hono app,
- * mocking only the boundaries (Workers AI, KV, D1). The bolt routes use a
- * relaxed soft-auth contract (`isBoltCallerAllowed`) instead of the standard
- * session gate, and hand-roll their own validation, so these tests assert that
- * exact contract:
+ * mocking only the boundaries (Workers AI, KV, D1). The bolt routes run the
+ * two-tier auth contract (`boltAuthDenial`, fire-56) and hand-roll their own
+ * validation, so these tests assert that exact contract:
  *
- *   - forbidden (403) when no auth signal is present
- *   - the three accepted auth signals (session userId, trusted Origin, the
- *     `X-Bolt-Origin-Check` header)
+ *   - PRODUCTION: authenticated principal only (session userId or the
+ *     `PS_BOLT_SERVICE_TOKEN` machine Bearer) — the `X-Bolt-Origin-Check`
+ *     marker and spoofed Origins 401; browser surfaces additionally accept a
+ *     trusted Origin on the projectsites.dev zone (never workers.dev)
+ *   - DEV (`ENVIRONMENT !== 'production'`, incl. this suite's 'test'): the
+ *     legacy allowances (trusted Origin, marker header) still work, else 403
  *   - per-handler validation (slug, JSON, chat_id, data-url, form, audio)
  *   - success + the AI/D1-error fallbacks
  *
@@ -824,5 +826,154 @@ describe('bolt custom-AI chat endpoint — edge-first routing', () => {
       env,
     );
     expect(res.status).toBe(502);
+  });
+});
+
+// ─── PRODUCTION auth gate (fire-56) — principal-only, marker/Origin never grant ───
+//
+// In production the bolt endpoints require an AUTHENTICATED PRINCIPAL: a session
+// userId (set by the global auth middleware) or the PS_BOLT_SERVICE_TOKEN machine
+// principal (the editor fork's server-side chat fetch sends it as its Bearer).
+// The `X-Bolt-Origin-Check` marker and a spoofed Origin header are NEVER auth in
+// production — any curl can set both. The browser-called surfaces (suggest-prompts,
+// chat-state, vision-ocr, transcribe) additionally accept a REAL browser Origin,
+// but ONLY when the request arrived on the projectsites.dev zone (Bot-Fight-Mode
+// screened) — never via the WAF-less workers.dev host.
+
+describe('bolt production auth gate (fire-56)', () => {
+  const CHAT_BODY = { messages: [{ role: 'user', content: 'what is 2+2?' }], stream: true };
+
+  /** Instant-tier Workers-AI stream so an ALLOWED chat call 200s without the gateway. */
+  function instantAi() {
+    const aiStream = new ReadableStream<string>({
+      start(c) {
+        c.enqueue('PONG');
+        c.close();
+      },
+    });
+    return makeAi(aiStream);
+  }
+
+  function prodEnv(overrides: Partial<Record<string, unknown>> = {}): Env {
+    return makeEnv({
+      ENVIRONMENT: 'production',
+      DEEPSEEK_API_KEY: 'sk-test',
+      AI: instantAi(),
+      ...overrides,
+    });
+  }
+
+  beforeEach(() => {
+    mockGatewayFetch.mockReset();
+  });
+
+  it('chat: 401s in production on the bare X-Bolt-Origin-Check marker (no inference)', async () => {
+    const env = prodEnv();
+    const res = await postJson(makeApp(), '/api/bolt/chat', CHAT_BODY, env, IFRAME_HEADER);
+    expect(res.status).toBe(401);
+    expect(((await res.json()) as { error?: string }).error).toBe('unauthorized');
+    expect((env.AI as unknown as { run: jest.Mock }).run).not.toHaveBeenCalled();
+    expect(mockGatewayFetch).not.toHaveBeenCalled();
+  });
+
+  it('chat: 401s in production on a spoofed trusted Origin (curl can set Origin)', async () => {
+    const env = prodEnv();
+    const res = await postJson(makeApp(), '/api/bolt/chat', CHAT_BODY, env, {
+      Origin: 'https://editor.projectsites.dev',
+    });
+    expect(res.status).toBe(401);
+    expect((env.AI as unknown as { run: jest.Mock }).run).not.toHaveBeenCalled();
+  });
+
+  it('chat: allows an authenticated session userId in production', async () => {
+    const env = prodEnv();
+    const res = await postJson(makeApp(SESSION), '/api/bolt/chat', CHAT_BODY, env);
+    expect(res.status).toBe(200);
+    expect(await res.text()).toContain('PONG');
+  });
+
+  it('chat: allows the PS_BOLT_SERVICE_TOKEN machine principal (the fork server-side Bearer)', async () => {
+    const env = prodEnv({ PS_BOLT_SERVICE_TOKEN: 'svc-secret-1' });
+    const res = await postJson(makeApp(), '/api/bolt/chat', CHAT_BODY, env, {
+      Authorization: 'Bearer svc-secret-1',
+    });
+    expect(res.status).toBe(200);
+    expect(await res.text()).toContain('PONG');
+    // Machine principal has no org → the audit write is skipped (FK-safe).
+    expect(mockWriteAuditLog).not.toHaveBeenCalled();
+  });
+
+  it('chat: 401s a WRONG service-token Bearer in production', async () => {
+    const env = prodEnv({ PS_BOLT_SERVICE_TOKEN: 'svc-secret-1' });
+    const res = await postJson(makeApp(), '/api/bolt/chat', CHAT_BODY, env, {
+      Authorization: 'Bearer not-the-secret',
+    });
+    expect(res.status).toBe(401);
+    expect((env.AI as unknown as { run: jest.Mock }).run).not.toHaveBeenCalled();
+  });
+
+  it('chat: 401s the marker even when PS_BOLT_SERVICE_TOKEN is unset (no fail-open)', async () => {
+    const env = prodEnv({ PS_BOLT_SERVICE_TOKEN: undefined });
+    const res = await postJson(makeApp(), '/api/bolt/chat', CHAT_BODY, env, IFRAME_HEADER);
+    expect(res.status).toBe(401);
+  });
+
+  it('chat: keeps the dev-mode marker allowance OUTSIDE production (local editor dev)', async () => {
+    const env = makeEnv({
+      ENVIRONMENT: 'development',
+      DEEPSEEK_API_KEY: 'sk-test',
+      AI: instantAi(),
+    });
+    const res = await postJson(makeApp(), '/api/bolt/chat', CHAT_BODY, env, IFRAME_HEADER);
+    expect(res.status).toBe(200);
+  });
+
+  it('suggest-prompts: keeps working in production from the real iframe (trusted Origin on the projectsites.dev zone)', async () => {
+    const env = prodEnv({ AI: makeAi({ response: '{"suggestions":[]}' }) });
+    const res = await postJson(
+      makeApp(),
+      'https://projectsites.dev/api/bolt/chat/suggest-prompts',
+      { tail: [{ role: 'user', content: 'hi' }] },
+      env,
+      { Origin: 'https://editor.projectsites.dev' },
+    );
+    expect(res.status).toBe(200);
+  });
+
+  it('suggest-prompts: 401s in production on the bare marker (no Origin)', async () => {
+    const env = prodEnv();
+    const res = await postJson(
+      makeApp(),
+      'https://projectsites.dev/api/bolt/chat/suggest-prompts',
+      { tail: [{ role: 'user', content: 'hi' }] },
+      env,
+      IFRAME_HEADER,
+    );
+    expect(res.status).toBe(401);
+    expect((env.AI as unknown as { run: jest.Mock }).run).not.toHaveBeenCalled();
+  });
+
+  it('suggest-prompts: 401s a trusted Origin arriving via the WAF-less workers.dev host', async () => {
+    const env = prodEnv();
+    const res = await postJson(
+      makeApp(),
+      'https://project-sites.manhattan.workers.dev/api/bolt/chat/suggest-prompts',
+      { tail: [{ role: 'user', content: 'hi' }] },
+      env,
+      { Origin: 'https://editor.projectsites.dev' },
+    );
+    expect(res.status).toBe(401);
+  });
+
+  it('suggest-prompts: 401s a localhost Origin in production (dev origins never graduate)', async () => {
+    const env = prodEnv();
+    const res = await postJson(
+      makeApp(),
+      'https://projectsites.dev/api/bolt/chat/suggest-prompts',
+      { tail: [{ role: 'user', content: 'hi' }] },
+      env,
+      { Origin: 'http://localhost:5173' },
+    );
+    expect(res.status).toBe(401);
   });
 });

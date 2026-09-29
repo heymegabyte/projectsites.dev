@@ -82,14 +82,27 @@ export default class ProjectsitesAiProvider extends BaseProvider {
      */
     const serverEnv = options.serverEnv as unknown as Record<string, string> | undefined;
     const endpoint = serverEnv?.PS_BOLT_AI_ENDPOINT || 'https://project-sites.manhattan.workers.dev/api/bolt';
+
+    /*
+     * MACHINE PRINCIPAL (fire-56): the worker's bolt gate requires an
+     * authenticated principal in production — the AI SDK emits `apiKey` as
+     * `Authorization: Bearer …`, so the provisioned PS_BOLT_SERVICE_TOKEN
+     * (Pages secret on bolt-diy; wrangler secret on the worker) rides the
+     * standard header with streaming untouched. The 'ps-internal' placeholder
+     * remains ONLY as the local-dev fallback, where the worker's dev-mode
+     * allowance accepts the x-bolt-origin-check marker instead.
+     */
+    const apiKey = serverEnv?.PS_BOLT_SERVICE_TOKEN || 'ps-internal';
+
     const openai = createOpenAI({
       baseURL: endpoint,
-      apiKey: 'ps-internal',
+      apiKey,
 
       /*
        * The fork's chat calls the worker SERVER-SIDE (no session cookie, no
-       * Origin header) — the worker's soft-auth gate requires this explicit
-       * bolt-iframe signal, else every chat 403s ("Custom error: Forbidden").
+       * Origin header). This marker is a ROUTING HINT for the worker's
+       * dev-mode allowance only — in production it grants nothing; the
+       * Bearer above is what authenticates.
        */
       headers: { 'x-bolt-origin-check': 'bolt-iframe' },
     });

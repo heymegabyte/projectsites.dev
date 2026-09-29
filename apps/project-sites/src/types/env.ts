@@ -355,6 +355,13 @@ export interface Env {
   GROQ_API_KEY?: string;
   /** DeepSeek API key — used for standard/instant tiers (OpenAI-compatible, model deepseek-chat). */
   DEEPSEEK_API_KEY?: string;
+  /**
+   * Machine-principal secret for the bolt.diy editor's server-side chat fetch
+   * (fire-56). The fork sends it as `Authorization: Bearer …`; `boltAuthDenial`
+   * compares it timing-safe. wrangler secret on the Worker AND a Pages secret on
+   * the `bolt-diy` project (the provider reads it from `serverEnv`).
+   */
+  PS_BOLT_SERVICE_TOKEN?: string;
   /** Fable 5 API key — top premium rung (Brian ladder 2026-08-19). No credits yet; unset today. */
   FABLE_API_KEY?: string;
   /** Kimi K3 API key — third premium rung (Brian ladder 2026-08-19). No credits yet; unset today. */
