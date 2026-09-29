@@ -40,6 +40,14 @@ export const ReleaseSchema = z
     commit_sha: z.string().nullable(),
     artifact_digest: z.string().nullable(),
     deployment_id: z.string().nullable(),
+    /**
+     * Proof-of-serving digest — the lowercase-hex SHA-256 of the promoted `index.html` bytes read BACK
+     * from the new Production prefix after the pointer flipped. Present ONLY on an honest `success`
+     * (Production actually serves those bytes); `null` on `commit_ok_deploy_failed`/`failed`, where no
+     * servable index was proved. This is a stronger receipt than `artifact_digest` (the pre-freeze
+     * intent) — it hashes what Production DEMONSTRABLY serves post-promote.
+     */
+    serving_sha: z.string().nullable(),
     actor: z.string().nullable(),
     draft_revision: z.number().int().nullable(),
     outcome: ReleaseOutcome,

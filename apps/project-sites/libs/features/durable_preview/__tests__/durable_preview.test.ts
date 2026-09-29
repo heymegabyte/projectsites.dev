@@ -37,6 +37,16 @@ const MIGRATION_SQL = readFileSync(
   path.resolve(__dirname, '../../../../migrations/0646_durable_preview_model.sql'),
   'utf8',
 );
+/** Slice 6 — the additive `serving_sha` column on site_releases (the appendRelease INSERT writes it). */
+const SERVING_SHA_MIGRATION_SQL = readFileSync(
+  path.resolve(__dirname, '../../../../migrations/0648_add_serving_sha.sql'),
+  'utf8',
+);
+/** Apply BOTH durable-preview migrations in order so the release INSERT has the `serving_sha` column. */
+function applyMigrations(h: { exec: (sql: string) => void }): void {
+  h.exec(MIGRATION_SQL);
+  h.exec(SERVING_SHA_MIGRATION_SQL);
+}
 
 /** Minimal `sites` shell so an owned-site lookup / FK-free write has somewhere to point. */
 const SITES_DDL = `CREATE TABLE sites (id TEXT PRIMARY KEY, org_id TEXT, deleted_at TEXT)`;
@@ -65,7 +75,7 @@ describe('durable_preview — migration + working-tree/release records (Slice 3)
     const h = createD1Sqlite();
     try {
       h.exec(SITES_DDL);
-      h.exec(MIGRATION_SQL);
+      applyMigrations(h);
       h.exec(`INSERT INTO sites (id, org_id) VALUES ('site-1', 'org-1')`);
 
       const first = await upsertWorkingTree(env(h.db), {
@@ -103,7 +113,7 @@ describe('durable_preview — migration + working-tree/release records (Slice 3)
     const h = createD1Sqlite();
     try {
       h.exec(SITES_DDL);
-      h.exec(MIGRATION_SQL);
+      applyMigrations(h);
       h.exec(`INSERT INTO sites (id, org_id) VALUES ('site-1', 'org-1')`);
 
       await upsertWorkingTree(env(h.db), {
@@ -148,7 +158,7 @@ describe('durable_preview — migration + working-tree/release records (Slice 3)
     const h = createD1Sqlite();
     try {
       h.exec(SITES_DDL);
-      h.exec(MIGRATION_SQL);
+      applyMigrations(h);
       h.exec(`INSERT INTO sites (id, org_id) VALUES ('site-1', 'org-1')`);
 
       const r1 = await appendRelease(env(h.db), {
@@ -158,6 +168,7 @@ describe('durable_preview — migration + working-tree/release records (Slice 3)
         commitSha: 'commit-1',
         artifactDigest: 'sha256:artifact-1',
         deploymentId: 'cf-deploy-1',
+        servingSha: 'a'.repeat(64),
         actor: 'user-1',
         draftRevision: 1,
         outcome: 'success',
@@ -188,8 +199,11 @@ describe('durable_preview — migration + working-tree/release records (Slice 3)
       expect(first.commit_sha).toBe('commit-1');
       expect(first.artifact_digest).toBe('sha256:artifact-1');
       expect(first.deployment_id).toBe('cf-deploy-1');
+      expect(first.serving_sha).toBe('a'.repeat(64));
       expect(first.actor).toBe('user-1');
       expect(first.outcome).toBe('success');
+      // The deploy-failed row carried no serving digest.
+      expect(releases[0].serving_sha).toBeNull();
     } finally {
       h.close();
     }
@@ -199,7 +213,7 @@ describe('durable_preview — migration + working-tree/release records (Slice 3)
     const h = createD1Sqlite();
     try {
       h.exec(SITES_DDL);
-      h.exec(MIGRATION_SQL);
+      applyMigrations(h);
       h.exec(`INSERT INTO sites (id, org_id) VALUES ('site-1', 'org-1')`);
       await upsertWorkingTree(env(h.db), {
         siteId: 'site-1',

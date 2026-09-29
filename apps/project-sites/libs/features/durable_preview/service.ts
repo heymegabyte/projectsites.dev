@@ -34,6 +34,7 @@ function toRelease(row: Record<string, unknown>): Release {
     commit_sha: row.commit_sha == null ? null : String(row.commit_sha),
     artifact_digest: row.artifact_digest == null ? null : String(row.artifact_digest),
     deployment_id: row.deployment_id == null ? null : String(row.deployment_id),
+    serving_sha: row.serving_sha == null ? null : String(row.serving_sha),
     actor: row.actor == null ? null : String(row.actor),
     draft_revision: row.draft_revision == null ? null : Number(row.draft_revision),
     outcome: (RELEASE_OUTCOMES.includes(outcome as ReleaseOutcome)
@@ -41,6 +42,20 @@ function toRelease(row: Record<string, unknown>): Release {
       : 'success') as ReleaseOutcome,
     created_at: String(row.created_at),
   };
+}
+
+/**
+ * SHA-256 → lowercase hex of an artifact's bytes (the proof-of-serving digest). Uses `crypto.subtle`
+ * (present in Workers + Node ≥18); returns null on any hash failure so a promotion is never blocked by
+ * digest computation.
+ */
+async function sha256Hex(bytes: ArrayBuffer): Promise<string | null> {
+  try {
+    const digest = await crypto.subtle.digest('SHA-256', bytes);
+    return [...new Uint8Array(digest)].map((b) => b.toString(16).padStart(2, '0')).join('');
+  } catch {
+    return null;
+  }
 }
 
 /** Read a site's working-tree record, org-scoped (IDOR-safe). Null when none exists. */
@@ -138,6 +153,8 @@ export interface AppendReleaseInput {
   commitSha: string | null;
   artifactDigest: string | null;
   deploymentId: string | null;
+  /** Proof-of-serving digest of the promoted index.html read back from Production — null unless success. */
+  servingSha?: string | null;
   actor: string | null;
   draftRevision: number | null;
   outcome: ReleaseOutcome;
@@ -160,8 +177,8 @@ export async function appendRelease(
     env.DB,
     `INSERT INTO site_releases
        (id, site_id, org_id, snapshot_id, commit_sha, artifact_digest,
-        deployment_id, actor, draft_revision, outcome, created_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        deployment_id, serving_sha, actor, draft_revision, outcome, created_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     [
       id,
       input.siteId,
@@ -170,6 +187,7 @@ export async function appendRelease(
       input.commitSha,
       input.artifactDigest,
       input.deploymentId,
+      input.servingSha ?? null,
       input.actor,
       input.draftRevision,
       input.outcome,
@@ -324,6 +342,7 @@ export async function promoteToProduction(
 
   let outcome: ReleaseOutcome = 'failed';
   let deploymentId: string | null = null;
+  let servingSha: string | null = null;
   let copiedCount = 0;
 
   try {
@@ -386,7 +405,15 @@ export async function promoteToProduction(
         const indexServable = !!servedIndex && servedIndex.size > 0;
         const pointerFlipped = pointer?.current_build_version === version;
 
-        outcome = indexServable && pointerFlipped ? 'success' : 'commit_ok_deploy_failed';
+        if (indexServable && pointerFlipped) {
+          outcome = 'success';
+          // PROOF-OF-SERVING — hash the exact bytes Production now serves (not the pre-freeze intent).
+          servingSha = await sha256Hex(await servedIndex.arrayBuffer());
+        } else {
+          // Bytes committed but the index isn't honestly servable → no serving proof to record.
+          outcome = 'commit_ok_deploy_failed';
+          servingSha = null;
+        }
       }
     }
   } catch {
@@ -403,6 +430,7 @@ export async function promoteToProduction(
     commitSha: input.commitSha ?? null,
     artifactDigest,
     deploymentId,
+    servingSha,
     actor: input.actor ?? null,
     draftRevision: input.draftRevision,
     outcome,

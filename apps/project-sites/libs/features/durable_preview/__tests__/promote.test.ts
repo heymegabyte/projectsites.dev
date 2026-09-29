@@ -29,11 +29,21 @@ import {
 } from '../service.js';
 import type { Env } from '../../../../src/types/env.js';
 
-/** The additive migration this feature ships — run its real DDL so the service's SQL is exercised. */
+/** The additive migrations this feature ships — run their real DDL so the service's SQL is exercised. */
 const MIGRATION_SQL = readFileSync(
   path.resolve(__dirname, '../../../../migrations/0646_durable_preview_model.sql'),
   'utf8',
 );
+/** Slice 6 — the additive `serving_sha` column on site_releases (proof-of-serving digest). */
+const SERVING_SHA_MIGRATION_SQL = readFileSync(
+  path.resolve(__dirname, '../../../../migrations/0648_add_serving_sha.sql'),
+  'utf8',
+);
+/** Apply BOTH durable-preview migrations in order so the release INSERT has the `serving_sha` column. */
+function applyMigrations(h: { exec: (sql: string) => void }): void {
+  h.exec(MIGRATION_SQL);
+  h.exec(SERVING_SHA_MIGRATION_SQL);
+}
 
 /** Minimal `sites` shell so the promotion's `UPDATE sites … current_build_version` has a row to flip. */
 const SITES_DDL = `CREATE TABLE sites (
@@ -94,7 +104,7 @@ describe('durable_preview — promoteToProduction (Slice 5)', () => {
     const h = createD1Sqlite();
     try {
       h.exec(SITES_DDL);
-      h.exec(MIGRATION_SQL);
+      applyMigrations(h);
       h.exec(`INSERT INTO sites (id, org_id, slug) VALUES ('site-1', 'org-1', 'acme')`);
       // The Preview artifact lives at the site's current published prefix (no branch revision here).
       const bucket = fakeR2({
@@ -122,6 +132,20 @@ describe('durable_preview — promoteToProduction (Slice 5)', () => {
       const version = res.release.deployment_id!;
       expect(version).toMatch(/^v\d+$/);
 
+      // PROOF-OF-SERVING (Slice 6) — a 64-hex SHA-256 of the served index is persisted AND surfaced.
+      expect(res.release.serving_sha).toMatch(/^[0-9a-f]{64}$/);
+      // It is the hash of the EXACT promoted index bytes (what Production now serves).
+      const promotedBytes = new TextEncoder().encode('<!doctype html><h1>Acme</h1>');
+      const expectedSha = [
+        ...new Uint8Array(await crypto.subtle.digest('SHA-256', promotedBytes)),
+      ]
+        .map((b) => b.toString(16).padStart(2, '0'))
+        .join('');
+      expect(res.release.serving_sha).toBe(expectedSha);
+      // Persisted in D1, not just returned in-memory.
+      const persisted = await findReleaseByDraftRevision(e, 'site-1', 'org-1', 1);
+      expect(persisted!.serving_sha).toBe(expectedSha);
+
       // The frozen bytes were copied into the NEW production version prefix…
       expect(bucket.store.has(`sites/acme/${version}/index.html`)).toBe(true);
       expect(bucket.store.has(`sites/acme/${version}/assets/app.js`)).toBe(true);
@@ -142,7 +166,7 @@ describe('durable_preview — promoteToProduction (Slice 5)', () => {
     const h = createD1Sqlite();
     try {
       h.exec(SITES_DDL);
-      h.exec(MIGRATION_SQL);
+      applyMigrations(h);
       h.exec(`INSERT INTO sites (id, org_id, slug) VALUES ('site-1', 'org-1', 'acme')`);
       const bucket = fakeR2({ 'sites/acme/vPrev/index.html': '<h1>Acme</h1>' });
       const e = env(h.db, bucket);
@@ -179,7 +203,7 @@ describe('durable_preview — promoteToProduction (Slice 5)', () => {
     const h = createD1Sqlite();
     try {
       h.exec(SITES_DDL);
-      h.exec(MIGRATION_SQL);
+      applyMigrations(h);
       h.exec(`INSERT INTO sites (id, org_id, slug) VALUES ('site-1', 'org-1', 'acme')`);
       const bucket = fakeR2(); // empty — no source artifact anywhere
       const e = env(h.db, bucket);
@@ -210,7 +234,7 @@ describe('durable_preview — promoteToProduction (Slice 5)', () => {
     const h = createD1Sqlite();
     try {
       h.exec(SITES_DDL);
-      h.exec(MIGRATION_SQL);
+      applyMigrations(h);
       h.exec(`INSERT INTO sites (id, org_id, slug) VALUES ('site-1', 'org-1', 'acme')`);
       // Source has objects (so copy happens) but NO index.html → Production can't honestly serve it.
       const bucket = fakeR2({ 'sites/acme/vPrev/assets/app.js': 'console.log(1)' });
@@ -226,6 +250,41 @@ describe('durable_preview — promoteToProduction (Slice 5)', () => {
 
       expect(res.outcome).toBe('commit_ok_deploy_failed');
       expect(res.release.outcome).toBe('commit_ok_deploy_failed');
+      // PROOF-OF-SERVING (Slice 6) — no servable index was proved → no serving digest recorded.
+      expect(res.release.serving_sha).toBeNull();
+      const persisted = await findReleaseByDraftRevision(e, 'site-1', 'org-1', 1);
+      expect(persisted!.serving_sha).toBeNull();
+    } finally {
+      h.close();
+    }
+  });
+
+  it('SERVING SHA is idempotent: a re-POST of the same draft returns the SAME release + SAME sha (no recompute drift)', async () => {
+    const h = createD1Sqlite();
+    try {
+      h.exec(SITES_DDL);
+      applyMigrations(h);
+      h.exec(`INSERT INTO sites (id, org_id, slug) VALUES ('site-1', 'org-1', 'acme')`);
+      const bucket = fakeR2({ 'sites/acme/vPrev/index.html': '<!doctype html><h1>Acme</h1>' });
+      const e = env(h.db, bucket);
+      await upsertWorkingTree(e, { siteId: 'site-1', orgId: 'org-1', treeDigest: 'sha256:v1' });
+      const site = { ...OWNED_SITE, currentBuildVersion: 'vPrev' };
+
+      const first = await promoteToProduction(e, site, 'org-1', {
+        draftRevision: 1,
+        treeDigest: 'sha256:v1',
+      });
+      const second = await promoteToProduction(e, site, 'org-1', {
+        draftRevision: 1,
+        treeDigest: 'sha256:v1',
+      });
+
+      // First promote produced a real 64-hex serving digest.
+      expect(first.release.serving_sha).toMatch(/^[0-9a-f]{64}$/);
+      // Idempotent replay returns the SAME release row with the SAME sha — never recomputed/re-promoted.
+      expect(second.idempotent).toBe(true);
+      expect(second.release.id).toBe(first.release.id);
+      expect(second.release.serving_sha).toBe(first.release.serving_sha);
     } finally {
       h.close();
     }
@@ -235,7 +294,7 @@ describe('durable_preview — promoteToProduction (Slice 5)', () => {
     const h = createD1Sqlite();
     try {
       h.exec(SITES_DDL);
-      h.exec(MIGRATION_SQL);
+      applyMigrations(h);
       h.exec(`INSERT INTO sites (id, org_id, slug) VALUES ('site-1', 'org-1', 'acme')`);
       const bucket = fakeR2({ 'sites/acme/branches/feat-hero/index.html': '<h1>hero</h1>' });
       const e = env(h.db, bucket);
