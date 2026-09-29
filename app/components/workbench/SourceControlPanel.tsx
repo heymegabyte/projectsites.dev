@@ -8,10 +8,11 @@
  *
  * INVARIANTS (never violated here):
  *   - The editor always presents `main`. Preview is an UNCOMMITTED working tree based on main (not a branch).
- *   - This view NEVER commits and NEVER changes Production. Save/generate → Preview only.
- *   - There is NO Promote button in this slice (it lands in a later slice).
- *   - Restore targets PREVIEW only — it opens the last-published (main-base) copy of a file back into the
- *     workbench, exactly like picking it in the tree. No commit, no deploy, no Production mutation.
+ *   - Save/generate → Preview only; Restore targets PREVIEW only (opens the last-published main-base copy
+ *     back into the workbench, exactly like picking it in the tree — no commit, no deploy).
+ *   - The ONLY Production mutation is the Promote button, whose state machine + gate + `PS_PROMOTE_REQUEST`
+ *     write live in the SHARED {@link ./use-promote} hook — the SAME hook the editor's main-header
+ *     {@link ./PromoteHeaderControl} consumes, so the two never diverge (one promote path, never forked).
  *
  * DATA SOURCES:
  *   - CHANGED FILES = a diff of the PREVIEW working tree against the last-published MAIN BASE. The Preview
@@ -48,7 +49,6 @@ import {
   type CodeFileResponseMessage,
   type PreviewStateResponseMessage,
   type ReleasesResponseMessage,
-  type PromoteResponseMessage,
 } from '~/lib/embed/embedded-mode';
 import {
   diffWorkingTree,
@@ -58,7 +58,6 @@ import {
   summarizePreviewSync,
   syncLabel,
   releaseOutcomeLabel,
-  promoteGate as computePromoteGate,
   shortSha,
   formatCommitDate,
   formatBytes,
@@ -70,6 +69,7 @@ import {
   type ReleaseRecord,
   type SyncSummary,
 } from './git-browser-logic';
+import { usePromote, type PromoteState } from './use-promote';
 
 // ── Constants ────────────────────────────────────────────────────────────────
 
@@ -240,17 +240,11 @@ type HistoryState =
   | { status: 'error'; message: string }
   | { status: 'ready'; releases: ReleaseRecord[]; previewTree: PreviewWorkingTree | null; disabled: boolean };
 
-/**
- * Promote → Production state machine (Slice 5). `idle` (ready or nothing-to-promote) → `submitting` →
- * a terminal `success` | `failed` | `commit_ok_deploy_failed`. The terminal outcome mirrors the honest
- * server outcome so the retry affordance only shows for the two recoverable failures.
+/*
+ * The Promote → Production state machine ({@link PromoteState}) + gate + `doPromote` now live in the
+ * SHARED {@link usePromote} hook, consumed by BOTH this panel and the editor's main-header
+ * {@link PromoteHeaderControl}. There is exactly one promote path — it is never forked here.
  */
-type PromoteState =
-  | { status: 'idle' }
-  | { status: 'submitting' }
-  | { status: 'success'; idempotent: boolean }
-  | { status: 'failed'; message: string }
-  | { status: 'commit_ok_deploy_failed'; message: string };
 
 // ── Per-status color tokens for the change badges (cyan/green/red/purple — no raw hex) ─────────────
 
@@ -288,8 +282,13 @@ export const SourceControlPanel = memo(() => {
   /** Transient "restored" confirmation path (optimistic feedback). */
   const [restored, setRestored] = useState<string | null>(null);
 
-  /** Promote → Production state machine (idle → submitting → success|failed|commit_ok_deploy_failed). */
-  const [promote, setPromote] = useState<PromoteState>({ status: 'idle' });
+  /*
+   * The SHARED promote flow — the SAME hook the editor's main-header {@link PromoteHeaderControl}
+   * consumes. It owns the state machine + the disabled-WITH-reason gate + the `PS_PROMOTE_REQUEST` write,
+   * so this panel and the header can never diverge. `promoteSync` is the hook's own sync summary; the
+   * panel keeps its `sync` state for the header badge but reconciles the two below.
+   */
+  const { promote, canPromote, promoteReason, doPromote, dismiss: dismissPromote } = usePromote();
 
   const mounted = useRef(true);
   useEffect(() => {
@@ -520,87 +519,22 @@ export const SourceControlPanel = memo(() => {
     [request],
   );
 
-  /**
-   * Whether Promote is offered right now, and — when NOT — the plain-language reason (so the control is
-   * disabled WITH a reason, never a dead/doomed button per embarrassingly-easy-to-use). Promotable only
-   * when: embedded + the durable_preview flag is on + a Preview working tree exists + Production is
-   * behind Preview (or the last release's deploy failed → retry). Otherwise disabled with a reason.
+  /*
+   * When the SHARED promote flow lands a Production-affecting outcome, refresh THIS panel's own timeline
+   * + sync badge so the new release + Preview↔Production state show immediately (the hook already
+   * reloaded its OWN state). Keyed on the terminal status so it fires once per settle, not every render.
    */
-  const promoteGate = useMemo((): { canPromote: boolean; reason: string; previewTree: PreviewWorkingTree | null } => {
-    const ready = history.status === 'ready';
-    const previewTree = ready ? history.previewTree : null;
-    const disabled = ready && history.disabled;
-    const gate = computePromoteGate(isEmbedded, ready, disabled, previewTree, sync);
-
-    return { ...gate, previewTree };
-  }, [history, sync]);
-
-  /**
-   * PROMOTE the current Preview working tree to Production. Sends the frozen draft revision + tree digest
-   * over the `PS_PROMOTE_REQUEST` bridge (the admin makes the authed `POST /api/sites/:id/promote` call —
-   * same parent-session pattern as releases). The button is only enabled when {@link promoteGate} allows,
-   * so we always have a Preview tree here. The terminal state mirrors the HONEST server outcome: `success`
-   * only when Production actually serves it; `failed` / `commit_ok_deploy_failed` show a retry.
-   */
-  const doPromote = useCallback(async () => {
-    const tree = promoteGate.previewTree;
-
-    if (!tree) {
-      return;
-    }
-
-    setPromote({ status: 'submitting' });
-
-    try {
-      const reply = (await request({
-        type: 'PS_PROMOTE_REQUEST',
-        correlationId: nextCorrelationId(),
-        draftRevision: tree.draft_revision,
-        treeDigest: tree.tree_digest ?? `r${tree.draft_revision}`,
-        commitSha: tree.base_main_sha ?? null,
-      })) as PromoteResponseMessage;
-
-      if (!mounted.current) {
-        return;
-      }
-
-      // A dark flag is an honest "not available", surfaced as a failed state the user can dismiss/retry.
-      if (reply.enabled === false) {
-        setPromote({ status: 'failed', message: 'Publishing to Production is not enabled yet for your site.' });
-        return;
-      }
-
-      if (!reply.ok) {
-        setPromote({ status: 'failed', message: reply.error || 'Could not publish to Production. Please retry.' });
-        return;
-      }
-
-      const outcome = reply.outcome ?? reply.release?.outcome ?? 'failed';
-
-      if (outcome === 'success') {
-        setPromote({ status: 'success', idempotent: reply.idempotent ?? false });
-      } else if (outcome === 'commit_ok_deploy_failed') {
-        setPromote({
-          status: 'commit_ok_deploy_failed',
-          message: 'Your changes were committed but the deploy did not go live. Retry to finish publishing.',
-        });
-      } else {
-        setPromote({ status: 'failed', message: 'The promotion did not complete. Please retry.' });
-      }
-
-      // Refresh the timeline + sync badge so the new release + Preview↔Production state show immediately.
+  const lastPromoteStatus = useRef<PromoteState['status']>('idle');
+  useEffect(() => {
+    if (
+      promote.status !== lastPromoteStatus.current &&
+      (promote.status === 'success' || promote.status === 'commit_ok_deploy_failed')
+    ) {
       void loadHistory();
-    } catch (err) {
-      if (!mounted.current) {
-        return;
-      }
-
-      setPromote({
-        status: 'failed',
-        message: err instanceof Error ? err.message : 'Could not publish to Production. Please retry.',
-      });
     }
-  }, [promoteGate, request, loadHistory]);
+
+    lastPromoteStatus.current = promote.status;
+  }, [promote.status, loadHistory]);
 
   const counts = useMemo(() => (changes.status === 'ready' ? countChanges(changes.changes) : null), [changes]);
 
@@ -617,11 +551,11 @@ export const SourceControlPanel = memo(() => {
         sync={sync}
         onRefresh={() => (tab === 'changes' ? void loadChanges() : void loadHistory())}
         promote={promote}
-        canPromote={promoteGate.canPromote}
-        promoteReason={promoteGate.reason}
-        onPromote={() => void doPromote()}
-        onPromoteRetry={() => void doPromote()}
-        onPromoteDismiss={() => setPromote({ status: 'idle' })}
+        canPromote={canPromote}
+        promoteReason={promoteReason}
+        onPromote={doPromote}
+        onPromoteRetry={doPromote}
+        onPromoteDismiss={dismissPromote}
       />
 
       {tab === 'changes' ? (

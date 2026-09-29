@@ -40,6 +40,7 @@ import { Search } from './Search'; // <-- Ensure Search is imported
 import { classNames } from '~/utils/classNames'; // <-- Import classNames if not already present
 import { LockManager } from './LockManager'; // <-- Import LockManager
 import { ProjectHub } from './ProjectHub'; // Code-view command center (deploy / snapshots / git)
+import { PromoteHeaderControl } from './PromoteHeaderControl'; // One-click Promote -> Production (Slice 5)
 import { SourceControlPanel } from './SourceControlPanel'; // Source Control view — Preview diff + releases (Slice 4)
 
 interface EditorPanelProps {
@@ -220,7 +221,16 @@ export const EditorPanel = memo(
               className="border-r border-bolt-elements-borderColor"
             >
               <div className="h-full flex flex-col">
-                <ProjectHub />
+                {/* Code-view command bar: the ProjectHub (deploy/snapshots/git) + one-click Promote,
+                    front-and-center beside it so publishing Preview -> Production is a single click. */}
+                <div className="flex items-center gap-2">
+                  <div className="min-w-0 flex-1">
+                    <ProjectHub />
+                  </div>
+                  <div className="shrink-0 pr-2">
+                    <PromoteHeaderControl />
+                  </div>
+                </div>
                 <Tabs.Root defaultValue="files" className="flex flex-col flex-1 min-h-0">
                   <PanelHeader className="w-full text-sm font-medium text-bolt-elements-textSecondary px-1">
                     <div className="h-full flex-shrink-0 flex items-center justify-between w-full">
