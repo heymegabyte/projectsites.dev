@@ -19,7 +19,51 @@
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
+import type { PromoteReleaseRecord, ReleaseHistoryRecord } from './embedded-mode';
+
 type EmbedModule = typeof import('./embedded-mode');
+
+describe('embedded-mode — release bridge carries serving_sha (Slice 6b)', () => {
+  /*
+   * Type-contract test: the release-history + promote bridge records MUST type the worker's
+   * proof-of-serving `serving_sha` (a nullable string, matching durable_preview `ReleaseSchema`), so
+   * use-promote reads it WITHOUT a narrowed local cast. If the field is dropped from either interface,
+   * these object literals fail `tsc --noEmit` (the real gate); the runtime asserts keep them live cases.
+   */
+  it('ReleaseHistoryRecord types serving_sha as a nullable string', () => {
+    const served: ReleaseHistoryRecord = {
+      id: 'r1',
+      commit_sha: 'abc1234',
+      artifact_digest: 'art',
+      deployment_id: 'v1',
+      serving_sha: 'deadbeef1234feedface5678',
+      actor: 'owner@example.com',
+      draft_revision: 3,
+      outcome: 'success',
+      created_at: '2026-09-29T13:00:00Z',
+    };
+    const unserved: ReleaseHistoryRecord = { ...served, id: 'r2', serving_sha: null, outcome: 'commit_ok_deploy_failed' };
+
+    expect(served.serving_sha).toBe('deadbeef1234feedface5678');
+    expect(unserved.serving_sha).toBeNull();
+  });
+
+  it('PromoteReleaseRecord types serving_sha as a nullable string', () => {
+    const record: PromoteReleaseRecord = {
+      id: 'r3',
+      commit_sha: 'abc1234',
+      artifact_digest: 'art',
+      deployment_id: 'v2',
+      serving_sha: 'cafebabe0000111122223333',
+      actor: 'owner@example.com',
+      draft_revision: 7,
+      outcome: 'success',
+      created_at: '2026-09-29T13:05:00Z',
+    };
+
+    expect(record.serving_sha).toBe('cafebabe0000111122223333');
+  });
+});
 
 /** Stub the window so `detectEmbedded()` returns the desired value, then import fresh. */
 async function importWith(opts: { embedded: boolean }): Promise<{

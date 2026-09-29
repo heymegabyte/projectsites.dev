@@ -1498,6 +1498,13 @@ export interface ReleaseHistoryRecord {
   commit_sha: string | null;
   artifact_digest: string | null;
   deployment_id: string | null;
+
+  /**
+   * Proof-of-serving digest — the lowercase-hex SHA-256 of the promoted `index.html` bytes read BACK from
+   * Production after the pointer flipped (mirrors the worker's `ReleaseSchema.serving_sha`). Present only on
+   * an honest `success`; `null` on `commit_ok_deploy_failed`/`failed` and on older/pre-migration releases.
+   */
+  serving_sha: string | null;
   actor: string | null;
   draft_revision: number | null;
   outcome: 'success' | 'commit_ok_deploy_failed' | 'failed';
@@ -1554,6 +1561,13 @@ export interface PromoteReleaseRecord {
   commit_sha: string | null;
   artifact_digest: string | null;
   deployment_id: string | null;
+
+  /**
+   * Proof-of-serving digest — the lowercase-hex SHA-256 of the promoted `index.html` Production actually
+   * serves post-promote (mirrors the worker's `ReleaseSchema.serving_sha`). Present only on an honest
+   * `success`; `null` on `commit_ok_deploy_failed`/`failed`. Read directly (no narrowed cast) by use-promote.
+   */
+  serving_sha: string | null;
   actor: string | null;
   draft_revision: number | null;
   outcome: 'success' | 'commit_ok_deploy_failed' | 'failed';

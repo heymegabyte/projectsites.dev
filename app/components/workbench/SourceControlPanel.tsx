@@ -49,6 +49,7 @@ import {
   type CodeFileResponseMessage,
   type PreviewStateResponseMessage,
   type ReleasesResponseMessage,
+  type ReleaseHistoryRecord,
 } from '~/lib/embed/embedded-mode';
 import {
   diffWorkingTree,
@@ -66,7 +67,6 @@ import {
   type FileChange,
   type ChangeStatus,
   type PreviewWorkingTree,
-  type ReleaseRecord,
   type SyncSummary,
 } from './git-browser-logic';
 import { usePromote, type PromoteState, type PromoteLastResult } from './use-promote';
@@ -238,7 +238,7 @@ type HistoryState =
   | { status: 'idle' }
   | { status: 'loading' }
   | { status: 'error'; message: string }
-  | { status: 'ready'; releases: ReleaseRecord[]; previewTree: PreviewWorkingTree | null; disabled: boolean };
+  | { status: 'ready'; releases: ReleaseHistoryRecord[]; previewTree: PreviewWorkingTree | null; disabled: boolean };
 
 /*
  * The Promote → Production state machine ({@link PromoteState}) + gate + `doPromote` now live in the
@@ -444,7 +444,7 @@ export const SourceControlPanel = memo(() => {
         return;
       }
 
-      const releases: ReleaseRecord[] = (releasesReply.releases ?? []).map((r) => ({ ...r }));
+      const releases: ReleaseHistoryRecord[] = (releasesReply.releases ?? []).map((r) => ({ ...r }));
       const previewTree: PreviewWorkingTree | null = previewReply.working_tree
         ? { ...previewReply.working_tree }
         : null;
@@ -1381,8 +1381,91 @@ const HistoryView = memo(({ state, onRetry }: { state: HistoryState; onRetry: ()
 
 HistoryView.displayName = 'SourceControl.HistoryView';
 
-/** One release card on the timeline — SHA + outcome badge + date + actor + artifact digest. */
-const ReleaseRow = memo(({ release, isLatest }: { release: ReleaseRecord; isLatest: boolean }) => {
+/**
+ * A 12-char `serving_sha` proof-of-serving chip (monospace, click-to-copy, aria-labelled) — the SAME chip
+ * the {@link ReleaseOutcomeCard} renders, reused on each History release row. Returns `null` when there's no
+ * sha (older/pre-migration or deploy-failed releases) so a row never shows a dead/empty chip. The 12-char
+ * prefix is a proof-of-serving receipt, distinct from the 7-char git shortSha shown for `commit_sha`.
+ */
+const ServingShaChip = memo(({ servingSha }: { servingSha: string | null }) => {
+  const [copied, setCopied] = useState(false);
+  const copyResetRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  useEffect(
+    () => () => {
+      if (copyResetRef.current) {
+        clearTimeout(copyResetRef.current);
+      }
+    },
+    [],
+  );
+
+  const onCopy = useCallback(async () => {
+    if (!servingSha) {
+      return;
+    }
+
+    const ok = await copyToClipboard(servingSha);
+
+    if (ok) {
+      setCopied(true);
+
+      if (copyResetRef.current) {
+        clearTimeout(copyResetRef.current);
+      }
+
+      copyResetRef.current = setTimeout(() => setCopied(false), 1600);
+    }
+  }, [servingSha]);
+
+  // No sha (older/pre-migration or deploy-failed) → render nothing (never a dead/empty chip).
+  if (!servingSha) {
+    return null;
+  }
+
+  const shaPrefix = servingSha.slice(0, 12);
+
+  return (
+    <span
+      data-testid="sc-release-sha"
+      className="inline-flex items-center gap-1 rounded-md border border-bolt-elements-item-contentAccent/30 bg-bolt-elements-item-contentAccent/10 pl-1.5 pr-1 py-0.5"
+      title="Proof-of-serving SHA — what Production demonstrably serves for this release"
+    >
+      <div className="i-ph:broadcast text-[10px] text-bolt-elements-item-contentAccent" aria-hidden="true" />
+      <code
+        className="font-mono text-[10px] tabular-nums text-bolt-elements-item-contentAccent"
+        title={servingSha}
+      >
+        {shaPrefix}
+      </code>
+      <button
+        type="button"
+        onClick={() => void onCopy()}
+        data-testid="sc-release-sha-copy"
+        aria-label={copied ? 'Serving SHA copied' : 'Copy the full serving SHA'}
+        title={copied ? 'Copied' : 'Copy the full serving SHA'}
+        className={classNames(
+          'inline-flex h-[16px] w-[16px] items-center justify-center rounded cursor-pointer',
+          'text-bolt-elements-item-contentAccent/80 hover:text-bolt-elements-item-contentAccent',
+          'hover:bg-bolt-elements-item-contentAccent/15 focus-visible:outline-none focus-visible:ring-2',
+          'focus-visible:ring-bolt-elements-item-contentAccent transition-colors duration-150 motion-reduce:transition-none',
+        )}
+      >
+        <div className={classNames(copied ? 'i-ph:check-bold' : 'i-ph:copy', 'text-[10px]')} aria-hidden="true" />
+      </button>
+    </span>
+  );
+});
+
+ServingShaChip.displayName = 'SourceControl.ServingShaChip';
+
+/**
+ * One release card on the timeline — SHA + outcome badge + date + actor + artifact digest, plus (when the
+ * release recorded one) a 12-char `serving_sha` proof-of-serving chip. `serving_sha` is now typed on the
+ * bridge record (no narrowed cast), so the chip reads it directly. Rows WITHOUT a sha (older/pre-migration
+ * or deploy-failed) render NO chip — never a dead/empty chip.
+ */
+const ReleaseRow = memo(({ release, isLatest }: { release: ReleaseHistoryRecord; isLatest: boolean }) => {
   const failed = release.outcome === 'failed';
   const deployFailed = release.outcome === 'commit_ok_deploy_failed';
 
@@ -1462,6 +1545,8 @@ const ReleaseRow = memo(({ release, isLatest }: { release: ReleaseRecord; isLate
               <div className="i-ph:git-branch" aria-hidden="true" /> r{release.draft_revision}
             </span>
           )}
+          {/* Proof-of-serving SHA — only when the release recorded one (never a dead/empty chip). */}
+          <ServingShaChip servingSha={release.serving_sha} />
         </div>
       </div>
     </li>

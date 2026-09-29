@@ -465,4 +465,76 @@ describe('SourceControlPanel', () => {
     expect(lastMsg.draftRevision).toBe(7);
     expect(lastMsg.treeDigest).toBe('digest-7');
   });
+
+  /*
+   * History-tab serving_sha chip (Lane 1 Slice 6b, editor half) — each release row that carries a
+   * `serving_sha` renders a 12-char proof-of-serving chip (monospace, click-to-copy, aria-labelled),
+   * reusing the ReleaseOutcomeCard chip styling. A row WITHOUT a sha (older / pre-migration / deploy-failed)
+   * renders NO chip — never a dead/empty chip.
+   */
+  it('renders a 12-char serving_sha chip on a History release row that has one', async () => {
+    baseReply([]);
+    seedWorkingTree([]);
+    setReply('PS_PREVIEW_STATE_REQUEST', { ok: true, working_tree: null });
+    setReply('PS_RELEASES_REQUEST', {
+      ok: true,
+      releases: [
+        {
+          id: 'r-served',
+          commit_sha: 'abc1234',
+          artifact_digest: 'art',
+          deployment_id: 'v2026',
+          serving_sha: 'deadbeef1234feedface5678',
+          actor: 'owner@example.com',
+          draft_revision: 4,
+          outcome: 'success',
+          created_at: '2026-09-29T13:00:00Z',
+        },
+      ],
+    });
+
+    render(<SourceControlPanel />);
+    fireEvent.click(screen.getByTestId('sc-tab-history'));
+
+    await waitFor(() => expect(screen.getByTestId('sc-history-list')).toBeTruthy());
+
+    const chip = await screen.findByTestId('sc-release-sha');
+    // Only the 12-char prefix shows — never the trailing half.
+    expect(chip.textContent).toContain('deadbeef1234');
+    expect(chip.textContent).not.toContain('feedface5678');
+
+    // Click-to-copy is keyboard-reachable + labelled.
+    const copyBtn = screen.getByTestId('sc-release-sha-copy');
+    expect(copyBtn.getAttribute('aria-label')).toMatch(/copy/i);
+  });
+
+  it('renders NO serving_sha chip on a History row whose serving_sha is null', async () => {
+    baseReply([]);
+    seedWorkingTree([]);
+    setReply('PS_PREVIEW_STATE_REQUEST', { ok: true, working_tree: null });
+    setReply('PS_RELEASES_REQUEST', {
+      ok: true,
+      releases: [
+        {
+          id: 'r-nosha',
+          commit_sha: 'abc1234',
+          artifact_digest: 'art',
+          deployment_id: 'v2026',
+          serving_sha: null,
+          actor: 'owner@example.com',
+          draft_revision: 4,
+          outcome: 'commit_ok_deploy_failed',
+          created_at: '2026-09-29T13:00:00Z',
+        },
+      ],
+    });
+
+    render(<SourceControlPanel />);
+    fireEvent.click(screen.getByTestId('sc-tab-history'));
+
+    await waitFor(() => expect(screen.getByTestId('sc-history-list')).toBeTruthy());
+    expect(screen.getAllByTestId('sc-release-row')).toHaveLength(1);
+    // A null serving_sha row renders NO chip (never a dead/empty chip).
+    expect(screen.queryByTestId('sc-release-sha')).toBeNull();
+  });
 });

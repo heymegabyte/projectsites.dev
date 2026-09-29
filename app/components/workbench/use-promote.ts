@@ -329,11 +329,11 @@ export function usePromote(): UsePromote {
 
       /*
        * RETAIN the settled result so a release-outcome card can render the response ALREADY in the hook
-       * (Slice 6b). `serving_sha` rides the release row over the wire even though the bridge TS type omits
-       * it — read it via a narrowed local view. `serving_sha` is only present (non-null) on an honest
-       * `success`; the completion marker is the release's OWN id (deterministic, never a wall clock).
+       * (Slice 6b). `serving_sha` is now a TYPED field on the promote bridge record ({@link
+       * PromoteReleaseRecord}) — read it directly, no narrowed cast. It's only present (non-null) on an
+       * honest `success`; the completion marker is the release's OWN id (deterministic, never a wall clock).
        */
-      const release = reply.release as (PromoteResponseMessage['release'] & { serving_sha?: string | null }) | undefined;
+      const release = reply.release;
       setLastResult({
         outcome,
         servingSha: outcome === 'success' ? release?.serving_sha ?? null : null,
