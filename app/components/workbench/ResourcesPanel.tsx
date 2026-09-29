@@ -559,6 +559,26 @@ export const ResourcesPanel = memo(() => {
     return { totalBytes, totalCount: media.assets.length, countsByKind };
   }, [media]);
 
+  // Real-time contract: the panel SELF-updates — no manual Refresh button (the
+  // fire-55 explorer probe caught the header button the fire-54 sweep missed).
+  // Visibility-aware 30s poll on the section-appropriate reload; latest-ref so the
+  // inline closure never goes stale (empty-deps effect + ref pattern).
+  const onRefreshRef = useRef<() => void>(() => {});
+  onRefreshRef.current = () => (section === 'media' ? void loadMedia() : void loadFiles());
+  useEffect(() => {
+    const tick = () => {
+      if (!document.hidden) {
+        onRefreshRef.current();
+      }
+    };
+    const id = setInterval(tick, 30_000);
+    document.addEventListener('visibilitychange', tick);
+    return () => {
+      clearInterval(id);
+      document.removeEventListener('visibilitychange', tick);
+    };
+  }, []);
+
   // The deeper CF-primitive console — kept reachable so no proven surface is orphaned.
   if (showConsole) {
     return (
@@ -584,7 +604,6 @@ export const ResourcesPanel = memo(() => {
         section={section}
         onSection={setSection}
         usage={usage}
-        onRefresh={() => (section === 'media' ? void loadMedia() : void loadFiles())}
         onOpenConsole={() => setShowConsole(true)}
       />
 
@@ -636,7 +655,6 @@ const Header = memo(
     section,
     onSection,
     usage,
-    onRefresh,
     onOpenConsole,
   }: {
     environment: ResourceEnvironment;
@@ -644,7 +662,6 @@ const Header = memo(
     section: Section;
     onSection: (s: Section) => void;
     usage: MediaUsageSummary;
-    onRefresh: () => void;
     onOpenConsole: () => void;
   }) => (
     <div className="relative border-b border-bolt-elements-borderColor shrink-0 overflow-hidden">
@@ -658,9 +675,10 @@ const Header = memo(
             'radial-gradient(90% 120% at 100% 0%, color-mix(in oklch, #7c3aed 10%, transparent), transparent 46%)',
         }}
       />
-      {/* Top chrome (icon · title · storage · env · Advanced · Refresh) is media/files-specific — the
-          Buckets tab renders its OWN full header (create + refresh), so hide this row there to avoid a
-          double header. The tab strip below stays on every tab. */}
+      {/* Top chrome (icon · title · storage · env · Advanced) is media/files-specific — the
+          Buckets tab renders its OWN full header (create), so hide this row there to avoid a
+          double header. The tab strip below stays on every tab. Data stays current via the
+          panel's visibility-aware poll — no manual Refresh control (real-time rule). */}
       {section !== 'buckets' && (
         <div className="relative flex items-center gap-3 px-4 pt-3">
           <div className="flex items-center justify-center h-9 w-9 rounded-xl border border-bolt-elements-item-contentAccent/30 bg-bolt-elements-item-contentAccent/[0.08] shadow-inner shadow-bolt-elements-item-contentAccent/10 shrink-0">
@@ -711,16 +729,6 @@ const Header = memo(
               <div className="i-ph:stack text-sm" /> Advanced
             </button>
 
-            {/* Refresh */}
-            <button
-              type="button"
-              onClick={onRefresh}
-              aria-label="Refresh resources"
-              title="Refresh"
-              className={classNames(BTN_SECONDARY, 'min-h-[26px] min-w-[26px] px-1.5 py-1')}
-            >
-              <div className="i-ph:arrows-clockwise text-sm" />
-            </button>
           </div>
         </div>
       )}

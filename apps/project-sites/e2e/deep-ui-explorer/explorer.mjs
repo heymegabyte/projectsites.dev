@@ -470,6 +470,87 @@ try {
     process.exit(manifest.status.startsWith('PASS') ? 0 : 2);
   }
 
+  if (JOURNEY === 'resources-deep') {
+    // Editor → Resources tab → every subview pill (discovered from the LIVE
+    // tablist, not hardcoded) — doubles as the live probe that fire-54's
+    // real-time contract holds: NO manual Refresh/Reconcile control anywhere.
+    await clickFirst(page, [(p) => p.getByRole('link', { name: /^Editor$/ })]);
+    await page.waitForURL(/\/admin\/editor/, { timeout: 15_000 }).catch(() => {});
+    await capture(page, 'click Editor nav → /admin/editor (iframe mounts)', {
+      surface: 'admin-editor-shell',
+    });
+    const frame = page.frameLocator('iframe[src*="editor."]');
+    const resTab = [
+      (f) => f.getByRole('tab', { name: /^Resources$/i }),
+      (f) => f.getByRole('button', { name: /^Resources$/i }),
+    ];
+    const bootEnd = Date.now() + 120_000;
+    let ready = false;
+    while (Date.now() < bootEnd && !ready) {
+      for (const mk of resTab) {
+        if (await mk(frame).first().isVisible().catch(() => false)) {
+          ready = true;
+          break;
+        }
+      }
+      if (!ready) await page.waitForTimeout(5_000);
+    }
+    if (!ready) {
+      manifest.blocked.push({ phase: 'editor-boot', reason: 'Resources tab never visible in 120s' });
+      throw new Error('BLOCKED:editor-boot');
+    }
+    await clickFirst(frame, resTab, { timeout: 10_000 });
+    await capture(page, 'open Resources tab', { surface: 'editor-resources', iframe: 'editor' });
+
+    const refreshProbe = async () => {
+      const n = await frame
+        .getByRole('button', { name: /refresh|reconcile/i })
+        .count()
+        .catch(() => 0);
+      const m = await frame
+        .getByRole('menuitem', { name: /refresh|reconcile/i })
+        .count()
+        .catch(() => 0);
+      if (n + m > 0) {
+        manifest.blocked.push({
+          phase: 'real-time-contract',
+          reason: `manual Refresh/Reconcile control visible (${n + m}) at state ${stepNo}`,
+        });
+      }
+    };
+    await refreshProbe();
+
+    // Discover the Resources subview pills from the panel's OWN tablist (the broad
+    // selector matched every workbench tablist — sidebar tabs + Database subnav).
+    const pillNames = await frame
+      .locator('[role="tablist"][aria-label="Resource sections"] [role="tab"]')
+      .allInnerTexts()
+      .catch(() => []);
+    const subviews = pillNames.map((t) => t.trim()).filter((t) => t && t.length < 30).slice(0, 8);
+    console.warn(`  discovered subview pills: ${subviews.join(' · ') || '(none)'}`);
+    for (const name of subviews) {
+      if (budgetExceeded()) break;
+      const ok = await clickFirst(frame, [
+        (f) => f.getByRole('tab', { name: new RegExp(`^${name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, 'i') }),
+      ]);
+      await capture(page, ok ? `Resources › ${name} sub-view` : `Resources pill "${name}" not clickable`, {
+        surface: 'editor-resources',
+        subview: name.toLowerCase().replace(/\s+/g, '-'),
+        iframe: 'editor',
+      });
+      await refreshProbe();
+    }
+    finish(
+      manifest.blocked.length === 0
+        ? acq.coverage === 'CLOUD_PASS_ELIGIBLE'
+          ? 'PASS_CLOUDFLARE'
+          : 'PASS_ON_FALLBACK_PROVIDER'
+        : 'PARTIAL',
+    );
+    await acq.browser.close().catch(() => {});
+    process.exit(manifest.status.startsWith('PASS') ? 0 : 2);
+  }
+
   // ---- Phase 3: /admin → Editor (persistent bolt.diy iframe) ---------------
   await clickFirst(page, [
     (p) => p.getByRole('link', { name: /^Editor$/ }),
