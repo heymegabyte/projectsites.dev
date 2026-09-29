@@ -211,7 +211,12 @@ export class AdminWebhooksComponent {
       setTimeout(() => this.secretCopied.set(false), 1600);
     } catch {
       this.toast.error('Could not copy automatically — select the secret and copy it manually.');
+      return; // copy failed → keep the secret visible so the operator can select it manually
     }
+    // One-time-secret hygiene: once it's on the clipboard the contract ("copy it
+    // now, it won't be shown again") is satisfied — drop it from component state so
+    // it can never linger in the DOM after the copy (matches deliverability.component).
+    this.createdSecret.set(null);
   }
 
   /** Empty-state launchpad → focus the URL field so "Add your first endpoint" lands
@@ -228,9 +233,15 @@ export class AdminWebhooksComponent {
     // and reload on site switch — guarded so we never re-load the same site.
     effect(() => {
       const id = this.site()?.id ?? null;
-      if (id && id !== this.loadedSiteId) {
+      if (id !== this.loadedSiteId) {
+        // Switching sites (or clearing the selection) must wipe any lingering
+        // one-time secret from the prior site — otherwise navigating away and
+        // back still exposes site A's secret under site B (a cross-site leak).
+        // Mirrors deliverability.component's site-change result hygiene.
+        this.createdSecret.set(null);
+        this.secretCopied.set(false);
         this.loadedSiteId = id;
-        this.load();
+        if (id) this.load();
       }
     });
   }

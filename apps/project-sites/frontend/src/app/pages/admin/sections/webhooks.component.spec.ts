@@ -190,6 +190,42 @@ describe('AdminWebhooksComponent', () => {
     await fixture.componentInstance.copySecret();
     expect(writeText).toHaveBeenCalledWith('whsec_topsecret');
     expect(fixture.componentInstance.secretCopied()).toBeTrue();
+    // One-time-secret hygiene: after a successful copy the secret is dropped from
+    // component state (contract: "copy it now, it won't be shown again") so it can
+    // never linger in the DOM. The banner disappears on the next change detection.
+    expect(fixture.componentInstance.createdSecret()).withContext('secret cleared after copy').toBeNull();
+    fixture.detectChanges();
+    expect(q('[data-testid="webhooks-secret"]')).withContext('secret banner gone after copy').toBeNull();
+  });
+
+  // Cross-site secret leak: switching the selected site must wipe any lingering
+  // one-time secret from the prior site — otherwise navigating away + back exposes
+  // site A's secret under site B's header. Mirrors deliverability.component.
+  it('clears a lingering one-time secret when the selected site changes', () => {
+    const siteSig = signal<{ id: string } | null>({ id: 's1' });
+    const g = jasmine.createSpy('get').and.callFake((p: string) =>
+      p.endsWith('/deliveries') ? of({ ok: true, deliveries: [] }) : of({ ok: true, endpoints: [] }),
+    );
+    TestBed.configureTestingModule({
+      imports: [AdminWebhooksComponent],
+      providers: [
+        provideRouter([]),
+        { provide: ApiService, useValue: { get: g, post: jasmine.createSpy('post'), delete: jasmine.createSpy('delete') } },
+        { provide: ToastService, useValue: { error: jasmine.createSpy('e'), success: jasmine.createSpy('s') } },
+        { provide: ConfirmService, useValue: { confirm: jasmine.createSpy('confirm') } },
+        { provide: AdminStateService, useValue: { selectedSite: siteSig } },
+      ],
+    });
+    const fx = TestBed.createComponent(AdminWebhooksComponent);
+    fx.detectChanges();
+    // Simulate a just-created endpoint leaving its one-time secret in state.
+    fx.componentInstance.createdSecret.set('whsec_leaked');
+    fx.detectChanges();
+    expect(fx.componentInstance.createdSecret()).toBe('whsec_leaked');
+
+    siteSig.set({ id: 's2' }); // operator switches sites
+    fx.detectChanges();
+    expect(fx.componentInstance.createdSecret()).withContext('secret wiped on site change').toBeNull();
   });
 
   it('toggles event selection', () => {
