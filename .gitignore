@@ -115,3 +115,4 @@ editor-vqa/
 # (scripts/recipient-allowlist.mjs) fails CLOSED when this file is absent.
 apps/project-sites/.recipient-allowlist.local.json
 .claude/run-the-loop/.fire-lease.json
+.claude/scheduled_tasks.json
