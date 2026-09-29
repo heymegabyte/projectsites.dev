@@ -209,17 +209,40 @@ export class CreateComponent implements OnInit, OnDestroy {
   /** Attempted-submit flag — gates inline error rendering on required fields. */
   attempted = signal(false);
 
+  /**
+   * Required fields the user has TOUCHED then LEFT EMPTY on blur. Surfaces the
+   * inline error the moment they tab away from a cleared required field — not
+   * only after a submit attempt (which can never happen while the submit button
+   * is disabled). WCAG 3.3.1 Error Identification + embarrassingly-easy-to-use.
+   */
+  blurredEmpty = signal<Set<'name' | 'address'>>(new Set());
+
+  /** Show a required-field error when a submit was attempted OR the field was
+   *  touched-then-blurred-empty. */
+  private showRequiredError(field: 'name' | 'address'): boolean {
+    return this.attempted() || this.blurredEmpty().has(field);
+  }
+
   get nameError(): string | null {
-    if (!this.attempted()) return null;
+    if (!this.showRequiredError('name')) return null;
     return this.businessName.trim()
       ? null
       : 'Business name is required so we know what site to build.';
   }
   get addressError(): string | null {
-    if (!this.attempted()) return null;
+    if (!this.showRequiredError('address')) return null;
     return this.businessAddress.trim()
       ? null
       : 'Address is required for local SEO and the contact card.';
+  }
+
+  /** Mark a required field errored-on-blur when empty; clear it when it has a
+   *  value again so the error never lingers once fixed. */
+  private markBlurredEmpty(field: 'name' | 'address', value: string): void {
+    const next = new Set(this.blurredEmpty());
+    if (value.trim()) next.delete(field);
+    else next.add(field);
+    this.blurredEmpty.set(next);
   }
 
   categories = [
@@ -587,6 +610,8 @@ export class CreateComponent implements OnInit, OnDestroy {
 
   onAddressInput(): void {
     this.markTouched('address');
+    // Typing a value clears any prior blurred-empty error immediately.
+    if (this.businessAddress.trim()) this.markBlurredEmpty('address', this.businessAddress);
     this.addressSubject.next(this.businessAddress);
   }
 
@@ -596,11 +621,15 @@ export class CreateComponent implements OnInit, OnDestroy {
   }
 
   closeAddressDropdown(): void {
+    // A touched required field left empty on blur must explain itself (WCAG 3.3.1).
+    if (this.touchedFields().has('address')) this.markBlurredEmpty('address', this.businessAddress);
     setTimeout(() => this.addressDropdownOpen.set(false), 200);
   }
 
   onBusinessInput(): void {
     this.markTouched('name');
+    // Typing a value clears any prior blurred-empty error immediately.
+    if (this.businessName.trim()) this.markBlurredEmpty('name', this.businessName);
     this.businessSubject.next(this.businessName);
   }
 
@@ -633,6 +662,8 @@ export class CreateComponent implements OnInit, OnDestroy {
   }
 
   closeBusinessDropdown(): void {
+    // A touched required field left empty on blur must explain itself (WCAG 3.3.1).
+    if (this.touchedFields().has('name')) this.markBlurredEmpty('name', this.businessName);
     setTimeout(() => this.businessDropdownOpen.set(false), 200);
   }
 

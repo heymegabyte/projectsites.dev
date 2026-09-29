@@ -403,3 +403,118 @@ describe('CreateComponent — submit button gates on required fields', () => {
       .toBeNull();
   });
 });
+
+/**
+ * Inline required-field error on blur (embarrassingly-easy + WCAG 3.3.1 Error
+ * Identification). A keyboard/AT user who types a required field then clears it
+ * and tabs away must be TOLD why — the inline error + `aria-invalid` must fire on
+ * a blur-while-empty of a touched field, NOT only after a submit attempt. Before
+ * this fix the error gated purely on `attempted()` (set only on submit-click), so
+ * emptying a field left the "Create site" button disabled with ZERO inline
+ * feedback — and, because the button is disabled, the click that would set
+ * `attempted` never happens (a catch-22 that strands the user with no guidance).
+ */
+describe('CreateComponent — inline required-field error on blur (WCAG 3.3.1)', () => {
+  afterEach(() => {
+    localStorage.clear();
+    sessionStorage.clear();
+    TestBed.resetTestingModule();
+  });
+
+  function render(): ComponentFixture<CreateComponent> {
+    const api = {
+      searchBusinesses: jasmine.createSpy('searchBusinesses').and.returnValue(of({ data: [] })),
+      searchAddress: jasmine.createSpy('searchAddress').and.returnValue(of({ data: [] })),
+    };
+    const auth = {
+      isLoggedIn: jasmine.createSpy('isLoggedIn').and.returnValue(false),
+      getAutoCreate: jasmine.createSpy('getAutoCreate').and.returnValue(false),
+      setAutoCreate: jasmine.createSpy('setAutoCreate'),
+      getPendingBuild: jasmine.createSpy('getPendingBuild').and.returnValue(false),
+      setPendingBuild: jasmine.createSpy('setPendingBuild'),
+      getSelectedBusiness: jasmine.createSpy('getSelectedBusiness').and.returnValue(null),
+      getMode: jasmine.createSpy('getMode').and.returnValue('build'),
+    };
+    TestBed.configureTestingModule({
+      imports: [CreateComponent],
+      providers: [
+        provideRouter([]),
+        { provide: ApiService, useValue: api },
+        { provide: AuthService, useValue: auth },
+        { provide: GeolocationService, useValue: { lat: () => null, lng: () => null } },
+        {
+          provide: ToastService,
+          useValue: { error: () => undefined, success: () => undefined, info: () => undefined },
+        },
+        { provide: TelemetryService, useValue: { track: () => undefined } },
+        {
+          provide: ActivatedRoute,
+          useValue: { snapshot: { queryParams: {}, queryParamMap: { get: () => null } } },
+        },
+      ],
+    });
+    const fx = TestBed.createComponent(CreateComponent);
+    fx.detectChanges();
+    return fx;
+  }
+
+  it('shows NO name error before the field is touched (no premature alarm)', () => {
+    const fx = render();
+    const c = fx.componentInstance;
+    expect(c.nameError).withContext('untouched empty field must not shout').toBeNull();
+  });
+
+  it('surfaces the name error after a blur-while-empty of a touched field (no submit needed)', () => {
+    const fx = render();
+    const c = fx.componentInstance;
+    // User types a name (touches the field) then clears it and tabs away (blur).
+    c.businessName = 'Salon';
+    c.onBusinessInput();
+    c.businessName = '';
+    c.closeBusinessDropdown();
+    fx.detectChanges();
+    expect(c.attempted())
+      .withContext('no submit attempt happened — this is a pure blur path')
+      .toBe(false);
+    expect(c.nameError)
+      .withContext('a touched-then-emptied required field must explain itself on blur')
+      .toContain('required');
+    const input = (fx.nativeElement as HTMLElement).querySelector<HTMLInputElement>('#create-name');
+    expect(input?.getAttribute('aria-invalid'))
+      .withContext('AT must hear the field is invalid')
+      .toBe('true');
+    const err = (fx.nativeElement as HTMLElement).querySelector('#create-name-error');
+    expect((err?.textContent || '').trim().length)
+      .withContext('the inline error <p> must render visible text, not empty whitespace')
+      .toBeGreaterThan(0);
+  });
+
+  it('surfaces the address error after a blur-while-empty of a touched field', () => {
+    const fx = render();
+    const c = fx.componentInstance;
+    c.businessAddress = '74 N Beverwyck Rd';
+    c.onAddressInput();
+    c.businessAddress = '';
+    c.closeAddressDropdown();
+    fx.detectChanges();
+    expect(c.addressError)
+      .withContext('a touched-then-emptied address must explain itself on blur')
+      .toContain('required');
+  });
+
+  it('clears the name error the moment a valid value is typed back', () => {
+    const fx = render();
+    const c = fx.componentInstance;
+    c.businessName = 'Salon';
+    c.onBusinessInput();
+    c.businessName = '';
+    c.closeBusinessDropdown();
+    fx.detectChanges();
+    expect(c.nameError).withContext('error present while empty').toContain('required');
+    // Type a real value back in.
+    c.businessName = 'Vito Salon';
+    c.onBusinessInput();
+    fx.detectChanges();
+    expect(c.nameError).withContext('error clears once the field is valid again').toBeNull();
+  });
+});
