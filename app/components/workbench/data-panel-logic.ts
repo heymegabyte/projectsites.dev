@@ -1775,6 +1775,80 @@ function cellIsEmpty(value: unknown): boolean {
   return value === null || value === undefined || value === '';
 }
 
+/** One column's profile computed from the currently-loaded page rows (never the whole table). */
+export interface ColumnInsight {
+  /** Column name. */
+  name: string;
+  /** The column's DECLARED SQLite type verbatim (same string the grid badge shows). */
+  declaredType: string;
+  /** Share (0-100, rounded) of LOADED rows whose value is null / undefined / empty-string. */
+  nullPercent: number;
+  /** Count of DISTINCT non-empty values seen across the LOADED rows (a value-set size). */
+  distinctCount: number;
+}
+
+/** Whole-table-tab insight summary — always scoped to the LOADED page rows, never the full table. */
+export interface TableInsights {
+  /** Number of rows currently loaded (the page window), NOT the table's total row count. */
+  rowCount: number;
+  /** Per-column profile, in the given column order. */
+  columns: ColumnInsight[];
+}
+
+/** Cap the distinct-value set per column so a wide/awful page can never blow up memory. */
+export const INSIGHTS_DISTINCT_CAP = 10000;
+
+/**
+ * Profile the ALREADY-LOADED page rows into a per-column insight strip — zero new endpoint, zero
+ * round-trip. For each column it reports the DECLARED type (verbatim, same source as the grid badge),
+ * the null/empty share, and the distinct non-empty value count. Missing = null OR undefined OR '' (the
+ * same "no value" test the grid sort uses via {@link cellIsEmpty}), so an empty string reads as missing
+ * and is never counted as a distinct value.
+ *
+ * HONESTY: every statistic is over the LOADED rows only (the current page), never the whole table — the
+ * caller LABELS them "in loaded rows" so the numbers never imply full-table stats. 0 loaded rows → an
+ * honest-empty profile (rowCount 0, every column 0% / 0 distinct). Pure — no I/O, returns a fresh object.
+ *
+ * @param rows - the currently-loaded page rows (`Record<string, unknown>[]`)
+ * @param columns - the column descriptors (`{ name, type }`; extra fields like notnull/pk are ignored)
+ * @returns a {@link TableInsights} summary scoped to the loaded rows
+ * @example computeTableInsights([{ s: 'a' }, { s: '' }], [{ name: 's', type: 'TEXT' }])
+ *   // → { rowCount: 2, columns: [{ name: 's', declaredType: 'TEXT', nullPercent: 50, distinctCount: 1 }] }
+ */
+export function computeTableInsights(
+  rows: readonly Record<string, unknown>[],
+  columns: readonly { name: string; type?: string | null }[],
+): TableInsights {
+  const rowCount = rows.length;
+
+  const columnInsights: ColumnInsight[] = columns.map((col) => {
+    let missing = 0;
+    const distinct = new Set<unknown>();
+
+    for (const row of rows) {
+      const value = row[col.name];
+
+      if (cellIsEmpty(value)) {
+        missing += 1;
+        continue;
+      }
+
+      if (distinct.size < INSIGHTS_DISTINCT_CAP) {
+        distinct.add(value);
+      }
+    }
+
+    return {
+      name: col.name,
+      declaredType: (col.type ?? '').trim() || 'TEXT',
+      nullPercent: rowCount === 0 ? 0 : Math.round((missing / rowCount) * 100),
+      distinctCount: distinct.size,
+    };
+  });
+
+  return { rowCount, columns: columnInsights };
+}
+
 /**
  * Stable, type-aware sort of grid rows by one column. Both cells numeric (finite number or
  * numeric string) → NUMERIC compare (so '10' sorts after '2', not before). Otherwise a

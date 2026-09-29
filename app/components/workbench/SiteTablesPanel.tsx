@@ -89,6 +89,8 @@ import {
   cycleSortMulti,
   sortRows,
   filterRows,
+  computeTableInsights,
+  type TableInsights,
   toCsv,
   toTsv,
   toJsonRows,
@@ -3883,6 +3885,18 @@ const BrowseView = memo((props: BrowseViewProps) => {
   const activeFilters = conditions.filter((c) => filterIsActive(c.col, c.op, c.val)).length;
 
   /**
+   * Insights strip — a per-column profile (type · null% · distinct) computed from the ALREADY-LOADED
+   * page rows (no new endpoint). Off by default so it never clutters the grid; toggled by the "Insights"
+   * chip. Recomputed only when the visible columns or the loaded page change. Every stat is scoped to the
+   * loaded rows and LABELLED as such — never implying whole-table numbers.
+   */
+  const [showInsights, setShowInsights] = useState(false);
+  const insights = useMemo<TableInsights>(
+    () => computeTableInsights(pageRows, shownColumns),
+    [pageRows, shownColumns],
+  );
+
+  /**
    * The kanban group-by column actually used: the owner's pick when it's still a visible column, else the
    * auto-pick (first low-cardinality text/enum column) from the current page. Drives both the group-by
    * <select> value and the board lanes so the picker and the board never disagree.
@@ -4095,6 +4109,15 @@ const BrowseView = memo((props: BrowseViewProps) => {
           ))}
         </div>
 
+        {/* Insights toggle — reveals a per-column profile computed from the LOADED rows (no round-trip). */}
+        <ToolbarButton
+          testId="sitedb-insights-toggle"
+          icon="i-ph:chart-bar"
+          label="Insights"
+          active={showInsights}
+          onClick={() => setShowInsights((v) => !v)}
+        />
+
         <div className="w-px h-4 bg-bolt-elements-borderColor mx-0.5" aria-hidden />
 
         {/* AI actions */}
@@ -4129,6 +4152,9 @@ const BrowseView = memo((props: BrowseViewProps) => {
           )}
         </div>
       </div>
+
+      {/* Insights strip — per-column profile over the LOADED rows (toggled; honest-empty at 0 rows). */}
+      {showInsights && <InsightsStrip insights={insights} />}
 
       {/* Filter bar */}
       {filterBarOpen && (
@@ -4567,6 +4593,64 @@ const ToolbarButton = memo(
 );
 
 ToolbarButton.displayName = 'SiteTablesPanel.ToolbarButton';
+
+// ── Insights strip (per-column profile over the LOADED rows) ───────────────────
+
+/**
+ * A compact, read-only profile of the currently-LOADED page rows — one line per column
+ * (declared type, null/empty share, distinct count). Every stat is scoped to the loaded rows
+ * and LABELLED "in loaded rows" so it never implies whole-table numbers. Honest-empty: 0 loaded
+ * rows renders a plain "No rows yet" note instead of a wall of 0%/0. Purely presentational.
+ */
+const InsightsStrip = memo(({ insights }: { insights: TableInsights }) => {
+  const { rowCount, columns } = insights;
+
+  return (
+    <div
+      className="px-3 py-2 border-b border-bolt-elements-borderColor shrink-0 bg-bolt-elements-background-depth-1/60"
+      data-testid="sitedb-insights-strip"
+      role="region"
+      aria-label="Column insights for loaded rows"
+    >
+      <div className="flex items-center gap-1.5 mb-1.5">
+        <div className="i-ph:chart-bar text-[11px] text-bolt-elements-item-contentAccent" aria-hidden />
+        <span className="text-[10px] font-mono uppercase tracking-wider text-bolt-elements-item-contentAccent">
+          Insights
+        </span>
+        <span className="text-[10px] text-bolt-elements-textTertiary">
+          {rowCount.toLocaleString()} {rowCount === 1 ? 'row' : 'rows'} in loaded page
+        </span>
+      </div>
+
+      {rowCount === 0 ? (
+        <p className="text-[11px] text-bolt-elements-textTertiary" data-testid="sitedb-insights-empty">
+          No rows yet — insights appear once this table has data on the loaded page.
+        </p>
+      ) : (
+        <ul className="flex flex-wrap gap-1.5" data-testid="sitedb-insights-columns">
+          {columns.map((c) => (
+            <li
+              key={c.name}
+              className="flex items-center gap-1.5 rounded border border-bolt-elements-borderColor bg-bolt-elements-background-depth-2 px-2 py-1 text-[10px]"
+              title={`${c.name}: ${c.declaredType} · ${c.nullPercent}% empty · ${c.distinctCount} distinct (in loaded rows)`}
+            >
+              <span className="font-mono text-bolt-elements-textPrimary truncate max-w-[14ch]">{c.name}</span>
+              <span className="font-mono text-bolt-elements-textTertiary uppercase">{c.declaredType}</span>
+              <span className="text-bolt-elements-textSecondary">
+                {c.nullPercent}% <span className="text-bolt-elements-textTertiary">empty</span>
+              </span>
+              <span className="text-bolt-elements-textSecondary">
+                {c.distinctCount.toLocaleString()} <span className="text-bolt-elements-textTertiary">distinct</span>
+              </span>
+            </li>
+          ))}
+        </ul>
+      )}
+    </div>
+  );
+});
+
+InsightsStrip.displayName = 'SiteTablesPanel.InsightsStrip';
 
 // ── Export menu ──────────────────────────────────────────────────────────────
 

@@ -77,6 +77,7 @@ import {
   clampPageSize,
   PAGE_SIZE_OPTIONS,
   insertableColumns,
+  computeTableInsights,
   stripSqlCommentsAndStrings,
   classifySqlStatement,
   classifySql,
@@ -3385,5 +3386,78 @@ describe('layoutErdNodes (deterministic grid layout — no physics engine)', () 
 
   it('empty schema yields no nodes', () => {
     expect(layoutErdNodes([], { columns: 2 })).toEqual([]);
+  });
+});
+
+describe('computeTableInsights (per-column profile from ALREADY-LOADED page rows)', () => {
+  const cols = [
+    { name: 'id', type: 'INTEGER' },
+    { name: 'email', type: 'TEXT' },
+    { name: 'status', type: 'TEXT' },
+  ];
+
+  it('rowCount reflects the loaded page rows, not any whole-table total', () => {
+    const rows = [
+      { id: 1, email: 'a@x.com', status: 'active' },
+      { id: 2, email: 'b@x.com', status: 'active' },
+      { id: 3, email: 'c@x.com', status: 'churned' },
+    ];
+    const out = computeTableInsights(rows, cols);
+    expect(out.rowCount).toBe(3);
+    expect(out.columns).toHaveLength(3);
+  });
+
+  it('null% counts null / undefined / empty-string as missing (share of loaded rows)', () => {
+    const rows = [
+      { id: 1, email: 'a@x.com', status: 'active' },
+      { id: 2, email: null, status: '' }, // email null, status '' → both missing
+      { id: 3, email: undefined, status: 'churned' }, // email undefined → missing
+      { id: 4, email: 'd@x.com', status: 'active' },
+    ];
+    const out = computeTableInsights(rows, cols);
+    const byName = Object.fromEntries(out.columns.map((c) => [c.name, c]));
+    // email missing in 2 of 4 rows → 50
+    expect(byName.email.nullPercent).toBe(50);
+    // status missing in 1 of 4 rows → 25
+    expect(byName.status.nullPercent).toBe(25);
+    // id never missing → 0
+    expect(byName.id.nullPercent).toBe(0);
+  });
+
+  it('distinctCount is the size of the non-empty value set (empties excluded)', () => {
+    const rows = [
+      { id: 1, email: 'a@x.com', status: 'active' },
+      { id: 2, email: 'a@x.com', status: 'active' }, // duplicate email + status
+      { id: 3, email: 'b@x.com', status: null }, // null status not counted as a distinct value
+      { id: 4, email: 'b@x.com', status: '' }, // '' status not counted
+    ];
+    const out = computeTableInsights(rows, cols);
+    const byName = Object.fromEntries(out.columns.map((c) => [c.name, c]));
+    expect(byName.email.distinctCount).toBe(2); // a@x.com, b@x.com
+    expect(byName.status.distinctCount).toBe(1); // only 'active'
+    expect(byName.id.distinctCount).toBe(4); // all unique
+  });
+
+  it('surfaces the declared column type verbatim (same source as the grid badge)', () => {
+    const out = computeTableInsights([{ id: 1, email: 'a@x.com', status: 'x' }], cols);
+    const byName = Object.fromEntries(out.columns.map((c) => [c.name, c]));
+    expect(byName.id.declaredType).toBe('INTEGER');
+    expect(byName.email.declaredType).toBe('TEXT');
+  });
+
+  it('0 loaded rows → honest empty insights (rowCount 0, every column 0% / 0 distinct)', () => {
+    const out = computeTableInsights([], cols);
+    expect(out.rowCount).toBe(0);
+    expect(out.columns).toHaveLength(3);
+    for (const c of out.columns) {
+      expect(c.nullPercent).toBe(0);
+      expect(c.distinctCount).toBe(0);
+    }
+  });
+
+  it('no columns → empty column list (guards a blank/degenerate page)', () => {
+    const out = computeTableInsights([{ id: 1 }], []);
+    expect(out.rowCount).toBe(1);
+    expect(out.columns).toEqual([]);
   });
 });
