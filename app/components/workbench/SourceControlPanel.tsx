@@ -69,7 +69,7 @@ import {
   type ReleaseRecord,
   type SyncSummary,
 } from './git-browser-logic';
-import { usePromote, type PromoteState } from './use-promote';
+import { usePromote, type PromoteState, type PromoteLastResult } from './use-promote';
 
 // ── Constants ────────────────────────────────────────────────────────────────
 
@@ -288,7 +288,7 @@ export const SourceControlPanel = memo(() => {
    * so this panel and the header can never diverge. `promoteSync` is the hook's own sync summary; the
    * panel keeps its `sync` state for the header badge but reconciles the two below.
    */
-  const { promote, canPromote, promoteReason, doPromote, dismiss: dismissPromote } = usePromote();
+  const { promote, lastResult, canPromote, promoteReason, doPromote, dismiss: dismissPromote } = usePromote();
 
   const mounted = useRef(true);
   useEffect(() => {
@@ -558,6 +558,9 @@ export const SourceControlPanel = memo(() => {
         onPromoteDismiss={dismissPromote}
       />
 
+      {/* Release-outcome card (Slice 6b) — renders the settled promote response; Retry re-fires the SAME hook. */}
+      <ReleaseOutcomeCard result={lastResult} onRetry={doPromote} onDismiss={dismissPromote} />
+
       {tab === 'changes' ? (
         <ChangesView
           state={changes}
@@ -823,6 +826,201 @@ const PromoteStatus = memo(
 );
 
 PromoteStatus.displayName = 'SourceControl.PromoteStatus';
+
+/** Copy `text` to the clipboard (async API, guarded) → true on success. Never throws to the caller. */
+async function copyToClipboard(text: string): Promise<boolean> {
+  try {
+    if (typeof navigator !== 'undefined' && navigator.clipboard?.writeText) {
+      await navigator.clipboard.writeText(text);
+
+      return true;
+    }
+  } catch {
+    // fall through — a copy failure is non-fatal; the sha stays visible + selectable.
+  }
+
+  return false;
+}
+
+/**
+ * Release-outcome card (Slice 6b) — RENDERS the settled promote response so the worker's proof-of-serving
+ * `serving_sha` is finally surfaced (it was computed-but-unrendered). Hidden until a promote settles.
+ *   - success → green "Live" badge + a 12-char serving_sha prefix chip (monospace, click-to-copy) +
+ *     "Production serving <sha>".
+ *   - commit_ok_deploy_failed → amber badge + a Retry that re-fires the SAME promote via the hook action.
+ *   - failed → red badge + Retry.
+ * Dark cyan, keyboard-reachable, aria-labelled. Behind the SAME durable_preview gate the panel uses (the
+ * gate lives in usePromote; a dark flag never yields a lastResult).
+ */
+const ReleaseOutcomeCard = memo(
+  ({
+    result,
+    onRetry,
+    onDismiss,
+  }: {
+    result: PromoteLastResult | null;
+    onRetry: () => void;
+    onDismiss: () => void;
+  }) => {
+    const [copied, setCopied] = useState(false);
+    const copyResetRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+    useEffect(
+      () => () => {
+        if (copyResetRef.current) {
+          clearTimeout(copyResetRef.current);
+        }
+      },
+      [],
+    );
+
+    const servingSha = result?.servingSha ?? null;
+
+    const onCopy = useCallback(async () => {
+      if (!servingSha) {
+        return;
+      }
+
+      const ok = await copyToClipboard(servingSha);
+
+      if (ok) {
+        setCopied(true);
+
+        if (copyResetRef.current) {
+          clearTimeout(copyResetRef.current);
+        }
+
+        copyResetRef.current = setTimeout(() => setCopied(false), 1600);
+      }
+    }, [servingSha]);
+
+    // Hidden until a promote has settled (the empty state — no dead/doomed control).
+    if (!result) {
+      return null;
+    }
+
+    const success = result.outcome === 'success';
+    const deployFailed = result.outcome === 'commit_ok_deploy_failed';
+    const retryable = !success;
+
+    const tone = success
+      ? 'border-emerald-400/40 bg-emerald-400/[0.08]'
+      : deployFailed
+        ? 'border-amber-400/40 bg-amber-400/[0.08]'
+        : 'border-red-400/40 bg-red-400/[0.08]';
+
+    const badgeTone = success
+      ? 'border-emerald-400/50 bg-emerald-400/15 text-emerald-300'
+      : deployFailed
+        ? 'border-amber-400/50 bg-amber-400/15 text-amber-200'
+        : 'border-red-400/50 bg-red-400/15 text-red-300';
+
+    const badgeIcon = success ? 'i-ph:broadcast-fill' : deployFailed ? 'i-ph:warning-fill' : 'i-ph:x-circle-fill';
+    const badgeLabel = success ? 'Live' : deployFailed ? 'Deploy failed' : 'Failed';
+
+    // The serving-SHA proof is a 12-char prefix (a proof-of-serving receipt, distinct from a 7-char git shortSha).
+    const shaPrefix = servingSha ? servingSha.slice(0, 12) : null;
+
+    return (
+      <div
+        data-testid="sc-release-outcome"
+        role="status"
+        aria-live="polite"
+        className={classNames(
+          'mx-3 mt-2 flex flex-col gap-2 rounded-xl border px-3 py-2.5 shrink-0',
+          'animate-[sc-slide-up_0.22s_ease-out] motion-reduce:animate-none',
+          tone,
+        )}
+      >
+        <div className="flex items-center gap-2 flex-wrap">
+          <span
+            className={classNames(
+              'inline-flex items-center gap-1.5 rounded-full border px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide',
+              badgeTone,
+            )}
+          >
+            <div className={classNames(badgeIcon, 'text-[11px]')} aria-hidden="true" />
+            {badgeLabel}
+          </span>
+
+          {success && shaPrefix && (
+            <span className="inline-flex items-center gap-1 text-[11px] text-bolt-elements-textSecondary">
+              Production serving
+            </span>
+          )}
+
+          {success && shaPrefix && (
+            <span
+              data-testid="sc-serving-sha"
+              className="inline-flex items-center gap-1.5 rounded-md border border-bolt-elements-item-contentAccent/30 bg-bolt-elements-item-contentAccent/10 pl-1.5 pr-1 py-0.5"
+            >
+              <code
+                className="font-mono text-[11px] tabular-nums text-bolt-elements-item-contentAccent"
+                title={servingSha ?? undefined}
+              >
+                {shaPrefix}
+              </code>
+              <button
+                type="button"
+                onClick={() => void onCopy()}
+                data-testid="sc-serving-sha-copy"
+                aria-label={copied ? 'Serving SHA copied' : 'Copy the full serving SHA'}
+                title={copied ? 'Copied' : 'Copy the full serving SHA'}
+                className={classNames(
+                  'inline-flex h-[18px] w-[18px] items-center justify-center rounded cursor-pointer',
+                  'text-bolt-elements-item-contentAccent/80 hover:text-bolt-elements-item-contentAccent',
+                  'hover:bg-bolt-elements-item-contentAccent/15 focus-visible:outline-none focus-visible:ring-2',
+                  'focus-visible:ring-bolt-elements-item-contentAccent transition-colors duration-150 motion-reduce:transition-none',
+                )}
+              >
+                <div className={classNames(copied ? 'i-ph:check-bold' : 'i-ph:copy', 'text-[11px]')} aria-hidden="true" />
+              </button>
+            </span>
+          )}
+
+          <button
+            type="button"
+            onClick={onDismiss}
+            aria-label="Dismiss release outcome"
+            title="Dismiss"
+            data-testid="sc-release-outcome-dismiss"
+            className="ml-auto shrink-0 i-ph:x text-sm opacity-70 hover:opacity-100 cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-current rounded"
+          />
+        </div>
+
+        {retryable && (
+          <div className="flex items-center gap-2">
+            <span className="min-w-0 flex-1 text-[11px] text-bolt-elements-textSecondary">
+              {deployFailed
+                ? 'Your changes committed but the deploy did not go live. Retry to finish publishing.'
+                : 'The promotion did not complete. Retry to publish to Production.'}
+            </span>
+            <button
+              type="button"
+              onClick={onRetry}
+              data-testid="sc-release-outcome-retry"
+              aria-label="Retry publishing to Production"
+              title="Retry publishing to Production"
+              className={classNames(
+                'shrink-0 inline-flex items-center gap-1 rounded-md border px-2 py-0.5',
+                'text-[10px] font-semibold uppercase tracking-wide cursor-pointer',
+                deployFailed
+                  ? 'border-amber-400/50 text-amber-200 hover:bg-amber-400/15'
+                  : 'border-red-400/50 text-red-300 hover:bg-red-400/15',
+                'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-current',
+                'transition-[background-color] duration-150 motion-reduce:transition-none',
+              )}
+            >
+              <div className="i-ph:arrow-clockwise-bold text-[10px]" aria-hidden="true" /> Retry
+            </button>
+          </div>
+        )}
+      </div>
+    );
+  },
+);
+
+ReleaseOutcomeCard.displayName = 'SourceControl.ReleaseOutcomeCard';
 
 /** Preview↔Production sync badge — always honest (never a false "in sync"), + a deploy-failed retry hint. */
 const SyncIndicator = memo(({ sync }: { sync: SyncSummary | null }) => {

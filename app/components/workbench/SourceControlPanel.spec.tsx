@@ -320,4 +320,149 @@ describe('SourceControlPanel', () => {
     await waitFor(() => expect(screen.getByTestId('sc-changes-error')).toBeTruthy());
     expect(screen.getByRole('button', { name: /Retry/i })).toBeTruthy();
   });
+
+  /*
+   * Release-outcome card (Slice 6b) — RENDERS the promote response already in the shared hook so the
+   * worker's `serving_sha` proof is surfaced (was computed-but-unrendered). Hidden until a promote runs;
+   * success → a 12-char serving_sha chip with click-to-copy; commit_ok_deploy_failed → a Retry that
+   * re-fires the SAME promote via the existing hook action (never a new call path).
+   */
+  function seedPromotable(): void {
+    baseReply([{ name: 'index.html', size: 1000 }]);
+    seedWorkingTree([{ path: 'index.html', size: 1200 }]);
+    setReply('PS_PREVIEW_STATE_REQUEST', {
+      ok: true,
+      enabled: true,
+      working_tree: {
+        base_main_sha: 'abc1234',
+        draft_revision: 7,
+        tree_digest: 'digest-7',
+        preview_deploy_revision: 'r7',
+        last_error: null,
+        updated_at: '2026-09-29T12:00:00Z',
+      },
+    });
+    setReply('PS_RELEASES_REQUEST', {
+      ok: true,
+      enabled: true,
+      releases: [
+        {
+          id: 'rel-1',
+          commit_sha: 'old0001',
+          artifact_digest: 'digest-1',
+          deployment_id: 'dep-1',
+          serving_sha: null,
+          actor: 'owner@example.com',
+          draft_revision: 3,
+          outcome: 'success',
+          created_at: '2026-09-20T10:00:00Z',
+        },
+      ],
+    });
+  }
+
+  it('hides the release-outcome card until a promote has run', async () => {
+    seedPromotable();
+
+    render(<SourceControlPanel />);
+
+    await waitFor(() => expect(screen.getByTestId('sc-changes-list')).toBeTruthy());
+    // No promote yet → the outcome card is absent.
+    expect(screen.queryByTestId('sc-release-outcome')).toBeNull();
+  });
+
+  it('renders a Live badge + a 12-char serving_sha chip after a successful promote', async () => {
+    seedPromotable();
+    setReply('PS_PROMOTE_REQUEST', {
+      ok: true,
+      enabled: true,
+      outcome: 'success',
+      idempotent: false,
+      release: {
+        id: 'rel-2',
+        commit_sha: 'abc1234',
+        artifact_digest: 'digest-7',
+        deployment_id: 'v2026',
+        serving_sha: 'deadbeef1234feedface5678',
+        actor: 'owner@example.com',
+        draft_revision: 7,
+        outcome: 'success',
+        created_at: '2026-09-29T12:05:00Z',
+      },
+    });
+
+    render(<SourceControlPanel />);
+
+    // Promote from the header button (the SHARED hook action).
+    const promoteBtn = await screen.findByTestId('promote-to-production');
+    await waitFor(() => expect(promoteBtn.hasAttribute('disabled')).toBe(false));
+    fireEvent.click(promoteBtn);
+
+    // The outcome card appears with a Live badge + the 12-char serving_sha prefix.
+    const card = await screen.findByTestId('sc-release-outcome');
+    expect(card.textContent).toMatch(/Live/i);
+
+    const shaChip = await screen.findByTestId('sc-serving-sha');
+    // 12-char prefix of the 24-char serving_sha.
+    expect(shaChip.textContent).toContain('deadbeef1234');
+    // The full sha never renders truncated-wrong: only the 12-char prefix shows.
+    expect(shaChip.textContent).not.toContain('feedface5678');
+
+    // Click-to-copy is keyboard-reachable + labelled.
+    const copyBtn = screen.getByTestId('sc-serving-sha-copy');
+    expect(copyBtn.getAttribute('aria-label')).toMatch(/copy/i);
+  });
+
+  it('renders a Retry on commit_ok_deploy_failed that re-fires the SAME promote via the hook', async () => {
+    seedPromotable();
+    setReply('PS_PROMOTE_REQUEST', {
+      ok: true,
+      enabled: true,
+      outcome: 'commit_ok_deploy_failed',
+      idempotent: false,
+      release: {
+        id: 'rel-3',
+        commit_sha: 'abc1234',
+        artifact_digest: 'digest-7',
+        deployment_id: 'v2026b',
+        serving_sha: null,
+        actor: 'owner@example.com',
+        draft_revision: 7,
+        outcome: 'commit_ok_deploy_failed',
+        created_at: '2026-09-29T12:06:00Z',
+      },
+    });
+
+    render(<SourceControlPanel />);
+
+    const promoteBtn = await screen.findByTestId('promote-to-production');
+    await waitFor(() => expect(promoteBtn.hasAttribute('disabled')).toBe(false));
+    fireEvent.click(promoteBtn);
+
+    // The card shows the deploy-failed outcome + a Retry (the retry surface).
+    const card = await screen.findByTestId('sc-release-outcome');
+    await waitFor(() => expect(card.textContent).toMatch(/deploy failed/i));
+
+    const retry = screen.getByTestId('sc-release-outcome-retry');
+    expect(retry.getAttribute('aria-label')).toMatch(/retry|publish/i);
+
+    // Count PS_PROMOTE_REQUEST calls before Retry.
+    const before = postToParent.mock.calls.filter((c) => (c[0] as { type?: string }).type === 'PS_PROMOTE_REQUEST').length;
+
+    fireEvent.click(retry);
+
+    // Retry re-fires the SAME promote bridge message (the existing hook action) — never a new call path.
+    await waitFor(() => {
+      const after = postToParent.mock.calls.filter(
+        (c) => (c[0] as { type?: string }).type === 'PS_PROMOTE_REQUEST',
+      ).length;
+      expect(after).toBe(before + 1);
+    });
+
+    // The retried message carries the SAME frozen draft revision + tree digest (idempotent replay).
+    const promoteCalls = postToParent.mock.calls.filter((c) => (c[0] as { type?: string }).type === 'PS_PROMOTE_REQUEST');
+    const lastMsg = promoteCalls[promoteCalls.length - 1][0] as { draftRevision: number; treeDigest: string };
+    expect(lastMsg.draftRevision).toBe(7);
+    expect(lastMsg.treeDigest).toBe('digest-7');
+  });
 });

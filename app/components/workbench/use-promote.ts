@@ -65,6 +65,9 @@ const RESPONSE_FOR: Record<string, ParentToChildMessage['type']> = {
   PS_PROMOTE_REQUEST: 'PS_PROMOTE_RESPONSE',
 };
 
+/** The three honest promote outcomes (mirrors the worker `ReleaseOutcome`). */
+export type PromoteOutcome = 'success' | 'commit_ok_deploy_failed' | 'failed';
+
 /**
  * Promote -> Production state machine (Slice 5). `idle` (ready or nothing-to-promote) -> `submitting` ->
  * a terminal `success` | `failed` | `commit_ok_deploy_failed`. The terminal outcome mirrors the honest
@@ -77,6 +80,27 @@ export type PromoteState =
   | { status: 'failed'; message: string }
   | { status: 'commit_ok_deploy_failed'; message: string };
 
+/**
+ * The RETAINED result of the last settled promote (Slice 6b). Persists AFTER the promote settles so the
+ * Source Control panel can render a release-outcome card from the response ALREADY in the hook — the
+ * worker's `serving_sha` proof was computed-but-unrendered before this. Every field comes from the
+ * promote RESPONSE itself; `releaseId` is the monotonic completion marker (the response's own release
+ * id — deterministic, never a `Date.now()` wall clock). `null` until a promote has settled.
+ */
+export interface PromoteLastResult {
+  /** The HONEST server outcome the card badges on. */
+  outcome: PromoteOutcome;
+
+  /** The proof-of-serving SHA-256 of the promoted `index.html` — present ONLY on `success`, else null. */
+  servingSha: string | null;
+
+  /** The immutable release id — the completion marker (monotonic, from the response, no wall clock). */
+  releaseId: string | null;
+
+  /** The rollback token / production version the release was cut as (the worker's `deployment_id`). */
+  version: string | null;
+}
+
 /** A promise pending a bridge reply, resolved by correlationId when the parent answers. */
 interface Pending {
   resolve: (msg: ParentToChildMessage) => void;
@@ -88,6 +112,14 @@ interface Pending {
 export interface UsePromote {
   /** The live promote state machine. */
   promote: PromoteState;
+
+  /**
+   * The RETAINED result of the last settled promote (Slice 6b) — outcome + serving SHA + release id/version
+   * from the promote RESPONSE. Persists after the promote settles so a release-outcome card can render the
+   * `serving_sha` proof (previously computed-but-unrendered). `null` until a promote has settled; cleared by
+   * {@link dismiss}.
+   */
+  lastResult: PromoteLastResult | null;
 
   /** Whether Promote is offered right now (else disabled WITH {@link promoteReason}). */
   canPromote: boolean;
@@ -118,6 +150,7 @@ export interface UsePromote {
  */
 export function usePromote(): UsePromote {
   const [promote, setPromote] = useState<PromoteState>({ status: 'idle' });
+  const [lastResult, setLastResult] = useState<PromoteLastResult | null>(null);
   const [ready, setReady] = useState(false);
   const [disabled, setDisabled] = useState(false);
   const [previewTree, setPreviewTree] = useState<PreviewWorkingTree | null>(null);
@@ -292,7 +325,21 @@ export function usePromote(): UsePromote {
         return;
       }
 
-      const outcome = reply.outcome ?? reply.release?.outcome ?? 'failed';
+      const outcome: PromoteOutcome = reply.outcome ?? reply.release?.outcome ?? 'failed';
+
+      /*
+       * RETAIN the settled result so a release-outcome card can render the response ALREADY in the hook
+       * (Slice 6b). `serving_sha` rides the release row over the wire even though the bridge TS type omits
+       * it — read it via a narrowed local view. `serving_sha` is only present (non-null) on an honest
+       * `success`; the completion marker is the release's OWN id (deterministic, never a wall clock).
+       */
+      const release = reply.release as (PromoteResponseMessage['release'] & { serving_sha?: string | null }) | undefined;
+      setLastResult({
+        outcome,
+        servingSha: outcome === 'success' ? release?.serving_sha ?? null : null,
+        releaseId: release?.id ?? null,
+        version: release?.deployment_id ?? null,
+      });
 
       if (outcome === 'success') {
         setPromote({ status: 'success', idempotent: reply.idempotent ?? false });
@@ -319,10 +366,14 @@ export function usePromote(): UsePromote {
     }
   }, [previewTree, request, reload]);
 
-  const dismiss = useCallback(() => setPromote({ status: 'idle' }), []);
+  const dismiss = useCallback(() => {
+    setPromote({ status: 'idle' });
+    setLastResult(null);
+  }, []);
 
   return {
     promote,
+    lastResult,
     canPromote: gate.canPromote,
     promoteReason: gate.reason,
     sync,
