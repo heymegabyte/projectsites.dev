@@ -3979,3 +3979,205 @@ export function buildChartSeries(
 
   return out;
 }
+
+// ── Rev 8 — ERD / schema-relationships diagram (pure logic) ──────────────────
+//
+// The editor "Database" tab gains an ERD / schema-map view: every table drawn as a node (its
+// columns) with edges for relationships. The per-site D1 schema exposes NO foreign-key metadata
+// (the tables endpoint returns only `{name}`, the rows endpoint only `{name,type,notnull,pk}` from
+// PRAGMA table_info — never `PRAGMA foreign_key_list`), so relationships are INFERRED by naming
+// convention: a `<x>_id` column links to a table named `x`, its plural (`xs` / `<x>es`), or its
+// singular. Every inferred edge is marked `inferred:true` so the UI can label it honestly. Layout is
+// a deterministic grid (no physics engine) — pure + stable, unit-tested, mirrors `detectChartable`.
+
+/** One column of a table, as the ERD needs it (name + declared type + PRAGMA `pk` flag 0/1). */
+export interface ErdSchemaColumn {
+  name: string;
+  type: string;
+  pk: number;
+}
+
+/** One table in the schema map fed to the ERD (its name + its columns). */
+export interface ErdSchemaTable {
+  name: string;
+  columns: ErdSchemaColumn[];
+}
+
+/**
+ * One relationship edge. `inferred` is always `true` today (the schema exposes no real FK metadata);
+ * the field is explicit so the surface can label the edge "inferred" and a future real-FK source can
+ * emit `inferred:false` without a shape change.
+ */
+export interface ErdEdge {
+  from: string;
+  fromColumn: string;
+  to: string;
+  inferred: boolean;
+}
+
+/** A laid-out ERD node: the table, its grid cell (col/row), its pixel box (x/y/w/h), and its columns. */
+export interface ErdNode {
+  table: string;
+  col: number;
+  row: number;
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+  columns: ErdSchemaColumn[];
+}
+
+/** Hard cap on rendered nodes so a runaway schema never explodes the inline SVG. */
+export const ERD_MAX_TABLES = 40;
+
+/**
+ * If `column` is a foreign-key-style reference (`<base>_id`, base non-empty, not the bare `id` PK),
+ * return its lowercased base; else null. `id` alone is the primary key, never a reference. Pure.
+ */
+function foreignKeyBase(column: string): string | null {
+  const lower = column.trim().toLowerCase();
+
+  if (lower === 'id' || !lower.endsWith('_id')) {
+    return null;
+  }
+
+  const base = lower.slice(0, -'_id'.length);
+
+  return base.length > 0 ? base : null;
+}
+
+/**
+ * The candidate table names a `<base>_id` column could reference, in priority order: the base itself
+ * (singular), its `+s` plural, its `+es` plural (box → boxes), and its `-y → -ies` plural
+ * (category → categories, city → cities). Lowercased. Pure.
+ */
+function candidateTargetsForBase(base: string): string[] {
+  const candidates = [base, `${base}s`, `${base}es`];
+
+  if (base.endsWith('y')) {
+    candidates.push(`${base.slice(0, -1)}ies`);
+  }
+
+  return candidates;
+}
+
+/**
+ * Infer relationship edges from the schema by NAMING CONVENTION (no real FK metadata exists). For
+ * each `<x>_id` column, link to the first table whose (lowercased) name equals `x`, `xs`, or `xes`.
+ * Self-referential columns (e.g. `category_id` on `categories`) are supported. The bare `id` PK is
+ * never a reference; a `_id` column with no matching table produces NO edge (a dangling reference is
+ * not fabricated). Case-insensitive on both the column base and the table name. Pure + deterministic.
+ *
+ * @returns edges in stable table-then-column order, each `inferred:true`
+ * @example inferErdEdges([{name:'orders',columns:[{name:'customer_id',type:'INT',pk:0}]},{name:'customers',columns:[{name:'id',type:'INT',pk:1}]}]) // [{from:'orders',fromColumn:'customer_id',to:'customers',inferred:true}]
+ */
+export function inferErdEdges(tables: readonly ErdSchemaTable[]): ErdEdge[] {
+  // Map lowercased table name → its ORIGINAL-cased name (first wins), for case-insensitive lookup.
+  const byLowerName = new Map<string, string>();
+
+  for (const t of tables) {
+    const key = t.name.trim().toLowerCase();
+
+    if (!byLowerName.has(key)) {
+      byLowerName.set(key, t.name);
+    }
+  }
+
+  const edges: ErdEdge[] = [];
+
+  for (const t of tables) {
+    for (const col of t.columns) {
+      const base = foreignKeyBase(col.name);
+
+      if (base === null) {
+        continue;
+      }
+
+      let target: string | undefined;
+
+      for (const candidate of candidateTargetsForBase(base)) {
+        const hit = byLowerName.get(candidate);
+
+        if (hit !== undefined) {
+          target = hit;
+          break;
+        }
+      }
+
+      if (target !== undefined) {
+        edges.push({ from: t.name, fromColumn: col.name, to: target, inferred: true });
+      }
+    }
+  }
+
+  return edges;
+}
+
+/** Layout options for {@link layoutErdNodes} — how many node columns the grid is wide. */
+export interface ErdLayoutOptions {
+  /** Number of grid columns (nodes per row). Clamped to ≥1. */
+  columns: number;
+}
+
+// Layout geometry (viewBox pixel units). A node is a fixed-width card; height grows with its columns.
+const ERD_NODE_W = 200;
+const ERD_NODE_HEADER_H = 30;
+const ERD_NODE_ROW_H = 20;
+const ERD_NODE_PAD_Y = 10;
+const ERD_GAP_X = 48;
+const ERD_GAP_Y = 40;
+const ERD_MARGIN = 24;
+const ERD_MAX_COL_ROWS = 12; // cap the columns drawn per node so a wide table doesn't run off-card
+
+/** The rendered height of a node card for a given column count (capped rows + header + padding). Pure. */
+function erdNodeHeight(columnCount: number): number {
+  const rows = Math.min(columnCount, ERD_MAX_COL_ROWS);
+
+  return ERD_NODE_HEADER_H + rows * ERD_NODE_ROW_H + ERD_NODE_PAD_Y;
+}
+
+/**
+ * Lay every table out as a node in a DETERMINISTIC left-to-right, top-to-bottom grid (no physics
+ * engine). Each row's height is the tallest node in that row, so cards never overlap. Caps at
+ * {@link ERD_MAX_TABLES} nodes. Pure + stable — identical input yields an identical layout.
+ *
+ * @example layoutErdNodes([{name:'a',columns:[{name:'id',type:'INT',pk:1}]}], { columns: 2 })[0].table // 'a'
+ */
+export function layoutErdNodes(tables: readonly ErdSchemaTable[], opts: ErdLayoutOptions): ErdNode[] {
+  const cols = Math.max(1, Math.floor(opts.columns));
+  const shown = tables.slice(0, ERD_MAX_TABLES);
+
+  // Pre-compute each row's max height so a tall card in one row doesn't overlap the next.
+  const rowHeights: number[] = [];
+
+  shown.forEach((t, i) => {
+    const row = Math.floor(i / cols);
+    const h = erdNodeHeight(t.columns.length);
+    rowHeights[row] = Math.max(rowHeights[row] ?? 0, h);
+  });
+
+  // Cumulative y-offset per row (top of each grid row).
+  const rowTops: number[] = [];
+  let acc = ERD_MARGIN;
+
+  for (let r = 0; r < rowHeights.length; r++) {
+    rowTops[r] = acc;
+    acc += rowHeights[r] + ERD_GAP_Y;
+  }
+
+  return shown.map((t, i) => {
+    const col = i % cols;
+    const row = Math.floor(i / cols);
+
+    return {
+      table: t.name,
+      col,
+      row,
+      x: ERD_MARGIN + col * (ERD_NODE_W + ERD_GAP_X),
+      y: rowTops[row],
+      w: ERD_NODE_W,
+      h: erdNodeHeight(t.columns.length),
+      columns: t.columns,
+    };
+  });
+}

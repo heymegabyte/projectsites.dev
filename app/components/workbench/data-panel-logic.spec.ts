@@ -146,6 +146,11 @@ import {
   MAX_CHART_ROWS,
   buildUpdateByPk,
   RowMutationError,
+  // ── Rev 8 — ERD / schema-relationships diagram ──
+  inferErdEdges,
+  layoutErdNodes,
+  ERD_MAX_TABLES,
+  type ErdSchemaTable,
 } from './data-panel-logic';
 
 describe('iconForTable', () => {
@@ -3121,5 +3126,164 @@ describe('siteSqlKey (per-site localStorage scoping)', () => {
     expect(siteSqlKey('saved', '')).toBe('ps-sitedb-sql-saved:__shared');
     expect(siteSqlKey('saved', null)).toBe('ps-sitedb-sql-saved:__shared');
     expect(siteSqlKey('saved', undefined)).toBe('ps-sitedb-sql-saved:__shared');
+  });
+});
+
+describe('inferErdEdges (relationship inference — no real FK data, naming convention)', () => {
+  const schema: ErdSchemaTable[] = [
+    {
+      name: 'orders',
+      columns: [
+        { name: 'id', type: 'INTEGER', pk: 1 },
+        { name: 'customer_id', type: 'INTEGER', pk: 0 },
+        { name: 'product_id', type: 'INTEGER', pk: 0 },
+        { name: 'note', type: 'TEXT', pk: 0 },
+      ],
+    },
+    { name: 'customers', columns: [{ name: 'id', type: 'INTEGER', pk: 1 }] },
+    { name: 'products', columns: [{ name: 'id', type: 'INTEGER', pk: 1 }] },
+  ];
+
+  it('infers `<x>_id` → plural table (customer_id → customers, product_id → products)', () => {
+    const edges = inferErdEdges(schema);
+
+    expect(edges).toEqual(
+      expect.arrayContaining([
+        { from: 'orders', fromColumn: 'customer_id', to: 'customers', inferred: true },
+        { from: 'orders', fromColumn: 'product_id', to: 'products', inferred: true },
+      ]),
+    );
+    expect(edges).toHaveLength(2);
+  });
+
+  it('matches a SINGULAR target table too (author_id → author)', () => {
+    const s: ErdSchemaTable[] = [
+      { name: 'posts', columns: [{ name: 'author_id', type: 'INTEGER', pk: 0 }] },
+      { name: 'author', columns: [{ name: 'id', type: 'INTEGER', pk: 1 }] },
+    ];
+
+    expect(inferErdEdges(s)).toEqual([
+      { from: 'posts', fromColumn: 'author_id', to: 'author', inferred: true },
+    ]);
+  });
+
+  it('matches an `-es` plural target (box_id → boxes)', () => {
+    const s: ErdSchemaTable[] = [
+      { name: 'items', columns: [{ name: 'box_id', type: 'INTEGER', pk: 0 }] },
+      { name: 'boxes', columns: [{ name: 'id', type: 'INTEGER', pk: 1 }] },
+    ];
+
+    expect(inferErdEdges(s)).toEqual([
+      { from: 'items', fromColumn: 'box_id', to: 'boxes', inferred: true },
+    ]);
+  });
+
+  it('is case-insensitive on the derived base and the table name', () => {
+    const s: ErdSchemaTable[] = [
+      { name: 'Orders', columns: [{ name: 'Customer_ID', type: 'INTEGER', pk: 0 }] },
+      { name: 'CUSTOMERS', columns: [{ name: 'id', type: 'INTEGER', pk: 1 }] },
+    ];
+
+    expect(inferErdEdges(s)).toEqual([
+      { from: 'Orders', fromColumn: 'Customer_ID', to: 'CUSTOMERS', inferred: true },
+    ]);
+  });
+
+  it('emits NO edge for a `_id` column with no matching table (dangling reference)', () => {
+    const s: ErdSchemaTable[] = [
+      { name: 'orders', columns: [{ name: 'vendor_id', type: 'INTEGER', pk: 0 }] },
+      { name: 'customers', columns: [{ name: 'id', type: 'INTEGER', pk: 1 }] },
+    ];
+
+    expect(inferErdEdges(s)).toEqual([]);
+  });
+
+  it('never treats the bare primary key `id` as a foreign key', () => {
+    const s: ErdSchemaTable[] = [
+      { name: 'customers', columns: [{ name: 'id', type: 'INTEGER', pk: 1 }] },
+      { name: 'ids', columns: [{ name: 'x', type: 'TEXT', pk: 0 }] },
+    ];
+
+    // `id` must NOT infer an edge to a table named `ids`.
+    expect(inferErdEdges(s)).toEqual([]);
+  });
+
+  it('supports a self-referential edge (parent_id on a table matching its own base)', () => {
+    const s: ErdSchemaTable[] = [
+      {
+        name: 'categories',
+        columns: [
+          { name: 'id', type: 'INTEGER', pk: 1 },
+          { name: 'category_id', type: 'INTEGER', pk: 0 },
+        ],
+      },
+    ];
+
+    expect(inferErdEdges(s)).toEqual([
+      { from: 'categories', fromColumn: 'category_id', to: 'categories', inferred: true },
+    ]);
+  });
+
+  it('empty / single-table schema yields no edges', () => {
+    expect(inferErdEdges([])).toEqual([]);
+    expect(inferErdEdges([{ name: 'solo', columns: [{ name: 'id', type: 'INTEGER', pk: 1 }] }])).toEqual([]);
+  });
+});
+
+describe('layoutErdNodes (deterministic grid layout — no physics engine)', () => {
+  const three: ErdSchemaTable[] = [
+    { name: 'a', columns: [{ name: 'id', type: 'INTEGER', pk: 1 }] },
+    { name: 'b', columns: [{ name: 'id', type: 'INTEGER', pk: 1 }] },
+    { name: 'c', columns: [{ name: 'id', type: 'INTEGER', pk: 1 }] },
+  ];
+
+  it('renders ONE node per table (N tables → N nodes)', () => {
+    const nodes = layoutErdNodes(three, { columns: 2 });
+    expect(nodes).toHaveLength(3);
+    expect(nodes.map((n) => n.table)).toEqual(['a', 'b', 'c']);
+  });
+
+  it('places nodes in a deterministic left-to-right, top-to-bottom grid', () => {
+    const nodes = layoutErdNodes(three, { columns: 2 });
+    // 2-wide grid: a=(0,0) b=(1,0) c=(0,1)
+    expect([nodes[0].col, nodes[0].row]).toEqual([0, 0]);
+    expect([nodes[1].col, nodes[1].row]).toEqual([1, 0]);
+    expect([nodes[2].col, nodes[2].row]).toEqual([0, 1]);
+  });
+
+  it('assigns non-overlapping monotonic x/y from the grid position', () => {
+    const nodes = layoutErdNodes(three, { columns: 2 });
+    // second column is to the right of the first; second row is below the first.
+    expect(nodes[1].x).toBeGreaterThan(nodes[0].x);
+    expect(nodes[2].y).toBeGreaterThan(nodes[0].y);
+    expect(nodes[0].w).toBeGreaterThan(0);
+    expect(nodes[0].h).toBeGreaterThan(0);
+  });
+
+  it('carries each table columns onto its node (name + pk flag preserved)', () => {
+    const nodes = layoutErdNodes(
+      [{ name: 'orders', columns: [{ name: 'id', type: 'INTEGER', pk: 1 }, { name: 'customer_id', type: 'INTEGER', pk: 0 }] }],
+      { columns: 3 },
+    );
+    expect(nodes[0].columns).toEqual([
+      { name: 'id', type: 'INTEGER', pk: 1 },
+      { name: 'customer_id', type: 'INTEGER', pk: 0 },
+    ]);
+  });
+
+  it('is pure + stable — same input yields identical layout', () => {
+    expect(layoutErdNodes(three, { columns: 2 })).toEqual(layoutErdNodes(three, { columns: 2 }));
+  });
+
+  it('caps at ERD_MAX_TABLES so a runaway schema never explodes the SVG', () => {
+    const many: ErdSchemaTable[] = Array.from({ length: ERD_MAX_TABLES + 5 }, (_, i) => ({
+      name: `t${i}`,
+      columns: [{ name: 'id', type: 'INTEGER', pk: 1 }],
+    }));
+    expect(layoutErdNodes(many, { columns: 4 })).toHaveLength(ERD_MAX_TABLES);
+  });
+
+  it('empty schema yields no nodes', () => {
+    expect(layoutErdNodes([], { columns: 2 })).toEqual([]);
   });
 });

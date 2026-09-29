@@ -124,6 +124,8 @@ import { classifyCell } from './data-cell-format';
 import { quoteIdent } from './schema-ddl';
 import { formatSchemaForPrompt, extractSqlFromModel } from './sql-ask-logic';
 import { CellEditor } from './CellEditor';
+import { ErdView } from './ErdView';
+import type { ErdSchemaTable } from './data-panel-logic';
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
@@ -771,6 +773,72 @@ export const SiteTablesPanel = memo(
       setComingSoon(label);
       setTimeout(() => setComingSoon((cur) => (cur === label ? null : cur)), 3200);
     }, []);
+
+    // ── ERD / schema-map view (Rev 8) ────────────────────────────────────────
+    /** Whether the ERD / schema-relationships diagram is open (replaces the list/browse pane). */
+    const [erdOpen, setErdOpen] = useState(false);
+    /** The assembled schema map for the ERD: every table + its columns (idle | loading | ready | error). */
+    const [erdSchema, setErdSchema] = useState<
+      | { status: 'idle' }
+      | { status: 'loading' }
+      | { status: 'error'; message: string }
+      | { status: 'ready'; tables: ErdSchemaTable[] }
+    >({ status: 'idle' });
+
+    /**
+     * Gather each table's columns for the ERD by reusing the EXISTING `PS_SITEDB_ROWS_REQUEST` bridge
+     * with `limit:0` (schema only, zero rows) — the SAME call {@link loadRows} makes, NOT a new endpoint.
+     * Sequential (small per-site DBs) + fail-soft: a table whose columns fail to load is drawn empty.
+     */
+    const loadErdSchema = useCallback(async () => {
+      if (tables.status !== 'ready') {
+        return;
+      }
+
+      setErdSchema({ status: 'loading' });
+
+      try {
+        const assembled: ErdSchemaTable[] = [];
+
+        for (const t of tables.tables) {
+          let cols: { name: string; type: string; pk: number }[] = [];
+
+          try {
+            const reply = (await request({
+              type: 'PS_SITEDB_ROWS_REQUEST',
+              correlationId: nextCorrelationId(),
+              table: t.name,
+              limit: 0,
+              offset: 0,
+            })) as SiteDbRowsResponseMessage;
+
+            if (reply.ok && reply.columns) {
+              cols = reply.columns.map((c) => ({ name: c.name, type: c.type, pk: c.pk }));
+            }
+          } catch {
+            // Fail soft — a table whose schema can't be read is drawn as an empty card.
+          }
+
+          assembled.push({ name: t.name, columns: cols });
+        }
+
+        setErdSchema({ status: 'ready', tables: assembled });
+      } catch (err) {
+        setErdSchema({
+          status: 'error',
+          message: err instanceof Error ? err.message : 'Could not load the schema map.',
+        });
+      }
+    }, [tables, request]);
+
+    /** Open the ERD (gathers the schema on first open / when it isn't ready yet). */
+    const openErd = useCallback(() => {
+      setErdOpen(true);
+
+      if (erdSchema.status !== 'ready' && erdSchema.status !== 'loading') {
+        void loadErdSchema();
+      }
+    }, [erdSchema.status, loadErdSchema]);
 
     // ── Create table (manual builder) + drop table — via the dedicated per-site D1 P1 endpoints ──
     /** Whether the guided "New table" modal is open. */
@@ -2239,7 +2307,63 @@ export const SiteTablesPanel = memo(
             />
           )}
           <div className="flex-1 flex flex-col min-w-0">
-            {!selectedTable ? (
+            {/* Schema-map (ERD) toggle — visible whenever the site has ≥1 table; never a dead control. */}
+            {tables.status === 'ready' && tables.tables.length > 0 && (
+              <div className="flex items-center justify-end gap-2 px-3 py-1.5 border-b border-bolt-elements-borderColor bg-bolt-elements-background-depth-2">
+                <button
+                  type="button"
+                  data-testid="sitedb-erd-toggle"
+                  aria-pressed={erdOpen}
+                  onClick={() => (erdOpen ? setErdOpen(false) : openErd())}
+                  className={classNames(
+                    'inline-flex items-center gap-1.5 rounded-md border px-2.5 py-1 text-[11px] font-medium transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-bolt-elements-item-contentAccent cursor-pointer',
+                    erdOpen
+                      ? 'border-[color:var(--ps-accent,#00e5ff)] bg-bolt-elements-item-backgroundActive text-bolt-elements-item-contentAccent'
+                      : 'border-bolt-elements-borderColor text-bolt-elements-textSecondary hover:bg-bolt-elements-item-backgroundActive hover:text-bolt-elements-textPrimary',
+                  )}
+                  title={erdOpen ? 'Back to tables' : 'Schema map — see how your tables relate'}
+                >
+                  <div className={classNames(erdOpen ? 'i-ph:table' : 'i-ph:graph', 'text-sm')} aria-hidden />
+                  {erdOpen ? 'Tables' : 'Schema map'}
+                </button>
+              </div>
+            )}
+            {erdOpen ? (
+              <div data-testid="sitedb-erd-panel" className="flex-1 overflow-auto modern-scrollbar p-3">
+                {erdSchema.status === 'loading' ? (
+                  <div className="flex items-center gap-2 p-6 text-sm text-bolt-elements-textSecondary">
+                    <div className="i-ph:circle-notch animate-spin text-base" aria-hidden />
+                    Reading your schema…
+                  </div>
+                ) : erdSchema.status === 'error' ? (
+                  <div className="p-6 text-sm text-bolt-elements-textSecondary">
+                    <p>{erdSchema.message}</p>
+                    <button
+                      type="button"
+                      onClick={() => void loadErdSchema()}
+                      className="mt-2 rounded-md border border-bolt-elements-borderColor px-2.5 py-1 text-[11px] text-bolt-elements-textPrimary hover:bg-bolt-elements-item-backgroundActive cursor-pointer"
+                    >
+                      Retry
+                    </button>
+                  </div>
+                ) : erdSchema.status === 'ready' && erdSchema.tables.length >= 2 ? (
+                  <ErdView tables={erdSchema.tables} onOpenTable={(name) => { setErdOpen(false); openTable(name); }} />
+                ) : (
+                  <div
+                    data-testid="sitedb-erd-empty"
+                    className="flex flex-col items-center justify-center gap-2 p-10 text-center text-sm text-bolt-elements-textSecondary"
+                  >
+                    <div className="i-ph:graph text-2xl text-bolt-elements-textTertiary" aria-hidden />
+                    <p className="font-medium text-bolt-elements-textPrimary">Add tables to see the schema map</p>
+                    <p className="text-[12px] text-bolt-elements-textTertiary">
+                      The schema map draws how your tables relate. Create at least two tables (a
+                      <code className="mx-1">customer_id</code> column links to a <code>customers</code> table)
+                      and it fills in here.
+                    </p>
+                  </div>
+                )}
+              </div>
+            ) : !selectedTable ? (
           <TableListView
             state={tables}
             onOpen={openTable}
