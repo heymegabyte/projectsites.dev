@@ -269,6 +269,67 @@ describe('AppsComponent (catalog grid has semantic list markup)', () => {
 });
 
 /**
+ * Display-correctness: a CF-native app (image `cf-native:*` — a real Worker on
+ * D1 + R2, NO container) must NOT advertise container-only metadata on its card.
+ * The RAM/Memory pill is meaningless for a serverless Worker; showing "128 MiB"
+ * for Payload is misleading. Instead the card shows a concise
+ * "CF-native · D1 + R2 + Worker — no container" badge. Container apps are
+ * unchanged (RAM pill still shows).
+ */
+describe('AppsComponent (CF-native cards hide container metadata)', () => {
+  afterEach(() => TestBed.resetTestingModule());
+
+  it('isCfNative() is true only for image "cf-native:*"', () => {
+    const c = make();
+    const cfNative = APPS_CATALOG.find((a) => a.image.startsWith('cf-native:'));
+    const container = APPS_CATALOG.find((a) => !a.image.startsWith('cf-native:'));
+    expect(cfNative).withContext('a cf-native app exists in the catalog').toBeTruthy();
+    expect(container).withContext('a container app exists in the catalog').toBeTruthy();
+    expect(c.isCfNative(cfNative!)).toBeTrue();
+    expect(c.isCfNative(container!)).toBeFalse();
+  });
+
+  function render(lifecycle?: 'all' | 'live' | 'soon'): HTMLElement {
+    TestBed.configureTestingModule({
+      imports: [AppsComponent],
+      providers: [
+        APPS_API_PROVIDER,
+        provideRouter([{ path: '**', children: [] }]),
+        { provide: ActivatedRoute, useValue: { queryParamMap: of(convertToParamMap({})) } },
+      ],
+    });
+    const fx = TestBed.createComponent(AppsComponent);
+    if (lifecycle) fx.componentInstance.setLifecycle(lifecycle);
+    fx.detectChanges();
+    return fx.nativeElement as HTMLElement;
+  }
+
+  it('a CF-native card shows the "no container" badge and NO RAM/MiB pill', () => {
+    const host = render();
+    const cfNative = APPS_CATALOG.find((a) => a.image.startsWith('cf-native:'))!;
+    const card = host.querySelector(`[data-testid="apps-card-${cfNative.id}"]`);
+    expect(card).withContext('cf-native card rendered').not.toBeNull();
+    const badge = card!.querySelector('[data-testid="apps-cfnative-badge"]');
+    expect(badge).withContext('cf-native badge present on card').not.toBeNull();
+    expect(badge!.textContent ?? '').toContain('no container');
+    expect(card!.querySelector('.mem-pill')).withContext('no RAM pill on cf-native card').toBeNull();
+    expect(card!.textContent ?? '').withContext('no MiB text on cf-native card').not.toContain('MiB');
+  });
+
+  it('a container card still shows the RAM/MiB pill and NO cf-native badge', () => {
+    const host = render();
+    const container = APPS_CATALOG.find((a) => !a.image.startsWith('cf-native:'))!;
+    const card = host.querySelector(`[data-testid="apps-card-${container.id}"]`);
+    expect(card).withContext('container card rendered').not.toBeNull();
+    expect(card!.querySelector('.mem-pill')).withContext('RAM pill present on container card').not.toBeNull();
+    expect(card!.textContent ?? '').toContain('MiB');
+    expect(card!.querySelector('[data-testid="apps-cfnative-badge"]'))
+      .withContext('no cf-native badge on a container card')
+      .toBeNull();
+  });
+});
+
+/**
  * §17 (apps-filter delayed reveal): result cards must NOT carry `appReveal`.
  * `appReveal` starts a host at opacity:0 + translateY(16px) and animates it in —
  * a first-paint flourish. On the LIVE-filtered `@for (app of filteredApps())`

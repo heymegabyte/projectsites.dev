@@ -9,6 +9,10 @@ import { ConfirmService } from '../../../services/confirm.service';
 import { AdminStateService } from '../admin-state.service';
 import { APPS_CATALOG } from './apps-catalog.data';
 
+/** Real Umami catalog entry — deploy() reads `a.infra`, so tests must pass a full
+ *  CatalogApp, never a `{id,name}` stub (would crash on `a.infra.length`). */
+const UMAMI = APPS_CATALOG.find((a) => a.id === 'umami')!;
+
 /**
  * First coverage for the app-deploy detail (subdomain input validation — untested):
  *  - subdomainError messages (required / min / max / charset / dash edges) + untouched=null
@@ -38,7 +42,10 @@ function make(
     providers: [
       { provide: ActivatedRoute, useValue: { paramMap: of(convertToParamMap(appId ? { id: appId } : {})) } },
       { provide: Router, useValue: { navigate: nav } },
-      { provide: ApiService, useValue: { post } },
+      // `get` stub — when an appId is loaded, ngOnInit → checkAndSetSubdomain hits
+      // `/apps/slug-check` (added by the pricing commit). Without it the whole
+      // suite errored on `api.get is not a function`.
+      { provide: ApiService, useValue: { post, get: () => of({ available: true, valid: true, suggestion: 'auto-sub' }) } },
       { provide: ToastService, useValue: toast },
       { provide: ConfirmService, useValue: confirm },
       { provide: AdminStateService, useValue: { selectedSite: signal({ id: 's1', slug: 'demo' }) } },
@@ -46,6 +53,21 @@ function make(
   });
   TestBed.overrideComponent(AppDetailComponent, { set: { template: '<div></div>', imports: [] } });
   return { c: TestBed.createComponent(AppDetailComponent).componentInstance, nav, post, toast, confirm };
+}
+
+/**
+ * Set a valid, available subdomain synchronously — mirrors the state AFTER the
+ * debounced `/apps/slug-check` round-trip resolves. `onSubdomainChange` alone
+ * only starts a 350ms timer + goes NEUTRAL (valid/available → null), which
+ * Jasmine never advances, so a deploy-guard test must drive the resolved
+ * signals directly (the pricing commit added `subdomainAvailable` to the
+ * `readyToDeploy` gate).
+ */
+function setValidSubdomain(c: AppDetailComponent, v = 'my-cool-app'): void {
+  c.subdomain = v;
+  c.onSubdomainChange(v);
+  c.subdomainValid.set(true);
+  c.subdomainAvailable.set(true);
 }
 
 describe('AppDetailComponent (subdomain validation + deploy guard)', () => {
@@ -87,9 +109,8 @@ describe('AppDetailComponent (subdomain validation + deploy guard)', () => {
 
   it('deploy() posts and routes to the new instance on success (after confirm)', async () => {
     const { c, post, nav, toast, confirm } = make();
-    c.onSubdomainChange('my-cool-app');
-    c.subdomain = 'my-cool-app';
-    await c.deploy({ id: 'umami', name: 'Umami' } as never); // supported (Live) app
+    setValidSubdomain(c);
+    await c.deploy(UMAMI); // supported (Live) app — full catalog entry (deploy reads a.infra)
     expect(confirm.confirm).toHaveBeenCalled();
     expect(post).toHaveBeenCalled();
     expect(toast.success).toHaveBeenCalled();
@@ -103,9 +124,8 @@ describe('AppDetailComponent (subdomain validation + deploy guard)', () => {
       '',
       false, // user cancels the confirm dialog
     );
-    c.onSubdomainChange('my-cool-app');
-    c.subdomain = 'my-cool-app';
-    await c.deploy({ id: 'umami', name: 'Umami' } as never);
+    setValidSubdomain(c);
+    await c.deploy(UMAMI);
     expect(confirm.confirm).toHaveBeenCalled();
     expect(post).not.toHaveBeenCalled();
     expect(c.deploying()).toBe(false);
@@ -113,9 +133,8 @@ describe('AppDetailComponent (subdomain validation + deploy guard)', () => {
 
   it('deploy() clears the deploying flag on error', async () => {
     const { c } = make(jasmine.createSpy('post').and.returnValue(throwError(() => ({ status: 500 }))));
-    c.onSubdomainChange('my-cool-app');
-    c.subdomain = 'my-cool-app';
-    await c.deploy({ id: 'umami', name: 'Umami' } as never);
+    setValidSubdomain(c);
+    await c.deploy(UMAMI);
     expect(c.deploying()).toBe(false);
   });
 
@@ -169,7 +188,7 @@ describe('AppDetailComponent (cost-total a11y group)', () => {
       providers: [
         { provide: ActivatedRoute, useValue: { paramMap: of(convertToParamMap({ id: appId })) } },
         { provide: Router, useValue: { navigate: jasmine.createSpy('navigate') } },
-        { provide: ApiService, useValue: { post } },
+        { provide: ApiService, useValue: { post, get: () => of({ available: true, valid: true, suggestion: 'auto-sub' }) } },
         { provide: ToastService, useValue: { success: jasmine.createSpy('s'), error: jasmine.createSpy('e') } },
         { provide: AdminStateService, useValue: { selectedSite: signal({ id: 's1', slug: 'demo' }) } },
       ],
@@ -271,7 +290,7 @@ describe('AppDetailComponent (AI Recommends + prev/next pager)', () => {
       providers: [
         { provide: ActivatedRoute, useValue: { paramMap: of(convertToParamMap({ id: 'umami' }), convertToParamMap({ id: 'listmonk' })) } },
         { provide: Router, useValue: { navigate: nav } },
-        { provide: ApiService, useValue: { post: jasmine.createSpy('post') } },
+        { provide: ApiService, useValue: { post: jasmine.createSpy('post'), get: () => of({ available: true, valid: true, suggestion: 'auto-sub' }) } },
         { provide: ToastService, useValue: { success: () => 0, error: () => 0 } },
         { provide: AdminStateService, useValue: { selectedSite: signal({ id: 's1', slug: 'demo' }) } },
       ],
@@ -314,7 +333,7 @@ describe('AppDetailComponent (customize env vars before deploy)', () => {
   it('readyToDeploy stays false until every REQUIRED user-provided env has a value', () => {
     const { c } = make(undefined, 'umami');
     c.ngOnInit();
-    c.onSubdomainChange('valid-subdomain'); // subdomain side is valid
+    setValidSubdomain(c, 'valid-subdomain'); // subdomain side is valid + available
     const reqUserVar = c.app()!.env.find((e) => e.required && !e.auto);
     if (reqUserVar) {
       c.setEnvOverride(reqUserVar.key, '');
@@ -332,8 +351,7 @@ describe('AppDetailComponent (customize env vars before deploy)', () => {
     const post = jasmine.createSpy('post').and.returnValue(of({ instance_id: 'i1' }));
     const { c } = make(post, 'umami');
     c.ngOnInit();
-    c.onSubdomainChange('my-umami-site');
-    c.subdomain = 'my-umami-site';
+    setValidSubdomain(c, 'my-umami-site');
     const a = c.app()!;
     // Satisfy every required user var so deploy isn't blocked.
     for (const e of a.env) {
@@ -407,5 +425,40 @@ describe('AppDetailComponent (screenshot carousel)', () => {
     } as unknown as HTMLElement;
     c.goToShot(track, 2);
     expect(calls[0]?.left).withContext('frame 2 = 2 × clientWidth').toBe(600);
+  });
+});
+
+/**
+ * Display-correctness: a CF-native app (image `cf-native:*`) is a real Worker on
+ * D1 + R2 — NO container. `isCfNative()` centralizes that branch (was an inline
+ * `a.image?.startsWith('cf-native:')` repeated across the template) so the detail
+ * page never shows a Port / Memory / Dockerfile field or "booting container" copy
+ * for a serverless app.
+ */
+describe('AppDetailComponent (CF-native display gating)', () => {
+  afterEach(() => TestBed.resetTestingModule());
+
+  it('isCfNative() is true for the Payload CF-native entry, false for a container app', () => {
+    const { c } = make();
+    const cfNative = APPS_CATALOG.find((a) => a.image.startsWith('cf-native:'))!;
+    const container = APPS_CATALOG.find((a) => !a.image.startsWith('cf-native:'))!;
+    expect(c.isCfNative(cfNative)).toBeTrue();
+    expect(c.isCfNative(container)).toBeFalse();
+  });
+
+  it('costLines for a CF-native app carry NO container line (Worker + D1 + R2 only)', () => {
+    const cfNative = APPS_CATALOG.find((a) => a.image.startsWith('cf-native:'))!;
+    const { c } = make(); // set the app signal directly — avoids the ngOnInit api.get round-trip
+    c.app.set(cfNative);
+    const keys = c.costLines().map((l) => l.key);
+    expect(keys).not.toContain('container');
+    expect(keys).toContain('worker');
+  });
+
+  it('costLines for a container app DO carry a container line', () => {
+    const container = APPS_CATALOG.find((a) => !a.image.startsWith('cf-native:'))!;
+    const { c } = make();
+    c.app.set(container);
+    expect(c.costLines().map((l) => l.key)).toContain('container');
   });
 });

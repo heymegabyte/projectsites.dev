@@ -295,10 +295,19 @@ const INFRA_META: Readonly<Record<InfraDep, { glyph: string; label: string }>> =
               </div>
 
               <footer class="app-card-foot">
-                <span class="mem-pill" title="RAM ceiling">
-                  <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="6" width="18" height="12" rx="2"/><path d="M7 6v12M11 6v12M15 6v12M19 6v12"/></svg>
-                  {{ app.memoryMB }} MiB
-                </span>
+                @if (isCfNative(app)) {
+                  <!-- Serverless Worker (D1 + R2) — a container-only RAM figure would mislead. -->
+                  <span class="cfnative-pill" title="Cloudflare-native — runs as a Worker on D1 + R2, no container"
+                        [attr.data-testid]="'apps-cfnative-badge'">
+                    <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M17.5 19a4.5 4.5 0 1 0 0-9h-1.8A7 7 0 1 0 4 15.9"/></svg>
+                    CF-native · D1 + R2 + Worker — no container
+                  </span>
+                } @else {
+                  <span class="mem-pill" title="RAM ceiling">
+                    <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="6" width="18" height="12" rx="2"/><path d="M7 6v12M11 6v12M15 6v12M19 6v12"/></svg>
+                    {{ app.memoryMB }} MiB
+                  </span>
+                }
                 <span class="cost-pill" [title]="'Estimated monthly cost — ' + app.name">
                   <span class="cost-currency" aria-hidden="true">$</span>
                   <app-rolling-counter [value]="app.estCostMonthly" />
@@ -728,6 +737,16 @@ const INFRA_META: Readonly<Record<InfraDep, { glyph: string; label: string }>> =
       font-size: 0.66rem; color: rgba(255,255,255,0.55);
     }
     .mem-pill svg { color: rgba(255,255,255,0.5); }
+    /* CF-native apps have no container — a concise cyan badge replaces the RAM pill.
+       min-w-0 + truncate keeps the long label on one line inside the footer. */
+    .cfnative-pill {
+      display: inline-flex; align-items: center; gap: 5px; min-width: 0;
+      font-family: 'JetBrains Mono', ui-monospace, monospace;
+      font-size: 0.6rem; font-weight: 600; line-height: 1.2;
+      color: var(--ps-accent, #00E5FF);
+      white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+    }
+    .cfnative-pill svg { flex-shrink: 0; color: var(--ps-accent, #00E5FF); }
     .cost-pill {
       display: inline-flex; align-items: baseline; gap: 1px;
       font-family: 'Sora', system-ui, sans-serif;
@@ -927,6 +946,15 @@ export class AppsComponent implements AfterViewInit, OnInit {
   /** True when the catalog slug is wired to an upstream container today. */
   isSupported(id: string): boolean {
     return isAppSupported(id);
+  }
+
+  /**
+   * True for a Cloudflare-native app (image `cf-native:*`) — a real Worker on its
+   * own D1 + R2, NOT a container. Such apps hide container-only card metadata
+   * (RAM / MiB) and show a "no container" badge instead.
+   */
+  isCfNative(app: CatalogApp): boolean {
+    return app.image.startsWith('cf-native:');
   }
 
   onSearchChange(value: string): void {

@@ -165,8 +165,11 @@ const INFRA_META: Readonly<Record<InfraDep, { glyph: string; label: string }>> =
                   Source
                 </a>
                 <span class="meta-pill"><span class="meta-pill-k">License</span> {{ a.license }}</span>
-                @if (a.image?.startsWith('cf-native:')) {
-                  <span class="meta-pill"><span class="meta-pill-k">Runtime</span> Cloudflare Worker · edge</span>
+                @if (isCfNative(a)) {
+                  <!-- Serverless Worker — Port / RAM / Disk are container-only + would mislead. -->
+                  <span class="meta-pill meta-pill--cfnative" data-testid="apps-detail-cfnative">
+                    <span class="meta-pill-k">Runtime</span> CF-native · D1 + R2 + Worker — no container
+                  </span>
                 } @else {
                   <span class="meta-pill"><span class="meta-pill-k">Port</span> {{ a.port }}</span>
                   <span class="meta-pill"><span class="meta-pill-k">RAM</span> {{ a.memoryMB }} MiB</span>
@@ -183,7 +186,7 @@ const INFRA_META: Readonly<Record<InfraDep, { glyph: string; label: string }>> =
                 <span class="text-[0.66rem] text-text-secondary font-mono">{{ a.env.length }} {{ a.env.length === 1 ? 'key' : 'keys' }} · {{ requiredCount(a) }} required</span>
               </header>
               @if (a.env.length === 0) {
-                <p class="text-[0.78rem] text-text-secondary m-0">No env vars required — {{ a.image?.startsWith('cf-native:') ? 'the Worker' : 'the container' }} runs with defaults.</p>
+                <p class="text-[0.78rem] text-text-secondary m-0">No env vars required — {{ isCfNative(a) ? 'the Worker' : 'the container' }} runs with defaults.</p>
               } @else {
                 <div class="env-table" role="table">
                   <div class="env-row env-row-head" role="row">
@@ -240,7 +243,7 @@ const INFRA_META: Readonly<Record<InfraDep, { glyph: string; label: string }>> =
                   <span class="custom-env-sub">applied at launch</span>
                 </div>
                 @if (customEnv().length === 0) {
-                  <p class="text-[0.74rem] text-text-secondary m-0">None yet — add keys the {{ a.image?.startsWith('cf-native:') ? 'Worker' : 'container' }} should start with.</p>
+                  <p class="text-[0.74rem] text-text-secondary m-0">None yet — add keys the {{ isCfNative(a) ? 'Worker' : 'container' }} should start with.</p>
                 }
                 @for (row of customEnv(); track $index) {
                   <div class="custom-env-row">
@@ -270,7 +273,7 @@ const INFRA_META: Readonly<Record<InfraDep, { glyph: string; label: string }>> =
             </article>
 
             <article class="card">
-              @if (a.image?.startsWith('cf-native:')) {
+              @if (isCfNative(a)) {
                 <h2 class="card-h">Runtime</h2>
                 <p class="text-[0.74rem] text-text-secondary leading-relaxed">
                   Deployed as a real <strong>Cloudflare Worker</strong> on the edge network via
@@ -332,7 +335,7 @@ const INFRA_META: Readonly<Record<InfraDep, { glyph: string; label: string }>> =
                   } @else if (subdomainValid() === false || subdomainAvailable() === false) {
                     <span class="subdomain-check-icon subdomain-check-icon--invalid" aria-hidden="true">✕</span>
                   }
-                  <span class="subdomain-suffix">{{ a.image?.startsWith('cf-native:') ? '.cms.projectsites.dev' : '.app.projectsites.dev' }}</span>
+                  <span class="subdomain-suffix">{{ isCfNative(a) ? '.cms.projectsites.dev' : '.app.projectsites.dev' }}</span>
                 </div>
                 @if (subdomainChecking()) {
                   <span class="form-help" role="status" aria-live="polite">Checking availability…</span>
@@ -728,6 +731,14 @@ const INFRA_META: Readonly<Record<InfraDep, { glyph: string; label: string }>> =
       font-size: 0.58rem; text-transform: uppercase; letter-spacing: 0.08em;
       color: rgba(255,255,255,0.48);
     }
+    /* CF-native runtime badge — cyan-accented so it reads as the platform-native path
+       (replaces the container-only Port / RAM / Disk pills for a serverless Worker). */
+    .meta-pill--cfnative {
+      color: var(--ps-accent, #00E5FF);
+      background: color-mix(in oklch, var(--ps-accent, #00E5FF) 8%, transparent);
+      border-color: color-mix(in oklch, var(--ps-accent, #00E5FF) 30%, transparent);
+    }
+    .meta-pill--cfnative .meta-pill-k { color: color-mix(in oklch, var(--ps-accent, #00E5FF) 70%, #ffffff); }
 
     /* ─── Env table ─── */
     .env-table {
@@ -1387,6 +1398,16 @@ export class AppDetailComponent implements OnInit {
   subdomain = '';
   deploying = signal<boolean>(false);
 
+  /**
+   * True for a Cloudflare-native app (image `cf-native:*`) — a real Worker on its
+   * own D1 + R2, NOT a container. Centralizes the branch used across the template
+   * so the detail page never shows Port / Memory / Dockerfile / "booting container"
+   * copy for a serverless app.
+   */
+  isCfNative(app: CatalogApp | null): boolean {
+    return !!app?.image?.startsWith('cf-native:');
+  }
+
   subdomainTouched = signal<boolean>(false);
   private subdomainSignal = signal<string>('');
   private subdomainCheckTimer: any;
@@ -1420,7 +1441,7 @@ export class AppDetailComponent implements OnInit {
     if (!a) return [];
     // CF-native apps run as a real edge Worker (Workers for Platforms) on their own
     // D1 + R2 — NOT a container. Reflect that in the cost breakdown.
-    if (a.image?.startsWith('cf-native:')) {
+    if (this.isCfNative(a)) {
       return [
         { key: 'worker', label: 'Cloudflare Worker (edge)', provider: 'CF Workers for Platforms', monthlyUsd: Math.max(1, a.estCostMonthly - 1) },
         { key: 'd1', label: 'D1 database', provider: 'Cloudflare D1', monthlyUsd: 0 },
@@ -1867,7 +1888,7 @@ export class AppDetailComponent implements OnInit {
         this.deploying.set(false);
         const id = r.instance_id;
         this.toast.success(
-          a.image?.startsWith('cf-native:')
+          this.isCfNative(a)
             ? `${a.name} provisioning — deploying Worker + D1 + R2 to the edge`
             : `${a.name} provisioning — booting container`,
         );
