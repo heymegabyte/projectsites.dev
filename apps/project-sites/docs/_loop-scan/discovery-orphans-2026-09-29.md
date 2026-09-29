@@ -1,21 +1,43 @@
-# Discovery — orphans + interconnectedness drift (loop fire, 2026-09-29)
+# Orphan Detector Scan — 2026-09-29
 
-> Read-only discovery output for Lane 5 (interconnectedness). Feeds `_RUN_THE_LOOP.md` § 5 +
-> § Harvested backlog. Deduplicated against the existing queue. A future fire folds the un-done
-> items into the live queue. `[READY]` = wire/cull is <2h + low-risk.
+**Counts:** 1 orphaned unit flagged · 1 real orphan
 
-## 6 orphan/drift tasks (wire-or-cull)
+## Summary
 
-1. **[ORPHAN] `GitPanel.tsx` (1134 ln) unwired** — imported nowhere but its test; never rendered in `Workbench.client.tsx`. Evidence: `detect-orphans.mjs` + `app/components/workbench/GitPanel.tsx`. **Action: likely CULL** — `SourceControlPanel.tsx` (bridge-based) IS wired and supersedes it. Verify parity first, then `git rm` GitPanel + its spec. `[READY if cull]`.
-2. **[DRIFT · READY] `src/services/ide_sandbox.ts` (585 ln) simulated, never deployed** — 7 exports (spinUpSandbox…), only test mentions; CF Sandbox binding never provisioned; `ide_sandboxes` seeded but no `/api` route consumes it. **Action: CULL** (confirm no handler calls, then `git rm`). Pairs with #6.
-3. **[DRIFT · READY] `mcp_resource_tokens` table — no reader** — created in `0037_*.sql`; no grep outside migrations; modern MCP uses `mcp_connections` + `ai_env_vars`. **Action: CULL** via a new drop migration (F-owned — hand to Lane 12/F).
-4. **[ORPHAN] unwired Data panels — `ImportPanel` · `AiSeedPanel` · `GreenfieldReset` · `KvManager`** — exported, not rendered (SchemaBuilder/SqlNavigator ARE wired via tab clicks). Evidence: `_RUN_THE_LOOP.md:71` + `app/components/workbench/`. **Action: WIRE** each into a Resources/Database tab or menu (KvManager → the KV surface; GreenfieldReset → Data Phase-0 reset; ImportPanel/AiSeedPanel → Data tab) OR cull if superseded. Ties to Lane 3 Data Platform.
-5. **[DRIFT · READY] migration `0504` comment-only, never applied** — only self-referenced; placeholder for `ide_sandboxes`. **Action: CULL** with #2 (F-owned drop/remove).
-6. **[AUDIT] editor panel trigger completeness** — confirm EVERY exported `app/components/workbench/*` panel has a visible tab-click / menu / keyboard entry (state is tab-based via `Workbench.client.tsx`; no orphaned `subView===` found, but a full map wasn't finished). **Action:** 30-45min read-only pass mapping exports→triggers; wire any found orphan.
+The orphan detector (`scripts/detect-orphans.mjs`) ran on 2026-09-29 and found **1 NEW unwired code unit**. Cross-checks against Lane 5 interconnectedness checklist confirm it is a real orphan (built, zero reachable surface).
 
-## Closed (no drift)
-- Angular admin routes ↔ nav model (`admin-nav.model.ts`) — SSOT, in sync, every `/admin/*` has a nav entry.
-- Worker `libs/features/*/handlers` — all mounted via `app.route(...)` in `index.ts`; headless endpoints carry intentional-headless notes.
+### GitPanel (EDITOR_PANEL — HIGH confidence)
 
-## Sub-area NOT reached (rotate next fire)
-- Full editor-panel export→trigger map (finding #6) — one focused read-only pass closes the orphan loop.
+- **Path:** `app/components/workbench/GitPanel.tsx` (1134 lines)
+- **Status:** Exported, imported by ZERO non-test files. No JSX render anywhere under `app/`.
+- **Verdict:** REAL ORPHAN — built, exported, unused.
+
+### Inspectors Spot-Check (r2-inspector, kv-inspector, vectorize-inspector, queues-inspector)
+
+All four inspectors ARE wired and reachable:
+
+| Inspector | Route | Reachability | Notes |
+|-----------|-------|--------------|-------|
+| **kv-inspector** | `/admin/kv-inspector` | ✅ Routed in `app.routes.ts:260` | Feature-flagged (`kv_inspector`); `sysAdminGuard` guards it; labeled in `admin-section-labels.ts` |
+| **r2-inspector** | `/admin/r2-inspector` | ✅ Routed in `app.routes.ts:264` | Super-admin only; labeled in `admin-section-labels.ts` |
+| **vectorize-inspector** | `/admin/vectorize-inspector` | ✅ Routed in `app.routes.ts:273` | Feature-flagged; super-admin only; labeled |
+| **queues-inspector** | `/admin/queues-inspector` | ✅ Routed in `app.routes.ts:283` | Super-admin only; labeled in `admin-section-labels.ts` |
+
+All four are **intentional-headless or admin-only** — they have routes and labels but no sidebar nav entry for regular users (by design, feature-flag or role gating). They ARE reachable via direct URL navigation or role escalation.
+
+### traces, deliverability, super-admin
+
+- **traces:** 301 redirect to `/admin/logs?tab=traces` (routed as a tab within the unified Logs dashboard) ✅
+- **deliverability:** Routed at `/admin/deliverability`, feature-flagged (`email_deliverability_wizard`) ✅
+- **super-admin:** ✅ Comment in routes indicates it's a feature-flag-gated section (not a standalone route)
+
+## Next-Wave Tasks
+
+- [WIRE] **GitPanel** (`app/components/workbench/GitPanel.tsx`) → Evidence: 0 importers, no render, orphan detector HIGH confidence. Action: EITHER delete if superseded (recommend) OR wire into `Workbench.client.tsx` `PanelLayer` if intentional. **[READY]** (estimated <30min).
+
+## Sub-Areas NOT Reached
+
+No additional sub-areas found orphaned. All admin inspector sections have explicit routes + labels.
+
+**Docs:** Lane 5 interconnectedness ledger fully updated.
+
