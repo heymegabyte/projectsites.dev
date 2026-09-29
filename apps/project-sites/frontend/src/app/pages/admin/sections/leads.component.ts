@@ -199,6 +199,7 @@ export function bestOutreachChannel(lead: {
             >Search query</span
           >
           <input
+            id="leads-scan-query"
             class="w-full rounded-lg border border-white/[0.1] bg-black/30 px-3 py-2 text-sm text-white outline-none transition-colors focus-visible:border-primary/60 focus-visible:ring-1 focus-visible:ring-primary/40"
             [(ngModel)]="query"
             name="query"
@@ -222,7 +223,9 @@ export function bestOutreachChannel(lead: {
           class="rounded-full bg-primary px-5 py-2 text-sm font-semibold text-black transition-all hover:bg-primary/85 disabled:opacity-50 focus-visible:outline focus-visible:outline-2 focus-visible:outline-[#00E5FF] focus-visible:outline-offset-2"
           data-testid="leads-scan-submit"
         >
-          {{ scanning() ? 'Scanning…' : 'Scan' }}
+          <span class="inline-block min-w-[9ch] text-center">{{
+            scanning() ? 'Scanning…' : 'Scan'
+          }}</span>
         </button>
         @if (lastScan(); as s) {
           <span class="pb-2 text-xs text-text-secondary" role="status" aria-live="polite"
@@ -293,7 +296,9 @@ export function bestOutreachChannel(lead: {
           class="rounded-full bg-secondary px-5 py-2 text-sm font-semibold text-black transition-all hover:bg-secondary/85 disabled:opacity-50 focus-visible:outline focus-visible:outline-2 focus-visible:outline-[#7C3AED] focus-visible:outline-offset-2"
           data-testid="leads-osm-submit"
         >
-          {{ osmScanning() ? 'Scanning…' : 'Run auto-scan' }}
+          <span class="inline-block min-w-[13ch] text-center">{{
+            osmScanning() ? 'Scanning…' : 'Run auto-scan'
+          }}</span>
         </button>
         @if (osmSummary(); as s) {
           <span class="pb-2 text-xs text-text-secondary" role="status" aria-live="polite"
@@ -331,12 +336,25 @@ export function bestOutreachChannel(lead: {
           </button>
         </div>
       } @else if (leads().length === 0) {
-        <p
-          class="rounded-xl border border-white/[0.08] bg-white/[0.02] p-6 text-sm text-text-secondary"
+        <div
+          class="flex flex-col items-start gap-3 rounded-xl border border-white/[0.08] bg-white/[0.02] p-6 text-sm text-text-secondary"
           data-testid="leads-empty"
         >
-          No leads yet. Run a scan above to find businesses without a website.
-        </p>
+          <p class="[text-wrap:pretty]">
+            No leads yet. Scan a query like
+            <span class="font-mono text-text-primary">"roofers in Newark NJ"</span> to find local
+            businesses without a website.
+          </p>
+          <button
+            type="button"
+            (click)="focusScanInput()"
+            class="inline-flex items-center gap-1.5 rounded-full bg-primary px-4 py-2 text-sm font-semibold text-black transition-all hover:bg-primary/85 focus-visible:outline focus-visible:outline-2 focus-visible:outline-[#00E5FF] focus-visible:outline-offset-2"
+            data-testid="leads-empty-cta"
+          >
+            Start your first scan
+            <span aria-hidden="true">&rarr;</span>
+          </button>
+        </div>
       } @else {
         <div class="overflow-x-auto rounded-xl border border-white/[0.08]">
           <table class="w-full text-left text-sm">
@@ -569,6 +587,18 @@ export class AdminLeadsComponent implements OnInit {
 
   ngOnInit(): void {
     this.loadLeads();
+  }
+
+  /**
+   * Empty-state launchpad action: scroll the scan query input into view and focus
+   * it so a first-time operator's next keystroke starts a scan — no hunting for
+   * the form (per embarrassingly-easy-to-use: empty states are first-action launchpads).
+   */
+  focusScanInput(): void {
+    const input = document.getElementById('leads-scan-query') as HTMLInputElement | null;
+    if (!input) return;
+    input.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    input.focus();
   }
 
   /** Load scanned leads (highest score first), honoring the no-website filter. */
