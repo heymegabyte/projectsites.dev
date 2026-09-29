@@ -149,7 +149,11 @@ describe('AdminWebhooksComponent', () => {
     fx.detectChanges();
     const msg = (fx.nativeElement as HTMLElement).querySelector('app-empty-state .es-msg');
     expect(msg).withContext('supporting message paragraph renders').not.toBeNull();
-    expect(msg?.textContent).toContain('signed callback');
+    expect(msg?.textContent).toContain('signed event callbacks');
+    // First-result-action launchpad: the empty state offers the create CTA, not just prose.
+    const cta = (fx.nativeElement as HTMLElement).querySelector('app-empty-state [data-testid="empty-cta"]');
+    expect(cta).withContext('empty-state launchpad CTA renders').not.toBeNull();
+    expect(cta?.textContent).toContain('Add your first endpoint');
   });
 
   it('lists the site endpoints + recent deliveries', () => {

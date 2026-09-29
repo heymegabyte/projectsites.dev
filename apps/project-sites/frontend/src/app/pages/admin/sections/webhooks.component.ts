@@ -47,7 +47,7 @@ interface Delivery {
     <section class="max-w-3xl mx-auto px-5 py-7" appReveal>
       <header class="mb-6">
         <p class="font-mono uppercase tracking-wider text-[0.7rem] text-primary mb-1">Integrations</p>
-        <h2 class="text-2xl font-semibold text-light">Outbound Webhooks</h2>
+        <h1 class="text-2xl font-semibold text-light">Outbound Webhooks</h1>
         <p class="text-text-secondary text-sm mt-1 max-w-prose">
           Send signed, retried event notifications to your own endpoints when things happen on your site.
         </p>
@@ -80,14 +80,14 @@ interface Delivery {
         <div class="rounded-xl border border-white/[0.08] bg-white/[0.02] p-5 flex flex-col gap-4 mb-6 transition-opacity" [class.opacity-60]="flagDisabled()">
           <label class="flex flex-col gap-1.5">
             <span class="text-[0.72rem] uppercase tracking-wide text-text-secondary">Endpoint URL (https)</span>
-            <input hlmInput data-testid="webhooks-url" type="url" inputmode="url" placeholder="https://hooks.yourapp.com/projectsites"
+            <input #urlInput hlmInput data-testid="webhooks-url" type="url" inputmode="url" placeholder="https://hooks.yourapp.com/projectsites"
               [disabled]="flagDisabled()"
               [ngModel]="urlModel()" (ngModelChange)="urlModel.set($event)"
               [attr.aria-invalid]="urlInvalid()" [attr.aria-describedby]="urlInvalid() ? 'webhooks-url-hint' : null"
               [class.ring-1]="urlInvalid()" [class.ring-red-500/60]="urlInvalid()" [class.border-red-500/50]="urlInvalid()" />
             @if (urlInvalid()) {
-              <span id="webhooks-url-hint" data-testid="webhooks-url-hint" class="text-[0.7rem] text-red-300/90">
-                Must be a valid <code class="text-red-200">https://</code> URL with a public hostname.
+              <span id="webhooks-url-hint" data-testid="webhooks-url-hint" class="text-[0.7rem] text-[var(--ps-danger)]">
+                Must be a valid <code class="text-[var(--ps-danger)] font-semibold">https://</code> URL with a public hostname.
               </span>
             }
           </label>
@@ -123,7 +123,9 @@ interface Delivery {
         <!-- List -->
         @if (!error() && !flagDisabled() && endpoints().length === 0) {
           <app-empty-state icon="↪" title="No webhook endpoints"
-            message="Add an endpoint above to receive a signed callback whenever your selected events fire." />
+            message="Create your first endpoint to start receiving signed event callbacks."
+            ctaLabel="Add your first endpoint"
+            (ctaClick)="focusUrlInput(urlInput)" />
         } @else if (endpoints().length > 0) {
           <ul class="flex flex-col gap-2">
             @for (e of endpoints(); track e.id) {
@@ -210,6 +212,13 @@ export class AdminWebhooksComponent {
     } catch {
       this.toast.error('Could not copy automatically — select the secret and copy it manually.');
     }
+  }
+
+  /** Empty-state launchpad → focus the URL field so "Add your first endpoint" lands
+   *  the operator directly on the create action (first-result-action empty state). */
+  focusUrlInput(el: HTMLInputElement): void {
+    el.focus();
+    el.scrollIntoView({ block: 'center', behavior: 'smooth' });
   }
 
   private loadedSiteId: string | null = null;
