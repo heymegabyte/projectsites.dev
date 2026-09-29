@@ -25,7 +25,7 @@
 import { A11yModule } from '@angular/cdk/a11y';
 import { CommonModule } from '@angular/common';
 import { HttpClient } from '@angular/common/http';
-import { Component, computed, HostListener, inject, OnInit, signal } from '@angular/core';
+import { Component, computed, HostListener, inject, type OnDestroy, OnInit, signal } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { RouterLink } from '@angular/router';
 import { ActivatedRoute, Router } from '@angular/router';
@@ -115,7 +115,8 @@ const FLAG_CONSTRAINTS: FlagConstraint[] = [
   standalone: true,
   styles: [`
     :host { display: block; box-sizing: border-box; width: 100%; min-width: 0; padding: 1.5rem; max-width: 1280px; margin: 0 auto; }
-    .ff-page { color: var(--ps-ink, #f4f4ff); }
+    .ff-page { color: var(--ps-ink, #f4f4ff); scroll-behavior: smooth; }
+    @media (prefers-reduced-motion: reduce) { .ff-page { scroll-behavior: auto; } }
     .ff-header { display: flex; flex-wrap: wrap; align-items: start; justify-content: space-between; gap: 1rem; margin-bottom: 1.5rem; }
     .ff-head-left { min-width: 0; }
     .ff-head-right { display: flex; flex-wrap: wrap; gap: .5rem; align-items: center; }
@@ -127,14 +128,14 @@ const FLAG_CONSTRAINTS: FlagConstraint[] = [
     .ff-cross-link { color: var(--ps-accent, #00e5ff); text-decoration: underline; text-underline-offset: 2px; }
     .ff-cross-link:hover { color: var(--ps-ink, #f4f4ff); }
     .ff-cross-link:focus-visible { outline: 2px solid var(--ps-accent, #00e5ff); outline-offset: 2px; border-radius: 4px; }
-    .ff-refresh, .ff-emergency { background: transparent; border: 1px solid color-mix(in oklch, currentColor 30%, transparent); color: inherit; padding: .5rem 1rem; border-radius: 8px; cursor: pointer; font: inherit; min-height: 24px; }
-    .ff-refresh:hover { background: color-mix(in oklch, currentColor 10%, transparent); }
-    .ff-refresh:disabled { opacity: .5; cursor: not-allowed; }
-    .ff-emergency { border-color: color-mix(in oklch, #ff5555 45%, transparent); color: #ff8888; }
+    /* Live-sync affordance — the flags list self-updates (visibility-aware 30s poll),
+       so there is NO manual Refresh button here (per the real-time-data rule). */
+    .ff-synced { display: inline-flex; align-items: center; gap: .4rem; font: inherit; font-size: .72rem; letter-spacing: .04em; text-transform: uppercase; color: color-mix(in oklch, var(--ps-ink, #f4f4ff) 58%, transparent); font-family: 'JetBrains Mono', ui-monospace, monospace; }
+    .ff-synced-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--ps-success, #4dffb5); flex: none; animation: ff-pulse 2.4s ease-out infinite; }
+    @keyframes ff-pulse { 0% { box-shadow: 0 0 0 0 color-mix(in oklch, var(--ps-success, #4dffb5) 45%, transparent); } 70% { box-shadow: 0 0 0 6px transparent; } 100% { box-shadow: 0 0 0 0 transparent; } }
+    @media (prefers-reduced-motion: reduce) { .ff-synced-dot { animation: none; } }
     .ff-ic { display: inline-flex; vertical-align: -0.15em; margin-right: .4rem; }
     .ff-ic svg { width: 1em; height: 1em; display: block; }
-    .ff-emergency:hover { background: color-mix(in oklch, #ff5555 12%, transparent); }
-    .ff-refresh:focus-visible, .ff-emergency:focus-visible { outline: 2px solid var(--ps-accent, #00e5ff); outline-offset: 2px; }
     .ff-blocked { display: flex; align-items: center; gap: 0.6rem; margin-bottom: 1.25rem; padding: 0.7rem 0.9rem; border-radius: 12px;
       border: 1px solid color-mix(in oklch, var(--ps-accent, #00E5FF) 35%, transparent);
       background: color-mix(in oklch, var(--ps-accent, #00E5FF) 8%, transparent); }
@@ -147,7 +148,11 @@ const FLAG_CONSTRAINTS: FlagConstraint[] = [
     .ff-coherence { margin-bottom: 1.25rem; padding: .7rem .9rem; border-radius: 12px;
       border: 1px solid color-mix(in oklch, #fbbf24 40%, transparent); background: color-mix(in oklch, #fbbf24 8%, transparent); font-size: .82rem; }
     .ff-coherence ul { margin: .35rem 0 0; padding-left: 1.2rem; }
-    .ff-toolbar { display: flex; gap: 1rem; align-items: center; flex-wrap: wrap; margin-bottom: 1.5rem; }
+    /* Sticky filter bar — stays reachable while scrolling long flag lists.
+       Sits just under the admin topbar (--ps-admin-topbar-h, live-measured);
+       the negative inline margin + padding let the blurred backing bleed to
+       the section edges so cards never show through behind the controls. */
+    .ff-toolbar { position: sticky; top: var(--ps-admin-topbar-h, 62px); z-index: 20; display: flex; gap: 1rem; align-items: center; flex-wrap: wrap; margin: 0 -1.5rem 1.5rem; padding: .85rem 1.5rem; background: color-mix(in oklch, var(--ps-bg, #060610) 88%, transparent); backdrop-filter: blur(8px); border-bottom: 1px solid color-mix(in oklch, var(--ps-ink, #f4f4ff) 8%, transparent); }
     .ff-stages { display: flex; gap: .375rem; flex-wrap: wrap; min-width: 0; }
     .ff-stage-chip { background: transparent; color: inherit; border: 1px solid color-mix(in oklch, currentColor 18%, transparent); border-radius: 999px; padding: .375rem .75rem; cursor: pointer; font: inherit; font-size: .875rem; display: inline-flex; align-items: center; gap: .375rem; min-height: 24px; }
     .ff-stage-chip:hover { border-color: color-mix(in oklch, currentColor 40%, transparent); }
@@ -158,10 +163,10 @@ const FLAG_CONSTRAINTS: FlagConstraint[] = [
     .ff-grid { list-style: none; padding: 0; margin: 0; display: grid; grid-template-columns: repeat(auto-fill, minmax(min(360px, 100%), 1fr)); gap: 1rem; }
     .ff-card { background: color-mix(in oklch, var(--ps-bg, #060610) 55%, transparent); border: 1px solid color-mix(in oklch, currentColor 14%, transparent); border-radius: 14px; padding: 1.25rem; display: flex; flex-direction: column; gap: .65rem; transition: border-color .15s ease; }
     .ff-card:hover { border-color: color-mix(in oklch, var(--ps-accent, #00e5ff) 30%, transparent); }
-    .ff-card[data-stage="killswitch"] { border-color: #ff5555; }
-    .ff-card[data-stage="stable"] { border-color: color-mix(in oklch, #4ade80 40%, transparent); }
-    .ff-card-on { border-color: color-mix(in oklch, #4ade80 38%, transparent); box-shadow: inset 0 0 0 1px color-mix(in oklch, #4ade80 18%, transparent); }
-    .ff-card-killed { border-color: #ff5555 !important; background: color-mix(in oklch, #ff5555 7%, color-mix(in oklch, var(--ps-bg, #060610) 55%, transparent)); }
+    .ff-card[data-stage="killswitch"] { border-color: var(--ps-danger, #ff5555); }
+    .ff-card[data-stage="stable"] { border-color: color-mix(in oklch, var(--ps-success, #4ade80) 40%, transparent); }
+    .ff-card-on { border-color: color-mix(in oklch, var(--ps-success, #4ade80) 38%, transparent); box-shadow: inset 0 0 0 1px color-mix(in oklch, var(--ps-success, #4ade80) 18%, transparent); }
+    .ff-card-killed { border-color: var(--ps-danger, #ff5555) !important; background: color-mix(in oklch, var(--ps-danger, #ff5555) 7%, color-mix(in oklch, var(--ps-bg, #060610) 55%, transparent)); }
     .ff-card-killed .ff-key, .ff-card-killed .ff-desc { opacity: .7; }
     .ff-card-head { display: flex; align-items: center; justify-content: space-between; gap: .5rem; }
     .ff-key { font-family: var(--ps-mono, ui-monospace, monospace); font-size: 1rem; margin: 0; word-break: break-all; }
@@ -172,7 +177,7 @@ const FLAG_CONSTRAINTS: FlagConstraint[] = [
     .ff-desc { color: color-mix(in oklch, currentColor 70%, transparent); margin: 0; font-size: .9rem; line-height: 1.45; }
     .ff-why { color: color-mix(in oklch, currentColor 58%, transparent); margin: 0; font-size: .8rem; font-style: italic; }
     .ff-state-badge { font-weight: 600; font-size: .8rem; padding: .15rem .5rem; border-radius: 6px; font-family: var(--ps-mono, ui-monospace, monospace); }
-    .ff-state-on { background: #4ade80; color: #052e16; }
+    .ff-state-on { background: var(--ps-success, #4ade80); color: #052e16; }
     .ff-state-off { background: color-mix(in oklch, currentColor 18%, transparent); }
     .ff-rollout { font-family: var(--ps-mono, ui-monospace, monospace); font-size: .85rem; color: color-mix(in oklch, currentColor 65%, transparent); }
     /* At-a-glance rollout progress on each flag card. */
@@ -194,12 +199,12 @@ const FLAG_CONSTRAINTS: FlagConstraint[] = [
     .ff-btn:disabled { opacity: .5; cursor: progress; }
     .ff-btn:focus-visible { outline: 2px solid var(--ps-accent, #00e5ff); outline-offset: 2px; }
     .ff-btn-primary { background: var(--ps-accent, #00e5ff); color: var(--ps-bg, #060610); border-color: var(--ps-accent, #00e5ff); }
-    .ff-btn-danger:hover { border-color: #ff5555; color: #ff5555; }
-    .ff-btn-danger-solid { background: #ff5555; color: #190606; border-color: #ff5555; font-weight: 600; }
+    .ff-btn-danger:hover { border-color: var(--ps-danger, #ff5555); color: var(--ps-danger, #ff5555); }
+    .ff-btn-danger-solid { background: var(--ps-danger, #ff5555); color: #190606; border-color: var(--ps-danger, #ff5555); font-weight: 600; }
     .ff-btn-danger-solid:hover { filter: brightness(1.08); }
     .ff-btn-danger-solid:disabled { opacity: .5; }
-    .ff-btn-restore { border-color: color-mix(in oklch, #4ade80 50%, transparent); color: #4ade80; }
-    .ff-btn-restore:hover { border-color: #4ade80; background: color-mix(in oklch, #4ade80 12%, transparent); }
+    .ff-btn-restore { border-color: color-mix(in oklch, var(--ps-success, #4ade80) 50%, transparent); color: var(--ps-success, #4ade80); }
+    .ff-btn-restore:hover { border-color: var(--ps-success, #4ade80); background: color-mix(in oklch, var(--ps-success, #4ade80) 12%, transparent); }
     .ff-detail { background: color-mix(in oklch, var(--ps-bg, #060610) 70%, transparent); border-radius: 8px; padding: .85rem 1rem; margin-top: .5rem; }
     .ff-detail h3 { font-size: .75rem; text-transform: uppercase; letter-spacing: .06em; margin: 1rem 0 .5rem; color: var(--ps-accent, #00e5ff); font-weight: 600; }
     .ff-detail h3:first-child { margin-top: 0; }
@@ -240,25 +245,25 @@ const FLAG_CONSTRAINTS: FlagConstraint[] = [
     }
     .ff-eval-trace { list-style: none; padding: 0; margin: 0; display: flex; flex-direction: column; gap: .3rem; }
     .ff-eval-trace li { display: flex; gap: .5rem; align-items: baseline; font-size: .8rem; padding: .25rem .5rem; border-radius: 6px; background: color-mix(in oklch, currentColor 5%, transparent); }
-    .ff-eval-trace li[data-outcome="block"], .ff-eval-trace li[data-outcome="final-off"] { background: color-mix(in oklch, #f87171 14%, transparent); }
-    .ff-eval-trace li[data-outcome="pass"], .ff-eval-trace li[data-outcome="final-on"] { background: color-mix(in oklch, #4ade80 12%, transparent); }
+    .ff-eval-trace li[data-outcome="block"], .ff-eval-trace li[data-outcome="final-off"] { background: color-mix(in oklch, var(--ps-danger, #ff5555) 14%, transparent); }
+    .ff-eval-trace li[data-outcome="pass"], .ff-eval-trace li[data-outcome="final-on"] { background: color-mix(in oklch, var(--ps-success, #4ade80) 12%, transparent); }
     .ff-eval-label { font-weight: 600; min-width: 92px; flex: none; }
     .ff-eval-detail { color: color-mix(in oklch, currentColor 72%, transparent); }
     .ff-json { font-family: var(--ps-mono, ui-monospace, monospace); font-size: .78rem; margin: 0; overflow: auto; max-height: 200px; background: color-mix(in oklch, var(--ps-bg, #060610) 80%, transparent); padding: .6rem; border-radius: 6px; }
     .ff-json-editor { width: 100%; box-sizing: border-box; font-family: var(--ps-mono, ui-monospace, monospace); font-size: .78rem; background: color-mix(in oklch, var(--ps-bg, #060610) 80%, transparent); color: inherit; border: 1px solid color-mix(in oklch, currentColor 20%, transparent); border-radius: 6px; padding: .55rem; resize: vertical; }
     .ff-json-editor:focus-visible { outline: 2px solid var(--ps-accent, #00e5ff); outline-offset: 1px; }
-    .ff-json-error { color: #fca5a5; font-size: .78rem; margin: .4rem 0 0; }
+    .ff-json-error { color: var(--ps-danger-soft, #fca5a5); font-size: .78rem; margin: .4rem 0 0; }
     .ff-json-diff { margin: .5rem 0 .2rem; padding: .5rem .65rem; border-radius: 6px; background: color-mix(in oklch, var(--ps-accent, #00e5ff) 6%, transparent); border: 1px solid color-mix(in oklch, var(--ps-accent, #00e5ff) 22%, transparent); }
     .ff-diff-label { font-size: .7rem; text-transform: uppercase; letter-spacing: .05em; color: var(--ps-accent, #00e5ff); font-weight: 600; }
     .ff-diff-list { list-style: none; margin: .35rem 0 0; padding: 0; display: flex; flex-direction: column; gap: .25rem; font-family: var(--ps-mono, ui-monospace, monospace); font-size: .76rem; }
     .ff-diff-list code { color: var(--ps-ink, #f4f4ff); }
-    .ff-diff-from { color: color-mix(in oklch, #fca5a5 90%, transparent); text-decoration: line-through; }
+    .ff-diff-from { color: color-mix(in oklch, var(--ps-danger-soft, #fca5a5) 90%, transparent); text-decoration: line-through; }
     .ff-diff-arrow { color: color-mix(in oklch, currentColor 50%, transparent); }
-    .ff-diff-to { color: #6ee7b7; }
+    .ff-diff-to { color: var(--ps-success-soft, #6ee7b7); }
     .ff-expert-actions { margin-top: .6rem; }
     .ff-danger-overlay { position: fixed; inset: 0; z-index: var(--ps-z-overlay-takeover, 100000); display: grid; place-items: center; padding: 1rem;
       background: color-mix(in oklch, #000 72%, transparent); backdrop-filter: blur(4px); }
-    .ff-danger { width: min(560px, 100%); background: color-mix(in oklch, var(--ps-bg, #060610) 96%, #ff5555 4%); border: 1px solid color-mix(in oklch, #ff5555 45%, transparent); border-radius: var(--ps-radius-xl, 18px); padding: 1.5rem; box-shadow: var(--ps-shadow-modal, 0 24px 60px rgba(0,0,0,.6)); color: var(--ps-ink, #f4f4ff); }
+    .ff-danger { width: min(560px, 100%); background: color-mix(in oklch, var(--ps-bg, #060610) 96%, var(--ps-danger, #ff5555) 4%); border: 1px solid color-mix(in oklch, var(--ps-danger, #ff5555) 45%, transparent); border-radius: var(--ps-radius-xl, 18px); padding: 1.5rem; box-shadow: var(--ps-shadow-modal, 0 24px 60px rgba(0,0,0,.6)); color: var(--ps-ink, #f4f4ff); }
     .ff-danger h2 { margin: 0 0 .5rem; font-size: 1.25rem; color: #ff8888; }
     .ff-danger-flag { margin: 0 0 1rem; font-size: .9rem; }
     .ff-danger-flag code { font-family: var(--ps-mono, ui-monospace, monospace); color: var(--ps-accent, #00e5ff); }
@@ -289,6 +294,17 @@ const FLAG_CONSTRAINTS: FlagConstraint[] = [
             Site owners manage their own features under
             <a routerLink="/admin/site-features" data-testid="ff-nav-site-features" class="ff-cross-link">Features →</a>.
           </p>
+        </div>
+        <div class="ff-head-right">
+          <!-- Live-sync affordance (no manual Refresh — the list self-updates every 30s,
+               visibility-aware). Mirrors the hosting/analytics "always live" pattern. -->
+          @if (flags().length > 0) {
+            <span class="ff-synced" role="status" aria-live="off" data-testid="ff-synced"
+                  [attr.title]="'Auto-refreshes every 30 seconds. ' + syncedLabel()">
+              <span class="ff-synced-dot" aria-hidden="true"></span>
+              <span>{{ syncedLabel() }}</span>
+            </span>
+          }
         </div>
       </header>
 
@@ -607,7 +623,7 @@ const FLAG_CONSTRAINTS: FlagConstraint[] = [
     </section>
   `,
 })
-export class AdminFeatureFlagsComponent implements OnInit {
+export class AdminFeatureFlagsComponent implements OnInit, OnDestroy {
   private readonly http = inject(HttpClient);
   private readonly toast = inject(ToastService);
   private readonly state = inject(AdminStateService);
@@ -647,6 +663,39 @@ export class AdminFeatureFlagsComponent implements OnInit {
   readonly auditDetail = signal<AuditEntry[]>([]);
   readonly rolloutDraft = signal<{ key: string; pct: number } | null>(null);
   readonly busy = signal<Record<string, boolean>>({});
+
+  /**
+   * Real-time sync affordance state (per real-time-data-no-manual-refresh). The
+   * flag list self-updates on a visibility-aware 30s poll — never a manual
+   * Refresh button. `lastSynced` is stamped on every successful load; `nowTick`
+   * ticks each second so the "updated Ns ago" label stays live without spamming
+   * change detection between ticks.
+   */
+  private readonly lastSynced = signal<number | null>(null);
+  private readonly nowTick = signal<number>(Date.now());
+  private pollTimer: ReturnType<typeof setInterval> | null = null;
+  private tickTimer: ReturnType<typeof setInterval> | null = null;
+  private readonly visibilityHandler = (): void => {
+    if (typeof document === 'undefined') return;
+    if (document.hidden) {
+      this.stopPolling();
+    } else {
+      // Foreground → refresh immediately so the operator sees current state, then resume.
+      void this.reload();
+      this.startPolling();
+    }
+  };
+
+  /** Human "Synced · updated Ns ago" — recomputes each 1s tick off lastSynced. */
+  readonly syncedLabel = computed<string>(() => {
+    const ts = this.lastSynced();
+    if (ts === null) return 'Syncing…';
+    const secs = Math.max(0, Math.round((this.nowTick() - ts) / 1000));
+    if (secs < 5) return 'Synced · just now';
+    if (secs < 60) return `Synced · updated ${secs}s ago`;
+    const mins = Math.floor(secs / 60);
+    return `Synced · updated ${mins}m ago`;
+  });
 
   /** Full-screen spec-sheet (feature-dossier) state. */
   readonly dossier = signal<DossierModel | null>(null);
@@ -891,6 +940,9 @@ export class AdminFeatureFlagsComponent implements OnInit {
       this.search.set(blocked);
     }
     await this.reload();
+    // Live sync: the flag list keeps itself current (visibility-aware 30s poll),
+    // so there is NO manual Refresh button (real-time-data-no-manual-refresh).
+    this.startPolling();
     // Deep link: `?spec=<flag_key>` opens that flag's spec sheet directly, so the
     // Features spec page is a navigable + shareable URL (brief #4).
     const spec = this.route.snapshot.queryParamMap.get('spec');
@@ -927,11 +979,45 @@ export class AdminFeatureFlagsComponent implements OnInit {
         }
       }
       this.flags.set(flags);
+      // Stamp the live-sync clock only on a successful load (drives "updated Ns ago").
+      this.lastSynced.set(Date.now());
+      this.nowTick.set(Date.now());
     } catch (e) {
       this.error.set((e as Error).message ?? 'unknown error');
       this.loadErrorRef.set(this.requestIdFrom(e));
     } finally {
       this.loading.set(false);
+    }
+  }
+
+  /**
+   * Start the visibility-aware background sync: refresh the flag list every 30s,
+   * pause when the tab is hidden, resume + immediate-refresh on return. Mirrors
+   * AdminStateService.startLiveRefresh — the surface stays current with no manual
+   * Refresh control (real-time-data-no-manual-refresh). Also runs a 1s label tick.
+   */
+  private startPolling(): void {
+    this.stopPolling();
+    if (typeof document !== 'undefined') {
+      document.addEventListener('visibilitychange', this.visibilityHandler);
+    }
+    this.pollTimer = setInterval(() => {
+      if (typeof document !== 'undefined' && document.hidden) return;
+      void this.reload();
+    }, 30_000);
+    // Keep the "updated Ns ago" label live between reloads (cheap signal write).
+    this.tickTimer = setInterval(() => this.nowTick.set(Date.now()), 1000);
+  }
+
+  private stopPolling(): void {
+    if (this.pollTimer) { clearInterval(this.pollTimer); this.pollTimer = null; }
+    if (this.tickTimer) { clearInterval(this.tickTimer); this.tickTimer = null; }
+  }
+
+  ngOnDestroy(): void {
+    this.stopPolling();
+    if (typeof document !== 'undefined') {
+      document.removeEventListener('visibilitychange', this.visibilityHandler);
     }
   }
 

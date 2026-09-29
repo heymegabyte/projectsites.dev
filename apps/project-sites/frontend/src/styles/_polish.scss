@@ -226,6 +226,16 @@
   // to --ck-success; this :root value is the global fallback for surfaces that
   // aren't under [data-cockpit]. WCAG: ≥4.5:1 on #060610.
   --ps-success: #4dffb5;
+  // Soft success tint — for "added"/"to" diff text + positive-outcome fills that
+  // need the mint hue at low emphasis. Derived from --ps-success in OKLCH so it
+  // tracks the base if the accent ever shifts.
+  --ps-success-soft: color-mix(in oklch, var(--ps-success, #4dffb5) 70%, var(--ps-ink, #f4f4ff) 30%);
+  // Danger/destructive accent (killswitch, delete, error). A saturated red that
+  // reads as a warning against the dark base. WCAG: ≥4.5:1 on #060610. Cockpit
+  // may re-map to --ck-danger; this :root value is the global fallback.
+  --ps-danger: #ff5555;
+  // Soft danger tint — for "removed"/"from" diff text + subtle destructive fills.
+  --ps-danger-soft: color-mix(in oklch, var(--ps-danger, #ff5555) 62%, var(--ps-ink, #f4f4ff) 38%);
   // Tertiary/metadata text ("muted") — one step dimmer than --text-secondary,
   // for timestamps, actor names, helper captions. AA-safe (≥4.5:1) over every
   // admin elevation surface (--ps-elev-1..3 + the near-base widget panels).
