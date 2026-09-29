@@ -134,3 +134,22 @@ Generated-site PUBLIC RUNTIME is now saturating (5 next-wave tasks + 2 design re
 **Next discovery rotation → real-user golden journeys (`e2e/golden-path`) OR the template repo**
 (`github.com/HeyMegabyte/template.projectsites.dev`). A fire that appends zero next-wave tasks = the
 discovery agent under-scanned → rotate area next fire.
+
+## fire-53 — Deep UI Explorer first live pass (documented-path vs real UI)
+
+- **Deep path CONFIRMED as documented**: Editor › Database › Tables › **Actions menu** →
+  **History** opens the Time-Travel OVERLAY (`database-action-overlay`) — History is NOT a
+  top-level Database tab. Menu items observed live: New Table · Import · History · Refresh.
+- **Actions menu is header-level** (not per-row) — reachable even with 0 tables (blank per-site D1).
+- **Editor boot latency**: Database tab becomes visible ~35-60s after /admin/editor mount
+  (WebContainer + files handshake) — explorer polls up to 120s before calling BLOCKED.
+- **Sub-nav is role=tab FILLED pills** — which is how the brand override's blanket active-tab
+  cyan-glow (`!important`) made active labels invisible (fixed fire-53; see LEDGER).
+- **Two side-by-side "TABLES (N)" lists render in the Tables view** — master list + pick-a-table
+  pane look identical at first glance; queued for intent-verification (visual-intelligence lane).
+- **"Loaded 49 files" toast** renders near-illegible (light-on-light) across ≥3 consecutive
+  states in the embedded editor — persistent, not a fade artifact; queued with evidence.
+- **Vision provider reality**: OpenAI key 429-quota-exhausted; Anthropic key "credit balance too
+  low" — both recorded BLOCKED; Workers AI Llama 4 Scout (the product's own VISION_MODEL) via
+  AI Gateway is the labeled fallback reviewer until credits return. Scout tends to emit
+  positive observations mislabeled as p0 — treat its severity as advisory, confirm in pixels/code.

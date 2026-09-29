@@ -637,7 +637,7 @@ export const KvBrowser = memo(() => {
                     'min-h-[24px] flex items-center gap-1 rounded px-3 py-1 text-[11px] font-semibold transition-opacity focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-bolt-elements-item-contentAccent',
                     writeBusy || !newKey.trim()
                       ? 'cursor-not-allowed bg-bolt-elements-background-depth-3 text-bolt-elements-textTertiary'
-                      : 'cursor-pointer bg-bolt-elements-item-contentAccent text-bolt-elements-background-depth-1 hover:opacity-90',
+                      : 'cursor-pointer bg-bolt-elements-item-contentAccent text-[#061018] hover:opacity-90',
                   )}
                 >
                   <div className={writeBusy ? 'i-ph:circle-notch animate-spin' : 'i-ph:check'} />

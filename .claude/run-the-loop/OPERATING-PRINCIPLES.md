@@ -282,3 +282,34 @@ treating an agent's transient death as the session HARD-STOP wrongly checkpoints
 - **Rule of thumb:** an *agent* failing is expected + recoverable (salvage + re-queue +
   continue); the *lead* failing is the only signal to checkpoint. `subagent_tokens:0` from a
   network drop on one agent ≠ lead saturation — read WHICH thing failed before deciding.
+
+## Deep UI Explorer / Visual Intelligence (role 17 — invariants)
+
+Full role contract: `.claude/commands/run-the-loop.md` §1.17. The invariants that never bend:
+
+- **Honest coverage semantics.** Cloud test proof = Cloudflare Browser Run CDP with recorded
+  provider + session id. Browserbase/local Chromium = `FALLBACK`; missing credential, failed
+  login, role redirect, wrong tenant = `BLOCKED` with the exact missing prerequisite. None of
+  these ever reports as passed Cloudflare coverage — the run manifest is the receipt.
+- **States, not URLs.** The interface is a graph: route · role · selected site · active tab ·
+  nested subview · open menu/overlay · scroll region · flag/data condition · iframe context.
+  One settled screenshot after EVERY meaningful action; the preceding state id is recorded so
+  reviewers compare before/after. The coverage ledger
+  (`apps/project-sites/e2e/deep-ui-explorer/coverage-ledger.json`) is the resumable cursor.
+- **Real vision on every capture, honestly.** Every screenshot gets a schema-validated verdict
+  from an actual vision model via AI Gateway; reviewer failures are recorded, never silently
+  skipped; a clean screen with zero findings is a valid result — manufacturing defects to fill
+  the backlog is a violation. Architecture claims from pixels stay HYPOTHESES until source +
+  store inspection confirms them.
+- **Read-only discovery; same-fire repair by owners.** The explorer never mutates product code
+  mid-pass. Confirmed findings hand off as reproducible state paths; the owning role fixes via
+  RED → root cause → GREEN → replay the exact breadcrumb → re-capture → continue the journey.
+- **Privacy at the boundary.** Password inputs masked before capture; token-shaped strings
+  scrubbed from any context leaving the machine; artifacts stay in gitignored run dirs.
+
+## Fire mutual exclusion (the lease)
+
+`scripts/loop-fire-lock.mjs` serializes fires: claim at §0 (exit 3 = live fire running →
+coalesce this tick), heartbeat per phase, release at §10. A stale lease (heartbeat >20 min)
+is reclaimed — a dead lead never wedges the loop. One fire at a time means one browser
+fleet, one deploy stream, no conflicting commits.

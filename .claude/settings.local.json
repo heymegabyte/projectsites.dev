@@ -1,0 +1,156 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(*)",
+      "Edit(*)",
+      "Write(*)",
+      "Read(*)",
+      "NotebookEdit(*)",
+      "WebFetch(*)",
+      "WebSearch(*)",
+      "Agent(*)",
+      "Task(*)",
+      "Skill(*)",
+      "mcp__neon__*",
+      "mcp__upstash__*",
+      "mcp__github__*",
+      "mcp__playwright__*",
+      "mcp__chrome-devtools__*",
+      "mcp__context7__*",
+      "mcp__stripe__*",
+      "mcp__tinybird__*",
+      "mcp__langfuse__*",
+      "mcp__posthog__*",
+      "mcp__angular-cli__*",
+      "mcp__claude_ai_Claude_Docs__*",
+      "mcp__claude_ai_Gmail__*",
+      "mcp__desktop-control__*",
+      "mcp__firecrawl__*",
+      "mcp__sentry__*",
+      "mcp__plugin_cloudflare_cloudflare-api__*",
+      "mcp__plugin_cloudflare_cloudflare-observability__*",
+      "mcp__plugin_cloudflare_cloudflare-bindings__*",
+      "mcp__plugin_cloudflare_cloudflare-docs__*",
+      "Bash(npx wrangler *)",
+      "Bash(echo \"PROD: $?\")",
+      "Bash(echo \"DEV: $?\")",
+      "Bash(grep -n '\\\\S.*\\\\\\\\$' wrangler.toml)",
+      "Bash(fly status *)",
+      "mcp__neon__list_projects",
+      "WebFetch(domain:docs.nocodb.com)",
+      "Bash(get-secret set *)",
+      "Bash(Set the claude settings to never prompt me for permissions)",
+      "Bash(chezmoi encrypt *)",
+      "Bash(get-secret TESTDINO_PROJECT_ACCESS_TOKEN)",
+      "Bash(get-secret TESTDINO_API_KEY)",
+      "mcp__upstash__redis_database_list_databases",
+      "mcp__github__get_file_contents",
+      "mcp__neon__run_sql",
+      "mcp__neon__get_connection_string",
+      "mcp__neon__create_branch",
+      "mcp__upstash__redis_database_create_new",
+      "mcp__plugin_cloudflare_cloudflare-api__execute",
+      "mcp__neon__describe_branch",
+      "mcp__neon__get_database_tables",
+      "mcp__plugin_cloudflare_cloudflare-api__search",
+      "mcp__neon__describe_project",
+      "mcp__plugin_cloudflare_cloudflare-api__docs",
+      "mcp__neon__describe_table_schema",
+      "mcp__playwright__browser_navigate",
+      "mcp__chrome-devtools__list_pages",
+      "mcp__chrome-devtools__navigate_page",
+      "mcp__chrome-devtools__take_snapshot",
+      "mcp__neon__list_branch_computes",
+      "mcp__upstash__redis_database_get_details",
+      "mcp__github__search_code",
+      "mcp__upstash__qstash_get_user_token",
+      "mcp__neon__run_sql_transaction",
+      "mcp__upstash__redis_database_run_redis_commands",
+      "mcp__chrome-devtools__new_page",
+      "Bash(curl *)",
+      "mcp__plugin_cloudflare_cloudflare-observability__observability_keys",
+      "mcp__plugin_cloudflare_cloudflare-observability__query_worker_observability",
+      "mcp__plugin_cloudflare_cloudflare-bindings__r2_bucket_get",
+      "mcp__github__fork_repository",
+      "mcp__github__create_or_update_file",
+      "mcp__context7__resolve-library-id",
+      "mcp__context7__query-docs",
+      "mcp__plugin_cloudflare_cloudflare-bindings__r2_buckets_list",
+      "mcp__playwright__browser_fill_form",
+      "mcp__playwright__browser_tabs",
+      "mcp__playwright__browser_close",
+      "mcp__playwright__browser_snapshot",
+      "mcp__desktop-control__computer",
+      "mcp__github__search_issues",
+      "Bash(cat)",
+      "Bash(git add *)",
+      "Bash(git commit *)",
+      "Bash(git push *)",
+      "mcp__plugin_cloudflare_cloudflare-docs__search_cloudflare_documentation",
+      "mcp__claude_ai_Gmail__search_threads",
+      "Bash(/Applications/Docker.app/Contents/MacOS/Docker)",
+      "mcp__playwright__browser_resize",
+      "Bash(grep -r \"async.*=>.*{$\" /Users/Apple/emdash/repositories/projectsites.dev/apps/project-sites/src --include=\"*.ts\")",
+      "Bash(grep \":0$\")",
+      "Skill(update-config)",
+      "Bash(git check-ignore *)",
+      "Bash(python3 -c \"import json;json.load\\(open\\('.claude/settings.local.json'\\)\\);print\\('settings.local.json = VALID JSON'\\)\")",
+      "Read(//Library/Application Support/ClaudeCode/**)",
+      "Bash(env)",
+      "Bash(git pull *)",
+      "Bash(git fetch *)",
+      "Bash(git rebase *)",
+      "Bash(git stash *)",
+      "Bash(git status*)",
+      "Bash(git log*)",
+      "Bash(git diff*)",
+      "Bash(git rev-parse*)",
+      "Bash(npm run *)",
+      "Bash(npm test*)",
+      "Bash(npm install*)",
+      "Bash(npx tsc*)",
+      "Bash(node *)",
+      "Bash(date*)",
+      "Bash(cp /Users/Apple/.claude/settings.json /Users/Apple/.claude/jobs/60bb4399/tmp/settings.json.bak)",
+      "Bash(python3 /Users/Apple/.claude/jobs/60bb4399/tmp/prune-hooks.py)",
+      "Bash(python3 -c 'import json;json.load\\(open\\('\\\\''/Users/Apple/.claude/settings.json'\\\\''\\)\\);print\\('\\\\''valid JSON ✓'\\\\''\\)')",
+      "Bash(cp ~/.claude/skills/long-trail-tdd/SKILL.md /Users/Apple/emdash/repositories/projectsites.dev/.claude/worktrees/agent-abe9ed7b4d4fa642e/apps/project-sites/.claude/skills/long-trail-tdd/SKILL.md)",
+      "Read(//Users/Apple/.claude/skills/long-trail-tdd/**)",
+      "Bash(cat and for any other question ever. There should be no interaction with the user in run-the-loop)"
+    ],
+    "defaultMode": "bypassPermissions"
+  },
+  "hooks": {
+    "Notification": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "curl -sf -X POST -H \"Content-Type: application/json\" -H \"X-Emdash-Token: $EMDASH_HOOK_NONCE\" -H \"X-Emdash-Pty-Id: $EMDASH_PTY_ID\" -H \"X-Emdash-Event-Type: notification\" -d @- \"http://127.0.0.1:$EMDASH_HOOK_PORT/hook\" || true"
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "curl -sf -X POST -H \"Content-Type: application/json\" -H \"X-Emdash-Token: $EMDASH_HOOK_NONCE\" -H \"X-Emdash-Pty-Id: $EMDASH_PTY_ID\" -H \"X-Emdash-Event-Type: stop\" -d @- \"http://127.0.0.1:$EMDASH_HOOK_PORT/hook\" || true"
+          }
+        ]
+      }
+    ],
+    "UserPromptSubmit": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "curl -sf -X POST -H \"Content-Type: application/json\" -H \"X-Emdash-Token: $EMDASH_HOOK_NONCE\" -H \"X-Emdash-Pty-Id: $EMDASH_PTY_ID\" -H \"X-Emdash-Event-Type: start\" -d @- \"http://127.0.0.1:$EMDASH_HOOK_PORT/hook\" || true"
+          }
+        ]
+      }
+    ]
+  },
+  "skipDangerousModePermissionPrompt": true
+}

@@ -49,7 +49,7 @@ const CTRL_BASE =
 
 const BTN_PRIMARY = classNames(
   CTRL_BASE,
-  'bg-bolt-elements-item-contentAccent text-bolt-elements-background-depth-1 font-semibold',
+  'bg-bolt-elements-item-contentAccent text-[#061018] font-semibold',
   'shadow-sm shadow-bolt-elements-item-contentAccent/20',
   'enabled:hover:shadow-md enabled:hover:shadow-bolt-elements-item-contentAccent/40 enabled:hover:brightness-110',
   'enabled:active:brightness-95 focus-visible:ring-bolt-elements-item-contentAccent',

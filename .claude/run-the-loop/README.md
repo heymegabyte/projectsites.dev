@@ -52,7 +52,7 @@
    autocompact thrash / "prompt too long" / `subagent_tokens:0` → checkpoint to
    `progress.md`, continue in a FRESH session.
 2. **Fan out the standing roster.** FIRST tool-call message emits parallel `Agent` spawns —
-   the 15 standing roles below, worktree-isolated (mutating) or read-only (research), on
+   the roster below (15 rotating + 2 standing + 1 scheduled lane), worktree-isolated (mutating) or read-only (research), on
    disjoint subtrees (editor `app/`, worker `apps/project-sites/src`, Angular `frontend/`).
    Each brief is 150–300 words, self-contained (role · scope · exact paths · non-goals ·
    ≤200-word output), primary deliverable written FIRST (resilience). ≤6-wide for mutating
@@ -92,7 +92,7 @@
     worktree AND its branch the same fire. Tick the advanced unit in `./BACKLOG.md` (Done
     only when Acceptance is met, with closing SHA + prod proof). Report per `always.md`.
 
-## The 15 fan-out agent ROLES (standing roster — EVERY fire)
+## The fan-out agent ROLES — 15 rotating + 2 STANDING + 1 scheduled lane
 
 Every fire spawns this roster together in ONE message, on disjoint subtrees. The discovery
 and product roles REPLENISH the queue so the loop never drains a static backlog — a fire
@@ -127,14 +127,41 @@ that appends zero next-wave tasks means the discovery agent under-scanned; rotat
     `/api/sites/:siteId`), injection/XSS/SSRF, secret leakage, CSP Level 3 + Trusted Types.
 13. **Accessibility** — axe 0 violations (necessary, not sufficient) + the 6 manual WCAG 2.2
     AA criteria; exactly one `<h1>`/view; contrast ≥4.5:1; focus rings + restore; 24px targets.
-14. **Technology Scout** — surface frontier/CF-native primitives, competitor killer features,
-    package decisions; feed adoption tasks (behind flags) into `./BACKLOG.md`.
+14. **Technology Scout (+ Cloudflare Release Scout duty, ~every 4 fires)** — surface
+    frontier/CF-native primitives, competitor killer features, package decisions; feed
+    adoption tasks (behind flags) into `./BACKLOG.md`. The Release-Scout duty reads the
+    official CF developer-platform + product RSS feeds + deprecations, dedupes by GUID
+    into `./CF-RELEASES.md`, and drives every relevant release to an explicit decision —
+    pilot / backlog / watch / reject-with-reason. Urgent deprecations come forward
+    immediately; a feed outage never blocks core verification. It also scans browser
+    API/platform changes for the template capability registry (role 18).
 15. **Loop Improvement** — sharpen this system: fold prompt-as-training-signal lessons into
     `./OPERATING-PRINCIPLES.md`, guardrails, the roster; reinforce the VERIFIER leg (gate
     DONE on executed tests + prod-E2E, MAX_ITERATIONS cap, reflection between retries,
     kill/reassign after ~3 stuck iterations, hard token budget).
 
-- **Dynamic role creation** — when a fire needs a specialist none of the 15 cover (a
+16. **Long-Trail TDD case-owner (STANDING — every fire)** — grinds ONE checkpointed
+    60-100-action browser case to completion across fires (lease + checkpoint). Full
+    contract: `.claude/commands/run-the-loop.md` §1.16 + the `long-trail-tdd` skill.
+17. **Deep UI Explorer / Visual Intelligence (STANDING — every fire)** — the authenticated
+    Cloudflare Browser Run agent that walks the admin as a STATE GRAPH (not URLs), captures
+    one settled screenshot after EVERY meaningful action, routes each capture through a real
+    vision model via AI Gateway, and hands verified findings to implementation roles. It is
+    READ-ONLY on product code during discovery; its coverage ledger is resumable across
+    fires. Ownership boundary + honest provider/coverage contract:
+    `.claude/commands/run-the-loop.md` §1.17 + `./OPERATING-PRINCIPLES.md` § Deep UI Explorer.
+    Tools: `apps/project-sites/e2e/deep-ui-explorer/{explorer.mjs,vision-review.mjs}`.
+18. **Template Evolution (scheduled lane — every-2-fires)** — owns the generated-site
+    source template `HeyMegabyte/template.projectsites.dev` AND its real handoff into
+    `site-generation.ts` (the builder clones it via `apps/project-sites/Dockerfile`; admin
+    site-kit changes alone do NOT change delivered sites). Drives the typed component
+    catalog (scenario · required verified facts · fallback · motion/3D · a11y · budget ·
+    tests), the evidence-gated provenance rule (awards/testimonials/stats only when
+    verified), the browser-capability registry, per-build template versioning + a safe
+    upgrade path, and per-archetype visual languages. Verifies DELIVERED sites, not
+    component previews.
+
+- **Dynamic role creation** — when a fire needs a specialist none of the roster cover (a
   migration-agent, an incident-responder, a media-orchestrator), SPAWN it purpose-built for
   that fire per the agent taxonomy — never a bare `general-purpose`. Emit the assignment
   table + rejected-agent note before spawning; retire the role when its work lands.
@@ -233,7 +260,7 @@ of its cadence intervals goes maintenance-only (a healthy no-op is correct).
 
 - **Add a workstream** — append a row to `./BACKLOG.md` (mission · ledger · Next unit ·
   Acceptance · cadence). It joins the roster automatically on the next fire.
-- **Add a roster role** — add it to the 15 above (or spawn it dynamically for a single fire).
+- **Add a roster role** — add it to the roster above (or spawn it dynamically for a single fire).
   Purpose-built specialist per the taxonomy; never a bare `general-purpose`.
 - **Add a flag** — every non-trivial feature ships behind a default-OFF flag in THREE places
   (registry + `manifest.ts` + docs); server returns 404 when off, UI returns null.

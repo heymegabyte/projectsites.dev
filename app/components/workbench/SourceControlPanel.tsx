@@ -158,7 +158,7 @@ const BASE_BTN =
 
 const VARIANT_BTN: Record<ButtonVariant, string> = {
   primary:
-    'cursor-pointer bg-bolt-elements-item-contentAccent text-bolt-elements-background-depth-1 ' +
+    'cursor-pointer bg-bolt-elements-item-contentAccent text-[#061018] ' +
     'shadow-[0_2px_10px_-3px_rgba(0,229,255,0.55)] hover:shadow-[0_4px_18px_-4px_rgba(0,229,255,0.7)] ' +
     'hover:brightness-110 disabled:opacity-60 disabled:shadow-none disabled:hover:brightness-100',
   secondary:
@@ -658,6 +658,7 @@ const Header = memo(
                 key={t}
                 type="button"
                 role="tab"
+                data-filled-pill=""
                 aria-selected={tab === t}
                 onClick={() => onTab(t)}
                 data-testid={`sc-tab-${t}`}
@@ -666,7 +667,7 @@ const Header = memo(
                   'transition-[background-color,color,box-shadow] duration-150 motion-reduce:transition-none',
                   'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-bolt-elements-item-contentAccent',
                   tab === t
-                    ? 'bg-bolt-elements-item-contentAccent text-bolt-elements-background-depth-1 shadow-[0_1px_8px_-2px_rgba(0,229,255,0.55)]'
+                    ? 'bg-bolt-elements-item-contentAccent text-[#061018] shadow-[0_1px_8px_-2px_rgba(0,229,255,0.55)]'
                     : 'text-bolt-elements-textSecondary hover:text-bolt-elements-item-contentAccent hover:bg-bolt-elements-item-contentAccent/10',
                 )}
               >
@@ -1521,7 +1522,7 @@ const ReleaseRow = memo(({ release, isLatest }: { release: ReleaseHistoryRecord;
             {releaseOutcomeLabel(release.outcome)}
           </span>
           {isLatest && (
-            <span className="inline-flex items-center gap-1 text-[9px] font-semibold uppercase tracking-wider px-1.5 py-0.5 rounded-full bg-bolt-elements-item-contentAccent text-bolt-elements-background-depth-1">
+            <span className="inline-flex items-center gap-1 text-[9px] font-semibold uppercase tracking-wider px-1.5 py-0.5 rounded-full bg-bolt-elements-item-contentAccent text-[#061018]">
               <div className="i-ph:star-fill text-[8px]" aria-hidden="true" /> latest
             </span>
           )}

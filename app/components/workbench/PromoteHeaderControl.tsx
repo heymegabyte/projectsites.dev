@@ -31,7 +31,7 @@ const PRIMARY_BTN =
   'focus-visible:ring-offset-bolt-elements-background-depth-1 focus-visible:ring-bolt-elements-item-contentAccent ' +
   'active:translate-y-px disabled:cursor-not-allowed disabled:active:translate-y-0 ' +
   'motion-reduce:transition-none motion-reduce:active:translate-y-0 ' +
-  'cursor-pointer bg-bolt-elements-item-contentAccent text-bolt-elements-background-depth-1 ' +
+  'cursor-pointer bg-bolt-elements-item-contentAccent text-[#061018] ' +
   'shadow-[0_2px_10px_-3px_rgba(0,229,255,0.55)] hover:shadow-[0_4px_18px_-4px_rgba(0,229,255,0.7)] ' +
   'hover:brightness-110 disabled:opacity-60 disabled:shadow-none disabled:hover:brightness-100';
 

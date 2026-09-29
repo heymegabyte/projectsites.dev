@@ -659,7 +659,7 @@ const Header = memo(
                 className={classNames(
                   'min-h-[24px] px-2.5 py-1 text-[11px] font-medium rounded-md transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-bolt-elements-item-contentAccent cursor-pointer',
                   active
-                    ? 'bg-bolt-elements-item-contentAccent text-bolt-elements-background-depth-1'
+                    ? 'bg-bolt-elements-item-contentAccent text-[#061018]'
                     : 'text-bolt-elements-textTertiary hover:text-bolt-elements-textPrimary',
                 )}
               >

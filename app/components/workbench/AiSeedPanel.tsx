@@ -487,7 +487,7 @@ export const AiSeedPanel = memo(() => {
                   'min-h-[24px] text-[13px] font-semibold px-4 py-2 rounded-lg flex items-center gap-2 transition-all duration-150 motion-reduce:transition-none focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-bolt-elements-item-contentAccent',
                   columns.length === 0 || generating
                     ? 'bg-bolt-elements-background-depth-3 text-bolt-elements-textTertiary border border-bolt-elements-borderColor opacity-60 cursor-not-allowed'
-                    : 'bg-bolt-elements-item-contentAccent text-bolt-elements-background-depth-1 hover:shadow-[0_4px_18px_-4px_rgba(0,229,255,0.55)] hover:-translate-y-px motion-reduce:hover:translate-y-0 cursor-pointer',
+                    : 'bg-bolt-elements-item-contentAccent text-[#061018] hover:shadow-[0_4px_18px_-4px_rgba(0,229,255,0.55)] hover:-translate-y-px motion-reduce:hover:translate-y-0 cursor-pointer',
                 )}
               >
                 {generating ? (
@@ -562,7 +562,7 @@ export const AiSeedPanel = memo(() => {
                   'min-h-[24px] text-[13px] font-semibold px-4 py-2 rounded-lg flex items-center gap-2 transition-all duration-150 motion-reduce:transition-none focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-bolt-elements-item-contentAccent',
                   inserting
                     ? 'bg-bolt-elements-background-depth-3 text-bolt-elements-textTertiary border border-bolt-elements-borderColor opacity-60 cursor-not-allowed'
-                    : 'bg-bolt-elements-item-contentAccent text-bolt-elements-background-depth-1 hover:shadow-[0_4px_18px_-4px_rgba(0,229,255,0.55)] hover:-translate-y-px motion-reduce:hover:translate-y-0 cursor-pointer',
+                    : 'bg-bolt-elements-item-contentAccent text-[#061018] hover:shadow-[0_4px_18px_-4px_rgba(0,229,255,0.55)] hover:-translate-y-px motion-reduce:hover:translate-y-0 cursor-pointer',
                 )}
               >
                 {inserting ? (

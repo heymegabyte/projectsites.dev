@@ -83,7 +83,7 @@ const CTRL_BASE =
 /** Cyan-fill primary — the one dominant action per surface (dark ink on cyan, hover glow). */
 const BTN_PRIMARY = classNames(
   CTRL_BASE,
-  'bg-bolt-elements-item-contentAccent text-bolt-elements-background-depth-1 font-semibold',
+  'bg-bolt-elements-item-contentAccent text-[#061018] font-semibold',
   'shadow-sm shadow-bolt-elements-item-contentAccent/20',
   'enabled:hover:shadow-md enabled:hover:shadow-bolt-elements-item-contentAccent/40 enabled:hover:brightness-110',
   'enabled:active:brightness-95 focus-visible:ring-bolt-elements-item-contentAccent',
@@ -690,7 +690,7 @@ const Header = memo(
                     className={classNames(
                       'min-h-[24px] px-2.5 py-1 text-[11px] font-medium rounded-md transition-colors motion-reduce:transition-none focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-bolt-elements-item-contentAccent cursor-pointer',
                       active
-                        ? 'bg-bolt-elements-item-contentAccent text-bolt-elements-background-depth-1 shadow-sm shadow-bolt-elements-item-contentAccent/25'
+                        ? 'bg-bolt-elements-item-contentAccent text-[#061018] shadow-sm shadow-bolt-elements-item-contentAccent/25'
                         : 'text-bolt-elements-textTertiary hover:text-bolt-elements-textPrimary',
                     )}
                   >
@@ -744,13 +744,14 @@ const Header = memo(
               key={tab.value}
               type="button"
               role="tab"
+              data-filled-pill=""
               aria-selected={active}
               onClick={() => onSection(tab.value)}
               data-testid={`resources-section-${tab.value}`}
               className={classNames(
                 'group relative min-h-[26px] flex items-center gap-1.5 px-3 py-1 text-xs font-medium rounded-md transition-colors motion-reduce:transition-none focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-bolt-elements-item-contentAccent cursor-pointer',
                 active
-                  ? 'bg-bolt-elements-item-contentAccent text-bolt-elements-background-depth-1 shadow-sm shadow-bolt-elements-item-contentAccent/25'
+                  ? 'bg-bolt-elements-item-contentAccent text-[#061018] shadow-sm shadow-bolt-elements-item-contentAccent/25'
                   : 'text-bolt-elements-textTertiary hover:text-bolt-elements-textPrimary hover:bg-bolt-elements-background-depth-3',
               )}
             >
@@ -982,7 +983,7 @@ const MediaLibrary = memo(
                   className={classNames(
                     'min-h-[24px] flex items-center gap-1 px-2 py-1 text-[11px] font-medium rounded-md transition-colors motion-reduce:transition-none focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-bolt-elements-item-contentAccent cursor-pointer',
                     active
-                      ? 'bg-bolt-elements-item-contentAccent text-bolt-elements-background-depth-1 shadow-sm shadow-bolt-elements-item-contentAccent/20'
+                      ? 'bg-bolt-elements-item-contentAccent text-[#061018] shadow-sm shadow-bolt-elements-item-contentAccent/20'
                       : 'text-bolt-elements-textTertiary hover:text-bolt-elements-textPrimary hover:bg-bolt-elements-background-depth-3',
                   )}
                 >

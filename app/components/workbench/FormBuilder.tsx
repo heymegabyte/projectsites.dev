@@ -428,7 +428,7 @@ export const FormBuilder = memo(() => {
             onClick={create}
             disabled={!canCreate}
             data-testid="form-create"
-            className="min-h-[24px] text-[13px] font-semibold px-5 py-2 rounded-lg bg-bolt-elements-item-contentAccent text-bolt-elements-background-depth-1 hover:opacity-90 transition-opacity disabled:opacity-40 disabled:cursor-not-allowed flex items-center gap-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-bolt-elements-item-contentAccent cursor-pointer"
+            className="min-h-[24px] text-[13px] font-semibold px-5 py-2 rounded-lg bg-bolt-elements-item-contentAccent text-[#061018] hover:opacity-90 transition-opacity disabled:opacity-40 disabled:cursor-not-allowed flex items-center gap-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-bolt-elements-item-contentAccent cursor-pointer"
           >
             {creating ? (
               <>

@@ -5,6 +5,7 @@
       "cron": "7,22,37,52 * * * *",
       "prompt": "/run-the-loop",
       "createdAt": 1790631024616,
+      "lastFiredAt": 1790711112916,
       "recurring": true,
       "createdBySessionId": "019154a9-e47e-4492-ac1d-9a1958adda41",
       "createdByPid": 12047,

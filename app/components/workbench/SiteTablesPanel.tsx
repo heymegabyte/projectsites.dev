@@ -3667,7 +3667,7 @@ function CellValue({
         className={classNames(
           'inline-flex items-center justify-center h-4 w-4 rounded border transition-colors',
           on
-            ? 'bg-[#00e5ffcc] border-bolt-elements-item-contentAccent text-bolt-elements-background-depth-1'
+            ? 'bg-[#00e5ffcc] border-bolt-elements-item-contentAccent text-[#061018]'
             : 'border-bolt-elements-borderColor text-transparent',
           editable ? 'cursor-pointer hover:border-bolt-elements-item-contentAccent' : '',
         )}

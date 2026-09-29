@@ -720,3 +720,66 @@
 - LinkedIn OAuth creds · Reddit OAuth creds (blocked 4+ days).
 - Stripe `STRIPE_PRICE_ID_MONTHLY_WALLET` — landed; needs integration wiring.
 - DeepSeek $5 top-up — unblocks bespoke build-LLM copy + build-LLM-gated cohort rebuilds.
+
+## visual-intelligence (role 17 — Deep UI Explorer; STANDING)
+
+- [x] First slice SHIPPED (fire-53): `e2e/deep-ui-explorer/{explorer.mjs,vision-review.mjs}` —
+  CF Browser Run CDP proven (provider+session recorded), real test-login verified
+  (`brian@megabyte.space`, super-admin), deep path homepage→…→Database→Tables→Actions→History
+  captured as 12 states, all vision-reviewed via AI Gateway. Evidence: run
+  `dux-2026-09-29T20-01-44-425Z` + `coverage-ledger.json`.
+- [ ] Kill the "Refresh" item in Database › Tables **Actions** menu — the tables list must
+  self-update (visibility-aware poll or bridge event on create/import/drop). Rule:
+  `real-time-data-no-manual-refresh`; sibling of the existing "Editor Resources real-time
+  (4 panels kill Refresh)" item — do them as ONE class-sweep. Evidence: dux-…-425Z state 09.
+  Acceptance: menu has no Refresh; creating a table via SQL console appears in the list ≤30s
+  with zero clicks; `DatabasePanel.spec` updated. Owner: Feature Delivery. Est: M.
+- [ ] "Loaded 49 files" toast is near-illegible (light-on-light) in the embedded editor —
+  persistent across ≥3 states, NOT a fade artifact. Locate the toast styling (ReactToastify
+  theme vs brand override) and pin ≥4.5:1. Evidence: dux-…-425Z states 07-09. Acceptance:
+  computed toast text/bg contrast ≥4.5:1 in embedded context + replay screenshot. Est: S.
+- [ ] Tables view renders TWO near-identical "TABLES (N)" lists side-by-side (master rail +
+  pick-a-table pane). Verify intent in `SiteTablesPanel.tsx`; either visually differentiate
+  (detail affordance, header, empty-state copy) or collapse to one list. Evidence:
+  dux-…-425Z state 08. Acceptance: explorer replay shows one obvious primary list OR two
+  visibly distinct panes; vision score ≥8 on that state. Owner: UX/Visual. Est: M.
+- [ ] Explorer breadth: graph-discover beyond the deep path (sidebar groups · overflow menus ·
+  dialogs · Code→Project hub · Resources→Buckets · analytics filters · settings dialogs ·
+  feature-flag controls · keyboard paths · empty/populated/error states), rotating the
+  underexplored branch each fire via `coverage-ledger.json`. Acceptance: ledger shows ≥10 new
+  distinct state keys per fire until the nav-derived frontier is exhausted. Est: recurring.
+- [ ] 🔑 Vision provider credits (Brian): OpenAI key is 429-quota-exhausted
+  (https://platform.openai.com/settings/organization/billing/overview) and the Anthropic key
+  has zero credit (https://console.anthropic.com/settings/billing) — until topped up, reviews
+  run on the labeled Workers-AI fallback (Llama 4 Scout via AI Gateway). GPT-4o/Claude re-take
+  the primary slot automatically once keys work (ladder already ships).
+- [ ] Near-release multi-viewport re-visit of key states (375/768/1024/1440 + reduced-motion)
+  driven from the same coverage ledger. Est: M.
+
+## template-evolution (role 18 — every-2-fires)
+
+- [ ] Typed component catalog in `HeyMegabyte/template.projectsites.dev`: per-entry manifest
+  (scenario served · required VERIFIED facts · editing controls · semantic fallback ·
+  motion/3D options · browser-API needs · a11y · cost/perf budget · tests). Start by
+  inventorying existing sections into the manifest shape. Acceptance: catalog file + ≥10
+  entries + CI check that every section component has an entry. Est: L.
+- [ ] Builder creative brief: compact brief from research + owner edits + assets + vertical +
+  buyer intent + objections + conversion goal, consumed by component selection in
+  `site-generation.ts` (evidence-based choice, no scenario-blind defaults). Est: L.
+- [ ] Provenance gate: awards/testimonials/certifications/statistics/press/client-logos/case
+  results render ONLY with verified facts — extend `build_validators.ts` fabricated-people
+  class to these section types. Acceptance: validator red on unverified award section. Est: M.
+- [ ] Browser-capability registry + per-archetype visual language seeds (start: restaurant ·
+  professional-services · nonprofit) with purposeful WebGL/3D + static fallback + early
+  headline/CTA + reduced-motion; never permission-prompt on load. Est: L.
+- [ ] Template VERSION stamped into every build (`_brand.json.template_version` + D1 column) +
+  safe upgrade path for older generated sites preserving owner edits. Acceptance: new builds
+  carry version; upgrade dry-run on one older site preserves edits. Est: M.
+
+## cf-releases (role 14 scout duty — ~every 4 fires)
+
+- [ ] First feed sweep: developer-platform + product RSS + deprecations → dedupe by GUID into
+  `CF-RELEASES.md` → decision per relevant release (pilot/backlog/watch/reject). Include
+  browser-API/platform changes for the template capability registry. Est: S, recurring.
+- [ ] Browser Run budget: track browser-minutes per explorer/long-trail run in the manifest;
+  reconcile monthly against CF billing (Browser Run pricing + session limits). Est: S.

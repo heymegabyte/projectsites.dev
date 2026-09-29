@@ -339,9 +339,12 @@ textarea[placeholder*='ask'] {
     linear-gradient(180deg, rgba(0, 229, 255, 0.02), transparent 60%), var(--bolt-elements-messages-background) !important;
 }
 
-/* Tab strip + slider — cyan-glow on active */
-[data-state='active'][role='tab'],
-[aria-selected='true'][role='tab'] {
+/* Tab strip + slider — cyan-glow on active. FILLED pill tabs (solid accent
+   background — the Database/Resources/Source-control segmented controls) opt
+   OUT via data-filled-pill: forcing accent ink onto an accent-filled pill makes
+   the label invisible (measured 1:1 contrast, fire-53 Deep UI Explorer). */
+[data-state='active'][role='tab']:not([data-filled-pill]),
+[aria-selected='true'][role='tab']:not([data-filled-pill]) {
   color: var(--ps-accent) !important;
   text-shadow: 0 0 12px rgba(0, 229, 255, 0.35);
 }
