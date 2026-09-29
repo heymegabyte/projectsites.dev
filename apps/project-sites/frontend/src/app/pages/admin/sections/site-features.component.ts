@@ -148,8 +148,8 @@ const FEATURE_CAPABILITIES: Readonly<Record<string, readonly string[]>> = {};
              plan-agnostic empty state instead — never promises a paid unlock that doesn't exist. -->
         <app-empty-state
           icon="✨"
-          title="No add-on features right now"
-          message="Your site's core capabilities are always on. There are no optional add-on features to configure yet — we'll surface them here as we roll new ones out."
+          title="Your site has all core capabilities built-in"
+          message="Feature add-ons will appear here as new options launch."
           data-testid="sf-empty-catalog"
         />
       } @else if (filtered().length === 0) {
@@ -243,13 +243,18 @@ const FEATURE_CAPABILITIES: Readonly<Record<string, readonly string[]>> = {};
                     class="sf-btn"
                     data-testid="sf-preview"
                     (click)="togglePreview(f)"
-                    [attr.aria-pressed]="previewKey() === f.key"
+                    [attr.aria-expanded]="previewKey() === f.key"
+                    [attr.aria-controls]="'sf-preview-panel-' + f.key"
                   >
                     {{ previewKey() === f.key ? 'Hide preview' : 'Preview' }}
                   </button>
                 </div>
                 @if (previewKey() === f.key) {
-                  <div class="sf-preview-panel" data-testid="sf-preview-panel">
+                  <div
+                    class="sf-preview-panel"
+                    [id]="'sf-preview-panel-' + f.key"
+                    data-testid="sf-preview-panel"
+                  >
                     <h3>Preview</h3>
                     <p>
                       Here's what visitors get with <strong>{{ f.name }}</strong
@@ -279,7 +284,7 @@ const FEATURE_CAPABILITIES: Readonly<Record<string, readonly string[]>> = {};
                       (f.entitled === 'addon-required' ? 'Add ' : 'Upgrade to unlock ') + f.name
                     "
                   >
-                    {{ f.entitled === 'addon-required' ? 'Add this feature' : 'Upgrade plan' }} →
+                    {{ lockedCtaLabel(f) }} →
                   </a>
                 </div>
               }
@@ -912,6 +917,16 @@ export class AdminSiteFeaturesComponent implements OnInit {
       default:
         return `Requires the ${f.requiredPlan} plan`;
     }
+  }
+
+  /**
+   * Per-entitlement label for the plan-lock CTA (which always routes to
+   * /admin/billing). An add-on lock reads "Add as an add-on"; a plan-scoped lock
+   * names the exact tier ("Upgrade to pro") so the owner knows what unlocks it —
+   * a generic "Upgrade" made every locked card look the same.
+   */
+  lockedCtaLabel(f: SiteFeature): string {
+    return f.entitled === 'addon-required' ? 'Add as an add-on' : `Upgrade to ${f.requiredPlan}`;
   }
 
   async ngOnInit(): Promise<void> {
