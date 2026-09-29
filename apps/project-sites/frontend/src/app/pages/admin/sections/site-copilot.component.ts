@@ -56,7 +56,7 @@ const INTENT_ICONS: Record<string, string> = {
       <header class="copilot-hdr">
         <div>
           <span class="copilot-eyebrow">Site Copilot</span>
-          <h2 class="copilot-title">Multimodal AI Copilot</h2>
+          <h1 class="copilot-title">Multimodal AI Copilot</h1>
           <p class="copilot-sub">Visitor uploads photo + voice + text → AI extracts intent + autofills forms.</p>
         </div>
         <div class="copilot-toggle-wrap" appReveal

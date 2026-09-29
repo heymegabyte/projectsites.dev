@@ -65,7 +65,7 @@ interface ToolUsage {
       <!-- Header -->
       <header appReveal>
         <div class="kicker">External Agents</div>
-        <h2 class="section-h m-0 mt-1 flex items-center gap-2">
+        <h1 class="section-h m-0 mt-1 flex items-center gap-2">
           MCP Server
           <span class="header-pill" [attr.title]="callsTodayUnknown() ? 'Calls today failed to load' : null">
             <span class="header-pill-dot" aria-hidden="true"></span>
@@ -77,7 +77,7 @@ interface ToolUsage {
               <app-rolling-counter [value]="totalCallsToday()" suffix=" calls today" />
             }
           </span>
-        </h2>
+        </h1>
         <p class="text-[0.78rem] text-text-secondary m-0 mt-1 max-w-prose">
           External agents (Claude, GPT, Cursor) can read and write site content via the MCP CRUD
           tools. Authenticate with a per-site Bearer token minted below.

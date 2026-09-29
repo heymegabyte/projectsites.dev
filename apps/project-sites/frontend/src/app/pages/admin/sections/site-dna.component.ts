@@ -79,7 +79,7 @@ interface DnaPrefsResp {
       <header class="dna-hdr">
         <div>
           <span class="dna-eyebrow">Site DNA</span>
-          <h2 class="dna-title">Taste Graph</h2>
+          <h1 class="dna-title">Taste Graph</h1>
           <p class="dna-sub">
             Accept/reject/edit signals per component — shapes the AI's style preferences over time.
           </p>

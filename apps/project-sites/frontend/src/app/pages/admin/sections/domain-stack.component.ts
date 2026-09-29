@@ -67,9 +67,9 @@ interface StackAdvanceResponse {
       <header class="flex items-start justify-between gap-4 flex-wrap" appReveal>
         <div>
           <div class="kicker">Domain Stack</div>
-          <h2 class="section-h text-lg font-bold text-white m-0">
+          <h1 class="section-h text-lg font-bold text-white m-0">
             One-Click Stack Wizard
-          </h2>
+          </h1>
           <p class="text-[0.78rem] text-text-secondary m-0 mt-1">
             Configures DNS, SSL, email auth, security.txt, and Google Search Console in one pass.
           </p>
