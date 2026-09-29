@@ -126,3 +126,37 @@ git history._
   viewports · 🔑 vision credits) + `template-evolution` (+5) + `cf-releases` (+2) lanes;
   DISCOVERIES § fire-53 documents real-UI-vs-docs deltas (History = overlay via header-level
   Actions, editor boot ~35-60s, Scout severity advisory-only).
+
+## Fire 54 (2026-09-29) — product wave: 7-agent fan-out, all slices landed + prod-verified
+
+- ⭐ Editor real-time sweep (`fb4c6ca8a`): 6 manual Refresh/Reconcile controls REMOVED
+  (SiteTablesPanel Actions-menu item · BucketsPanel · EnvAssignmentGrid · ResourceDetailPanel ·
+  R2Browser · NamespaceSummary Reconcile→silent auto-reconcile) + 30s visibility-aware polls
+  per the ResourceOverviewPanel pattern. TDD per surface; suite 51 files/1282 green.
+- Toast legibility root cause (`7dcda7f27`): the "Loaded 49 files" pill was SiteImportStatus's
+  class-less header button painted UA ButtonFace white (tailwind-compat reset drops preflight's
+  transparent bg — unocss#2127) + ToastContainer defaulting to react-toastify LIGHT theme.
+  Fixed both + token remaps; ≈16.9:1; 6 new tests.
+- Worker notify canonicalization (`00633cc88`): SIX legacy novu-shape callers (not 4) converted
+  to `{name,subscriberId,payload}` — payment.succeeded/failed, member.invited/joined,
+  domain.active, bolt-publish build.complete. RED-first; 779 tests across touched sweep.
+- error_handler split (`6608535eb`): agent died pre-commit; salvage VERIFY caught its unified
+  classifyError leaking raw internal messages + dropping Zod details.issues — rewritten
+  behavior-exact (331→254 LOC + render/taxonomy modules), 77/77 green; deployed worker version
+  `51a681bf` and causally prod-verified all four error branches (404 envelope · malformed-JSON
+  400 · Zod details.issues · health).
+- Template Evolution first slice (template repo `48ff58b`): 35-entry typed component catalog +
+  provenance rule + `validate:catalog` drift gate; 5 honest template defects queued.
+- CF Release Scout sweep 1 (`29a938fd6`): 44 items + 10 deprecations triaged → 2 pilots
+  (Browser Run multi-client sessions · Workers tracing custom spans), 6 backlog, 0 urgent.
+- Role 17 breadth (`4611a3897`): admin-breadth journey (13 sections) on CF Browser Run —
+  1 partial (session died mid-run, resumed from ledger cursor) + PASS_CLOUDFLARE; 22 states
+  vision-reviewed, only Settings scored ≤8 (empty-prefill opportunity). Post-deploy adversarial
+  replay of the Database deep path: PASS_CLOUDFLARE 12/12 states on the new bundle
+  (editor Pages deploy `96fd37c7` → editor.projectsites.dev, root-C4g22JSC.css live).
+- Attrition handled per taxonomy: error_handler agent (salvaged+fixed), long-trail agent died
+  mid-stack-setup (0 commits; worktree cleaned; re-queued with discovered prerequisite:
+  `.dev.vars` missing ENVIRONMENT=development). Leftover-worktree hygiene: 4 merged worktrees +
+  9 branches purged; `worktree-wf_59b344e1-c59-{6,8}` are NOT ancestors — inspect next fire.
+- Loop improvements landed: fire-lease mutex ACTIVE first fire (claim/heartbeat/release used
+  throughout) + explorer journey rotation + settle tunables + ledger-cursor resume proven.

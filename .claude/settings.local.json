@@ -116,7 +116,8 @@
       "Bash(python3 -c 'import json;json.load\\(open\\('\\\\''/Users/Apple/.claude/settings.json'\\\\''\\)\\);print\\('\\\\''valid JSON ✓'\\\\''\\)')",
       "Bash(cp ~/.claude/skills/long-trail-tdd/SKILL.md /Users/Apple/emdash/repositories/projectsites.dev/.claude/worktrees/agent-abe9ed7b4d4fa642e/apps/project-sites/.claude/skills/long-trail-tdd/SKILL.md)",
       "Read(//Users/Apple/.claude/skills/long-trail-tdd/**)",
-      "Bash(cat and for any other question ever. There should be no interaction with the user in run-the-loop)"
+      "Bash(cat and for any other question ever. There should be no interaction with the user in run-the-loop)",
+      "Bash(python3 -)"
     ],
     "defaultMode": "bypassPermissions"
   },

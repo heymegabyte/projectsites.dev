@@ -728,13 +728,13 @@
   (`brian@megabyte.space`, super-admin), deep path homepage→…→Database→Tables→Actions→History
   captured as 12 states, all vision-reviewed via AI Gateway. Evidence: run
   `dux-2026-09-29T20-01-44-425Z` + `coverage-ledger.json`.
-- [ ] Kill the "Refresh" item in Database › Tables **Actions** menu — the tables list must
+- [x] (fire-54 `fb4c6ca8a`, prod-replayed) Kill the "Refresh" item in Database › Tables **Actions** menu — the tables list must
   self-update (visibility-aware poll or bridge event on create/import/drop). Rule:
   `real-time-data-no-manual-refresh`; sibling of the existing "Editor Resources real-time
   (4 panels kill Refresh)" item — do them as ONE class-sweep. Evidence: dux-…-425Z state 09.
   Acceptance: menu has no Refresh; creating a table via SQL console appears in the list ≤30s
   with zero clicks; `DatabasePanel.spec` updated. Owner: Feature Delivery. Est: M.
-- [ ] "Loaded 49 files" toast is near-illegible (light-on-light) in the embedded editor —
+- [x] (fire-54 `7dcda7f27` — root cause: ButtonFace reset gap + Toastify light theme) "Loaded 49 files" toast is near-illegible (light-on-light) in the embedded editor —
   persistent across ≥3 states, NOT a fade artifact. Locate the toast styling (ReactToastify
   theme vs brand override) and pin ≥4.5:1. Evidence: dux-…-425Z states 07-09. Acceptance:
   computed toast text/bg contrast ≥4.5:1 in embedded context + replay screenshot. Est: S.
@@ -795,3 +795,19 @@
   recorded exception in Workers Observability. Est: S-M.
 - [ ] Browser Run budget: track browser-minutes per explorer/long-trail run in the manifest;
   reconcile monthly against CF billing (Browser Run pricing + session limits). Est: S.
+
+
+## fire-54 replenish (verified, deduplicated)
+
+- [ ] LockManager unconditional poll → visibility-aware (the one fire-52 real-time item the
+  fire-54 sweep did NOT cover; same ResourceOverviewPanel pattern). Owner: Feature Delivery. Est: S.
+- [ ] Long-Trail case-001 Phase B re-queue — prerequisite discovered: apps/project-sites/.dev.vars
+  needs ENVIRONMENT=development (has E2E_TEST_PASSWORD); agent died mid stack-setup, 0 commits.
+- [ ] Settings page prefill (vision 8/10, run dux-…22-19-12): form fields empty except contact
+  email — prefill from org/business profile or add inline guidance. Owner: UX. Est: S.
+- [ ] Template defects from catalog inventory (template repo, role 18): LogoCloud marquee
+  focusable-in-aria-hidden; scrubText firewall missing on MetricRow/Quote/Spotlight (Quote leaks
+  into Quotation JSON-LD); Timeline year token unscrubbed; CaseStudyGrid fallback lacks DEV gate;
+  docs/COMPONENTS.md lagging. Acceptance: validator/test per fix in template repo. Est: M.
+- [ ] Hygiene: inspect non-ancestor branches `worktree-wf_59b344e1-c59-6/8` — salvage or delete
+  with rationale. Est: S.
