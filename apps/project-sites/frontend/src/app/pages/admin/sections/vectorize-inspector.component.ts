@@ -79,15 +79,24 @@ interface VectorizeIndexDetail {
         <div class="grid grid-cols-1 lg:grid-cols-[minmax(0,1fr)_minmax(0,1.3fr)] gap-4">
           <!-- Index list -->
           <section aria-label="Indexes" class="min-w-0">
-            <ul class="flex flex-col gap-0.5 m-0 p-0 list-none" data-testid="vectorize-index-list">
-              @for (i of indexes(); track i.name) {
-                <li>
+            <ul
+              class="flex flex-col gap-0.5 m-0 p-0 list-none"
+              data-testid="vectorize-index-list"
+              role="listbox"
+              aria-label="Vectorize indexes"
+              (keydown)="onListKeydown($event)"
+            >
+              @for (i of indexes(); track i.name; let idx = $index) {
+                <li role="presentation">
                   <button
                     type="button"
+                    role="option"
+                    [id]="'vectorize-opt-' + idx"
                     class="w-full flex items-center gap-2 text-left px-3 py-1.5 rounded hover:bg-white/8"
-                    [style.background]="selectedName() === i.name ? 'rgba(255,255,255,0.10)' : null"
-                    [attr.aria-pressed]="selectedName() === i.name"
-                    (click)="selectIndex(i.name)"
+                    [class.bg-white/10]="selectedName() === i.name"
+                    [attr.aria-selected]="selectedName() === i.name"
+                    [attr.tabindex]="rovingIndex() === idx ? 0 : -1"
+                    (click)="selectIndex(i.name, idx)"
                   >
                     <span class="text-[0.85rem] font-mono truncate grow min-w-0">{{ i.name }}</span>
                     <span class="text-[0.7rem] text-text-secondary shrink-0 tabular-nums">
@@ -158,6 +167,8 @@ export class VectorizeInspectorComponent implements OnInit {
   readonly indexes = signal<readonly VectorizeIndexEntry[]>([]);
 
   readonly selectedName = signal<string | null>(null);
+  /** Roving-tabindex focus position for the ARIA 1.2 listbox (index into indexes()). */
+  readonly rovingIndex = signal(0);
   readonly detailLoading = signal(false);
   readonly detailError = signal<string | null>(null);
   readonly detail = signal<VectorizeIndexDetail | null>(null);
@@ -185,10 +196,42 @@ export class VectorizeInspectorComponent implements OnInit {
       });
   }
 
-  selectIndex(name: string): void {
+  selectIndex(name: string, index?: number): void {
     this.selectedName.set(name);
+    if (index != null) this.rovingIndex.set(index);
     this.detail.set(null);
     this.loadDetail();
+  }
+
+  /**
+   * ARIA 1.2 listbox keyboard model for the index list. Arrow keys move the
+   * roving tabindex + focus; Home/End jump to the ends. Enter/Space activate
+   * natively (each option is a real <button>), so they're left to the browser.
+   */
+  onListKeydown(e: KeyboardEvent): void {
+    const count = this.indexes().length;
+    if (count === 0) return;
+    const current = this.rovingIndex();
+    let next = current;
+    switch (e.key) {
+      case 'ArrowDown':
+        next = Math.min(current + 1, count - 1);
+        break;
+      case 'ArrowUp':
+        next = Math.max(current - 1, 0);
+        break;
+      case 'Home':
+        next = 0;
+        break;
+      case 'End':
+        next = count - 1;
+        break;
+      default:
+        return;
+    }
+    e.preventDefault();
+    this.rovingIndex.set(next);
+    document.getElementById(`vectorize-opt-${next}`)?.focus();
   }
 
   loadDetail(): void {

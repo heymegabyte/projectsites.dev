@@ -78,15 +78,24 @@ interface QueueDetail {
       } @else {
         <div class="grid grid-cols-1 lg:grid-cols-[minmax(0,1fr)_minmax(0,1.3fr)] gap-4">
           <section aria-label="Queues" class="min-w-0">
-            <ul class="flex flex-col gap-0.5 m-0 p-0 list-none" data-testid="queues-list">
-              @for (q of queues(); track q.id) {
-                <li>
+            <ul
+              class="flex flex-col gap-0.5 m-0 p-0 list-none"
+              data-testid="queues-list"
+              role="listbox"
+              aria-label="Cloudflare Queues"
+              (keydown)="onListKeydown($event)"
+            >
+              @for (q of queues(); track q.id; let idx = $index) {
+                <li role="presentation">
                   <button
                     type="button"
+                    role="option"
+                    [id]="'queue-opt-' + idx"
                     class="w-full flex items-center gap-2 text-left px-3 py-1.5 rounded hover:bg-white/8"
-                    [style.background]="selectedId() === q.id ? 'rgba(255,255,255,0.10)' : null"
-                    [attr.aria-pressed]="selectedId() === q.id"
-                    (click)="selectQueue(q.id)"
+                    [class.bg-white/10]="selectedId() === q.id"
+                    [attr.aria-selected]="selectedId() === q.id"
+                    [attr.tabindex]="rovingIndex() === idx ? 0 : -1"
+                    (click)="selectQueue(q.id, idx)"
                   >
                     <span class="text-[0.85rem] font-mono truncate grow min-w-0">{{ q.name }}</span>
                     <span class="text-[0.7rem] text-text-secondary shrink-0 tabular-nums">
@@ -170,6 +179,8 @@ export class QueuesInspectorComponent implements OnInit {
   readonly queues = signal<readonly QueueEntry[]>([]);
 
   readonly selectedId = signal<string | null>(null);
+  /** Roving-tabindex focus position for the ARIA 1.2 listbox (index into queues()). */
+  readonly rovingIndex = signal(0);
   readonly detailLoading = signal(false);
   readonly detailError = signal<string | null>(null);
   readonly detail = signal<QueueDetail | null>(null);
@@ -197,10 +208,42 @@ export class QueuesInspectorComponent implements OnInit {
       });
   }
 
-  selectQueue(id: string): void {
+  selectQueue(id: string, index?: number): void {
     this.selectedId.set(id);
+    if (index != null) this.rovingIndex.set(index);
     this.detail.set(null);
     this.loadDetail();
+  }
+
+  /**
+   * ARIA 1.2 listbox keyboard model for the queue list. Arrow keys move the
+   * roving tabindex + focus; Home/End jump to the ends. Enter/Space activate
+   * natively (each option is a real <button>), so they're left to the browser.
+   */
+  onListKeydown(e: KeyboardEvent): void {
+    const count = this.queues().length;
+    if (count === 0) return;
+    const current = this.rovingIndex();
+    let next = current;
+    switch (e.key) {
+      case 'ArrowDown':
+        next = Math.min(current + 1, count - 1);
+        break;
+      case 'ArrowUp':
+        next = Math.max(current - 1, 0);
+        break;
+      case 'Home':
+        next = 0;
+        break;
+      case 'End':
+        next = count - 1;
+        break;
+      default:
+        return;
+    }
+    e.preventDefault();
+    this.rovingIndex.set(next);
+    document.getElementById(`queue-opt-${next}`)?.focus();
   }
 
   loadDetail(): void {
