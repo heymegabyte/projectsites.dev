@@ -118,6 +118,15 @@ export const FLAG_REGISTRY: Record<string, FlagDefinition> = {
     owner_email: 'brian@megabyte.space',
     stage: 'experimental',
   },
+  r2_bucket_manager: {
+    default_enabled: false,
+    default_rollout_percent: 0,
+    description:
+      "R2 Bucket Manager — the AUTHORITATIVE, site-scoped catalog + view over ALL of a site's R2 surfaces in the editor Resources tab. The layer ON TOP of the per-site custom-bucket plane (r2_buckets flag / site_r2_allocations); it does NOT replace it — it reconciles them into ONE list.\n\n• Worker service: src/services/site_r2_manager.ts — resolveSiteBuckets(env, siteId, orgId) is authoritative + site-scoped (assertSiteOwned-gated, cursor-paginated, structural WHERE site_id=?) and ALWAYS surfaces the protected isogit \"Project code · Preview\" system bucket as a distinct is_system entry (surfaced, NEVER mutable). assertBucketMutable() HARD-THROWS on config/reset/empty/delete of the system bucket (SERVICE layer, not UI); assertBucketOwnedBySite() HARD-THROWS on a cross-site bucket. Catalog table site_r2_buckets (migration 0647) models a per-bucket credential REFERENCE (via ai_crypto — never the secret) + provisioning state.\n• Slice 1 ships the domain + service foundation + system-bucket protection; create/reset/delete/object-explorer/Code-panel-selector land in later slices. Reuses assertSiteOwned + FORBIDDEN_BUCKET_NAMES + the site_r2 CF-REST/S3 plane.\n• Off (default, DARK) → every route 404s (never 403 / leak) + the FE hides the Manager → zero real R2 resources are created and the already-live r2_buckets surface is unaffected. On → the site sees its authoritative bucket list with the system bucket protected.",
+    key: 'r2_bucket_manager',
+    owner_email: 'brian@megabyte.space',
+    stage: 'experimental',
+  },
   site_wfp_hosting: {
     default_enabled: false,
     default_rollout_percent: 0,
