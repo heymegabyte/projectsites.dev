@@ -2,6 +2,7 @@ import { Component, signal, computed, inject, afterNextRender, type OnInit } fro
 import { FormsModule } from '@angular/forms';
 import { ActivatedRoute, Router, RouterLink } from '@angular/router';
 import { AuthApiService } from './auth-api.service';
+import { ApiService } from '../../services/api.service';
 import { AuthService } from '../../services/auth.service';
 import { isValidEmail } from '../../utils/validators/email';
 
@@ -52,6 +53,52 @@ export function sanitizeReturnUrl(raw: string | null | undefined): string {
             }
           </p>
         </header>
+
+        @if (testMode()) {
+          <!-- E2E test-login seam, shown ONLY under ?test=1. Drives the secret-gated
+               POST /api/auth/test-login worker endpoint (404 unless E2E_TEST_PASSWORD is
+               provisioned) so a Playwright run signs in through the REAL homepage→admin
+               flow. Previously this panel lived only on the now-orphaned pages/signin
+               component; the router serves THIS component at /signin, so the seam is
+               wired here to keep the real-UI E2E login reachable (interconnectedness). -->
+          <div
+            data-testid="test-signin-panel"
+            class="mb-6 flex flex-col gap-3 rounded-xl border border-primary/25 bg-primary/[0.04] p-4 text-left"
+          >
+            <p class="text-[0.72rem] font-mono uppercase tracking-[0.1em] text-primary">
+              Test sign-in
+            </p>
+            <input
+              type="email"
+              [ngModel]="testEmail()"
+              (ngModelChange)="testEmail.set($event)"
+              readonly
+              aria-label="Test account email"
+              data-testid="test-signin-email"
+              class="w-full rounded-lg border border-white/[0.1] bg-dark-surface px-3 py-2.5 text-[0.85rem] text-white/80"
+            />
+            <input
+              type="password"
+              [ngModel]="testPassword()"
+              (ngModelChange)="testPassword.set($event)"
+              (keyup.enter)="testSignIn()"
+              autocomplete="off"
+              placeholder="E2E test password"
+              aria-label="Test password"
+              data-testid="test-signin-password"
+              class="w-full rounded-lg border border-white/[0.1] bg-dark-surface px-3 py-2.5 text-[0.85rem] text-white outline-none focus-visible:border-primary focus-visible:ring-2 focus-visible:ring-primary/40"
+            />
+            <button
+              type="button"
+              (click)="testSignIn()"
+              [disabled]="testBusy()"
+              data-testid="test-signin-submit"
+              class="min-h-[44px] w-full rounded-lg border border-primary/25 bg-primary/[0.12] px-5 text-[0.9rem] font-semibold text-white transition-all hover:bg-primary/20 focus-visible:ring-2 focus-visible:ring-primary/50 disabled:cursor-not-allowed disabled:opacity-60"
+            >
+              {{ testBusy() ? 'Signing in…' : 'Sign in (test)' }}
+            </button>
+          </div>
+        }
 
         @if (error()) {
           <div
@@ -216,9 +263,21 @@ export function sanitizeReturnUrl(raw: string | null | undefined): string {
 })
 export class SignInComponent implements OnInit {
   private readonly authApi = inject(AuthApiService);
+  private readonly api = inject(ApiService);
   private readonly auth = inject(AuthService);
   private readonly router = inject(Router);
   private readonly route = inject(ActivatedRoute);
+
+  /**
+   * E2E test-login seam, gated on `?test=1`. Drives the secret-gated
+   * `POST /api/auth/test-login` worker endpoint so a Playwright run signs in
+   * through the real UI. `brian@megabyte.space` is the only email the worker
+   * accepts; the password comes from the run's `E2E_TEST_PASSWORD` secret.
+   */
+  readonly testMode = signal(false);
+  readonly testEmail = signal('brian@megabyte.space');
+  readonly testPassword = signal('');
+  readonly testBusy = signal(false);
 
   constructor() {
     // Autofocus the email field on arrival so a returning owner starts typing immediately —
@@ -244,6 +303,7 @@ export class SignInComponent implements OnInit {
    * API call, so the local token's only job is satisfying the client guard.
    */
   async ngOnInit(): Promise<void> {
+    this.testMode.set(this.route.snapshot.queryParamMap.get('test') === '1');
     this.surfaceAuthError();
     if (this.auth.isLoggedIn()) return;
     const res = await this.authApi.getSession();
@@ -251,6 +311,42 @@ export class SignInComponent implements OnInit {
       this.auth.setSession(res.data.session?.token ?? 'ba-cookie-session', res.data.user.email);
       this.router.navigateByUrl(this.safeReturnUrl());
     }
+  }
+
+  /**
+   * Submit the E2E test-login seam: post the canonical email + password, store
+   * the real bearer the worker mints, and route to the sanitized returnUrl.
+   * A missing password no-ops with an inline hint; re-entry is guarded while a
+   * request is in flight. Errors surface via the existing `error` signal.
+   */
+  testSignIn(): void {
+    if (this.testBusy()) return;
+    this.error.set(null);
+    if (!this.testPassword()) {
+      this.error.set('Enter the test password.');
+      return;
+    }
+    this.testBusy.set(true);
+    this.api.testLogin(this.testEmail().trim(), this.testPassword()).subscribe({
+      next: (res) => {
+        this.testBusy.set(false);
+        const token = res?.data?.token;
+        if (!token) {
+          this.error.set('Test sign-in failed — no session was returned.');
+          return;
+        }
+        this.auth.setSession(token, res.data.email ?? this.testEmail());
+        this.router.navigateByUrl(this.safeReturnUrl());
+      },
+      error: (err) => {
+        this.testBusy.set(false);
+        this.error.set(
+          err?.error?.error?.message ||
+            err?.error?.message ||
+            'Test sign-in failed — check the password and try again.',
+        );
+      },
+    });
   }
 
   /**

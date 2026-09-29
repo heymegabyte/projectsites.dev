@@ -35,17 +35,51 @@
 import { z } from 'zod';
 
 // ──────────────────────────────────────────────────────────────────────────────
+// Local-dev detection
+// ──────────────────────────────────────────────────────────────────────────────
+
+/**
+ * Env tags that mean "this is a developer's machine / `wrangler dev`", where the
+ * third-party integration secrets (Stripe / Places / PostHog / CF-for-SaaS) are
+ * legitimately absent because those code paths aren't exercised locally.
+ */
+const LOCAL_ENV_TAGS = new Set(['development', 'dev', 'local', 'test']);
+
+/**
+ * True when the Worker is running in a local/dev context.
+ *
+ * @remarks
+ * Detected from `ENVIRONMENT` (set to `development` by `wrangler dev` /
+ * `.dev.vars`). Production sets `ENVIRONMENT=production`, so this is `false`
+ * there and the full required-secret set stays fail-fast (per
+ * `fail-fast-build-fail-soft-prod`: strict at build/boot in prod, tolerant of a
+ * bare local box so the app comes up connected for E2E).
+ */
+export function isLocalDevEnv(env: Record<string, unknown>): boolean {
+  const tag = typeof env.ENVIRONMENT === 'string' ? env.ENVIRONMENT.toLowerCase() : '';
+  return LOCAL_ENV_TAGS.has(tag);
+}
+
+// ──────────────────────────────────────────────────────────────────────────────
 // Env schema
 // ──────────────────────────────────────────────────────────────────────────────
 
 /**
- * Zod schema for the Cloudflare Worker `Env` bindings.
+ * Build the Zod schema for the Cloudflare Worker `Env` bindings.
  *
  * We only validate **string secrets** here — Cloudflare platform bindings
  * (D1Database, KVNamespace, R2Bucket, etc.) are validated by the Workers
  * runtime itself and cannot be parsed as primitive strings.
  *
- * Required keys (non-optional in env.ts + immediately fatal if absent):
+ * The nine third-party integration secrets below are **required in production**
+ * (their absence is immediately fatal to real user flows) but **optional in
+ * local dev** — a `wrangler dev` box seeds `ENVIRONMENT=development` and never
+ * calls Stripe / Places / CF-for-SaaS on the auth-and-editor paths an E2E
+ * journey drives, so hard-failing every request on a missing prod secret would
+ * make the whole local stack un-bootable (a real gap the Long-Trail LIVE slice
+ * caught). `ENVIRONMENT` itself is always required.
+ *
+ * Production-required keys (optional only when {@link isLocalDevEnv} is true):
  *  - POSTHOG_API_KEY
  *  - STRIPE_SECRET_KEY
  *  - STRIPE_PUBLISHABLE_KEY
@@ -55,32 +89,38 @@ import { z } from 'zod';
  *  - GOOGLE_CLIENT_ID
  *  - GOOGLE_CLIENT_SECRET
  *  - GOOGLE_PLACES_API_KEY
- *  - ENVIRONMENT
+ *
+ * @param local - When `true`, the nine integration secrets degrade to optional.
  */
-export const EnvSchema = z.object({
-  // ── Required secrets ────────────────────────────────────────────────────────
-  /** PostHog API key for server-side event capture. */
-  POSTHOG_API_KEY: z.string().min(1, 'POSTHOG_API_KEY is required'),
-  /** Stripe secret key for server-side API calls. */
-  STRIPE_SECRET_KEY: z.string().min(1, 'STRIPE_SECRET_KEY is required'),
-  /** Stripe publishable key (passed to frontend checkout). */
-  STRIPE_PUBLISHABLE_KEY: z.string().min(1, 'STRIPE_PUBLISHABLE_KEY is required'),
-  /** Stripe webhook endpoint signing secret. */
-  STRIPE_WEBHOOK_SECRET: z.string().min(1, 'STRIPE_WEBHOOK_SECRET is required'),
-  /** Cloudflare API token for Custom Hostnames (CF for SaaS). */
-  CF_API_TOKEN: z.string().min(1, 'CF_API_TOKEN is required'),
-  /** Cloudflare zone ID for `projectsites.dev`. */
-  CF_ZONE_ID: z.string().min(1, 'CF_ZONE_ID is required'),
-  /** Google OAuth 2.0 client ID. */
-  GOOGLE_CLIENT_ID: z.string().min(1, 'GOOGLE_CLIENT_ID is required'),
-  /** Google OAuth 2.0 client secret. */
-  GOOGLE_CLIENT_SECRET: z.string().min(1, 'GOOGLE_CLIENT_SECRET is required'),
-  /** Google Places (new) API key for business search. */
-  GOOGLE_PLACES_API_KEY: z.string().min(1, 'GOOGLE_PLACES_API_KEY is required'),
-  /** Deployment environment tag. */
-  ENVIRONMENT: z.string().min(1, 'ENVIRONMENT is required'),
+export function buildEnvSchema(local: boolean) {
+  /** Required in prod, optional on a local/dev box. */
+  const prodRequired = (label: string) =>
+    local ? z.string().optional() : z.string().min(1, `${label} is required`);
 
-  // ── Optional secrets (degrade gracefully when absent) ────────────────────────
+  return z.object({
+    // ── Required in production (optional in local dev) ─────────────────────────
+    /** PostHog API key for server-side event capture. */
+    POSTHOG_API_KEY: prodRequired('POSTHOG_API_KEY'),
+    /** Stripe secret key for server-side API calls. */
+    STRIPE_SECRET_KEY: prodRequired('STRIPE_SECRET_KEY'),
+    /** Stripe publishable key (passed to frontend checkout). */
+    STRIPE_PUBLISHABLE_KEY: prodRequired('STRIPE_PUBLISHABLE_KEY'),
+    /** Stripe webhook endpoint signing secret. */
+    STRIPE_WEBHOOK_SECRET: prodRequired('STRIPE_WEBHOOK_SECRET'),
+    /** Cloudflare API token for Custom Hostnames (CF for SaaS). */
+    CF_API_TOKEN: prodRequired('CF_API_TOKEN'),
+    /** Cloudflare zone ID for `projectsites.dev`. */
+    CF_ZONE_ID: prodRequired('CF_ZONE_ID'),
+    /** Google OAuth 2.0 client ID. */
+    GOOGLE_CLIENT_ID: prodRequired('GOOGLE_CLIENT_ID'),
+    /** Google OAuth 2.0 client secret. */
+    GOOGLE_CLIENT_SECRET: prodRequired('GOOGLE_CLIENT_SECRET'),
+    /** Google Places (new) API key for business search. */
+    GOOGLE_PLACES_API_KEY: prodRequired('GOOGLE_PLACES_API_KEY'),
+    /** Deployment environment tag — always required. */
+    ENVIRONMENT: z.string().min(1, 'ENVIRONMENT is required'),
+
+    // ── Optional secrets (degrade gracefully when absent) ────────────────────────
   POSTHOG_PUBLIC_KEY: z.string().optional(),
   POSTHOG_HOST: z.string().url().optional(),
   SENTRY_DSN: z.string().url().optional(),
@@ -217,9 +257,17 @@ export const EnvSchema = z.object({
   LIVEKIT_SIP_URI: z.string().optional(),
   // Platform LiteLLM facade (OpenAI-compatible) — fallback LLM endpoint for the
   // voice agent when a site has no per-site LiteLLM config in ai_env_vars.
-  LITELLM_BASE_URL: z.string().optional(),
-  LITELLM_API_KEY: z.string().optional(),
-});
+    LITELLM_BASE_URL: z.string().optional(),
+    LITELLM_API_KEY: z.string().optional(),
+  });
+}
+
+/**
+ * Canonical (production-strict) env schema. Kept as the SSOT for the
+ * {@link ParsedEnv} type; runtime parsing goes through {@link parseEnv}, which
+ * selects the local-relaxed variant on a dev box.
+ */
+export const EnvSchema = buildEnvSchema(false);
 
 /** Type of the validated (string-only) env keys. */
 export type ParsedEnv = z.infer<typeof EnvSchema>;
@@ -233,7 +281,9 @@ export type ParsedEnv = z.infer<typeof EnvSchema>;
  *
  * Extracts only the string-primitive fields from `env` (ignoring platform
  * bindings like `D1Database`, `KVNamespace`, `R2Bucket`, etc.) and runs them
- * through {@link EnvSchema}.
+ * through the env schema — {@link buildEnvSchema}`(true)` on a local/dev box
+ * (the nine integration secrets become optional), the production-strict
+ * {@link EnvSchema} otherwise.
  *
  * @throws {ZodError} If any required key is missing or fails validation.
  *   The error bubbles up to the global `errorHandler` which formats it as a
@@ -253,5 +303,6 @@ export function parseEnv(env: Record<string, unknown>): ParsedEnv {
       stringKeys[key] = value;
     }
   }
-  return EnvSchema.parse(stringKeys);
+  const schema = isLocalDevEnv(stringKeys) ? buildEnvSchema(true) : EnvSchema;
+  return schema.parse(stringKeys) as ParsedEnv;
 }

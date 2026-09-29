@@ -1,0 +1,94 @@
+{
+  "case_id": "case-001-money-path",
+  "title": "Money Path — search → sign in → create → edit → publish → verify → clean up",
+  "updated_at": "2026-09-29T19:33:00Z",
+  "slice": "LIVE (real local stack + real browser + real test-login)",
+  "status": "phase_a_green_connected_proven",
+  "last_completed_action": 26,
+  "next_action": {
+    "number": 27,
+    "description": "Phase C — click 'Create Site' on /admin, create a disposable ltt-e2e- site (stop before the costly AI build; assert workflow enqueued via GET /api/sites, not awaited)."
+  },
+  "ports": {
+    "worker_wrangler_dev": 8787,
+    "angular_ng_serve": 4200,
+    "note": "Angular proxy (frontend/proxy.conf.json) forwards /api,/health,/webhooks -> :8787. Static e2e_server :4300 is NOT used for long-trail (no worker proxy)."
+  },
+  "worktree_path": "/Users/Apple/emdash/repositories/projectsites.dev/.claude/worktrees/agent-ad760e23717e438c2",
+  "browser": {
+    "engine": "LOCAL Chromium (Playwright) — a remote/cloud browser cannot reach localhost",
+    "profile_dir": ".ltt-browser-profile (under worktree)",
+    "screenshots_local_dir": "apps/project-sites/e2e/long-trail/screenshots-local"
+  },
+  "auth": {
+    "seam": "POST /api/auth/test-login (gated on E2E_TEST_PASSWORD, present len 48)",
+    "ui_entry": "/signin?test=1 -> [data-testid=test-signin-panel] (wired into SERVED pages/auth/sign-in.component.ts this slice)",
+    "identity": "brian@megabyte.space",
+    "oracle": "GET /api/auth/me -> 200 { email: brian@megabyte.space, org_id present, is_super_admin: true } (verified headless AND in-browser)",
+    "resolved_user_id": "3064239f-2f59-45fd-961f-d42ef4185806",
+    "resolved_org_id": "b6da6c8e-476f-4517-b508-2943d0526c4a"
+  },
+  "real_actions_run": 14,
+  "executable_spec": {
+    "path": "apps/project-sites/e2e/long-trail/case-001-money-path.e2e.ts",
+    "config": "apps/project-sites/e2e/long-trail/playwright.longtrail.config.ts",
+    "run_from": "apps/project-sites (worker package — single @playwright/test)",
+    "result": "Phase A: 3 passed, 5 skipped (Phases B-F test.fixme). 6.4s.",
+    "phase_a_coverage": "homepage paint + Sign In present + hero search graceful + ?test=1 real login + /api/auth/me=brian oracle + admin cockpit full nav + super-admin gate + honest empty-state launchpad + hard-refresh session persistence"
+  },
+  "unit_regressions": {
+    "env": "src/__tests__/env_local_dev.test.ts — 18 assertions (local-relaxed + prod-strict both pinned). GREEN.",
+    "combined_run": "env_local_dev + auth_test_login = 25 passed."
+  },
+  "screenshot_findings": [
+    { "file": "01-homepage.png", "ai_vision": "On-brand dark+cyan, fluid hero, clear CTAs + browser mockup. Investor-demo quality. No fix." },
+    { "file": "02-signin-test-panel.png", "ai_vision": "Test-sign-in panel renders cleanly (cyan border, prefilled email, password, button) above the normal form. AA contrast, 44px targets. No fix." },
+    { "file": "03-admin-dashboard.png", "ai_vision": "Real authed super-admin cockpit: full left nav (WORKSPACE/CAPABILITIES/OPERATIONS/ACCOUNT incl. Super admin), honest 'No sites yet' launchpad, Cmd+K, bell. No fix." }
+  ],
+  "reds_found_and_fixed": [
+    {
+      "red": "Local worker un-bootable: parseEnv hard-failed EVERY request (VALIDATION_ERROR) on wrangler dev — 9 integration secrets .min(1)-required + absent locally.",
+      "root_cause": "src/lib/env.ts EnvSchema made Stripe/Places/PostHog/CF secrets required unconditionally; app.use('*') runs parseEnv before every route.",
+      "fix": "buildEnvSchema(local) + isLocalDevEnv(): the 9 secrets are prod-required but optional when ENVIRONMENT in {development,dev,local,test}; prod stays fail-fast. parseEnv selects per-env.",
+      "regression": "src/__tests__/env_local_dev.test.ts (18 assertions).",
+      "verify": "/health 200; test-login mints real session."
+    },
+    {
+      "red": "Local D1 schema incomplete -> /api/auth/me 'User not found' (users.is_super_admin + audit_logs.message absent).",
+      "root_cause": "wrangler d1 migrations apply --local breaks at 0010 (builds table only in 0504); only 9 core migrations applied, leaving an ancient schema.",
+      "fix": "Documented tolerant multi-pass sqlite3 apply in docs/local-dev-longtrail.md -> ~310 tables, is_super_admin + audit_logs.message present. (Local-recipe fix, not a prod migration change.)",
+      "verify": "/api/auth/me -> brian, super-admin."
+    },
+    {
+      "red": "Orphaned test-login UI seam: ?test=1 panel lived only in unrouted pages/signin/signin.component.ts; router serves pages/auth/sign-in.component.ts (no panel) -> real-UI E2E login impossible.",
+      "root_cause": "Better Auth cutover repointed /signin to pages/auth/sign-in.component.ts; the test seam was never migrated (interconnectedness / orphaned-but-built feature; matches memory live-signin-is-auth-signin-component).",
+      "fix": "Wired the ?test=1 panel + testSignIn() into the SERVED SignInComponent (drives ApiService.testLogin -> POST /api/auth/test-login).",
+      "verify": "Panel renders at /signin?test=1; real login lands on /admin; spec green."
+    },
+    {
+      "red": "No Angular->worker proxy: ng serve couldn't reach /api in dev.",
+      "root_cause": "angular.json serve had no proxyConfig; no proxy.conf.json existed.",
+      "fix": "frontend/proxy.conf.json (/api,/health,/webhooks -> :8787) + wired into angular.json serve.options.proxyConfig.",
+      "verify": "curl :4200/api/auth/me -> worker 401 JSON (not SPA 200 shell)."
+    },
+    {
+      "red": "Spec test 1 failed on 2 locators (getByRole link 'Sign In'; ambiguous search placeholder).",
+      "root_cause": "Homepage 'Sign In' is a <button> not a <link>; two inputs share the search placeholder (hero + footer).",
+      "fix": "getByRole('button',{name:/Sign In/}) + getByTestId('hero-search-input') — discovered from the live DOM. Test-precision fix, product correct.",
+      "verify": "Phase A 3/3 green."
+    }
+  ],
+  "blockers_for_later_phases": [
+    "Phase D editor Code/Preview needs the bolt.diy iframe (editor.projectsites.dev / localhost:5173) running — cold/absent locally; steps marked [iframe] skip-with-note. Data tab (worker-backed per-site D1) does not need it.",
+    "Phase C full AI build is costly + container-gated (SITE_BUILDER DO is production-only) — case seeds a disposable ltt-e2e- site row instead of awaiting a real build.",
+    "Local D1 is missing a few non-critical tables (builds-dependent, some feature_flags.key seeds) — not on the auth/editor/serving paths."
+  ],
+  "servers_state_at_checkpoint": "Both up at checkpoint; killed before finishing per brief. Re-establish via docs/local-dev-longtrail.md on resume (a browser process does NOT survive between cycles).",
+  "resume_recipe": "1) docs/local-dev-longtrail.md Steps 1-4 (schema, .dev.vars, wrangler dev :8787, ng serve :4200). 2) Re-drive Phase A via UI (fresh browser has no session). 3) Continue at action 27 (Create Site).",
+  "safety": {
+    "recipient_allowlist": "email ONLY brian@megabyte.space; SMS ONLY the E2E cell (never committed); payments TEST MODE",
+    "test_resource_prefix": "ltt-e2e-",
+    "tenant_isolation": "action 90 asserts cross-org read is denied",
+    "dev_vars": "apps/project-sites/.dev.vars is git-ignored (verified via git check-ignore) and holds the only local secret; delete on teardown"
+  }
+}
