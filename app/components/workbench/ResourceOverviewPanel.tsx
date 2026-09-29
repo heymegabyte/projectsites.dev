@@ -68,6 +68,13 @@ interface Pending {
 const REQUEST_TIMEOUT_MS = 20_000;
 const DISABLED_404 = 'not enabled';
 
+/**
+ * How often the inventory silently re-fetches while the tab is foregrounded (visibility-aware poll,
+ * per `real-time-data-no-manual-refresh`). 45s sits in the 15–60s band — current without hammering
+ * the bridge. The poll PAUSES while `document.hidden` and refreshes immediately on foreground.
+ */
+const POLL_INTERVAL_MS = 45_000;
+
 /** Monotonic per-module fallback so every request gets a unique correlationId. */
 let correlationCounter = 0;
 function nextCorrelationId(): string {
@@ -248,14 +255,18 @@ function groupResources(resources: ResourceOverviewEntry[]): ResourceGroup[] {
 
 /**
  * The Resources Overview panel — mounted as the workbench "Resources" tab. Loads the site's
- * platform-resource inventory for the selected environment on mount + on Refresh, and offers a
- * one-click Reconcile that heals drift then refreshes.
+ * platform-resource inventory for the selected environment on mount, then keeps it CURRENT with a
+ * visibility-aware poll (re-fetches on an interval, pauses while the tab is hidden, refreshes
+ * immediately on foreground) — no manual Refresh/Reconcile button (per
+ * `real-time-data-no-manual-refresh`). Drift reconciliation runs automatically + silently on the
+ * same cycle; a subtle "updated Ns ago" affordance is the only freshness signal.
  */
 export const ResourceOverviewPanel = memo(() => {
   const [environment, setEnvironment] = useState<ResourceEnvironment>('production');
   const [overview, setOverview] = useState<OverviewState>({ status: 'loading' });
-  const [reconciling, setReconciling] = useState(false);
   const [notice, setNotice] = useState<string | null>(null);
+  /** Wall-clock ms of the last successful inventory load — drives the live "updated Ns ago" chip. */
+  const [lastLoadedAt, setLastLoadedAt] = useState<number | null>(null);
   /** The resource the owner clicked to drill into — non-null renders {@link ResourceDetailPanel}. */
   const [selected, setSelected] = useState<ResourceDetailTarget | null>(null);
 
@@ -336,10 +347,18 @@ export const ResourceOverviewPanel = memo(() => {
     };
   }, []);
 
-  /** Load (or reload) the resource inventory for the given environment. */
+  /**
+   * Load (or reload) the resource inventory for the given environment.
+   *
+   * @param env - the environment to scope the inventory to.
+   * @param silent - when `true` (a background poll / foreground refresh), the current view is kept
+   *   on-screen instead of flashing the loading spinner — freshness is invisible, per the mandate.
+   */
   const loadOverview = useCallback(
-    async (env: ResourceEnvironment) => {
-      setOverview({ status: 'loading' });
+    async (env: ResourceEnvironment, silent = false) => {
+      if (!silent) {
+        setOverview({ status: 'loading' });
+      }
 
       if (!isEmbedded) {
         setOverview({
@@ -363,7 +382,12 @@ export const ResourceOverviewPanel = memo(() => {
             return;
           }
 
-          setOverview({ status: 'error', message: reply.error || 'Could not load your resources.' });
+          // On a silent background poll, keep the last good view rather than replacing it with an
+          // error card for a transient blip — a manual refresh is gone, so don't punish the user.
+          if (!silent) {
+            setOverview({ status: 'error', message: reply.error || 'Could not load your resources.' });
+          }
+
           return;
         }
 
@@ -372,35 +396,83 @@ export const ResourceOverviewPanel = memo(() => {
           environment: reply.environment ?? env,
           resources: reply.resources ?? [],
         });
+        setLastLoadedAt(Date.now());
       } catch (err) {
-        setOverview({
-          status: 'error',
-          message: err instanceof Error ? err.message : 'Could not load your resources.',
-        });
+        if (!silent) {
+          setOverview({
+            status: 'error',
+            message: err instanceof Error ? err.message : 'Could not load your resources.',
+          });
+        }
       }
     },
     [request],
   );
 
-  // On mount + whenever the environment changes: load the inventory.
+  /** Latest `loadOverview` + `environment`, read by the poll effect so it never re-subscribes. */
+  const loadRef = useRef(loadOverview);
+  loadRef.current = loadOverview;
+  const environmentRef = useRef(environment);
+  environmentRef.current = environment;
+
+  // On mount + whenever the environment changes: load the inventory (foreground, shows spinner).
   useEffect(() => {
     void loadOverview(environment);
   }, [environment, loadOverview]);
 
-  /** Reconcile the site's resources to desired state for the current environment, then refresh. */
-  const reconcile = useCallback(async () => {
-    if (!isEmbedded || reconciling) {
+  /*
+   * Visibility-aware real-time poll (per `real-time-data-no-manual-refresh`). While the tab is
+   * FOREGROUNDED, silently re-fetch every POLL_INTERVAL_MS so the inventory + its drift reconcile
+   * stay current with ZERO clicks. While `document.hidden`, the interval no-ops (no wasted bridge
+   * traffic); returning to the foreground refreshes IMMEDIATELY. Registered once — it reads the
+   * latest loader/env through refs, so it survives env changes without tearing down the timer.
+   */
+  useEffect(() => {
+    if (!isEmbedded) {
       return;
     }
 
-    setReconciling(true);
-    setNotice(null);
+    const tick = () => {
+      if (typeof document !== 'undefined' && document.hidden) {
+        return;
+      }
+
+      void loadRef.current(environmentRef.current, true);
+    };
+
+    const interval = setInterval(tick, POLL_INTERVAL_MS);
+
+    const onVisibility = () => {
+      if (typeof document !== 'undefined' && !document.hidden) {
+        void loadRef.current(environmentRef.current, true);
+      }
+    };
+
+    document.addEventListener('visibilitychange', onVisibility);
+
+    return () => {
+      clearInterval(interval);
+      document.removeEventListener('visibilitychange', onVisibility);
+    };
+  }, []);
+
+  /*
+   * AUTOMATIC + SILENT drift reconcile (per `real-time-data-no-manual-refresh` — reconciliation is
+   * never a button). Asks the server to heal drift for the current environment, then silently
+   * refreshes the inventory. Success is invisible (the drift badges just clear on the next poll);
+   * only a genuine failure surfaces a non-fatal notice. Runs on the poll cycle when drift exists —
+   * never from a click.
+   */
+  const reconcile = useCallback(async () => {
+    if (!isEmbedded) {
+      return;
+    }
 
     try {
       const reply = (await request({
         type: 'PS_RES_RECONCILE_REQUEST',
         correlationId: nextCorrelationId(),
-        environment,
+        environment: environmentRef.current,
       })) as ResReconcileResponseMessage;
 
       if (!reply.ok) {
@@ -409,27 +481,48 @@ export const ResourceOverviewPanel = memo(() => {
           return;
         }
 
-        setNotice(reply.error || 'Reconcile could not finish. Please try again.');
+        // Silent-by-default: only a residual/failed heal is worth a quiet, dismissible note.
+        setNotice(reply.error || null);
         return;
       }
 
-      const reconciled = reply.reconciled ?? 0;
       const residual = Array.isArray(reply.drift) ? reply.drift.length : 0;
-      setNotice(
-        residual > 0
-          ? `Reconciled ${reconciled} resource${reconciled === 1 ? '' : 's'} — ${residual} still need attention.`
-          : reconciled > 0
-            ? `Reconciled ${reconciled} resource${reconciled === 1 ? '' : 's'} — everything is in sync.`
-            : 'Everything was already in sync.',
-      );
-    } catch (err) {
-      setNotice(err instanceof Error ? err.message : 'Reconcile could not finish. Please try again.');
+
+      if (residual > 0) {
+        setNotice(`${residual} resource${residual === 1 ? '' : 's'} still need attention.`);
+      }
+    } catch {
+      // A transient reconcile failure is swallowed — the next automatic cycle retries.
     } finally {
-      setReconciling(false);
-      // Refresh the inventory to reflect the reconcile outcome.
-      void loadOverview(environment);
+      // Silently refresh the inventory to reflect the reconcile outcome (no spinner flash).
+      void loadRef.current(environmentRef.current, true);
     }
-  }, [environment, reconciling, request, loadOverview]);
+  }, [request]);
+
+  /*
+   * Kick an automatic silent reconcile whenever drift is present in a freshly-loaded inventory —
+   * self-healing on the same real-time cycle, never a click. A ref-guard makes it fire once per
+   * observed drift set so a persistent-drift poll doesn't spam reconcile requests.
+   */
+  const lastDriftReconcileKey = useRef<string>('');
+  useEffect(() => {
+    if (overview.status !== 'ready') {
+      return;
+    }
+
+    const driftedIds = overview.resources
+      .filter((r) => Boolean(r.drift_code))
+      .map((r) => r.id)
+      .sort()
+      .join('|');
+
+    if (driftedIds && driftedIds !== lastDriftReconcileKey.current) {
+      lastDriftReconcileKey.current = driftedIds;
+      void reconcile();
+    } else if (!driftedIds) {
+      lastDriftReconcileKey.current = '';
+    }
+  }, [overview, reconcile]);
 
   const groups = useMemo(
     () => (overview.status === 'ready' ? groupResources(overview.resources) : []),
@@ -454,10 +547,7 @@ export const ResourceOverviewPanel = memo(() => {
       <Header
         environment={environment}
         onEnvironment={setEnvironment}
-        onRefresh={() => void loadOverview(environment)}
-        onReconcile={reconcile}
-        reconciling={reconciling}
-        canReconcile={overview.status === 'ready' || overview.status === 'error'}
+        lastLoadedAt={lastLoadedAt}
         subtitle={
           overview.status === 'ready'
             ? totalCount === 0
@@ -475,18 +565,13 @@ export const ResourceOverviewPanel = memo(() => {
 
       {overview.status === 'ready' &&
         (groups.length === 0 ? (
-          <EmptyLaunchpad onReconcile={reconcile} reconciling={reconciling} />
+          <EmptyLaunchpad />
         ) : (
           <div className="flex-1 overflow-auto modern-scrollbar px-4 py-4 space-y-6" data-testid="resources-groups">
             {/* Per-site WfP-namespace SUMMARY — a prominent rollup of every resource in the namespace,
                 derived from the SAME inventory (no extra fetch). The at-a-glance accounting sits above
-                the per-kind cards. */}
-            <NamespaceSummary
-              resources={overview.resources}
-              environment={overview.environment}
-              onReconcile={reconcile}
-              reconciling={reconciling}
-            />
+                the per-kind cards. Reconcile runs automatically + silently, so no button is passed. */}
+            <NamespaceSummary resources={overview.resources} environment={overview.environment} />
 
             {groups.map((group) => (
               <ResourceGroupSection key={group.key} group={group} onComingSoon={setNotice} onOpen={openDetail} />
@@ -525,18 +610,13 @@ const Header = memo(
   ({
     environment,
     onEnvironment,
-    onRefresh,
-    onReconcile,
-    reconciling,
-    canReconcile,
+    lastLoadedAt,
     subtitle,
   }: {
     environment: ResourceEnvironment;
     onEnvironment: (env: ResourceEnvironment) => void;
-    onRefresh: () => void;
-    onReconcile: () => void;
-    reconciling: boolean;
-    canReconcile: boolean;
+    /** Wall-clock ms of the last successful inventory load, or `null` before the first load. */
+    lastLoadedAt: number | null;
     subtitle: string;
   }) => (
     <div className="relative flex items-center gap-3 px-4 py-3 border-b border-bolt-elements-borderColor shrink-0 overflow-hidden">
@@ -558,6 +638,9 @@ const Header = memo(
       </div>
 
       <div className="relative ml-auto flex items-center gap-2 shrink-0">
+        {/* Live freshness affordance — the ONLY refresh signal (self-updating; no manual button). */}
+        <LiveFreshness lastLoadedAt={lastLoadedAt} />
+
         {/* Environment selector — preview | production */}
         <div
           className="flex items-center rounded-lg border border-bolt-elements-borderColor bg-bolt-elements-background-depth-2 p-0.5"
@@ -585,41 +668,53 @@ const Header = memo(
             );
           })}
         </div>
-
-        {/* Reconcile — heal drift, then refresh. Label reserves its widest state so it never resizes. */}
-        <button
-          type="button"
-          onClick={onReconcile}
-          disabled={reconciling || !canReconcile}
-          data-testid="resources-reconcile"
-          title="Reconcile resources to their desired state"
-          className="min-h-[24px] text-[11px] font-semibold px-3 py-1.5 rounded-lg bg-bolt-elements-item-contentAccent text-bolt-elements-background-depth-1 enabled:hover:opacity-90 disabled:opacity-50 disabled:cursor-not-allowed transition-opacity flex items-center gap-1.5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-offset-bolt-elements-background-depth-1 focus-visible:ring-bolt-elements-item-contentAccent cursor-pointer"
-        >
-          <div
-            className={classNames(
-              reconciling ? 'i-ph:circle-notch animate-spin motion-reduce:animate-none' : 'i-ph:arrows-counter-clockwise',
-              'text-sm shrink-0',
-            )}
-          />
-          <span className="min-w-[9ch] text-center">{reconciling ? 'Reconciling…' : 'Reconcile'}</span>
-        </button>
-
-        {/* Refresh */}
-        <button
-          type="button"
-          onClick={onRefresh}
-          aria-label="Refresh"
-          title="Refresh"
-          className="min-h-[24px] min-w-[24px] flex items-center justify-center rounded border border-bolt-elements-borderColor bg-bolt-elements-background-depth-2 text-bolt-elements-item-contentAccent hover:bg-bolt-elements-background-depth-3 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-bolt-elements-item-contentAccent cursor-pointer"
-        >
-          <div className="i-ph:arrows-clockwise text-sm" />
-        </button>
       </div>
     </div>
   ),
 );
 
 Header.displayName = 'ResourceOverviewPanel.Header';
+
+// ── Live freshness affordance ─────────────────────────────────────────────────
+
+/**
+ * A subtle, self-ticking "updated Ns ago" chip with a quiet live pulse — the ONLY freshness signal,
+ * standing in for the removed manual Refresh/Reconcile buttons (per `real-time-data-no-manual-refresh`).
+ * Re-renders on its own ~15s cadence so the relative label stays honest without any user action, and
+ * pauses ticking while the tab is hidden. Never a button — freshness is invisible + automatic.
+ */
+const LiveFreshness = memo(({ lastLoadedAt }: { lastLoadedAt: number | null }) => {
+  const [, forceTick] = useState(0);
+
+  useEffect(() => {
+    const id = setInterval(() => {
+      if (typeof document === 'undefined' || !document.hidden) {
+        forceTick((n) => n + 1);
+      }
+    }, 15_000);
+    return () => clearInterval(id);
+  }, []);
+
+  const label = lastLoadedAt ? `Updated ${relativeTime(new Date(lastLoadedAt).toISOString())}` : 'Live';
+
+  return (
+    <span
+      className="hidden sm:inline-flex items-center gap-1.5 text-[10px] text-bolt-elements-textTertiary tabular-nums select-none"
+      data-testid="resources-live-freshness"
+      title="This view updates itself automatically"
+      role="status"
+      aria-live="off"
+    >
+      <span
+        aria-hidden="true"
+        className="h-1.5 w-1.5 rounded-full bg-bolt-elements-item-contentAccent animate-pulse motion-reduce:animate-none"
+      />
+      {label}
+    </span>
+  );
+});
+
+LiveFreshness.displayName = 'ResourceOverviewPanel.LiveFreshness';
 
 // ── Shared: spinner + error + disabled ───────────────────────────────────────
 
@@ -671,38 +766,32 @@ DisabledCard.displayName = 'ResourceOverviewPanel.DisabledCard';
 
 // ── Empty launchpad ──────────────────────────────────────────────────────────
 
-const EmptyLaunchpad = memo(
-  ({ onReconcile, reconciling }: { onReconcile: () => void; reconciling: boolean }) => (
-    <div
-      className="flex-1 flex flex-col items-center justify-center gap-4 p-8 text-center"
-      data-testid="resources-empty"
-    >
-      <div className="i-ph:stack text-4xl text-bolt-elements-textTertiary" />
-      <div className="space-y-1">
-        <p className="text-sm font-semibold text-bolt-elements-textPrimary">No resources yet</p>
-        <p className="text-[11px] text-bolt-elements-textTertiary max-w-[300px]">
-          When your site uses a database, storage bucket, queue, or function, it appears here.
-          Reconcile to detect and connect everything your site needs.
-        </p>
-      </div>
-      <button
-        type="button"
-        onClick={onReconcile}
-        disabled={reconciling}
-        data-testid="resources-empty-reconcile"
-        className="min-h-[24px] text-[12px] font-semibold px-3.5 py-2 rounded-lg bg-bolt-elements-item-contentAccent text-bolt-elements-background-depth-1 enabled:hover:opacity-90 disabled:opacity-50 disabled:cursor-not-allowed transition-opacity flex items-center gap-1.5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-offset-bolt-elements-background-depth-1 focus-visible:ring-bolt-elements-item-contentAccent cursor-pointer"
-      >
-        <div
-          className={classNames(
-            reconciling ? 'i-ph:circle-notch animate-spin motion-reduce:animate-none' : 'i-ph:arrows-counter-clockwise',
-            'shrink-0',
-          )}
-        />
-        <span className="min-w-[9ch] text-center">{reconciling ? 'Reconciling…' : 'Reconcile'}</span>
-      </button>
+const EmptyLaunchpad = memo(() => (
+  <div
+    className="flex-1 flex flex-col items-center justify-center gap-4 p-8 text-center"
+    data-testid="resources-empty"
+  >
+    <div className="i-ph:stack text-4xl text-bolt-elements-textTertiary" />
+    <div className="space-y-1">
+      <p className="text-sm font-semibold text-bolt-elements-textPrimary">No resources yet</p>
+      <p className="text-[11px] text-bolt-elements-textTertiary max-w-[300px]">
+        When your site uses a database, storage bucket, queue, or function, it appears here
+        automatically — this view keeps itself up to date, nothing to run.
+      </p>
     </div>
-  ),
-);
+    {/* A quiet "watching" pulse — the surface self-detects; there is no button to press. */}
+    <span
+      className="inline-flex items-center gap-1.5 text-[10px] text-bolt-elements-textTertiary select-none"
+      role="status"
+    >
+      <span
+        aria-hidden="true"
+        className="h-1.5 w-1.5 rounded-full bg-bolt-elements-item-contentAccent animate-pulse motion-reduce:animate-none"
+      />
+      Watching for new resources
+    </span>
+  </div>
+));
 
 EmptyLaunchpad.displayName = 'ResourceOverviewPanel.EmptyLaunchpad';
 

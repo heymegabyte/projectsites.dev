@@ -4,7 +4,7 @@
  *
  * The Resources tab mounts {@link ResourceOverviewPanel}: the per-site Cloudflare asset console that
  * lists every primitive the site is wired to (D1/KV/R2/DO/Workflows/Queues/Vectorize/bindings/
- * connections/observability) per kind × environment, with an env selector + Reconcile, drilling into a
+ * connections/observability) per kind × environment, with an env selector, drilling into a
  * generic detail + manage surface. It talks to the parent admin over `postMessage`; we mock
  * `~/lib/embed/embedded-mode` so the test drives the bridge deterministically (no real iframe).
  *
@@ -15,6 +15,9 @@
  *      (so a business owner sees what they have), and the env selector offers preview + production.
  *   3. Honest dark-flag state — a `{ ok:false, enabled:false }` reply renders the friendly "not enabled
  *      yet" card (INV-3: dark → friendly, never a scary error / never a mock control).
+ *   4. Real-time, no manual refresh (R1 / `real-time-data-no-manual-refresh`) — the surface self-updates:
+ *      NO manual Refresh or Reconcile button is rendered; it re-fetches on a visibility-aware interval;
+ *      and it re-fetches immediately when the tab returns to the foreground (`visibilitychange`).
  *
  * `vi.mock` factories hoist above the module body, so the spies they close over are `vi.hoisted`.
  */
@@ -76,6 +79,26 @@ function lastCorrelationId(): string {
   const req = lastRequest.value;
   expect(req).toBeTruthy();
   return (req as { correlationId: string }).correlationId;
+}
+
+/** How many inventory (overview) requests the panel has sent so far. */
+function overviewRequestCount(): number {
+  return postToParent.mock.calls.filter(
+    (call) => (call[0] as { type?: string })?.type === 'PS_RES_OVERVIEW_REQUEST',
+  ).length;
+}
+
+/** Reply to the panel's latest inventory request with a ready inventory (keeps it in the `ready` state). */
+async function replyReady(resources: Array<Record<string, unknown>> = []): Promise<void> {
+  await act(async () => {
+    emitToChild({
+      type: 'PS_RES_OVERVIEW_RESPONSE',
+      correlationId: lastCorrelationId(),
+      ok: true,
+      environment: 'production',
+      resources,
+    });
+  });
 }
 
 describe('ResourceOverviewPanel — the editor Resources tab surface', () => {
@@ -149,5 +172,75 @@ describe('ResourceOverviewPanel — the editor Resources tab surface', () => {
 
     // A dark flag → friendly disabled card (INV-3), never a scary error and never a mock control.
     expect(await screen.findByTestId('resources-disabled')).toBeTruthy();
+  });
+});
+
+describe('ResourceOverviewPanel — real-time, no manual refresh (R1)', () => {
+  it('renders NO manual Refresh or Reconcile button — the surface self-updates', async () => {
+    render(<ResourceOverviewPanel />);
+    await waitFor(() => expect(postToParent).toHaveBeenCalled());
+    await replyReady([
+      {
+        id: 'r1',
+        resource_kind: 'd1',
+        resource_concept: 'main_db',
+        environment: 'production',
+        tenancy: 'dedicated',
+        lifecycle_state: 'active',
+        binding_name: 'DB',
+      },
+    ]);
+
+    // No manual refresh/reconcile affordance anywhere on the surface (a manual button is a DEFECT).
+    expect(screen.queryByTestId('resources-reconcile')).toBeNull();
+    expect(screen.queryByTestId('resources-empty-reconcile')).toBeNull();
+    expect(screen.queryByRole('button', { name: /refresh/i })).toBeNull();
+    expect(screen.queryByRole('button', { name: /reconcile/i })).toBeNull();
+
+    // A subtle live "updated … ago" affordance stands in for the removed buttons.
+    expect(screen.getByTestId('resources-live-freshness')).toBeTruthy();
+  });
+
+  it('re-fetches the inventory automatically on a visibility-aware interval (no click)', async () => {
+    vi.useFakeTimers();
+
+    try {
+      render(<ResourceOverviewPanel />);
+
+      // Mount fires the first inventory request.
+      await act(async () => {
+        await Promise.resolve();
+      });
+      await replyReady();
+
+      const afterMount = overviewRequestCount();
+      expect(afterMount).toBeGreaterThanOrEqual(1);
+
+      // Advancing the poll interval fires another inventory request — with zero user interaction.
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(65_000);
+      });
+
+      expect(overviewRequestCount()).toBeGreaterThan(afterMount);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('re-fetches immediately when the tab returns to the foreground (visibilitychange)', async () => {
+    render(<ResourceOverviewPanel />);
+    await waitFor(() => expect(postToParent).toHaveBeenCalled());
+    await replyReady();
+
+    const before = overviewRequestCount();
+
+    // Simulate the tab going hidden then visible again — foregrounding forces an immediate refresh.
+    await act(async () => {
+      Object.defineProperty(document, 'visibilityState', { configurable: true, value: 'visible' });
+      Object.defineProperty(document, 'hidden', { configurable: true, value: false });
+      document.dispatchEvent(new Event('visibilitychange'));
+    });
+
+    await waitFor(() => expect(overviewRequestCount()).toBeGreaterThan(before));
   });
 });
