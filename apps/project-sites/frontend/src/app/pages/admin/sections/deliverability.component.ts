@@ -301,7 +301,13 @@ export class AdminDeliverabilityComponent {
    *  so junk (https://…, paths, spaces, single-label) gets instant feedback
    *  instead of a DNS-lookup round-trip → server error. */
   private isValidDomain(raw: string): boolean {
-    return /^[a-z0-9][a-z0-9-]*\.[a-z0-9-]+(\.[a-z0-9-]+)*$/i.test(raw);
+    // RFC-952 per-label: each label must START and END with an alphanumeric
+    // (dashes only allowed in the interior), so junk like `mail.-.com` /
+    // `lead-.com` / `-lead.com` (dash-only or dash-edged labels) is rejected —
+    // the old `[a-z0-9-]+` label class accepted those. The trailing group is
+    // `+` (not `*`) so a bare single label (`localhost`, `example`) still fails:
+    // an override must be a real dotted hostname. Worker re-guards server-side.
+    return /^[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)+$/i.test(raw);
   }
   readonly domainInvalid = computed(() => {
     const d = this.domainModel().trim();

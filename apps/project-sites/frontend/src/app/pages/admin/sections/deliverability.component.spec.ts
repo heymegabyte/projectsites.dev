@@ -224,7 +224,10 @@ describe('AdminDeliverabilityComponent', () => {
   // feedback instead of a DNS-lookup round-trip → server error.
   it('a malformed domain blocks the check (no GET) + shows the inline hint + gates the button', () => {
     build({ id: 'site1', name: 'Acme', slug: 'acme' });
-    for (const bad of ['https://example.com', 'example com', 'localhost', 'example']) {
+    // fire-46 [S]: RFC-952 per-label — dash-only / dash-edged labels
+    // (`mail.-.com`, `lead-.com`, `-lead.com`, `x.-y.com`) are now rejected
+    // alongside the existing junk (scheme, spaces, single-label).
+    for (const bad of ['https://example.com', 'example com', 'localhost', 'example', 'mail.-.com', 'lead-.com', '-lead.com', 'x.-y.com']) {
       get.calls.reset();
       fixture.componentInstance.domainModel.set(bad);
       fixture.detectChanges();
@@ -238,9 +241,14 @@ describe('AdminDeliverabilityComponent', () => {
 
   it('a valid bare domain (or empty) passes — domainInvalid false, GET fires', () => {
     build({ id: 'site1', name: 'Acme', slug: 'acme' });
+    // fire-46 [S]: a valid RFC-952 hostname (incl. interior dashes + multi-label) passes.
+    for (const good of ['mail.acme.com', 'a-b.example.com', 'sub.mail.example.co.uk', 'a--b.example.com']) {
+      fixture.componentInstance.domainModel.set(good);
+      fixture.detectChanges();
+      expect(fixture.componentInstance.domainInvalid()).withContext(`valid: ${good}`).toBeFalse();
+    }
     fixture.componentInstance.domainModel.set('mail.acme.com');
     fixture.detectChanges();
-    expect(fixture.componentInstance.domainInvalid()).toBeFalse();
     expect((q('[data-testid="deliverability-check-btn"]') as HTMLButtonElement).disabled).toBeFalse();
     fixture.componentInstance.check();
     expect(get).toHaveBeenCalled();

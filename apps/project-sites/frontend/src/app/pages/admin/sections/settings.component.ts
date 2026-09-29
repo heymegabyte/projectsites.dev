@@ -489,10 +489,10 @@ const PROVIDERS = MCP_PROVIDERS;
                     <input hlmInput type="password" class="flex-1 font-mono text-[0.72rem]"
                            [attr.aria-label]="'API key for ' + p.id"
                            [placeholder]="pastePlaceholder(p.id)" [(ngModel)]="pastedKey" />
-                    <button class="mcp-btn mcp-btn-solid" (click)="submitPaste(p.id)" [disabled]="pasteSaving()">{{ pasteSaving() ? 'Saving…' : 'Save' }}</button>
+                    <button class="mcp-btn mcp-btn-solid" [attr.data-testid]="'mcp-' + p.id + '-key'" (click)="submitPaste(p.id)" [disabled]="pasteSaving()">{{ pasteSaving() ? 'Saving…' : 'Save' }}</button>
                   </div>
                 } @else if (p.oauth_supported) {
-                  <button class="mcp-btn mcp-btn-oauth mt-1 self-start" (click)="connectOauth(p.id)">
+                  <button class="mcp-btn mcp-btn-oauth mt-1 self-start" [attr.data-testid]="'mcp-' + p.id + '-connect'" (click)="connectOauth(p.id)">
                     <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
                       <path d="M10 13a5 5 0 0 0 7.07 0l3-3a5 5 0 0 0-7.07-7.07l-1.5 1.5" />
                       <path d="M14 11a5 5 0 0 0-7.07 0l-3 3a5 5 0 0 0 7.07 7.07l1.5-1.5" />
@@ -500,7 +500,7 @@ const PROVIDERS = MCP_PROVIDERS;
                     Connect with {{ p.label }}
                   </button>
                 } @else {
-                  <button class="mcp-btn mt-1 self-start" (click)="connect(p)">Add API key</button>
+                  <button class="mcp-btn mt-1 self-start" [attr.data-testid]="'mcp-' + p.id + '-connect'" (click)="connect(p)">Add API key</button>
                 }
               </article>
             }

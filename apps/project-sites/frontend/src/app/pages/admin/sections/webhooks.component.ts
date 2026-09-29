@@ -83,13 +83,22 @@ interface Delivery {
             <input #urlInput hlmInput data-testid="webhooks-url" type="url" inputmode="url" placeholder="https://hooks.yourapp.com/projectsites"
               [disabled]="flagDisabled()"
               [ngModel]="urlModel()" (ngModelChange)="urlModel.set($event)"
-              [attr.aria-invalid]="urlInvalid()" [attr.aria-describedby]="urlInvalid() ? 'webhooks-url-hint' : null"
+              [attr.aria-invalid]="urlInvalid()"
+              [attr.aria-describedby]="urlInvalid() ? 'webhooks-url-hint webhooks-url-ssrf-note' : 'webhooks-url-ssrf-note'"
               [class.ring-1]="urlInvalid()" [class.ring-red-500/60]="urlInvalid()" [class.border-red-500/50]="urlInvalid()" />
             @if (urlInvalid()) {
               <span id="webhooks-url-hint" data-testid="webhooks-url-hint" class="text-[0.7rem] text-[var(--ps-danger)]">
                 Must be a valid <code class="text-[var(--ps-danger)] font-semibold">https://</code> URL with a public hostname.
               </span>
             }
+            <!-- Always-present SSRF note (stable id, wired via aria-describedby):
+                 the client only checks URL FORMAT + obvious private hosts; the
+                 worker is the real boundary and rejects any domain that RESOLVES
+                 to a private / loopback / metadata IP at send time (DNS rebinding
+                 defence). Tells the operator WHY a public-looking URL can still fail. -->
+            <span id="webhooks-url-ssrf-note" data-testid="webhooks-url-ssrf-note" class="text-[0.68rem] text-text-secondary">
+              For your protection, the server rejects endpoints whose domain resolves to a private, loopback or internal IP address.
+            </span>
           </label>
           <div>
             <span class="text-[0.72rem] uppercase tracking-wide text-text-secondary">Events</span>

@@ -128,6 +128,23 @@ describe('AdminWebhooksComponent', () => {
     expect(q('[data-testid="webhooks-create-btn"]')).toBeNull();
   });
 
+  // fire-46 [S]: the endpoint-URL input carries an always-present SSRF hint note
+  // (stable id) wired via aria-describedby — telling the operator the SERVER
+  // rejects domains that resolve to private/loopback/internal IPs (client is
+  // format-only; the worker re-guards SSRF). Screen-reader announced.
+  it('associates a persistent SSRF hint (private-IP rejection) with the URL input via aria-describedby', () => {
+    build({ id: 's1' });
+    const note = q('[data-testid="webhooks-url-ssrf-note"]');
+    expect(note).withContext('SSRF note renders even when the URL is valid/empty').not.toBeNull();
+    expect(note!.id).toBe('webhooks-url-ssrf-note');
+    expect(note!.textContent?.toLowerCase()).toContain('private');
+    const urlInput = q('[data-testid="webhooks-url"]') as HTMLInputElement;
+    // aria-describedby always references the SSRF note (and the format hint too when invalid).
+    expect(urlInput.getAttribute('aria-describedby'))
+      .withContext('SSRF note is referenced by the input for AT')
+      .toContain('webhooks-url-ssrf-note');
+  });
+
   // The "No webhook endpoints" empty state must render its guidance line. The
   // kit <app-empty-state> input is `message=`, NOT `body=` — passing `body=`
   // silently drops the supporting text (the @if(message) never fires).

@@ -705,6 +705,64 @@ describe('AdminSettingsComponent (MCP paste-key input accessible name)', () => {
 });
 
 /**
+ * fire-46 [S]: MCP "Connect" / "Add API key" buttons carry stable
+ * `data-testid="mcp-${id}-connect"` and the paste-key Save button carries
+ * `data-testid="mcp-${id}-key"` so E2E targets them by identity, not by a
+ * brittle DOM index. Rendered by settings.component from the shared
+ * mcp-providers.ts catalogue.
+ */
+describe('AdminSettingsComponent (MCP connect/paste buttons expose stable data-testid)', () => {
+  function render(): ComponentFixture<AdminSettingsComponent> {
+    TestBed.configureTestingModule({
+      imports: [AdminSettingsComponent],
+      providers: [
+        { provide: ApiService, useValue: { get: () => of({ data: null }), put: () => of({}), post: () => of({}), delete: () => of({}) } },
+        { provide: ToastService, useValue: { error: () => 0, success: () => 0, info: () => 0, warning: () => 0 } },
+        { provide: ConfirmService, useValue: { confirm: () => Promise.resolve(false) } },
+        { provide: Router, useValue: { navigate: () => undefined } },
+        { provide: ActivatedRoute, useValue: { firstChild: null, fragment: of(null), snapshot: { fragment: null, url: [] } } },
+        { provide: AdminStateService, useValue: { selectedSite: signal({ id: 's1', slug: 'demo' }), loadData: () => undefined } },
+      ],
+    });
+    const fx = TestBed.createComponent(AdminSettingsComponent);
+    fx.detectChanges();
+    fx.componentInstance.tab.set('mcp');
+    return fx;
+  }
+  afterEach(() => TestBed.resetTestingModule());
+
+  it('renders mcp-${id}-connect on the connect / Add-API-key button (not connected, not in paste mode)', () => {
+    const fx = render();
+    const c = fx.componentInstance;
+    // resend (providers[0]) has a worker adapter (available) + oauth_supported:false
+    // → the default @else "Add API key" connect branch renders.
+    const providerId = c.providers[0].id;
+    c.connections.set([]);
+    c.pasteMode.set(null);
+    fx.detectChanges();
+    const el = fx.nativeElement as HTMLElement;
+    const btn = el.querySelector(`[data-testid="mcp-${providerId}-connect"]`) as HTMLButtonElement | null;
+    expect(btn).withContext(`stable connect testid for ${providerId}`).toBeTruthy();
+    expect(btn!.tagName).toBe('BUTTON');
+  });
+
+  it('renders mcp-${id}-key on the paste-key Save button when in paste mode', () => {
+    const fx = render();
+    const c = fx.componentInstance;
+    const providerId = c.providers[0].id;
+    c.connections.set([]);
+    c.pasteMode.set(providerId);
+    fx.detectChanges();
+    const el = fx.nativeElement as HTMLElement;
+    const save = el.querySelector(`[data-testid="mcp-${providerId}-key"]`) as HTMLButtonElement | null;
+    expect(save).withContext(`stable paste-key testid for ${providerId}`).toBeTruthy();
+    expect(save!.tagName).toBe('BUTTON');
+    // the connect button is replaced by the paste input row in this branch
+    expect(el.querySelector(`[data-testid="mcp-${providerId}-connect"]`)).withContext('connect button hidden in paste mode').toBeNull();
+  });
+});
+
+/**
  * MCP-connection disconnect is toast-armed (7s action, re-clickable mid-async).
  * A second disconnect of the same connection while one is in flight must NOT
  * fire a duplicate DELETE.
