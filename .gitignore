@@ -107,3 +107,4 @@ apps/project-sites/_ADMIN_CONTRACT_REPORT.json
 # Playwright ad-hoc trace-output dirs (e.g. `playwright test --output=tr-fjNN`) — 2,826
 # trace files were accidentally committed once; never track these.
 apps/project-sites/tr-fj*/
+editor-vqa/
