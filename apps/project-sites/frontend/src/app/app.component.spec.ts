@@ -1,4 +1,4 @@
-import { ComponentFixture, TestBed } from '@angular/core/testing';
+import { ComponentFixture, TestBed, fakeAsync, tick } from '@angular/core/testing';
 import {
   provideRouter,
   Router,
@@ -118,6 +118,12 @@ describe('AppComponent (shell a11y + chrome contract)', () => {
  * the `.route-skeleton` stuck on every admin route → a ~0.44 CLS (in-flow 520px block shoving
  * the page down) AND `[aria-busy=true]` never clearing (a lying-loading veil). The fix gates
  * arming on `router.getCurrentNavigation()` (non-null only during a real nav). These lock it.
+ *
+ * Arming is DEBOUNCED (`ROUTE_SKELETON_DELAY_MS`, ~160ms): after `PreloadAllModules` most navs
+ * resolve in a few ms, so the skeleton is armed via a `setTimeout` and only surfaces if the
+ * chunk load outlasts the delay — a fast/cached nav settles first and clears the timer (no
+ * flash). These specs therefore run under `fakeAsync` and `tick` past the delay to observe the
+ * armed state; the clear on nav-settle is synchronous.
  */
 describe('AppComponent — route-loading skeleton ignores background preloads (AL-722)', () => {
   let fixture: ComponentFixture<AppComponent>;
@@ -136,7 +142,7 @@ describe('AppComponent — route-loading skeleton ignores background preloads (A
     TestBed.resetTestingModule();
   });
 
-  it('does NOT arm the skeleton for a preload RouteConfigLoadStart (no active navigation)', () => {
+  it('does NOT arm the skeleton for a preload RouteConfigLoadStart (no active navigation)', fakeAsync(() => {
     // Simulate the real bug: a prior nav to /admin completed (pendingNavUrl='/admin'), then
     // PreloadAllModules fires RouteConfigLoadStart for a background chunk with no nav in flight.
     events.next(new NavigationStart(1, '/admin'));
@@ -145,19 +151,24 @@ describe('AppComponent — route-loading skeleton ignores background preloads (A
 
     spyOn(router, 'getCurrentNavigation').and.returnValue(null); // no navigation in flight = preload
     events.next(new RouteConfigLoadStart({ path: 'editor' } as Route));
-    // Must STAY off — a preload must never latch the skeleton on (was the stuck-forever bug).
+    // Must STAY off even PAST the arming debounce — a preload never schedules the timer, so a
+    // background chunk can never latch the skeleton on (was the stuck-forever bug).
+    tick(300);
     expect(c.routeLoading()).toBe(false);
-  });
+  }));
 
-  it('DOES arm the skeleton for a RouteConfigLoadStart during an active navigation', () => {
+  it('DOES arm the skeleton for a RouteConfigLoadStart during an active navigation', fakeAsync(() => {
     events.next(new NavigationStart(2, '/admin'));
     spyOn(router, 'getCurrentNavigation').and.returnValue({} as ReturnType<Router['getCurrentNavigation']>);
     events.next(new RouteConfigLoadStart({ path: 'admin' } as Route));
+    // Arming is debounced (~160ms) so a fast nav never flashes the skeleton — not yet armed.
+    expect(c.routeLoading()).toBe(false);
+    tick(200); // past ROUTE_SKELETON_DELAY_MS → the slow-chunk skeleton surfaces.
     expect(c.routeLoading()).toBe(true);
-    // …and clears the instant the navigation settles.
+    // …and clears the instant the navigation settles (synchronous, and cancels any pending timer).
     events.next(new NavigationEnd(2, '/admin', '/admin'));
     expect(c.routeLoading()).toBe(false);
-  });
+  }));
 });
 
 /**

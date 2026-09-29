@@ -78,19 +78,31 @@ describe('AdminSiteDnaComponent (taste pulse + a11y)', () => {
     expect(labelsText).withContext('no bare pencil char').not.toContain('✎');
   });
 
-  // The icon-only Refresh button (↻) keeps its constant aria-label, but a screen
-  // reader also needs the in-progress state — aria-busy — while history reloads.
-  // Cohesion with the rest of /admin's Refresh affordances.
-  it('the ↻ Refresh button announces aria-busy while the feedback history reloads', () => {
+  // There is no manual Refresh button anymore (real-time-data-no-manual-refresh): a
+  // visibility-aware 30s auto-poll keeps the feedback history current. A screen reader
+  // still needs the in-progress state while it reloads — the busy signal moved from the
+  // (removed) button onto the live feedback table (`aria-busy`) + the "Updating…" live
+  // status chip. Cohesion with the rest of /admin's real-time surfaces.
+  it('announces aria-busy on the feedback history + a "Updating…" live status while it reloads', () => {
     build(true);
-    const btn = fixture.nativeElement.querySelector('.dna-refresh-btn[aria-label="Refresh feedback history"]') as HTMLButtonElement;
-    expect(btn).withContext('icon refresh button renders when the flag is on').toBeTruthy();
+    const host = fixture.nativeElement as HTMLElement;
+    // The manual ↻ button is gone by design.
+    expect(host.querySelector('.dna-refresh-btn')).withContext('no manual refresh button (auto-poll)').toBeNull();
+
+    const table = host.querySelector('.dna-table') as HTMLTableElement;
+    const live = host.querySelector('.dna-live[role="status"]') as HTMLElement;
+    expect(table).withContext('feedback history table renders when the flag is on').toBeTruthy();
+    expect(live).withContext('live status chip present').toBeTruthy();
+
     component.loading.set(true);
     fixture.detectChanges();
-    expect(btn.getAttribute('aria-busy')).withContext('busy state announced to AT during reload').toBe('true');
+    expect(table.getAttribute('aria-busy')).withContext('busy announced to AT during reload').toBe('true');
+    expect(live.textContent).withContext('live chip reads "Updating…" during reload').toContain('Updating');
+
     component.loading.set(false);
     fixture.detectChanges();
-    expect(btn.getAttribute('aria-busy')).withContext('busy clears when idle').toBe('false');
+    expect(table.getAttribute('aria-busy')).withContext('busy clears when idle').toBe('false');
+    expect(live.textContent).withContext('live chip drops "Updating…" when idle').not.toContain('Updating');
   });
 
   it('computes accept ratio as a whole-number percent of all signals', () => {
