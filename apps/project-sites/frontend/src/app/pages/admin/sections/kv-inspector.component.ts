@@ -47,7 +47,10 @@ interface KvValueResponse {
       <p class="text-[0.82rem] text-text-secondary mt-1 mb-1 max-w-2xl">
         Read-only view of the shared platform KV namespaces. Super-admin only.
       </p>
-      <p class="text-[0.75rem] text-amber-300/80 mb-4" data-testid="kv-eventual-note">
+      <p
+        class="text-[0.75rem] text-[color-mix(in_oklch,var(--ps-warning)_80%,transparent)] mb-4"
+        data-testid="kv-eventual-note"
+      >
         Note: KV is eventually consistent — a just-written key may not appear here for a few seconds.
       </p>
 
@@ -124,7 +127,7 @@ interface KvValueResponse {
                       <button
                         type="button"
                         class="w-full text-left px-3 py-1.5 rounded text-[0.82rem] font-mono truncate hover:bg-white/8"
-                        [style.background]="selectedKey() === k.name ? 'rgba(255,255,255,0.10)' : null"
+                        [class.bg-white/10]="selectedKey() === k.name"
                         [attr.aria-pressed]="selectedKey() === k.name"
                         (click)="selectKey(k.name)"
                       >
@@ -136,7 +139,7 @@ interface KvValueResponse {
                 @if (hasMoreKeys()) {
                   <button
                     type="button"
-                    class="mt-2 text-[0.78rem] text-ps-accent hover:underline disabled:opacity-50"
+                    class="mt-2 text-[0.78rem] text-ps-accent hover:underline disabled:cursor-not-allowed disabled:text-[color-mix(in_oklch,var(--ps-ink)_60%,transparent)] disabled:no-underline"
                     [disabled]="keysLoading()"
                     (click)="loadMoreKeys()"
                     data-testid="kv-load-more"
@@ -159,7 +162,9 @@ interface KvValueResponse {
                     <div class="flex items-center gap-3 text-[0.72rem] text-text-secondary mb-2">
                       <span>TTL: <span class="text-white">{{ ttlLabel(v.ttl) }}</span></span>
                       @if (v.truncated) {
-                        <span class="text-amber-300" data-testid="kv-truncated">truncated (64 KiB cap)</span>
+                        <span class="text-[var(--ps-warning)]" data-testid="kv-truncated"
+                          >truncated (64 KiB cap)</span
+                        >
                       }
                     </div>
                     @if (v.value === null) {
