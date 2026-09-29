@@ -23,7 +23,7 @@
 import { Hono } from 'hono';
 
 import type { Env, Variables } from '../../../src/types/env.js';
-import { unauthorized, notFound } from '../../../src/lib/feature_guard.js';
+import { unauthorized } from '../../../src/lib/feature_guard.js';
 import { isFlagOn } from '../../../src/modules/feature_flags/services.js';
 import { FLAG_KEY, type InboxListResult, type ListResponse } from './schemas.js';
 
@@ -53,17 +53,26 @@ function log(
  */
 async function guard(
   c: import('hono').Context<AppContext>,
+  next: import('hono').Next,
 ): Promise<string | Response> {
   const userId = c.get('userId');
   if (!userId) return unauthorized(c);
   const on = await isFlagOn(c.env, FLAG_KEY, { userId, orgId: c.get('orgId') }).catch(() => false);
-  if (!on) return notFound(c);
+  if (!on) {
+    // psnotify dark → DON'T 404. psnotifyInbox is mounted on `/api/notifications`
+    // BEFORE the legacy `notifications` inbox (src/index.ts). A hard 404 here SHADOWS
+    // that legacy handler → the bell console-errors a 404 on every 60s poll. Fall
+    // through so the legacy inbox serves; when nothing is mounted after, Hono's
+    // default 404 stands (dark, never 403).
+    await next();
+    return c.res;
+  }
   return userId;
 }
 
 // GET /api/notifications?unreadOnly&limit — the caller's OWN inbox.
-psnotifyInbox.get('/api/notifications', async (c) => {
-  const gated = await guard(c);
+psnotifyInbox.get('/api/notifications', async (c, next) => {
+  const gated = await guard(c, next);
   if (typeof gated !== 'string') return gated;
   const userId = gated;
 
@@ -105,8 +114,8 @@ psnotifyInbox.get('/api/notifications', async (c) => {
 });
 
 // POST /api/notifications/:id/read — mark one of the caller's notifications read.
-psnotifyInbox.post('/api/notifications/:id/read', async (c) => {
-  const gated = await guard(c);
+psnotifyInbox.post('/api/notifications/:id/read', async (c, next) => {
+  const gated = await guard(c, next);
   if (typeof gated !== 'string') return gated;
   const userId = gated;
   const id = c.req.param('id');
@@ -142,8 +151,8 @@ psnotifyInbox.post('/api/notifications/:id/read', async (c) => {
 // POST /api/notifications/read-all — mark ALL of the caller's unread read.
 // Mirrors the legacy D1 endpoint; caller-scoped by the AUTHED userId. `updated`
 // is the COUNT of rows flipped unread→read.
-psnotifyInbox.post('/api/notifications/read-all', async (c) => {
-  const gated = await guard(c);
+psnotifyInbox.post('/api/notifications/read-all', async (c, next) => {
+  const gated = await guard(c, next);
   if (typeof gated !== 'string') return gated;
   const userId = gated;
 

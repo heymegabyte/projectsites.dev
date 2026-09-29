@@ -128,11 +128,24 @@ describe('psnotify inbox handlers — legacy D1 bell contract', () => {
     expect(res.status).toBe(401);
   });
 
-  it('GET /api/notifications → 404 (dark, never 403) when the flag is off', async () => {
+  it('GET /api/notifications → 404 (dark, never 403) when the flag is off AND nothing is mounted after', async () => {
     mockIsFlagOn.mockResolvedValue(false);
     const { app, env } = makeApp({});
     const res = await app.request('/api/notifications', {}, env);
     expect(res.status).toBe(404);
+  });
+
+  it('GET /api/notifications falls through to the legacy inbox when the flag is off (no 404 shadow)', async () => {
+    // Regression: psnotify (mounted FIRST, src/index.ts:1132) must NOT 404-shadow the
+    // legacy `notifications` inbox mounted on the SAME path right after it (index.ts:1139).
+    // A hard 404 here made the notification bell console-error on every 60s poll while
+    // psnotify was dark. With the flag off, psnotify must fall through, not block.
+    mockIsFlagOn.mockResolvedValue(false);
+    const { app, env } = makeApp({});
+    app.get('/api/notifications', (c) => c.json({ data: [{ id: 'legacy' }], unread_count: 0 }));
+    const res = await app.request('/api/notifications', {}, env);
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({ data: [{ id: 'legacy' }], unread_count: 0 });
   });
 
   it('POST /api/notifications/read-all marks all read + returns { ok, updated }, scoped by userId', async () => {
