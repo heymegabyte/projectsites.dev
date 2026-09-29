@@ -53,6 +53,8 @@ import { SocialPasteConnectDialogComponent, isValidPublicHttpsUrl } from './soci
 // Connected-accounts LEFT pane — split out (presentational). Owns the platform
 // TYPES; PLATFORMS catalog stays here and is passed down via [platforms].
 import { SocialAccountsComponent, type PlatformId, type PlatformDef, type SocialAccount } from './social-accounts.component';
+// Drafts/Queue/Sent post list — split out (presentational, reused across the 3 tabs).
+import { SocialPostListComponent, type PostListTab } from './social-post-list.component';
 
 interface MediaItem {
   id: string;
@@ -203,7 +205,7 @@ const PLATFORMS: readonly PlatformDef[] = [
   selector: 'app-admin-social',
   standalone: true,
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [CommonModule, FormsModule, RevealDirective, RollingCounterComponent, HlmInputDirective, HlmSelectDirective, HlmTablistDirective, SocialAccountsComponent, SocialCalendarComponent, SocialAutoPilotDialogComponent, SocialPasteConnectDialogComponent],
+  imports: [CommonModule, FormsModule, RevealDirective, RollingCounterComponent, HlmInputDirective, HlmSelectDirective, HlmTablistDirective, SocialAccountsComponent, SocialPostListComponent, SocialCalendarComponent, SocialAutoPilotDialogComponent, SocialPasteConnectDialogComponent],
   template: `
 <div class="social-wrap" [class.is-loading]="loading()">
 
@@ -665,89 +667,22 @@ const PLATFORMS: readonly PlatformDef[] = [
 
       <!-- ============ DRAFTS / QUEUE / SENT lists ============ -->
       @if (tab() === 'drafts' || tab() === 'queue' || tab() === 'sent') {
-        <div class="list-pane" appReveal>
-          @if (bulkSelected().size > 0) {
-            <div class="bulk-bar" role="region" aria-label="Bulk actions">
-              <span class="bulk-ct">{{ bulkSelected().size }} selected</span>
-              <button type="button" class="btn-ghost sm danger" (click)="bulkDelete()">Delete selected</button>
-              <button type="button" class="btn-ghost sm" (click)="clearBulk()">Clear</button>
-            </div>
-          }
-          @if (filteredPosts().length === 0) {
-            <div class="empty-state">
-              <svg width="56" height="56" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.2"><circle cx="12" cy="12" r="10"/><path d="M8 12h8"/></svg>
-              <h3>Nothing here yet</h3>
-              <p>{{ tab() === 'drafts' ? 'Save a draft from the composer to see it here.' : tab() === 'queue' ? 'Schedule a post to fill the queue.' : 'Published posts will appear here with analytics.' }}</p>
-              <button type="button" class="btn-primary" (click)="selectTab('compose')">Open composer</button>
-            </div>
-          } @else {
-            @for (post of filteredPosts(); track post.id) {
-              <article class="post-card" appReveal [revealDelay]="$index * 60" [class.is-bulk-selected]="isBulkSelected(post.id)">
-                <header class="post-h">
-                  <input type="checkbox" class="post-sel" [checked]="isBulkSelected(post.id)" (change)="toggleBulk(post.id)" [attr.aria-label]="'Select this post for bulk actions'" />
-                  <div class="post-platforms">
-                    @for (p of post.platforms; track p) {
-                      @let pd = defOf(p);
-                      <span class="post-pglyph" [style.--brand]="pd?.color" [title]="pd?.label || p">
-                        <svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor"><path [attr.d]="pd?.glyph || ''"/></svg>
-                      </span>
-                    }
-                  </div>
-                  <span class="post-status" [class]="'is-' + post.status">{{ post.status }}</span>
-                  <span class="post-time">{{ post.scheduled_at || post.published_at | date:'short' }}</span>
-                </header>
-                <p class="post-body">{{ post.content }}</p>
-                @if (post.media.length) {
-                  <div class="post-thumbs">
-                    @for (m of post.media; track m.id) {
-                      <img [src]="m.thumb_url || m.url" [alt]="m.alt" loading="lazy" />
-                    }
-                  </div>
-                }
-
-                @if (tab() === 'sent') {
-                  <div class="post-stats">
-                    @for (row of analyticsFor(post.id); track row.platform) {
-                      @let pd = defOf(row.platform);
-                      <div class="stat-tile" [style.--brand]="pd?.color">
-                        <div class="stat-h"><span class="stat-glyph"><svg width="11" height="11" viewBox="0 0 24 24" fill="currentColor"><path [attr.d]="pd?.glyph || ''"/></svg></span> {{ pd?.label }}</div>
-                        <div class="stat-grid">
-                          <div><span class="stat-k">Impressions</span><app-rolling-counter [value]="row.impressions" /></div>
-                          <div><span class="stat-k">Likes</span><app-rolling-counter [value]="row.likes" /></div>
-                          <div><span class="stat-k">Shares</span><app-rolling-counter [value]="row.shares" /></div>
-                          <div><span class="stat-k">Clicks</span><app-rolling-counter [value]="row.clicks" /></div>
-                        </div>
-                      </div>
-                    }
-                  </div>
-                  <div class="post-links">
-                    @for (p of post.platforms; track p) {
-                      @if (post.per_platform_url?.[p]) {
-                        <a [href]="post.per_platform_url![p]!" target="_blank" rel="noopener noreferrer">View on {{ defOf(p)?.label }}<svg class="inline-block align-[-2px] ml-[3px]" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg></a>
-                      }
-                    }
-                  </div>
-                }
-
-                <div class="post-actions">
-                  @if (tab() === 'drafts') {
-                    <button type="button" class="btn-ghost sm" (click)="editPost(post)">Edit</button>
-                    <button type="button" class="btn-ghost sm danger" [disabled]="isDeletingPost(post.id)" [attr.aria-busy]="isDeletingPost(post.id)" (click)="deletePost(post)">{{ isDeletingPost(post.id) ? 'Deleting…' : 'Delete' }}</button>
-                    <button type="button" class="btn-primary sm" [class.is-busy]="isPublishing(post.id)" [disabled]="isPublishing(post.id)" (click)="publishNow(post)">{{ isPublishing(post.id) ? 'Publishing…' : 'Publish' }}</button>
-                  }
-                  @if (tab() === 'queue') {
-                    <button type="button" class="btn-ghost sm" (click)="editPost(post)">Edit time</button>
-                    <button type="button" class="btn-ghost sm danger" [disabled]="isDeletingPost(post.id)" [attr.aria-busy]="isDeletingPost(post.id)" (click)="deletePost(post)">{{ isDeletingPost(post.id) ? 'Cancelling…' : 'Cancel' }}</button>
-                    <button type="button" class="btn-primary sm" [class.is-busy]="isPublishing(post.id)" [disabled]="isPublishing(post.id)" (click)="publishNow(post)">{{ isPublishing(post.id) ? 'Publishing…' : 'Send now' }}</button>
-                  }
-                  @if (tab() === 'sent') {
-                    <button type="button" class="btn-ghost sm" (click)="duplicatePost(post)">Duplicate</button>
-                  }
-                </div>
-              </article>
-            }
-          }
-        </div>
+        <app-social-post-list
+          [status]="listStatus()"
+          [posts]="filteredPosts()"
+          [platforms]="platforms"
+          [analytics]="analyticsCache()"
+          [selectedIds]="bulkSelected()"
+          [deletingIds]="deletingPostIds()"
+          [publishingIds]="publishingIds()"
+          (toggleSelect)="toggleBulk($event)"
+          (bulkDelete)="bulkDelete()"
+          (clearSelect)="clearBulk()"
+          (openComposer)="selectTab('compose')"
+          (edit)="editPost($event)"
+          (delete)="deletePost($event)"
+          (publish)="publishNow($event)"
+          (duplicate)="duplicatePost($event)" />
       }
 
       <!-- ============ CALENDAR ============ -->
@@ -955,10 +890,6 @@ const PLATFORMS: readonly PlatformDef[] = [
       .tmpl-del { font-size: 0.85rem; line-height: 1; color: color-mix(in oklch, var(--ps-ink, #f4f4ff) 55%, transparent); background: none; border: 0; cursor: pointer; padding: 0 0.45rem 0 0.1rem; }
       .tmpl-del:hover { color: #ff6b8a; }
       .tmpl-save { font-size: 0.7rem; font-weight: 600; color: var(--ps-accent, #00e5ff); background: none; border: 1px dashed color-mix(in oklch, var(--ps-accent, #00e5ff) 35%, transparent); border-radius: 999px; cursor: pointer; padding: 0.2rem 0.6rem; }
-      .bulk-bar { position: sticky; top: 0; z-index: 5; display: flex; align-items: center; gap: 0.6rem; margin-bottom: 0.6rem; padding: 0.5rem 0.75rem; border-radius: 0.6rem; border: 1px solid color-mix(in oklch, var(--ps-accent, #00e5ff) 30%, transparent); background: color-mix(in oklch, var(--ps-bg, #060610) 80%, var(--ps-accent, #00e5ff) 10%); backdrop-filter: blur(6px); }
-      .bulk-ct { font-size: 0.78rem; font-weight: 700; color: var(--ps-ink, #f4f4ff); margin-right: auto; }
-      .post-sel { width: 15px; height: 15px; accent-color: var(--ps-accent, #00e5ff); cursor: pointer; flex: none; }
-      .post-card.is-bulk-selected { outline: 1.5px solid color-mix(in oklch, var(--ps-accent, #00e5ff) 55%, transparent); outline-offset: 1px; }
       .x-cost-note { display: flex; align-items: center; gap: 0.6rem; margin: 0.5rem 0; padding: 0.45rem 0.7rem; border-radius: 0.5rem; border: 1px solid color-mix(in oklch, #fbbf24 40%, transparent); background: color-mix(in oklch, #fbbf24 9%, transparent); color: var(--ps-ink, #f4f4ff); font-size: 0.74rem; line-height: 1.35; }
       .x-cost-note span { flex: 1; }
       .x-cost-note button { flex: none; font-size: 0.7rem; font-weight: 600; color: #fbbf24; background: none; border: 0; cursor: pointer; padding: 0.1rem 0.3rem; }
@@ -1184,54 +1115,7 @@ const PLATFORMS: readonly PlatformDef[] = [
       .rss-actions { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
       .rss-hint { font-size: 0.68rem; color: color-mix(in oklch, var(--ps-ink, #f4f4ff) 55%, transparent); }
 
-      /* ── Post list ── */
-      .list-pane { display: flex; flex-direction: column; gap: 10px; }
-      .empty-state {
-        display: flex; flex-direction: column; align-items: center; gap: 10px; text-align: center; padding: 50px 18px;
-        color: color-mix(in oklch, var(--ps-ink, #f4f4ff) 65%, transparent);
-      }
-      .empty-state svg { opacity: 0.4; }
-      .empty-state h3 { color: var(--ps-ink, #f4f4ff); margin: 0; font-size: 1rem; }
-      .empty-state p { font-size: 0.82rem; margin: 0; }
-      .post-card {
-        padding: 14px; border-radius: 14px;
-        background: color-mix(in oklch, var(--ps-bg, #060610) 65%, transparent);
-        border: 1px solid color-mix(in oklch, var(--ps-ink, #f4f4ff) 8%, transparent);
-        display: flex; flex-direction: column; gap: 10px;
-      }
-      .post-h { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
-      .post-platforms { display: inline-flex; gap: 4px; }
-      .post-pglyph {
-        width: 20px; height: 20px; border-radius: 5px;
-        background: color-mix(in oklch, var(--brand) 14%, transparent);
-        color: var(--brand); display: grid; place-items: center;
-      }
-      .post-status { font-size: 0.6rem; font-weight: 700; text-transform: uppercase; padding: 2px 7px; border-radius: 999px; }
-      .post-status.is-draft     { background: color-mix(in oklch, var(--ps-ink, #f4f4ff) 10%, transparent); color: color-mix(in oklch, var(--ps-ink, #f4f4ff) 75%, transparent); }
-      .post-status.is-scheduled { background: color-mix(in oklch, var(--ps-accent, #00e5ff) 16%, transparent); color: var(--ps-accent, #00e5ff); }
-      .post-status.is-published { background: color-mix(in oklch, #34d399 18%, transparent); color: #6ee7b7; }
-      .post-status.is-partial   { background: color-mix(in oklch, #fbbf24 18%, transparent); color: #fcd34d; }
-      .post-status.is-failed    { background: color-mix(in oklch, #ff5470 18%, transparent); color: #ff8a9d; }
-      .post-time { font-size: 0.7rem; color: color-mix(in oklch, var(--ps-ink, #f4f4ff) 55%, transparent); margin-left: auto; }
-      .post-body { color: var(--ps-ink, #f4f4ff); font-size: 0.85rem; margin: 0; line-height: 1.5; white-space: pre-wrap; }
-      .post-thumbs { display: flex; gap: 6px; flex-wrap: wrap; }
-      .post-thumbs img { width: 60px; height: 60px; object-fit: cover; border-radius: 6px; }
-      .post-stats { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 8px; }
-      .stat-tile {
-        --brand: var(--ps-accent, #00e5ff);
-        padding: 8px 10px; border-radius: 10px;
-        background: color-mix(in oklch, var(--brand) 5%, transparent);
-        border: 1px solid color-mix(in oklch, var(--brand) 22%, transparent);
-      }
-      .stat-h { display: flex; align-items: center; gap: 5px; font-size: 0.68rem; font-weight: 700; color: var(--brand); margin-bottom: 5px; }
-      .stat-glyph { display: inline-grid; place-items: center; }
-      .stat-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px; font-variant-numeric: tabular-nums; }
-      .stat-grid > div { display: flex; flex-direction: column; gap: 1px; font-size: 0.85rem; font-weight: 700; color: var(--ps-ink, #f4f4ff); }
-      .stat-k { font-size: 0.55rem; text-transform: uppercase; letter-spacing: 0.08em; color: color-mix(in oklch, var(--ps-ink, #f4f4ff) 55%, transparent); font-weight: 600; }
-      .post-links { display: flex; gap: 10px; flex-wrap: wrap; font-size: 0.74rem; }
-      .post-links a { color: var(--ps-accent, #00e5ff); text-decoration: none; }
-      .post-links a:hover { text-decoration: underline; }
-      .post-actions { display: flex; gap: 6px; justify-content: flex-end; flex-wrap: wrap; }
+      /* ── Post list ── extracted to app-social-post-list (owns .list-pane / .post-* / .stat-* / bulk styles). */
 
       /* ── Calendar ── */
       @keyframes fadeIn { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
@@ -1672,6 +1556,13 @@ export class AdminSocialComponent implements OnInit {
     if (t === 'queue') return all.filter((p) => p.status === 'scheduled').sort((a, b) => (a.scheduled_at || '').localeCompare(b.scheduled_at || ''));
     if (t === 'sent') return all.filter((p) => ['published', 'partial', 'failed'].includes(p.status));
     return [];
+  });
+  /** The active tab narrowed to the post-list's own status union — the list block
+   *  renders only when tab() ∈ {drafts,queue,sent}, so this maps 1:1 (compose/calendar
+   *  never reach the child); falls back to 'drafts' for the non-list tabs. */
+  readonly listStatus = computed<PostListTab>(() => {
+    const t = this.tab();
+    return t === 'queue' || t === 'sent' ? t : 'drafts';
   });
 
   /* ── Lifecycle ── */
@@ -2454,13 +2345,6 @@ export class AdminSocialComponent implements OnInit {
   }
 
   /* ── Analytics ── */
-  /** PURE reader — never fetches. Analytics are prefetched by `prefetchAnalytics` when
-   *  posts load, so this template getter can't trigger a signal write mid-render (that
-   *  fired NG0600 on the Sent tab the moment it had published posts to render). */
-  analyticsFor(postId: string): AnalyticsRow[] {
-    return this.analyticsCache()[postId] ?? [];
-  }
-
   /** Fetch per-post analytics for published posts OUTSIDE change detection — called from
    *  `loadPosts`' async subscribe callback, never a template getter. */
   private prefetchAnalytics(posts: SocialPost[]): void {
