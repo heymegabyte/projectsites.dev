@@ -139,6 +139,7 @@
     Expose `GET/POST /api/v1/sites`, `/v1/sites/:id/deploy`, `/v1/sites/:id/db/*`, `/v1/media`,
     `/v1/forms/submissions` behind the token middleware. The "deliver websites programmatically" wedge.
     Flag→beta with Zod + tests + prod-verify. Zod-derive the OpenAPI (`@asteasolutions/zod-to-openapi`).
+    CAMPAIGN lane 3 (AI API Keys) EXTENDS this same `psk_live_*` keystore — ONE token DB, never a second.
 
 - [ ] Enable Analytics Engine ingest (per-subdomain RUM/event sampling)
   - cadence: every-4-loops
@@ -212,7 +213,8 @@
   - context: brief 03 [HIGH]. Convert Umami → cf-native (D1 + Analytics Engine); make Payload the
     template every new member copies; surface ~10 wired-but-uncatalogued DO classes (~47 exist);
     close catalog↔`supported`↔infra drift (LiteLLM live at `llm.megabyte.space` but `supported:false`,
-    one SSOT reconcile); new members (Cal.com #1 SMB ask, NocoDB/Teable over per-site D1, Ghost,
+    one SSOT reconcile — LiteLLM line → folded into CAMPAIGN lane 9: resolve by REMOVAL, not
+    `supported:true`); new members (Cal.com #1 SMB ask, NocoDB/Teable over per-site D1, Ghost,
     Chatwoot). Gate container-centric copy on `image?.startsWith('cf-native:')`. Never reduce DO
     subclasses (deploy-break 10064 — only ADD).
 
@@ -811,3 +813,221 @@
   docs/COMPONENTS.md lagging. Acceptance: validator/test per fix in template repo. Est: M.
 - [ ] Hygiene: inspect non-ancestor branches `worktree-wf_59b344e1-c59-6/8` — salvage or delete
   with rationale. Est: S.
+
+---
+
+## CAMPAIGN — cf-native-ai (spec: CAMPAIGN-cf-native-ai.md; lanes 1-11, dependency-chained)
+
+> Canonical spec: [`./CAMPAIGN-cf-native-ai.md`](./CAMPAIGN-cf-native-ai.md) (single source — never
+> re-derive from code). Opened fire-55; source-review baseline `29007fdf2`. Chain: inventory →
+> policy → key-grants/model-routing → protocol adapters → managed execution; OAuth (lane 6) + Chat
+> (lane 7) consume the SAME policy/executor; workspace ADR (1.3) precedes editor migration (lane 8);
+> LiteLLM proxy removal (lane 9) only after verified caller cutover. FIRST slices only — replenish
+> per fire until §17 acceptance satisfied. Item shape: `deps · files · flag (dark experimental) ·
+> est S/M/L · acceptance (§17 case #)`.
+> Guard: the removed UI-authored AI-endpoints product STAYS removed — Site Functions remain
+> code-defined WfP. Dedupe: lane 3 EXTENDS the "Public REST API v1" `psk_live_*` keystore (ONE
+> token DB); lane 6 subsumes DISCOVERIES Lane 16 (D — MCP broker); lane 8 subsumes the Lane 15
+> `ide_sandbox` cull; lane 9 subsumes the App-catalog LiteLLM SSOT line.
+
+### Lane 1 — Inventory/ADRs (wave 0)
+
+- [ ] LiteLLM full-reference inventory → `docs/_campaign/litellm-inventory.md` — case-insensitive
+  sweep (code/config/containers/deploy routes/catalogs/provider selections/flags/env/scripts/tests/
+  docs); identify ACTIVE callers + customer-visible keys/models
+  - deps: none · files: `infra/litellm/` (read-only) · flag: n/a (docs) · est: M · acceptance: feeds §17.13
+- [ ] Foundations verify at HEAD → `docs/_campaign/foundations-verify.md` — confirm/refute each §2
+  claim: psk_ token store · `platform_mcp` transport gaps · oauth scope split · unimplemented
+  `mcp_client` providers · tier-router defects · 4-way router split · `ide_sandbox` fabrication ·
+  editor internal marker
+  - deps: none · files: `services/api_tokens.ts` · `libs/features/platform_mcp/` ·
+    `libs/features/mcp_oauth_provider/schemas.ts` · `services/mcp_client.ts` ·
+    `services/llm_tier_router.ts` · `services/ide_sandbox.ts` ·
+    `app/lib/modules/llm/providers/projectsites-ai.ts` · flag: n/a · est: M · acceptance: gates all §17
+- [ ] Workspace/runtime ADR — compare configured VibeSDK paths (SpaceDO SQLite fs-backend ·
+  Artifacts · Worker Loader/worker-bundler · Sandbox SDK · Browser Run) vs OUR account features/
+  entitlements BEFORE any R2/isomorphic-git commitment
+  - deps: none · files: `docs/decisions/` (new ADR) · flag: n/a · est: M · acceptance: prerequisite for §17.11/12
+- [ ] RED protocol-conformance specs `e2e/ai-api/` — failing specs for GET /v1/models ·
+  POST /v1/chat/completions (streamed+non-streamed, tools) · POST /v1/messages (+count_tokens,
+  events accumulate to valid final Message) BEFORE implementation (TDD)
+  - deps: none · files: `e2e/ai-api/` (new) · flag: n/a (specs) · est: M · acceptance: §17.1 + §17.2 (RED now → green lane 4)
+
+### Lane 2 — Policy/storage
+
+- [ ] ONE grant/capability registry — shared Zod schemas + typed tool manifests (stable tool IDs ·
+  read/write/publish distinction · resource requirements · cost class · idempotency · approval
+  behavior); reconcile `sites:read/write` (oauth) with `data:read/write` (public API) scope split
+  - deps: L1.2 · files: `libs/features/mcp_oauth_provider/schemas.ts` + `packages/shared/` · flag: `ai_policy_core` · est: M · acceptance: §17.3/§17.5 groundwork
+- [ ] Additive D1 migrations — concrete grants (connection/account IDs · site/resource IDs ·
+  actions · models · limits) + grant-revision/revocation + audit trail
+  - deps: L2.1 · files: `migrations/` (additive only) · flag: `ai_policy_core` · est: M · acceptance: §17.6
+- [ ] Principal resolver (session | API key | OAuth grant | site agent) + single authorizer
+  enforcing the INTERSECTION (owner RBAC ∩ grant ∩ site/resource ∩ connection ∩ action ∩
+  entitlement ∩ revocation/approval/budget) immediately before EVERY tool execution; authz-infra
+  failure DENIES, never grants
+  - deps: L2.2 · files: `services/api_tokens.ts` (EXTEND — same keystore as Public REST API v1) · flag: `ai_policy_core` · est: L · acceptance: §17.6
+- [ ] DO-serialized budgets — reservation/settlement/crash recovery + coordinated grant-revision/
+  revocation checks (KV = cache only, NEVER authority for revocation/spend)
+  - deps: L2.3 · files: new DO class (deploy-safe: only ADD DO classes, 10064 class) · flag: `ai_policy_core` · est: M · acceptance: §17.9
+
+### Lane 3 — Key management
+
+- [ ] "AI API Keys" inside Settings → API Tokens (EXTEND — no detached dashboard, no second token
+  DB): create = name + protocol (OpenAI|Anthropic|both) → grants → expiry/limits/approval policy →
+  endpoint + plaintext ONCE + separate Copy controls + working curl/official-SDK examples
+  - deps: L2.3 · files: `services/api_tokens.ts` + Angular/Spartan admin Settings · flag: `ai_api_keys` · est: L · acceptance: §17.1 (create/copy leg)
+- [ ] Permission popup ("Choose access") on DialogShellComponent — live search · selected pinned +
+  survive search changes · tri-state groups from the REAL catalog · Select-all = CURRENT eligible
+  only · connected/expired/not-configured/unavailable states · presets (Read only · Draft ·
+  Publishing · Custom) · keyboard/focus-trap/SR/mobile/reduced-motion
+  - deps: L3.1 · files: Angular/Spartan admin (DialogShellComponent) + `services/mcp_client.ts` (connection states) · flag: `ai_api_keys` · est: L · acceptance: §17.4
+- [ ] Key lifecycle — list/describe · edit/narrow · expire/rotate/revoke · last-use + usage/cost ·
+  connection health; EXISTING tokens keep working WITHOUT silently gaining AI/publish/integration
+  access; never redisplay plaintext, never keys in URLs/logs
+  - deps: L3.1 · files: `services/api_tokens.ts` · flag: `ai_api_keys` · est: M · acceptance: §17.6 + legacy-scope no-regression
+
+### Lane 4 — Inference protocols
+
+- [ ] ONE routing authority — consolidate `libs/features/model_registry/` + `external_llm.ts` +
+  `ai_gateway.ts` + `gateway_route.ts` (don't add another router); fix `services/llm_tier_router.ts`
+  defects (latency rule overriding security-review · capability-blind fallback step-down ·
+  premium-only-vision assumption) with VERIFIED per-model capabilities
+  - deps: L1.2 · files: the 5 named modules · flag: `ai_model_router` · est: L · acceptance: §17.8
+- [ ] GET /v1/models (+lookup) + POST /v1/chat/completions — Bearer, response/chunk schemas,
+  streamed+non-streamed tools, consistent IDs/indexes, correct tool deltas, finish reasons, usage,
+  ONE terminal marker (turns L1.4 RED specs green)
+  - deps: L2.3 + L4.1 · files: Workers/Hono backend (new `/v1` routes) · flag: `ai_compat_api` · est: L · acceptance: §17.1
+- [ ] POST /v1/messages + /v1/messages/count_tokens — x-api-key + anthropic-version, content
+  blocks, tool_use/tool_result, documented named events + content-block indexes + cumulative
+  usage + one terminal stop; VERIFIED tokenization (no char heuristics as exact counts)
+  - deps: L4.2 · files: Workers/Hono backend `/v1/messages` · flag: `ai_compat_api` · est: L · acceptance: §17.2
+- [ ] Compat matrix + protocol-appropriate unsupported-feature errors (never silent strip) +
+  virtual models `projectsites-auto|fast|balanced|premium` on versioned routing policies; never
+  claim actual Claude/GPT when another backend served; separately-tested /v1/responses workstream
+  - deps: L4.2 + L4.3 · files: docs + routing authority · flag: `ai_compat_api` · est: M · acceptance: §17.2 + §17.8
+- [ ] API-path WAF narrowing — curl/SDK reach `/v1/*` with token auth, no browser-only bot
+  challenge (zone protections stay); known class: apex POST hits CF Bot-Fight 403
+  - deps: L4.2 · files: zone/WAF config + Workers/Hono backend · flag: n/a (infra) · est: S · acceptance: §17.1 (SDK reachability leg)
+
+### Lane 5 — Managed tools
+
+- [ ] Managed execution loop — resolve authorized connections/resources → introduce relevant
+  tools → bounded server-side model/tool loop → protocol-compatible final answer from a NORMAL
+  SDK request (zero MCP config; stateless Chat/Messages FIRST, no proprietary header); secrets
+  decrypt/inject only at execution boundaries via `services/ai_env_vars.ts` (never into model
+  context)
+  - deps: L3.1 + L4.2/L4.3 · files: `services/mcp_client.ts` + `libs/features/platform_mcp/` + `services/ai_env_vars.ts` · flag: `ai_managed_tools` · est: L · acceptance: §17.1 + §17.3
+- [ ] Two-boundary tool semantics — (A) managed tools server-side from saved grants; (B)
+  caller-supplied functions returned as native protocol tool calls, NEVER silently
+  server-executed; collision-free namespaces + correct continuation transcripts + preserved
+  tool-choice/JSON-only semantics
+  - deps: L5.1 · files: protocol adapters (Workers/Hono backend) · flag: `ai_managed_tools` · est: M · acceptance: §17.7
+- [ ] Per-hidden-step metering + bounds (steps · wall-time · output/tool-result size · parallelism
+  · spend · retry-escalation depth) on lane-2 DO budgets; retries NEVER duplicate
+  publish/SMS/calls; useful partial-failure results without claiming completion
+  - deps: L5.1 + L2.4 · files: DO budgets + gateway adapters · flag: `ai_managed_tools` · est: M · acceptance: §17.9
+- [ ] Approval-required ops → actionable protocol-compatible pending receipts; server-verified
+  approval or narrow configured automation ONLY ("model said confirmed" ≠ approval)
+  - deps: L5.1 · files: policy registry + protocol adapters · flag: `ai_managed_tools` · est: M · acceptance: §17.9 (seeds lane-10 inbox)
+
+### Lane 6 — External MCP/OAuth
+
+- [ ] Conformant ProjectSites MCP server — CF Agents + official MCP SDK (Streamable HTTP ·
+  protocol negotiation · init · implemented tools/resources · cancellation · errors · auth
+  discovery); expose only principal-usable tools; INDEPENDENT re-authorization at tools/call
+  (subsumes DISCOVERIES Lane 16-D)
+  - deps: L2.3 · files: `libs/features/platform_mcp/` (EXTEND 56-entry dispatcher — hand-rolled handler ≠ transport conformance) · flag: extend `platform_mcp` · est: L · acceptance: §17.5 (resource-reach leg)
+- [ ] workers-oauth-provider foundation — PKCE S256 · exact redirect-URI · CSRF/state ·
+  resource/audience binding · AS/resource metadata · registration · code expiry + ATOMIC
+  single-use exchange (two simultaneous exchanges must not both succeed) · secure refresh
+  rotation/replay · revocation · delegated child ≤ presenter
+  - deps: L2.3 · files: `libs/features/mcp_oauth_provider/schemas.ts` (+ provider Worker) · flag: extend `mcp_oauth_provider` · est: L · acceptance: §17.5 (escalation/code-replay/audience)
+- [ ] Consent screen — client + verified origin · requested access + expiry · all CURRENT eligible
+  sites preselected (search/all/none/individual) · grant SNAPSHOTS selected IDs (never future
+  sites) · "Customize permissions" opens the SAME lane-3 selector
+  - deps: L6.2 + L3.2 · files: Angular/Spartan admin consent surface · flag: extend `mcp_oauth_provider` · est: M · acceptance: §17.5
+- [ ] Connected-applications UI — view/narrow/revoke; changes hit ACTIVE runs before their next
+  action
+  - deps: L6.2 · files: Angular/Spartan admin Settings · flag: extend `mcp_oauth_provider` · est: M · acceptance: §17.6
+
+### Lane 7 — Chat (Cloudflare OS)
+
+- [ ] Cloudflare OS reuse audit — inspect packages/workshop-frontend + workshop-backend +
+  mcp-shared + MCP/Notion Gatekeepers + sharing/auth/action-store; pin adopted code; document
+  reuse-vs-adapt (frontend island vs service-bound Worker under OUR origin/session)
+  - deps: L1 · files: `docs/_campaign/` note · flag: n/a · est: M · acceptance: prerequisite for §17.10
+- [ ] Sidebar entry named exactly "Chat" — first-class workspace under our admin shell + sign-in
+  with verified tenant/site identity: conversations · active site/resource selection · connection
+  picker (NOT a link/unauth iframe to os.cloudflare.app)
+  - deps: L7.1 + L2.3 · files: Angular/Spartan admin (sidebar + route) · flag: `chat_workspace` · est: L · acceptance: §17.10 (opens from sidebar, authorized context)
+- [ ] Chat execution surface — real execution progress · action receipts · reconnect/resume +
+  cancel · shared approval inbox · artifact previews; proposals/drafts visibly distinct from
+  executed effects
+  - deps: L7.2 + L5.1 · files: Chat workspace + shared executor · flag: `chat_workspace` · est: L · acceptance: §17.10
+- [ ] Capability-tied suggestions (improve homepage · draft social campaign · summarize Notion ·
+  inspect analytics · prepare asset); unavailable → guide to connect; connection selection =
+  allowed CEILING; on-demand tool discovery over every-schema-in-prompt
+  - deps: L7.3 · files: Chat workspace · flag: `chat_workspace` · est: M · acceptance: §17.10 (suggestions leg)
+
+### Lane 8 — Workspace/editor
+
+- [ ] ONE workspace/runtime interface per L1.3 ADR — list/read · batched edits ·
+  revisions/checkpoints + diffs · snapshots · previews · sandbox exec · promotion; functioning
+  CF-native fallback when Artifacts/Facets/Loader unavailable; preserve bolt.diy until verified
+  parity (no second editor); no competing sources of truth
+  - deps: L1.3 · files: `app/` bolt.diy editor + Workers backend workspace routes · flag: `workspace_runtime_v2` · est: L · acceptance: §17.11/12 groundwork
+- [ ] Replace `services/ide_sandbox.ts` fabricated demo runs / timer progress / fake file events
+  with REAL workspace/Sandbox/job state — no pretend anything (subsumes DISCOVERIES Lane 15 cull)
+  - deps: L8.1 · files: `services/ide_sandbox.ts` · flag: `workspace_runtime_v2` · est: M · acceptance: §17.11 (real Sandbox commands + Browser Run checks)
+- [ ] Guest workspaces — isolated temp identities · quotas · signed previews · TTL cleanup ·
+  secure claiming; never a shared anonymous workspace ID; container disks ≠ durable history
+  - deps: L8.1 · files: workspace service + DO/R2 layout · flag: `workspace_runtime_v2` · est: M · acceptance: §17.11
+- [ ] Frozen-revision promotion through the new interface — promotion serves EXACTLY the frozen
+  revision via existing WfP (normal published serving, R2 fallback); autosave never publishes;
+  rollback/history/assets/Functions/per-site-data isolation preserved
+  - deps: L8.1 · files: WfP serving (§2.12) + workspace service · flag: `workspace_runtime_v2` · est: M · acceptance: §17.12
+
+### Lane 9 — Cutover/removal
+
+- [ ] Port useful LiteLLM routing/quotas/eval/telemetry natively WITH acceptance tests (from L1.1
+  inventory) — port BEFORE removal
+  - deps: L1.1 + L4.1 · files: `infra/litellm/` (source) → native router/budgets · flag: `ai_model_router` · est: M · acceptance: §17.13
+- [ ] Cut over ALL callers to native endpoints — editor
+  (`app/lib/modules/llm/providers/projectsites-ai.ts` — internal marker must NEVER authorize the
+  public API), site-generation, internal jobs, public callers; preserve owned usage/history;
+  rotate/reissue keys where plaintext unrecoverable
+  - deps: L9.1 + L4.2/L4.3 · files: `app/lib/modules/llm/providers/projectsites-ai.ts` + caller inventory · flag: `ai_compat_api` · est: L · acceptance: §17.13 (native works with proxy UNAVAILABLE)
+- [ ] Remove `infra/litellm/` + proxy-exclusive Neon/Upstash deps + bindings/routes/config/catalog
+  entries/docs — verified DO-identity/migration deprecation plan (never blind class removal or
+  migration rewrites); drift gate rejects reintroduction; close the App-catalog LiteLLM SSOT line
+  by DELETION
+  - deps: L9.2 verified · files: `infra/litellm/` + wrangler config + app catalog · flag: n/a (removal) · est: M · acceptance: §17.13 (no obsolete paths in active code/config)
+
+### Lane 10 — Business workflows
+
+- [ ] ONE approvals inbox across Chat + APIs + MCP + scheduled — single queue, shared receipts
+  - deps: L5.4 + L7.3 · files: Angular/Spartan admin + policy registry · flag: `approvals_inbox` · est: M · acceptance: §17.10 (shared approvals leg)
+- [ ] Notion → draft → social → approved-publish workflow behind the capability executor;
+  publish/delete stay distinct from read/draft
+  - deps: L5.1 + L10.1 · files: shared executor + `services/mcp_client.ts` adapters · flag: `notion_social_flow` · est: M · acceptance: §17.3 (scoping) + §17.9
+- [ ] Scheduled workflows re-evaluate grants/budgets/approvals AT execution — typed tools +
+  idempotency keys + operation receipts; recipient allowlists in tests + approved-destination
+  policies in automation (REAL carrier boundary — reuse working Twilio)
+  - deps: L5.3 + L10.1 · files: agent schedules/Workflows/Queues + shared executor · flag: `ai_agent_schedules` · est: M · acceptance: §17.9 (no duplicate SMS/calls; unauthorized sends fail closed)
+
+### Lane 11 — Provider readiness/ops
+
+- [ ] Routing evals + receipts — schema-validated versioned routing policies · canary/shadow evals
+  (no external effects) · representative quality/cost/latency benchmarks · concise route reasons ·
+  backend/attempt/tool-step/usage/cache/cost receipts
+  - deps: L4.1 · files: routing authority + evals harness · flag: `ai_model_router` · est: M · acceptance: §17.8
+- [ ] OpenRouter readiness artifacts — stable virtual-model IDs · compatible streaming/usage ·
+  truthful pricing/capability/context/output metadata · geo disclosures · monitoring · retention
+  policies; acceptance is EXTERNAL — no incidental application submission
+  - deps: L4.4 · files: `docs/_campaign/` readiness dossier · flag: n/a · est: M · acceptance: §15 conformance artifacts (external gate)
+- [ ] Ops guardrails — sensitive prompts/secrets OUT of default analytics; Gateway metrics ≠
+  billing/permissions; caching scoped tenant+grant-revision+resource-state+model/policy-version
+  (never skips writes, never leaks tenants); CF free allowance vs our pricing vs marginal cost
+  distinguished
+  - deps: L4.2 + L2.4 · files: gateway adapters + metering · flag: `ai_model_router` · est: M · acceptance: §17.9 (billing honesty leg)

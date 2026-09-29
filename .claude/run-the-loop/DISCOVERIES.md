@@ -40,9 +40,9 @@
   SMS/10DLC/TFN compliance (Brand/Campaign, opt-in, STOP/HELP); B6 remaining.
 - **Lane 15 — C (Editor Claude-Code + Sandbox + browser):** C1 `/api/sites/:id/workspace`
   501-when-Sandbox-unbound (pin `@cloudflare/sandbox` — ABSENT today); cull/repurpose orphaned
-  `ide_sandbox.ts` simulation + dead migration 0504; CF Browser Run Live View replaces Browserbase-only;
+  `ide_sandbox.ts` simulation (→ folded into CAMPAIGN lane 8, BACKLOG) + dead migration 0504; CF Browser Run Live View replaces Browserbase-only;
   never leak master D1/account tokens to the container; typed cards; ideas 1-12.
-- **Lane 16 — D (ProjectSites MCP broker):** D0 audience-bound site-scoped token (wire orphaned
+- **Lane 16 — D (ProjectSites MCP broker) → folded into CAMPAIGN lane 6 (BACKLOG):** D0 audience-bound site-scoped token (wire orphaned
   `mcp_resource_tokens`); one versioned Streamable-HTTP MCP endpoint + OAuth 2.1; recheck policy at
   `tools/call` (reject swapped Site IDs — org-wide 90-day token today, no live IDOR); ideas 1-12.
 - **Lane 17 — E (CF-native surfaces + Inspector-removal + Social-10):** Inspector removal (26 files
@@ -153,3 +153,19 @@ discovery agent under-scanned → rotate area next fire.
   low" — both recorded BLOCKED; Workers AI Llama 4 Scout (the product's own VISION_MODEL) via
   AI Gateway is the labeled fallback reviewer until credits return. Scout tends to emit
   positive observations mislabeled as p0 — treat its severity as advisory, confirm in pixels/code.
+
+## fire-55 — cf-native-ai campaign opened
+
+- Spec: `.claude/run-the-loop/CAMPAIGN-cf-native-ai.md` — the lossless condensed canonical (single
+  source; never re-derive from code). Source-review baseline commit `29007fdf2`.
+- BACKLOG gains `## CAMPAIGN — cf-native-ai`: 11 dependency-chained lanes, 41 first slices. Chain:
+  inventory → policy → key-grants/model-routing → protocol adapters → managed execution; OAuth +
+  Chat consume the SAME policy/executor; workspace ADR precedes editor migration; LiteLLM proxy
+  removal only after verified caller cutover.
+- Wave-0 artifacts expected: `docs/_campaign/litellm-inventory.md` + `docs/_campaign/
+  foundations-verify.md` + `e2e/ai-api/` RED protocol-conformance specs (§17.1/2 TDD scaffold).
+- Folded/referenced: DISCOVERIES Lane 16 (D — MCP broker) → CAMPAIGN lane 6; Lane 15 `ide_sandbox`
+  cull → lane 8; BACKLOG App-catalog LiteLLM SSOT line → lane 9 (removal); "Public REST API v1"
+  `psk_live_*` keystore is EXTENDED by lane 3 — one token DB, never two.
+- Removed AI-endpoints product STAYS removed — no UI-authored per-site endpoints resurrected; Site
+  Functions remain code-defined WfP.
