@@ -151,7 +151,7 @@ function actionToFallbackMessage(action: string): string {
           } @else {
             <h1 class="section-h text-lg font-bold text-white m-0">Audit Log</h1>
           }
-          <p class="text-[0.78rem] text-text-secondary m-0 mt-1">
+          <p class="text-[0.78rem] text-text-secondary m-0 mt-1" role="status" aria-live="polite">
             Every privileged action — what happened, who did it, when.
             @if (autoRefreshPaused()) { Auto-refresh paused } @else { Auto-refreshing every 15s }
             · last sync {{ lastSyncLabel() }}.
@@ -394,18 +394,17 @@ function actionToFallbackMessage(action: string): string {
   `,
   styles: [`
     :host { display: block; }
-    .card { background: rgba(255,255,255,0.02); border: 1px solid rgba(255,255,255,0.06); border-radius: 14px; padding: 1.2rem; }
+    .card { background: color-mix(in oklch, var(--ps-ink, #f4f4ff) 2%, transparent); border: 1px solid color-mix(in oklch, var(--ps-ink, #f4f4ff) 6%, transparent); border-radius: 14px; padding: 1.2rem; }
     .section-h { font-family: 'Sora', system-ui, sans-serif; font-weight: 600; letter-spacing: -0.02em; }
-    .btn-ghost { padding: 0.5rem 1rem; border-radius: 8px; background: transparent; color: rgba(255,255,255,0.7); border: 1px solid rgba(255,255,255,0.1); cursor: pointer; font-size: 0.74rem; }
-    .btn-mini { padding: 0.2rem 0.55rem; border-radius: 6px; background: rgba(0,229,255,0.12); border: 1px solid rgba(0,229,255,0.30); color: #00E5FF; font-size: 0.62rem; font-weight: 700; cursor: pointer; letter-spacing: 0.04em; text-transform: uppercase; transition: background 140ms ease; }
-    .btn-mini:hover:not(:disabled) { background: rgba(0,229,255,0.22); }
+    .btn-ghost { padding: 0.5rem 1rem; border-radius: 8px; background: transparent; color: color-mix(in oklch, var(--ps-ink, #f4f4ff) 70%, transparent); border: 1px solid color-mix(in oklch, var(--ps-ink, #f4f4ff) 10%, transparent); cursor: pointer; font-size: 0.74rem; }
+    .btn-mini { padding: 0.2rem 0.55rem; border-radius: 6px; background: color-mix(in oklch, var(--ps-accent, #00E5FF) 12%, transparent); border: 1px solid color-mix(in oklch, var(--ps-accent, #00E5FF) 30%, transparent); color: var(--ps-accent, #00E5FF); font-size: 0.62rem; font-weight: 700; cursor: pointer; letter-spacing: 0.04em; text-transform: uppercase; transition: background 140ms ease; }
+    .btn-mini:hover:not(:disabled) { background: color-mix(in oklch, var(--ps-accent, #00E5FF) 22%, transparent); }
     .btn-mini:disabled { opacity: 0.45; cursor: not-allowed; }
-    /* .btn-gradient removed with the empty-state "Refresh now" button (real-time-data-no-manual-refresh). */
-    .scope-chip { display: inline-flex; align-items: center; gap: 0.5rem; padding: 0.45rem 0.85rem; border-radius: 999px; background: rgba(0,229,255,0.10); color: #00E5FF; border: 1px solid rgba(0,229,255,0.35); cursor: pointer; font-size: 0.74rem; font-weight: 600; }
-    .scope-chip:hover { background: rgba(0,229,255,0.18); }
+    .scope-chip { display: inline-flex; align-items: center; gap: 0.5rem; padding: 0.45rem 0.85rem; border-radius: 999px; background: color-mix(in oklch, var(--ps-accent, #00E5FF) 10%, transparent); color: var(--ps-accent, #00E5FF); border: 1px solid color-mix(in oklch, var(--ps-accent, #00E5FF) 35%, transparent); cursor: pointer; font-size: 0.74rem; font-weight: 600; }
+    .scope-chip:hover { background: color-mix(in oklch, var(--ps-accent, #00E5FF) 18%, transparent); }
     .scope-chip .x { font-size: 0.95rem; line-height: 1; opacity: 0.85; }
-    .scope-chip-all { background: rgba(255,255,255,0.04); color: rgba(255,255,255,0.75); border-color: rgba(255,255,255,0.10); cursor: default; }
-    .muted-h { font-size: 0.6rem; text-transform: uppercase; letter-spacing: 0.08em; color: rgba(255,255,255,0.5); font-weight: 700; margin-bottom: 0.3rem; }
+    .scope-chip-all { background: color-mix(in oklch, var(--ps-ink, #f4f4ff) 4%, transparent); color: color-mix(in oklch, var(--ps-ink, #f4f4ff) 75%, transparent); border-color: color-mix(in oklch, var(--ps-ink, #f4f4ff) 10%, transparent); cursor: default; }
+    .muted-h { font-size: 0.6rem; text-transform: uppercase; letter-spacing: 0.08em; color: color-mix(in oklch, var(--ps-ink, #f4f4ff) 50%, transparent); font-weight: 700; margin-bottom: 0.3rem; }
     .grid-frame {
       width: 100%;
       border: 1px solid color-mix(in oklch, currentColor 12%, transparent);
@@ -414,31 +413,31 @@ function actionToFallbackMessage(action: string): string {
       background: rgba(0,0,0,0.18);
       box-shadow: var(--ps-shadow-md, 0 4px 12px rgba(0,0,0,0.18));
     }
-    .skeleton { background: rgba(255,255,255,0.10); border-radius: 8px; animation: skel-pulse 1.4s ease-in-out infinite; }
+    .skeleton { background: color-mix(in oklch, var(--ps-ink, #f4f4ff) 10%, transparent); border-radius: 8px; animation: skel-pulse 1.4s ease-in-out infinite; }
     .skeleton-line { height: 28px; margin-top: 0.45rem; }
     @keyframes skel-pulse { 0%, 100% { opacity: 0.55; } 50% { opacity: 1; } }
     @media (prefers-reduced-motion: reduce) { .skeleton { animation: none; opacity: 0.7; } }
     .empty-state { display: flex; flex-direction: column; align-items: center; justify-content: center; text-align: center; padding: 2.5rem 1.2rem; gap: 0.6rem; }
-    .empty-icon { color: rgba(0, 229, 255, 0.65); }
+    .empty-icon { color: color-mix(in oklch, var(--ps-accent, #00E5FF) 65%, transparent); }
     .error-state { border-color: rgba(255, 92, 122, 0.32); }
     .error-icon { color: rgba(255, 92, 122, 0.8); }
-    .empty-title { font-family: 'Sora', system-ui, sans-serif; font-weight: 600; letter-spacing: -0.02em; font-size: 1rem; color: #fff; margin: 0.2rem 0 0; }
-    .empty-body { font-size: 0.78rem; color: rgba(255,255,255,0.6); margin: 0 0 0.5rem; max-width: 360px; }
+    .empty-title { font-family: 'Sora', system-ui, sans-serif; font-weight: 600; letter-spacing: -0.02em; font-size: 1rem; color: var(--ps-ink, #f4f4ff); margin: 0.2rem 0 0; }
+    .empty-body { font-size: 0.78rem; color: color-mix(in oklch, var(--ps-ink, #f4f4ff) 60%, transparent); margin: 0 0 0.5rem; max-width: 360px; }
 
     /* ─── Toolbar (site filter + page count) ─────────────────────────── */
     .grid-toolbar {
       display: flex; align-items: center; justify-content: space-between; gap: 12px;
-      padding: 10px 14px; border-bottom: 1px solid rgba(255,255,255,0.06);
+      padding: 10px 14px; border-bottom: 1px solid color-mix(in oklch, var(--ps-ink, #f4f4ff) 6%, transparent);
     }
     .site-filter { display: inline-flex; align-items: center; gap: 8px; }
     .site-filter .muted-h { margin-bottom: 0; }
     .site-select {
       background: #0d0d1f; color: #e5e7eb;
-      border: 1px solid rgba(255,255,255,0.12); border-radius: 8px;
+      border: 1px solid color-mix(in oklch, var(--ps-ink, #f4f4ff) 12%, transparent); border-radius: 8px;
       padding: 6px 10px; font-size: 0.72rem; font-family: inherit; cursor: pointer;
     }
-    .site-select:focus-visible { outline: 2px solid #00E5FF; outline-offset: 2px; }
-    .page-count { font-size: 0.7rem; color: rgba(255,255,255,0.55); font-variant-numeric: tabular-nums; }
+    .site-select:focus-visible { outline: 2px solid var(--ps-accent, #00E5FF); outline-offset: 2px; }
+    .page-count { font-size: 0.7rem; color: color-mix(in oklch, var(--ps-ink, #f4f4ff) 55%, transparent); font-variant-numeric: tabular-nums; }
 
     /* ─── Native table (TanStack headless) ───────────────────────────── */
     table.ps-audit-grid { width: 100%; border-collapse: collapse; table-layout: fixed; font-size: 0.76rem; }
@@ -449,22 +448,22 @@ function actionToFallbackMessage(action: string): string {
     .ps-audit-grid thead th {
       position: sticky; top: 0; z-index: 1;
       background: #0e0e22; text-align: left; padding: 10px 12px;
-      border-bottom: 1px solid rgba(255,255,255,0.08);
+      border-bottom: 1px solid color-mix(in oklch, var(--ps-ink, #f4f4ff) 8%, transparent);
       font-size: 0.64rem; text-transform: uppercase; letter-spacing: 0.06em;
-      color: rgba(255,255,255,0.6); font-weight: 700;
+      color: color-mix(in oklch, var(--ps-ink, #f4f4ff) 60%, transparent); font-weight: 700;
     }
     .ps-audit-grid th.th-sortable { cursor: pointer; user-select: none; transition: color 140ms ease; }
-    .ps-audit-grid th.th-sortable:hover { color: #00E5FF; }
-    .ps-audit-grid th.th-sortable:focus-visible { outline: 2px solid #00E5FF; outline-offset: -2px; }
+    .ps-audit-grid th.th-sortable:hover { color: var(--ps-accent, #00E5FF); }
+    .ps-audit-grid th.th-sortable:focus-visible { outline: 2px solid var(--ps-accent, #00E5FF); outline-offset: -2px; }
     .ps-audit-grid th.th-expand { width: 50px; }
-    .sort-glyph { color: #00E5FF; }
+    .sort-glyph { color: var(--ps-accent, #00E5FF); }
     .ps-audit-grid td {
-      padding: 8px 12px; border-bottom: 1px solid rgba(255,255,255,0.04);
+      padding: 8px 12px; border-bottom: 1px solid color-mix(in oklch, var(--ps-ink, #f4f4ff) 4%, transparent);
       overflow: hidden; text-overflow: ellipsis; white-space: nowrap; vertical-align: middle;
     }
     .master-row { transition: background 140ms ease; }
-    .master-row:hover { background: rgba(0,229,255,0.06); box-shadow: inset 3px 0 0 rgba(0,229,255,0.35); }
-    .master-row.is-expanded { background: rgba(0,229,255,0.03); }
+    .master-row:hover { background: color-mix(in oklch, var(--ps-accent, #00E5FF) 6%, transparent); box-shadow: inset 3px 0 0 color-mix(in oklch, var(--ps-accent, #00E5FF) 35%, transparent); }
+    .master-row.is-expanded { background: color-mix(in oklch, var(--ps-accent, #00E5FF) 3%, transparent); }
 
     /* ─── Cell: action code pill (JetBrains Mono) ────────────────────── */
     .cell-action-pill {
@@ -473,8 +472,8 @@ function actionToFallbackMessage(action: string): string {
       padding: 2px 9px; border-radius: 999px;
       font-family: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, monospace;
       font-size: 0.66rem; font-weight: 600; letter-spacing: 0.01em;
-      background: rgba(0,229,255,0.10); color: #00E5FF;
-      border: 1px solid rgba(0,229,255,0.22);
+      background: color-mix(in oklch, var(--ps-accent, #00E5FF) 10%, transparent); color: var(--ps-accent, #00E5FF);
+      border: 1px solid color-mix(in oklch, var(--ps-accent, #00E5FF) 22%, transparent);
     }
 
     /* ─── Cell: log statement (primary content) ──────────────────────── */
@@ -485,27 +484,27 @@ function actionToFallbackMessage(action: string): string {
       color: rgba(245,245,247,0.96);
       white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
     }
-    .cell-message.is-fallback { color: rgba(255,255,255,0.55); font-style: italic; }
-    .cell-when { color: rgba(255,255,255,0.72); font-variant-numeric: tabular-nums; }
-    .cell-site { color: rgba(255,255,255,0.65); }
+    .cell-message.is-fallback { color: color-mix(in oklch, var(--ps-ink, #f4f4ff) 55%, transparent); font-style: italic; }
+    .cell-when { color: color-mix(in oklch, var(--ps-ink, #f4f4ff) 72%, transparent); font-variant-numeric: tabular-nums; }
+    .cell-site { color: color-mix(in oklch, var(--ps-ink, #f4f4ff) 65%, transparent); }
 
     /* ─── Cell: expand-kebab (rotates on open) ───────────────────────── */
     .kebab-btn {
       width: 26px; height: 26px; border-radius: 6px; border: 1px solid transparent;
-      background: transparent; color: rgba(255,255,255,0.55); cursor: pointer;
+      background: transparent; color: color-mix(in oklch, var(--ps-ink, #f4f4ff) 55%, transparent); cursor: pointer;
       display: inline-flex; align-items: center; justify-content: center;
       transition: background 140ms ease, color 140ms ease, border-color 140ms ease, transform 200ms ease;
     }
-    .kebab-btn:hover { background: rgba(0,229,255,0.12); color: #00E5FF; border-color: rgba(0,229,255,0.30); }
-    .kebab-btn.is-open { background: rgba(0,229,255,0.18); color: #00E5FF; border-color: rgba(0,229,255,0.45); transform: rotate(90deg); }
-    .kebab-btn:focus-visible { outline: 2px solid #00E5FF; outline-offset: 2px; }
+    .kebab-btn:hover { background: color-mix(in oklch, var(--ps-accent, #00E5FF) 12%, transparent); color: var(--ps-accent, #00E5FF); border-color: color-mix(in oklch, var(--ps-accent, #00E5FF) 30%, transparent); }
+    .kebab-btn.is-open { background: color-mix(in oklch, var(--ps-accent, #00E5FF) 18%, transparent); color: var(--ps-accent, #00E5FF); border-color: color-mix(in oklch, var(--ps-accent, #00E5FF) 45%, transparent); transform: rotate(90deg); }
+    .kebab-btn:focus-visible { outline: 2px solid var(--ps-accent, #00E5FF); outline-offset: 2px; }
     @media (prefers-reduced-motion: reduce) { .kebab-btn { transition: none; } }
 
     /* ─── Detail panel: master/detail expansion ──────────────────────── */
-    .detail-row td { padding: 0; border-bottom: 1px solid rgba(0,229,255,0.10); white-space: normal; overflow: visible; }
+    .detail-row td { padding: 0; border-bottom: 1px solid color-mix(in oklch, var(--ps-accent, #00E5FF) 10%, transparent); white-space: normal; overflow: visible; }
     .detail-card {
       padding: 1rem 1.2rem 1.2rem; margin: 0;
-      background: linear-gradient(180deg, rgba(0,229,255,0.04), rgba(124,58,237,0.02));
+      background: linear-gradient(180deg, color-mix(in oklch, var(--ps-accent, #00E5FF) 4%, transparent), color-mix(in oklch, var(--ps-accent-secondary, #7C3AED) 2%, transparent));
       border-radius: var(--ps-radius-lg, 14px);
       animation: detail-in 220ms cubic-bezier(0.16, 1, 0.3, 1);
     }
@@ -514,12 +513,12 @@ function actionToFallbackMessage(action: string): string {
     .detail-head { display: flex; align-items: center; justify-content: space-between; gap: 0.6rem; margin-bottom: 0.7rem; }
     .detail-head h4 {
       font-family: 'Sora', system-ui, sans-serif; font-weight: 600; letter-spacing: -0.02em;
-      font-size: 0.92rem; color: #fff; margin: 0;
+      font-size: 0.92rem; color: var(--ps-ink, #f4f4ff); margin: 0;
     }
     .detail-grid-3 { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 0.8rem; margin-bottom: 0.7rem; }
     .detail-grid-2 { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0.8rem; margin-bottom: 0.7rem; }
     .det-block { display: flex; flex-direction: column; gap: 0.25rem; min-width: 0; }
-    .det-label { font-size: 0.58rem; text-transform: uppercase; letter-spacing: 0.08em; color: rgba(255,255,255,0.55); font-weight: 700; }
+    .det-label { font-size: 0.58rem; text-transform: uppercase; letter-spacing: 0.08em; color: color-mix(in oklch, var(--ps-ink, #f4f4ff) 55%, transparent); font-weight: 700; }
     .det-value {
       font-size: 0.74rem; color: rgba(245,245,247,0.92);
       word-break: break-word; line-height: 1.45;
@@ -533,7 +532,7 @@ function actionToFallbackMessage(action: string): string {
     .req-row {
       display: flex; align-items: center; gap: 0.55rem;
       padding: 0.45rem 0.6rem; border-radius: 8px;
-      background: rgba(0,0,0,0.3); border: 1px solid rgba(255,255,255,0.06);
+      background: rgba(0,0,0,0.3); border: 1px solid color-mix(in oklch, var(--ps-ink, #f4f4ff) 6%, transparent);
       margin-bottom: 0.7rem;
     }
     .req-row code {
@@ -541,9 +540,9 @@ function actionToFallbackMessage(action: string): string {
       font-size: 0.7rem; color: rgba(245,245,247,0.92); flex: 1; min-width: 0;
       overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
     }
-    .req-label { font-size: 0.58rem; text-transform: uppercase; letter-spacing: 0.08em; color: rgba(255,255,255,0.55); font-weight: 700; }
+    .req-label { font-size: 0.58rem; text-transform: uppercase; letter-spacing: 0.08em; color: color-mix(in oklch, var(--ps-ink, #f4f4ff) 55%, transparent); font-weight: 700; }
     .detail-card pre {
-      background: rgba(0,0,0,0.5); border: 1px solid rgba(255,255,255,0.06);
+      background: rgba(0,0,0,0.5); border: 1px solid color-mix(in oklch, var(--ps-ink, #f4f4ff) 6%, transparent);
       border-radius: 8px; padding: 0.7rem 0.9rem;
       font-family: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, monospace;
       font-size: 0.68rem; line-height: 1.55;
@@ -555,28 +554,28 @@ function actionToFallbackMessage(action: string): string {
     .tk-str  { color: #86efac; }
     .tk-num  { color: #67e8f9; }
     .tk-bool { color: #c4b5fd; }
-    .tk-null { color: rgba(255,255,255,0.45); }
-    .tk-pun  { color: rgba(255,255,255,0.55); }
+    .tk-null { color: color-mix(in oklch, var(--ps-ink, #f4f4ff) 45%, transparent); }
+    .tk-pun  { color: color-mix(in oklch, var(--ps-ink, #f4f4ff) 55%, transparent); }
     .det-action {
       padding: 0.35rem 0.75rem; border-radius: 8px; font-size: 0.64rem; font-weight: 700;
       letter-spacing: 0.04em; text-transform: uppercase; cursor: pointer;
-      border: 1px solid rgba(0,229,255,0.30); background: rgba(0,229,255,0.10); color: #00E5FF;
+      border: 1px solid color-mix(in oklch, var(--ps-accent, #00E5FF) 30%, transparent); background: color-mix(in oklch, var(--ps-accent, #00E5FF) 10%, transparent); color: var(--ps-accent, #00E5FF);
       transition: background 140ms ease, transform 140ms ease;
     }
-    .det-action:hover { background: rgba(0,229,255,0.22); transform: translateY(-1px); }
-    .det-action:focus-visible { outline: 2px solid #00E5FF; outline-offset: 2px; }
+    .det-action:hover { background: color-mix(in oklch, var(--ps-accent, #00E5FF) 22%, transparent); transform: translateY(-1px); }
+    .det-action:focus-visible { outline: 2px solid var(--ps-accent, #00E5FF); outline-offset: 2px; }
     @media (prefers-reduced-motion: reduce) { .det-action { transition: none; transform: none !important; } }
 
     /* ─── Footer (pagination) ────────────────────────────────────────── */
     .grid-footer {
       display: flex; align-items: center; justify-content: flex-end; gap: 12px;
-      padding: 10px 14px; border-top: 1px solid rgba(255,255,255,0.06);
+      padding: 10px 14px; border-top: 1px solid color-mix(in oklch, var(--ps-ink, #f4f4ff) 6%, transparent);
     }
     .page-size-label { display: inline-flex; }
-    .page-indicator { font-size: 0.72rem; color: rgba(255,255,255,0.6); font-variant-numeric: tabular-nums; }
+    .page-indicator { font-size: 0.72rem; color: color-mix(in oklch, var(--ps-ink, #f4f4ff) 60%, transparent); font-variant-numeric: tabular-nums; }
     .pager-btns { display: flex; gap: 6px; }
     .filtered-empty-row td { padding: 0; white-space: normal; }
-    .filtered-empty { padding: 28px 14px; text-align: center; font-size: 0.76rem; color: rgba(255,255,255,0.55); }
+    .filtered-empty { padding: 28px 14px; text-align: center; font-size: 0.76rem; color: color-mix(in oklch, var(--ps-ink, #f4f4ff) 55%, transparent); }
   `],
 })
 export class AdminAuditComponent implements OnInit, OnDestroy {
