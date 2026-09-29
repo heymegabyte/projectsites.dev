@@ -33,8 +33,8 @@
 
 ### 2. WfP site-hosting (flag `site_wfp_hosting`, default OFF)  · ACTIVE
 - **Doc:** `docs/wfp-site-hosting.md`
-- **Done:** Units 1–5 — flag · `deploySiteToWfp` · `serveSiteViaWfpIfPreferred` (`x-ps-serve: wfp`) · lifecycle wiring · teardown (`teardownSiteWfp` + `clearSiteWfpRegistry`).
-- **Next → Unit 6:** admin Angular/Spartan Hosting surface — status pill · preview+prod URLs · Publish/Promote action · empty/loading/error/success. Nothing built-but-unwired.
+- **Done:** Units 1–6 — flag · `deploySiteToWfp` · `serveSiteViaWfpIfPreferred` (`x-ps-serve: wfp`) · lifecycle wiring · teardown · **Unit 6 admin Hosting surface** (`/admin/hosting` — status pill · preview+prod URLs+copy · Publish/Promote · 4 states · flag-gated honest card · live-polled; wired route+nav+Cmd+K+label; commit `a49cad1a1`, frontend R2 deployed, Browserbase-verified live).
+- **Next → external gate:** provision WfP (`[[dispatch_namespaces]]`) + flip flag → styled-200-via-dispatch prod-verify (`x-ps-serve: wfp`).
 - **Then:** acceptance styled-200-via-dispatch prod-verify — test site `4f450690-e622-4c95-a83d-e5516a2c9442`, trigger in-Worker deploy, WebFetch → assert `x-ps-serve: wfp` + styled 200.
 - **External gate:** provision WfP on the account — add `[[dispatch_namespaces]]` to `wrangler.toml`, set the CF token secret, resolve `CF_API_TOKEN` `10405` on the Static-Assets upload-session (slots deploy only from INSIDE the Worker, not external CF-API).
 - **Acceptance:** doc's Acceptance section met; `serveSiteFromR2` byte-identical when flag off; fail-soft to R2.
@@ -44,8 +44,9 @@
 - **Docs:** `docs/database-tab-enhancements.md` (15 ideas) · `docs/data-platform-scope.md` (Phases 0–6) · `docs/data-section-capability-matrix.md`
 - **Done:** #3 cell click-to-copy · Actions dropdown · History="Create snapshot" · advanced cross-table search (`/db/search`) · minute-granular time-travel scrubber.
 - **Done (2026-09-28):** per-site D1 Data journey PROVEN GREEN on prod — `per_site_data` enabled SCOPED to the E2E org (`flag_overrides` row `scope='org', scope_id='e2e-test-org'`, mirroring `durable_preview`); `e2e/data-tab-journey.e2e.ts` (2 passed) drives create-table→row→add/rename/drop-column→SQL-console→drop, reconciling each op display-vs-store against the site's OWN D1 (`GET /db/tables[/:table]`, databaseId `131b9973…`, NOT shared platform), + browser leg mounts the flag-on Database→Tables surface in the editor iframe (not `sitedb-disabled`).
-- **Next → the 10 progressive gorgeous+functional revisions** (one measurable visual+functional upgrade per fire) draining the 15-idea backlog in priority order:
-  1. Rowid inline editing (kill "no PK = read-only") · 2. Schema/table browser rail · 4. Bulk edit + fill-down · 5. Rich field-type config · 6. Result→chart · 7. Saved queries + history rail · 8. AI "explain this" · 9. ERD/relationships diagram · 10. Global data search (⌘K) · 11. Airtable-class views (Gallery/Kanban/Calendar) · 12. Data-profile/insights strip · 13. KV manager — never a dead paywall · 14. Save/activity affordance · 15. Empty-state launchpad.
+- **Done (2026-09-29) — Rev 1/10 Rowid inline editing:** killed "no PK = read-only" — `PS_SITEDB_UPDATE_ROW` bridge (`requestDbUpdateRow` → `PATCH …/rows/:rowid`) + `rowStableKey`/`isRowEditableColumn` gate + `writeCell` (PK→exec-SQL, PK-less→rowid PATCH), optimistic+rollback+undo; 13 Vitest green; commit `b97abca9a`, editor Pages `2be849ed`.
+- **Next → Rev 2/10** (one measurable visual+functional upgrade per fire) draining the 15-idea backlog in priority order:
+  2. Schema/table browser rail · 4. Bulk edit + fill-down · 5. Rich field-type config · 6. Result→chart · 7. Saved queries + history rail · 8. AI "explain this" · 9. ERD/relationships diagram · 10. Global data search (⌘K) · 11. Airtable-class views (Gallery/Kanban/Calendar) · 12. Data-profile/insights strip · 13. KV manager — never a dead paywall · 14. Save/activity affordance · 15. Empty-state launchpad.
 - **Adjacent (capability matrix):** broaden typed cell editors — NULL/number/bool/JSON + INSERT add-row (needs stable-id plumbing; currently only enum columns editable).
 - **Phased roadmap (`data-platform-scope.md`, all PENDING) — nest the ideas under these:**
   - **Phase 0 — Foundation (gated):** greenfield reset (backup+confirm+reversible) · brian@megabyte.space → admin + payment bypass · re-point `form_submissions`/`visitor_events` ingestion to the site's OWN D1.
@@ -100,11 +101,15 @@
 - **F — shared contracts + migrations (SERIAL, single-owner):** `packages/shared/**` + `migrations/**`
   are F-exclusive; ascending from **0648**. Next: F1 register `voice_receptionist` flag · F2 ADR 0056
   (LiveKit→CF, supersedes prior LiveKit ADR + PRICING-MODEL). `_CF_NATIVE_CONVERGENCE.md` §2.
-- **A — Voice + all-call media:** A0 🔴 Test Console token-shape fix (`voice.ts:1028` `r.data.token`),
-  then A1–A9 (setup tabs · gallery+interactive console on shared AI chat · every-call session+Live View ·
-  CDP pixel-capture spike · dual-channel WAV · synced detail · 206 directory · timecoded critique · consent). §3.
-- **B — Twilio/SMS/Stripe 🔴:** B0 register `voice_numbers` killswitch + gate purchase + mock-Twilio
-  compensation (orphan-number/no-payment buy is LIVE money-loss, `voice.ts:193-261`); then B1–B6. §4.
+- **A — Voice + all-call media:** ✅ A0 Test Console token-shape fixed — `POST /api/voice/test/call-token`
+  now returns `{ data: { token, identity, edge_url } }` (nested) so the FE `res.data.token` resolves
+  (`voice.ts` ~1030); covered by voice.test.ts A0 + voice_numbers_flag.test.ts. Then A1–A9 (setup tabs ·
+  gallery+interactive console on shared AI chat · every-call session+Live View · CDP pixel-capture spike ·
+  dual-channel WAV · synced detail · 206 directory · timecoded critique · consent). §3.
+- **B — Twilio/SMS/Stripe 🔴:** ✅ B0 `voice_numbers` killswitch registered (registry, default OFF
+  experimental) + `POST /api/voice/numbers/purchase` gated via `requireOrgFlag` FIRST → 404 when OFF, NO
+  carrier buy (fail-safe; `voice.ts:197`); RED-first test voice_numbers_flag.test.ts (3 green) + voice.test.ts
+  re-armed. tsc + jest voice (267) + validate:features green. Then B1–B6. §4.
 - **C — Editor Claude-Code + Sandbox + browser:** C1 `/api/sites/:id/workspace` 501-when-Sandbox-unbound
   (pin `@cloudflare/sandbox` — ABSENT today); cull/repurpose orphaned `ide_sandbox.ts`; CF Browser Run
   Live View replaces Browserbase-only; ideas 1–12. §5.
@@ -112,8 +117,11 @@
   versioned Streamable-HTTP endpoint + OAuth 2.1; ideas 1–12; recheck policy at tools/call. §6.
 - **E — CF-native surfaces:** Inspector-removal (26 files/~4600 LOC) · EmDash/microfeed/Traks/OpenSEO/
   Slink/Automations/Email/health-widget · Social 10-pass campaign; E7 D1-export + E8 shortlinks near-done. §7,§9.
-- **Resources cockpit + Advanced console (Brian directive) 🔴:** R1 kill manual Refresh/Reconcile
-  (`ResourceOverviewPanel.tsx:457-458`) · R2 promote 9 adapters to tabs · R3 drop Site-files/Media tabs
+- **Resources cockpit + Advanced console (Brian directive) 🔴:** R1 ✅ killed manual Refresh/Reconcile
+  in `ResourceOverviewPanel.tsx` — replaced with a visibility-aware poll (45s interval, pauses on
+  `document.hidden`, immediate refresh on `visibilitychange`); reconcile is now automatic + silent
+  (self-heals on drift) + a subtle "updated Ns ago" live chip; 6/6 Vitest green, tsc clean · R2 promote
+  9 adapters to tabs · R3 drop Site-files/Media tabs
   (security) · R4 R2 manager · R5 fix dead Add · R6 Advanced→tabs · R7 Secrets/Connections/Functions/
   Schedules · R8 honest-limit tabs. §8.
 - **Cross-cutting:** Jest→Vitest (kills `@swc/jest` mock-hoist) · psnotify deploy `v_psnotify_do` +
