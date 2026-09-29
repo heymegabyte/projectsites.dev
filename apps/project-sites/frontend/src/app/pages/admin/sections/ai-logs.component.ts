@@ -203,7 +203,7 @@ const NUMBER_FORMATTER = new Intl.NumberFormat('en-US');
           <div class="kicker">Observability</div>
           <h2 class="section-h text-lg font-bold text-white m-0 flex items-center gap-3">
             AI Traces
-            <span class="live-pill" [class.live-pill--paused]="!polling()" [title]="polling() ? 'Polling every 15s' : (autoRefreshPaused() ? 'Auto-refresh paused after repeated errors — use Retry' : 'Polling paused (tab hidden)')">
+            <span class="live-pill" [class.live-pill--paused]="!polling()" aria-live="polite" [title]="polling() ? 'Polling every 15s' : (autoRefreshPaused() ? 'Auto-refresh paused after repeated errors — use Retry' : 'Polling paused (tab hidden)')">
               <span class="live-dot" aria-hidden="true"></span>
               <span class="live-text">{{ polling() ? 'Live' : (autoRefreshPaused() ? 'Auto-paused' : 'Paused') }}</span>
             </span>
