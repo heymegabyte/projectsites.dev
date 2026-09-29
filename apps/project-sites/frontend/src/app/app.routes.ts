@@ -310,6 +310,17 @@ export const routes: Routes = [
           ),
       },
       {
+        // WfP site-hosting owner surface (Unit 6, `docs/wfp-site-hosting.md`):
+        // status pill (R2 static vs WfP dispatch) · preview + prod URLs (copy) ·
+        // Publish/Promote action · empty/loading/error/success. Owner-facing (no
+        // sysAdminGuard — authGuard on the parent covers it); self-gates on the
+        // `site_wfp_hosting` flag (honest gated card when OFF). Reads the live,
+        // visibility-aware-polled AdminStateService — no manual refresh button.
+        path: 'hosting',
+        loadComponent: () =>
+          import('./pages/admin/sections/hosting.component').then((m) => m.AdminHostingComponent),
+      },
+      {
         path: 'forms',
         loadComponent: () =>
           import('./pages/admin/sections/forms.component').then((m) => m.AdminFormsComponent),

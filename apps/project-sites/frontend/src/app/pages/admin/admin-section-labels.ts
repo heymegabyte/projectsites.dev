@@ -19,7 +19,7 @@ export const ADMIN_SECTION_LABELS: Readonly<Record<string, string>> = {
   domains: 'Domains', docs: 'Docs',
   user: 'User Settings', apps: 'Apps', instances: 'App Instances',
   billing: 'Billing', settings: 'Settings',
-  voice: 'Voice',
+  voice: 'Voice', hosting: 'Hosting',
   'feature-flags': 'Feature Flags',
   'site-features': 'Features', social: 'Social',
   swarm: 'Swarm',

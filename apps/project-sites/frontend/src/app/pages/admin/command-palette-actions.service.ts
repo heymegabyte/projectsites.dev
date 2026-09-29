@@ -160,6 +160,7 @@ export class CommandPaletteActionsService {
       // Remaining sidebar sections — quick-nav completeness (no G-chord to avoid
       // colliding with the global shortcut handler; search/click discoverable).
       { id: 'nav-apps',         title: 'Go to Apps',          section: 'Navigation', icon: ICONS.layers,   keywords: ['marketplace', 'install', 'self-host', 'container', 'medusa'], href: navHref('/admin/apps'), run: () => go('/admin/apps') },
+      { id: 'nav-hosting',      title: 'Go to Hosting',       section: 'Navigation', icon: ICONS.layers,   keywords: ['hosting', 'preview', 'publish', 'promote', 'wfp', 'dispatch', 'r2', 'deploy', 'url'], href: navHref('/admin/hosting'), run: () => go('/admin/hosting') },
       { id: 'nav-social',       title: 'Go to Social',        section: 'Navigation', icon: ICONS.globe,    keywords: ['posts', 'schedule', 'twitter', 'linkedin', 'bluesky', 'auto-pilot'], href: navHref('/admin/social'), run: () => go('/admin/social') },
       { id: 'nav-deliverability', title: 'Go to Deliverability', section: 'Navigation', icon: ICONS.shield, keywords: ['spf', 'dkim', 'dmarc', 'email', 'spam', 'inbox placement'], href: navHref('/admin/deliverability'), run: () => go('/admin/deliverability') },
       { id: 'nav-webhooks',     title: 'Go to Webhooks',      section: 'Navigation', icon: ICONS.zap,      keywords: ['events', 'callbacks', 'endpoints', 'deliveries'], href: navHref('/admin/webhooks'), run: () => go('/admin/webhooks') },

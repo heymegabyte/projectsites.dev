@@ -92,6 +92,10 @@ export const ADMIN_NAV_GROUPS: readonly AdminNavGroup[] = [
     items: [
       { icon: 'forms', id: 'forms', label: 'Forms', route: '/admin/forms' },
       { icon: 'apps', id: 'apps', label: 'Apps', route: '/admin/apps' },
+      // WfP site-hosting owner surface (Unit 6). Owner-facing (not sysAdminOnly);
+      // the section itself self-gates on the `site_wfp_hosting` flag. Reuses the
+      // deploy-adjacent 'apps' icon (no NavIconComponent change needed).
+      { icon: 'apps', id: 'hosting', label: 'Hosting', route: '/admin/hosting' },
       {
         icon: 'features',
         id: 'features',
