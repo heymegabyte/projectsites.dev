@@ -47,8 +47,8 @@ type Artifacts = MapStore<Record<string, ArtifactState>>;
 // (Workbench.client.tsx snaps `data`→`database`, `functions`→`code`, `git`→`code`); `database` (consolidated
 // per-site data surface) + `resources` (per-site CF resource console) are the live FIRE 1 views.
 // The `git` TAB was retired (Promote workflow) — git history now lives in the Code-view Project hub
-// (`ProjectHub.tsx`, `PS_CODE_HISTORY` bridge); `GitPanel`/`git-browser-logic` stay importable for the
-// future Source-Control view beside the file explorer.
+// (`ProjectHub.tsx`, `PS_CODE_HISTORY` bridge); the Source-Control view shipped as `SourceControlPanel`
+// (a tab beside Files/Search/Locks in EditorPanel), sharing the `git-browser-logic` helpers.
 export type WorkbenchViewType =
   | 'chat'
   | 'code'
