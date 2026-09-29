@@ -25,6 +25,8 @@ import { invalidateFlagCache, FLAG_REGISTRY } from '../modules/feature_flags/ser
 import { SERVICE_REGISTRY } from '../platform/service-registry.js';
 import { signHs256 } from '../lib/jwt.js';
 import { unauthorized, forbidden, internalError } from '@project-sites/shared';
+import { deploySiteToWfp } from '../services/wfp_site_hosting.js';
+import type { WfpSlot } from '../services/wfp_site_hosting.js';
 
 const superAdmin = new Hono<{ Bindings: Env; Variables: Variables }>();
 
@@ -1434,5 +1436,153 @@ superAdmin.delete('/api/super-admin/email-suppressions/:email', async (c) => {
   await audit(c, 'email.unsuppress', { target_kind: 'email', target_id: email });
   return c.json({ removed: result.removed, email });
 });
+
+// ─── WfP slot backfill — cross-org sweep (money-path, fire-55) ─────────────
+
+/** One selection row: a published site + which WfP slots it already has. */
+interface WfpBackfillCandidate {
+  id: string;
+  org_id: string;
+  slug: string;
+  /** D1 EXISTS() → 0/1. */
+  has_preview: number;
+  has_production: number;
+}
+
+const wfpBackfillSchema = z
+  .object({
+    /** Safe by default (tool-design-as-api): TRUE plans the ensures, mutating nothing. */
+    dryRun: z.boolean().default(true),
+    /** Sites per page (keyset-paginated via `cursor`). */
+    limit: z.number().int().min(1).max(100).default(25),
+    /** Restrict the sweep to one org; omitted → cross-org (the whole corpus). */
+    orgId: z.string().min(1).optional(),
+    /** Resume AFTER this site id (the previous response's `nextCursor`). */
+    cursor: z.string().min(1).optional(),
+  })
+  .strict();
+
+/**
+ * Cross-org Workers-for-Platforms slot backfill (BACKLOG § money-path).
+ *
+ * Fire-51 proved the mechanism per-org (`scripts/backfill-wfp-slots.mjs` drives
+ * `/api/diag/wfp-deploy`, org-scoped by `assertSiteOwned` — foreign sites 404).
+ * This endpoint closes the FULL-SWEEP gap from INSIDE the Worker: it iterates
+ * published sites MISSING a WfP slot across ALL orgs (unless `orgId` narrows it)
+ * and calls the SAME proven {@link deploySiteToWfp} per missing slot, passing
+ * each site's OWN `org_id` so the ownership gate passes per site — cross-org
+ * reach WITHOUT weakening `assertSiteOwned`.
+ *
+ * - **dryRun defaults TRUE** — `{}` lists what WOULD be ensured (`planned[]`),
+ *   makes ZERO CF calls. `ensured` then counts would-be-ensured sites.
+ * - **Idempotent** — a site whose both slots already exist is SKIPPED (counted,
+ *   never an error); only the MISSING slot(s) are deployed for partial sites,
+ *   and `deploySiteToWfp` itself re-deploys to the same script name.
+ * - **Failure isolation** — a per-site failure lands in `failed[]` and the
+ *   batch continues; the endpoint never 500s on one bad site.
+ * - **Batched** — keyset cursor on `sites.id`; a FULL page returns `nextCursor`
+ *   to feed back as `cursor`. Fail-closed on a selection-query error (a lying
+ *   "0 candidates" success would silently end the sweep).
+ * - **Audited** — every run writes a `super_admin_audit` row with the counters.
+ */
+superAdmin.post(
+  '/api/super-admin/wfp/backfill',
+  zValidator('json', wfpBackfillSchema),
+  async (c) => {
+    const body = c.req.valid('json');
+
+    const slotExists = (slot: WfpSlot): string =>
+      `EXISTS(SELECT 1 FROM site_resource_registry r
+              WHERE r.site_id = s.id AND r.resource_concept = 'wfp_namespace'
+                AND r.environment = '${slot}' AND r.deleted_at IS NULL)`;
+    const previewExists = slotExists('preview');
+    const productionExists = slotExists('production');
+
+    const where: string[] = [
+      `s.status = 'published'`,
+      's.deleted_at IS NULL',
+      // Lacking at least one slot — fully-provisioned sites never enter the page.
+      `NOT (${previewExists} AND ${productionExists})`,
+    ];
+    const params: unknown[] = [];
+    if (body.orgId) {
+      where.push('s.org_id = ?');
+      params.push(body.orgId);
+    }
+    if (body.cursor) {
+      where.push('s.id > ?');
+      params.push(body.cursor);
+    }
+    params.push(body.limit);
+
+    const { data: candidates, error: selectError } = await dbQuery<WfpBackfillCandidate>(
+      c.env.DB,
+      `SELECT s.id, s.org_id, s.slug,
+              ${previewExists} AS has_preview,
+              ${productionExists} AS has_production
+         FROM sites s
+        WHERE ${where.join(' AND ')}
+        ORDER BY s.id ASC
+        LIMIT ?`,
+      params,
+    );
+    if (selectError) throw internalError(`WfP backfill site selection failed: ${selectError}`);
+
+    let processed = 0;
+    let ensured = 0;
+    let skipped = 0;
+    const failed: Array<{ siteId: string; error: string }> = [];
+    const planned: Array<{ siteId: string; slug: string; slots: WfpSlot[] }> = [];
+
+    for (const site of candidates) {
+      processed += 1;
+      const missing: WfpSlot[] = [];
+      if (!site.has_preview) missing.push('preview');
+      if (!site.has_production) missing.push('production');
+      // Already fully provisioned (raced a publish between select + process) →
+      // idempotent skip, never an error.
+      if (missing.length === 0) {
+        skipped += 1;
+        continue;
+      }
+      planned.push({ siteId: site.id, slug: site.slug, slots: missing });
+      if (body.dryRun) {
+        ensured += 1; // would-be-ensured
+        continue;
+      }
+      let siteError: string | null = null;
+      for (const slot of missing) {
+        // The site's OWN org_id — assertSiteOwned passes per site (cross-org sweep).
+        const r = await deploySiteToWfp(c.env, site.id, { orgId: site.org_id, slot });
+        if (!r.ok) {
+          siteError = `${slot}: ${r.error}`;
+          break; // don't hammer the other slot of a broken site
+        }
+      }
+      if (siteError) failed.push({ siteId: site.id, error: siteError });
+      else ensured += 1;
+    }
+
+    const nextCursor =
+      candidates.length === body.limit ? (candidates[candidates.length - 1]?.id ?? null) : null;
+
+    await audit(c, 'wfp_backfill_run', {
+      target_kind: 'wfp_backfill',
+      target_id: body.orgId ?? 'all-orgs',
+      after: {
+        dryRun: body.dryRun,
+        limit: body.limit,
+        cursor: body.cursor ?? null,
+        processed,
+        ensured,
+        skipped,
+        failedCount: failed.length,
+        nextCursor,
+      },
+    });
+
+    return c.json({ dryRun: body.dryRun, processed, ensured, skipped, failed, planned, nextCursor });
+  },
+);
 
 export { superAdmin };
