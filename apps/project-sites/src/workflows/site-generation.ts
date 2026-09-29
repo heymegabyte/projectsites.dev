@@ -153,26 +153,48 @@ async function updateSiteStatus(db: D1Database, siteId: string, status: string):
 }
 
 /**
- * Notify the org owner that a build failed, via the typed psnotify `build.failed`
- * event (bell + channels). Best-effort: any failure is swallowed so it never
- * affects the workflow's own error handling.
+ * Notify the org owner that a build FAILED — the in-app psnotify bell (`build.failed`).
+ * Best-effort: any failure is swallowed so it never affects the workflow's own error
+ * handling / deadlettering.
  *
- * @param env - Worker bindings (needs DB for delivery).
+ * MUST pass the CANONICAL {@link PsnotifyEventSchema} shape (`{ name, subscriberId,
+ * payload }`). The pre-existing `{ event, tenantId, siteId, error }` novu-era object
+ * FAILED that schema → `notifyOwnerEvent` returned `invalid_event` and the DO write
+ * NEVER fired, so the owner silently discovered a failed build by polling (BACKLOG
+ * fire-51 "psnotify `build.*` channel never fires"). `notifyOwnerEvent` resolves the
+ * owner email; the event `subscriberId` is a placeholder the schema requires — pass
+ * `orgId`. The site URL rides as the bell row's `action_url` deep link.
+ *
+ * @param env - Worker bindings (needs DB for owner resolution).
  * @param orgId - The org whose owner is notified.
  * @param siteId - The site that failed to build.
- * @param reason - Human-readable failure reason.
+ * @param reason - Human-readable, owner-appropriate failure reason (the bell body).
+ * @param slug - The site slug, for the bell row's deep link to the site.
  */
 async function notifyBuildFailed(
   env: Env,
   orgId: string,
   siteId: string,
   reason: string,
+  slug?: string,
 ): Promise<void> {
   try {
     const { notifyOwnerEvent } = await import('../services/notify.js');
+    const actionUrl = slug ? `https://${slug}${DOMAINS.SITES_SUFFIX}` : undefined;
     await notifyOwnerEvent(env, env.DB, {
       orgId,
-      event: { event: 'build.failed', tenantId: orgId, siteId, error: reason || 'unknown error' },
+      workflowId: 'build.failed',
+      actionUrl,
+      event: {
+        name: 'build.failed',
+        subscriberId: orgId,
+        payload: {
+          subject: 'Your site build needs attention',
+          body: reason || 'Your site build did not finish. Please try again.',
+          siteId,
+          ...(actionUrl ? { action_url: actionUrl } : {}),
+        },
+      },
     });
   } catch {
     /* bell is best-effort */
@@ -1292,16 +1314,25 @@ export class SiteGenerationWorkflow extends WorkflowEntrypoint<Env, SiteGenerati
         });
         // Proactive psnotify warning when a capped org crosses 80% of its monthly AI
         // budget — so they can upgrade before a build is blocked. Best-effort.
+        // CANONICAL PsnotifyEventSchema shape (`{ name, subscriberId, payload }`) — the old
+        // `{ event, tenantId, … }` novu-era object silently failed the schema and never
+        // reached the bell (same class as the build.* gap this fire closes).
         if (meter.capUsd !== Infinity && meter.pct >= 80) {
           try {
             const { notifyOwnerEvent } = await import('../services/notify.js');
+            const usedPercent = Math.min(100, Math.round(meter.pct));
             await notifyOwnerEvent(env, env.DB, {
               orgId: params.orgId,
+              workflowId: 'quota.near_limit',
               event: {
-                event: 'quota.near_limit',
-                tenantId: params.orgId,
-                resource: 'ai_budget',
-                usedPercent: Math.min(100, Math.round(meter.pct)),
+                name: 'quota.near_limit',
+                subscriberId: params.orgId,
+                payload: {
+                  subject: `You're at ${usedPercent}% of your monthly AI budget`,
+                  body: `Upgrade before your next build to avoid interruptions.`,
+                  resource: 'ai_budget',
+                  usedPercent,
+                },
               },
             });
           } catch {
@@ -1354,6 +1385,7 @@ export class SiteGenerationWorkflow extends WorkflowEntrypoint<Env, SiteGenerati
             params.orgId,
             params.siteId,
             'Your site build was paused — the AI writer is briefly at capacity. No action needed; please try again shortly.',
+            params.slug,
           );
           throw new Error(`build-llm-no-credit:${credit.provider}:${credit.reason}`);
         }
@@ -1923,6 +1955,7 @@ export class SiteGenerationWorkflow extends WorkflowEntrypoint<Env, SiteGenerati
         params.orgId,
         params.siteId,
         `Build timed out after ${MAX_POLLS * 30}s`,
+        params.slug,
       );
       throw new Error('Build timed out after ' + MAX_POLLS + ' heartbeat polls');
     }
@@ -1944,6 +1977,7 @@ export class SiteGenerationWorkflow extends WorkflowEntrypoint<Env, SiteGenerati
         params.orgId,
         params.siteId,
         finalStatus.error || 'unknown error',
+        params.slug,
       );
       throw new Error('Build failed: ' + (finalStatus.error || 'unknown error'));
     }
@@ -1989,6 +2023,7 @@ export class SiteGenerationWorkflow extends WorkflowEntrypoint<Env, SiteGenerati
             params.orgId,
             params.siteId,
             'Publishing failed — the build produced no files',
+            params.slug,
           );
           throw new Error(
             `R2 upload produced 0 files (uploadResult=${JSON.stringify(uploadResult)})`,
@@ -2734,18 +2769,33 @@ export class SiteGenerationWorkflow extends WorkflowEntrypoint<Env, SiteGenerati
       version: result.version,
     });
 
-    // Notify the org owner that their AI-built site is live (ai.job.completed).
-    // In a step.do so workflow replay never double-sends. Best-effort.
+    // Notify the org owner that their AI-built site is LIVE — the in-app psnotify bell
+    // (`build.complete`). In a step.do so workflow replay never double-sends. Best-effort.
+    //
+    // MUST pass the CANONICAL PsnotifyEventSchema shape (`{ name, subscriberId, payload }`).
+    // The old `{ event, tenantId, siteId, previewUrl }` novu-era object FAILED that schema →
+    // `notifyOwnerEvent` returned `invalid_event` and the "your site is live" bell NEVER
+    // fired (BACKLOG fire-51 "psnotify `build.*` channel never fires" — the owner discovered
+    // completion only by polling). `notifyOwnerEvent` resolves the owner email; the event
+    // `subscriberId` is a placeholder the schema requires — pass `orgId`. The live site URL
+    // rides as the bell row's `action_url` deep link so one click opens the finished site.
     await step.do('notify-owner-published', async () => {
       try {
         const { notifyOwnerEvent } = await import('../services/notify.js');
+        const siteUrl = `https://${params.slug}${DOMAINS.SITES_SUFFIX}`;
         const r = await notifyOwnerEvent(env, env.DB, {
           orgId: params.orgId,
+          workflowId: 'build.complete',
+          actionUrl: siteUrl,
           event: {
-            event: 'build.finished',
-            tenantId: params.orgId,
-            siteId: params.siteId,
-            previewUrl: `https://${params.slug}${DOMAINS.SITES_SUFFIX}`,
+            name: 'build.complete',
+            subscriberId: params.orgId,
+            payload: {
+              subject: `${params.businessName} is live 🎉`,
+              body: `Your new site is published at ${params.slug}${DOMAINS.SITES_SUFFIX}.`,
+              siteId: params.siteId,
+              action_url: siteUrl,
+            },
           },
         });
         return r.ok ? 'sent' : `skipped:${r.detail ?? 'unknown'}`;

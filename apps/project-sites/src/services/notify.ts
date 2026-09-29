@@ -108,11 +108,37 @@ function invalidEventReason(
   return `invalid_event:${name}:${path}`;
 }
 
+/**
+ * Resolve the bell row's deep link: an explicit `actionUrl` argument wins, else fall
+ * back to `action_url` / `actionUrl` inside the event payload. Returns `undefined` when
+ * neither is a non-empty string, so the caller omits the field (never sends `""`/`null`).
+ * Pure — unit-testable.
+ *
+ * @param explicit - The caller-supplied action URL (highest priority).
+ * @param payload - The rendered psnotify event payload to fall back to.
+ * @returns The chosen URL, or `undefined` when there is none.
+ */
+function pickActionUrl(
+  explicit: string | undefined,
+  payload: Record<string, unknown> | undefined,
+): string | undefined {
+  if (typeof explicit === 'string' && explicit.trim()) return explicit;
+  const fromPayload = payload?.action_url ?? payload?.actionUrl;
+  return typeof fromPayload === 'string' && fromPayload.trim() ? fromPayload : undefined;
+}
+
 export interface NotifyInput {
   /** psnotify subscriber id — must equal the bell's subscriberId (the user's email). */
   subscriberId: string;
   subject: string;
   body: string;
+  /**
+   * Optional deep link the bell row navigates to (e.g. the live site URL on a
+   * build-complete). Threaded into the psnotify payload as `action_url` so the DO
+   * stores it — WITHOUT this the URL was silently dropped and every bell row was
+   * un-clickable (the `adapter-drops-source-field` class).
+   */
+  actionUrl?: string;
   /** Workflow trigger identifier; defaults to the shared `ps-notify` workflow. */
   workflowId?: string;
 }
@@ -138,7 +164,12 @@ export async function notifyUser(env: Env, input: NotifyInput): Promise<NotifyRe
     const result = await triggerPsnotify(env, {
       name: input.workflowId ?? 'ps-notify',
       subscriberId: input.subscriberId,
-      payload: { subject: input.subject, body: input.body },
+      payload: {
+        subject: input.subject,
+        body: input.body,
+        // `triggerPsnotify` reads `payload.action_url` for the bell row's deep link.
+        ...(input.actionUrl ? { action_url: input.actionUrl } : {}),
+      },
     });
     console.warn(
       notifyLogLine(result.success ? 'notify.sent' : 'notify.error', {
@@ -175,7 +206,7 @@ export async function notifyUser(env: Env, input: NotifyInput): Promise<NotifyRe
 export async function notifySiteOwner(
   env: Env,
   db: D1Database,
-  input: { orgId: string; subject: string; body: string; workflowId?: string },
+  input: { orgId: string; subject: string; body: string; actionUrl?: string; workflowId?: string },
 ): Promise<NotifyResult> {
   if (!input.orgId) return { ok: false, detail: 'no_org' };
   try {
@@ -195,6 +226,7 @@ export async function notifySiteOwner(
       subscriberId: row.email,
       subject: input.subject,
       body: input.body,
+      actionUrl: input.actionUrl,
       workflowId: input.workflowId,
     });
     if (result.ok) {
@@ -242,7 +274,7 @@ export async function notifySiteOwner(
  */
 export async function notifyEvent(
   env: Env,
-  input: { subscriberId: string; event: unknown; workflowId?: string },
+  input: { subscriberId: string; event: unknown; actionUrl?: string; workflowId?: string },
 ): Promise<NotifyResult> {
   const parsed = PsnotifyEventSchema.safeParse(input.event);
   if (!parsed.success) {
@@ -263,6 +295,7 @@ export async function notifyEvent(
     subscriberId: input.subscriberId,
     subject,
     body,
+    actionUrl: pickActionUrl(input.actionUrl, payload),
     workflowId: input.workflowId,
   });
 }
@@ -281,7 +314,7 @@ export async function notifyEvent(
 export async function notifyOwnerEvent(
   env: Env,
   db: D1Database,
-  input: { orgId: string; event: unknown; workflowId?: string },
+  input: { orgId: string; event: unknown; actionUrl?: string; workflowId?: string },
 ): Promise<NotifyResult> {
   const parsed = PsnotifyEventSchema.safeParse(input.event);
   if (!parsed.success) {
@@ -302,6 +335,7 @@ export async function notifyOwnerEvent(
     orgId: input.orgId,
     subject,
     body,
+    actionUrl: pickActionUrl(input.actionUrl, payload),
     workflowId: input.workflowId,
   });
 }

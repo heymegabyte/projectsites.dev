@@ -123,16 +123,19 @@ describe('pre-flight no-credit refusal — owner notification (AL-781)', () => {
 
     // The discriminating assertion — RED before AL-781 (the branch threw WITHOUT
     // notifying), GREEN after. notifyBuildFailed → notifyOwnerEvent(env, db, {orgId, event}).
+    // The event MUST be the CANONICAL PsnotifyEventSchema shape (`{ name, subscriberId,
+    // payload }`) — the old novu-era `{ event, tenantId, … }` object silently failed the
+    // schema so the bell never fired (BACKLOG fire-51 "psnotify `build.*` channel never fires").
     expect(mockNotify).toHaveBeenCalledTimes(1);
     const call = mockNotify.mock.calls[0] as unknown[];
     const arg = call[2] as {
       orgId: string;
-      event: { event: string; siteId: string; tenantId: string };
+      event: { name: string; subscriberId: string; payload: Record<string, unknown> };
     };
     expect(arg.orgId).toBe('o1');
-    expect(arg.event.event).toBe('build.failed');
-    expect(arg.event.siteId).toBe('s1');
-    expect(arg.event.tenantId).toBe('o1');
+    expect(arg.event.name).toBe('build.failed');
+    expect(arg.event.subscriberId).toBe('o1'); // placeholder; notifyOwnerEvent resolves the real owner email
+    expect(arg.event.payload.siteId).toBe('s1');
   });
 
   it('does NOT notify on healthy credit — the refusal notify fires ONLY on the dead-credit branch', async () => {
