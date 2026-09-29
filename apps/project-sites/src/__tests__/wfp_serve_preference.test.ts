@@ -148,8 +148,13 @@ describe('serveSiteViaWfpIfPreferred', () => {
     expect(mockDispatchToUserWorker.mock.calls[0][1]).toBe(PREVIEW_SCRIPT);
   });
 
-  it('flag ON but NO WfP slot recorded → returns null (fall through to R2)', async () => {
-    mockListResources.mockResolvedValue([]); // no rows for this env
+  // ── FAIL-SOFT PATH A — no WfP slot recorded (every pre-existing site until the
+  //    backfill migration). This is the case that makes the default-ON promotion
+  //    safe: the flag is on, but with no slot the branch returns null so the caller
+  //    serves the byte-identical serveSiteFromR2 response — and NOTHING that leaves
+  //    this branch carries the `x-ps-serve: wfp` dispatch marker.
+  it('DEFAULT-ON fail-soft A: flag ON but NO WfP slot recorded → returns null (R2 serves; no x-ps-serve marker)', async () => {
+    mockListResources.mockResolvedValue([]); // no rows for this env (unbackfilled site)
 
     const out = await serveSiteViaWfpIfPreferred(
       envWith() as never,
@@ -158,11 +163,19 @@ describe('serveSiteViaWfpIfPreferred', () => {
       'vitos.projectsites.dev',
     );
 
+    // null return === "caller serves from R2 (serveSiteFromR2), byte-identical".
     expect(out).toBeNull();
+    // No dispatch attempted, and no tagged Response ever produced → R2 path is clean.
     expect(mockDispatchToUserWorker).not.toHaveBeenCalled();
+    // Defensive: the only way `x-ps-serve` is set is on a real dispatch — a null
+    // return can carry no header at all.
+    expect(out?.headers?.get?.('x-ps-serve') ?? null).toBeNull();
   });
 
-  it('flag ON, slot present, but dispatch THROWS → returns null (fail-soft to R2, never a 5xx)', async () => {
+  // ── FAIL-SOFT PATH B — the WfP dispatch itself fails (throw OR non-2xx). A slot
+  //    exists, but the dispatched worker errors; the branch must degrade to R2, never
+  //    surface a broken 5xx and never tag the response as WfP-served.
+  it('DEFAULT-ON fail-soft B1: flag ON, slot present, dispatch THROWS → returns null (R2 serves; no x-ps-serve marker)', async () => {
     mockDispatchToUserWorker.mockRejectedValue(new Error('dispatch boom'));
 
     const out = await serveSiteViaWfpIfPreferred(
@@ -172,8 +185,24 @@ describe('serveSiteViaWfpIfPreferred', () => {
       'vitos.projectsites.dev',
     );
 
-    expect(out).toBeNull();
+    expect(out).toBeNull(); // → serveSiteFromR2 (byte-identical R2 response)
     expect(mockDispatchToUserWorker).toHaveBeenCalledTimes(1);
+    expect(out?.headers?.get?.('x-ps-serve') ?? null).toBeNull();
+  });
+
+  it('DEFAULT-ON fail-soft B2: flag ON, slot present, dispatch returns non-2xx (5xx) → returns null (R2 serves; no x-ps-serve marker)', async () => {
+    mockDispatchToUserWorker.mockResolvedValue(new Response('boom', { status: 503 }));
+
+    const out = await serveSiteViaWfpIfPreferred(
+      envWith() as never,
+      PROD_SITE,
+      req(),
+      'vitos.projectsites.dev',
+    );
+
+    expect(out).toBeNull(); // 5xx is never better than R2 → fall soft
+    expect(mockDispatchToUserWorker).toHaveBeenCalledTimes(1);
+    expect(out?.headers?.get?.('x-ps-serve') ?? null).toBeNull();
   });
 
   it('flag ON, slot present, but WfP not configured → returns null (fall through to R2)', async () => {
