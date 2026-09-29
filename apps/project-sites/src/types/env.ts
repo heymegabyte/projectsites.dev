@@ -609,9 +609,11 @@ export interface Env {
   // ── Domain Registration (CF Registrar via global-key auth + RDAP) ──
   // Availability: RDAP (free, IETF-standard, no key — see services/rdap_availability.ts).
   // Pricing:      CF Registrar public TLD endpoint (no auth — see services/cf_registrar.ts).
-  // Register:     POST /accounts/:account_id/registrar/domains/:domain authed by the
+  // Register:     POST /accounts/:account_id/registrar/registrations authed by the
   //               existing CLOUDFLARE_API_KEY + CLOUDFLARE_EMAIL above. No
-  //               separate registrar-scoped token needed.
+  //               separate registrar-scoped token needed. (Legacy
+  //               /registrar/domains/:domain management endpoints hit EOL
+  //               2026-09-27 — never reference them; see services/cf_registrar.ts.)
   /** OpenSRS reseller username for domain registration. */
   OPENSRS_USERNAME?: string;
   /** OpenSRS private API key for domain registration. */

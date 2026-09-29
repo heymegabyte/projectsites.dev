@@ -778,8 +778,20 @@
 
 ## cf-releases (role 14 scout duty — ~every 4 fires)
 
-- [ ] First feed sweep: developer-platform + product RSS + deprecations → dedupe by GUID into
+- [x] First feed sweep: developer-platform + product RSS + deprecations → dedupe by GUID into
   `CF-RELEASES.md` → decision per relevant release (pilot/backlog/watch/reject). Include
   browser-API/platform changes for the template capability registry. Est: S, recurring.
+  DONE fire-54: 44 items + 10 deprecations → 2 pilot / 6 backlog / ~13 watch / 4 reject;
+  no urgent deprecations (registrar client verified on NEW API). Next sweep ~fire-58.
+- [ ] PILOT (fire-54 scout): Browser Run multi-client sessions (2026-09-29) — attach 2+
+  concurrent CDP clients to ONE Browser Run session (journey driver + screenshot/console
+  observer) in the Deep UI Explorer harness. Acceptance: second client attaches to a live
+  session with no cold start, both interact without evicting each other, recipe documented
+  in the explorer manifest. Est: S.
+- [ ] PILOT (fire-54 scout): Workers tracing custom spans (2026-09-25) — instrument
+  site-generation workflow phases + WfP dispatch with startSpan()/recordException()/
+  setAttributes (siteId, orgId, phase); JS RPC session spans (2026-09-17) should cross the
+  DO boundary for free. Acceptance: one real prod build shows named per-phase spans + a
+  recorded exception in Workers Observability. Est: S-M.
 - [ ] Browser Run budget: track browser-minutes per explorer/long-trail run in the manifest;
   reconcile monthly against CF billing (Browser Run pricing + session limits). Est: S.
