@@ -78,10 +78,12 @@ describe('D1ApiKeyProvider', () => {
     expect(await p.verifyKey('psk_x')).toEqual({ valid: false, code: 'NOT_FOUND' });
   });
 
-  it('verifyKey fails soft to NOT_FOUND when the keystore throws', async () => {
+  it('verifyKey returns ERROR (NOT NOT_FOUND) when the keystore throws — a D1 outage must be distinguishable from a genuine miss so the caller can 503, never silently 401 a broken DB (auth must not fail soft)', async () => {
     mVerify.mockRejectedValue(new Error('D1 down'));
     const p = new D1ApiKeyProvider(env);
-    expect(await p.verifyKey('psk_x')).toEqual({ valid: false, code: 'NOT_FOUND' });
+    // Still fails-soft (never throws into the caller per the port contract), but the
+    // code is ERROR — a distinct signal so a Bearer route can return 503, not 401.
+    expect(await p.verifyKey('psk_x')).toEqual({ valid: false, code: 'ERROR' });
   });
 
   it('revokeKey delegates to revokeApiToken(db, ownerId, keyId)', async () => {

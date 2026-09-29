@@ -238,11 +238,10 @@ describe('verifyApiToken', () => {
     expect(row).toBeNull();
   });
 
-  it('returns null (fails closed) when the DB lookup throws', async () => {
+  it('PROPAGATES (throws) when the D1 lookup itself errors — auth must NOT degrade a DB outage into a silent "no token" (401). A genuine miss returns null; a D1 error MUST throw so the caller can 503, never conflate error-with-miss (fail-fast auth per fail-fast-build-fail-soft-prod).', async () => {
     const db = makeDb();
     firstResults = [new Error('d1 down')];
-    const row = await verifyApiToken(db, `psk_${'d'.repeat(64)}`);
-    expect(row).toBeNull();
+    await expect(verifyApiToken(db, `psk_${'d'.repeat(64)}`)).rejects.toThrow('d1 down');
   });
 
   it('touches last_used_at on a hit via a second prepared statement', async () => {

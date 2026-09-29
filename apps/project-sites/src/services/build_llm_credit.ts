@@ -11,8 +11,13 @@
 // Browserbase run) when no provider has credit, so the delivery fails fast + loud with the exact
 // unblock instead of shipping a fake delivery.
 //
-// Fail-soft by design: only a DEFINITIVE dead-balance signal blocks. Any transient/network/parse
-// error returns `ok:true, checked:false` so a blip never strands a legitimate build.
+// Blocking (`ok:false`) is scoped to signals we can TRUST: a DEFINITIVE dead-balance, a provider
+// REACHABILITY failure (`network_error` — the fetch threw), or an UNVERIFIABLE 2xx body
+// (`parse_error` — malformed/schema-mismatched). A provider outage must NOT read as "checked,
+// available" (graceful-degradation-hides-outages) — the orchestrator flips to error, notifies the
+// owner, retries, and BUILD_LLM_ALLOW_SEED_ONLY is the deliberate escape hatch. A REACHED-but-non-2xx
+// HTTP response (rate-limit / transient 5xx / unrelated 4xx) stays fail-soft (`ok:true, checked:false`)
+// so a mere blip never strands a legitimate build.
 import { z } from 'zod';
 
 /** Which build-LLM provider the workflow will actually use, mirroring site-generation.ts. */
@@ -120,8 +125,9 @@ const DeepSeekBalanceSchema = z.object({
  * @remarks Impure — performs one network request to the provider's balance/echo endpoint.
  * @param env - Build-LLM env slice (keys + provider override).
  * @param deps - Optional injected `fetchImpl` for tests.
- * @returns A validated {@link BuildLlmCreditResult}. `ok:false` ONLY on a definitive dead-balance
- *   signal; every transient/parse failure is `ok:true, checked:false` (fail-soft).
+ * @returns A validated {@link BuildLlmCreditResult}. `ok:false` on a definitive dead-balance, a
+ *   `network_error` (fetch threw — outage), or a `parse_error` (unverifiable 2xx body). A
+ *   reached-but-non-2xx HTTP response stays `ok:true, checked:false` (fail-soft blip).
  * @example
  * const c = await checkBuildLlmCredit(env);
  * if (!c.ok) throw new Error(`build-LLM ${c.provider} out of credit: ${c.reason}`);
@@ -145,47 +151,80 @@ export async function checkBuildLlmCredit(
     });
   }
 
-  try {
-    if (provider === 'deepseek') {
-      const res = await doFetch('https://api.deepseek.com/user/balance', {
+  // A REACHABILITY failure (the fetch itself throws: DNS, connreset, TLS, timeout) is an
+  // OUTAGE — it must NOT read as "checked, available" (graceful-degradation-hides-outages).
+  // Blocking (ok:false) is the fail-fast choice: the orchestrator flips the site to error +
+  // notifies the owner + retries, and BUILD_LLM_ALLOW_SEED_ONLY remains the deliberate escape
+  // hatch. Distinguished from a body/schema PARSE failure (also ok:false, reason:parse_error)
+  // so operators can tell an unreachable provider from a malformed balance response. An HTTP
+  // ERROR-RESPONSE (server answered non-2xx: rate-limit, transient 5xx, unrelated 4xx) is NOT
+  // an outage — the provider was reached — so those stay fail-soft (ok:true, checked:false).
+  if (provider === 'deepseek') {
+    let res: Response;
+    try {
+      res = await doFetch('https://api.deepseek.com/user/balance', {
         headers: { Authorization: `Bearer ${key}`, Accept: 'application/json' },
       });
-      if (!res.ok) {
-        return BuildLlmCreditResultSchema.parse({
-          ok: true,
-          provider,
-          checked: false,
-          reason: `balance_endpoint_http_${res.status}`,
-        });
-      }
-      const parsed = DeepSeekBalanceSchema.safeParse(await res.json().catch(() => ({})));
-      if (!parsed.success) {
-        return BuildLlmCreditResultSchema.parse({
-          ok: true,
-          provider,
-          checked: false,
-          reason: 'balance_parse_failed',
-        });
-      }
-      const bal = parsed.data.balance_infos?.[0]?.total_balance;
-      // Definitive dead-balance: provider reports unavailable OR a non-positive total balance.
-      const available = parsed.data.is_available === true;
-      const positive = bal !== undefined ? Number(bal) > 0 : true;
-      if (available && positive) {
-        return BuildLlmCreditResultSchema.parse({
-          ok: true,
-          provider,
-          checked: true,
-          reason: 'deepseek_balance_ok',
-          ...(bal !== undefined && { balance: bal }),
-        });
-      }
-      return deadBalanceResult('deepseek', 'deepseek_dead_balance', seedOnlyAllowed(env), bal);
+    } catch {
+      return BuildLlmCreditResultSchema.parse({
+        ok: false,
+        provider,
+        checked: false,
+        reason: 'network_error',
+      });
     }
+    if (!res.ok) {
+      // Server responded (reached), just not 2xx → fail-soft, don't block a legit build.
+      return BuildLlmCreditResultSchema.parse({
+        ok: true,
+        provider,
+        checked: false,
+        reason: `balance_endpoint_http_${res.status}`,
+      });
+    }
+    let bodyJson: unknown;
+    try {
+      bodyJson = await res.json();
+    } catch {
+      return BuildLlmCreditResultSchema.parse({
+        ok: false,
+        provider,
+        checked: false,
+        reason: 'parse_error',
+      });
+    }
+    const parsed = DeepSeekBalanceSchema.safeParse(bodyJson);
+    if (!parsed.success) {
+      // A 2xx body that does NOT match the balance schema is an unverifiable response —
+      // NOT a genuine zero-balance. Surface it (ok:false), never mask it as available.
+      return BuildLlmCreditResultSchema.parse({
+        ok: false,
+        provider,
+        checked: false,
+        reason: 'parse_error',
+      });
+    }
+    const bal = parsed.data.balance_infos?.[0]?.total_balance;
+    // Definitive dead-balance: provider reports unavailable OR a non-positive total balance.
+    const available = parsed.data.is_available === true;
+    const positive = bal !== undefined ? Number(bal) > 0 : true;
+    if (available && positive) {
+      return BuildLlmCreditResultSchema.parse({
+        ok: true,
+        provider,
+        checked: true,
+        reason: 'deepseek_balance_ok',
+        ...(bal !== undefined && { balance: bal }),
+      });
+    }
+    return deadBalanceResult('deepseek', 'deepseek_dead_balance', seedOnlyAllowed(env), bal);
+  }
 
-    // Anthropic: a 1-token echo call is the cheapest liveness probe. A too-low-credit balance
-    // returns an `invalid_request_error` whose message names the credit problem (HTTP 400).
-    const res = await doFetch('https://api.anthropic.com/v1/messages', {
+  // Anthropic: a 1-token echo call is the cheapest liveness probe. A too-low-credit balance
+  // returns an `invalid_request_error` whose message names the credit problem (HTTP 400).
+  let res: Response;
+  try {
+    res = await doFetch('https://api.anthropic.com/v1/messages', {
       method: 'POST',
       headers: {
         'x-api-key': key,
@@ -198,35 +237,45 @@ export async function checkBuildLlmCredit(
         messages: [{ role: 'user', content: 'x' }],
       }),
     });
-    if (res.ok) {
-      return BuildLlmCreditResultSchema.parse({
-        ok: true,
-        provider,
-        checked: true,
-        reason: 'anthropic_credit_ok',
-      });
-    }
-    const body = (await res.json().catch(() => ({}))) as {
-      error?: { message?: string };
-    };
-    const msg = body.error?.message ?? '';
-    const deadBalance = /credit balance is too low|insufficient|billing/i.test(msg);
-    if (deadBalance) {
-      return deadBalanceResult('anthropic', 'anthropic_dead_balance', seedOnlyAllowed(env));
-    }
-    // Any other non-2xx (rate-limit, transient 5xx, unrelated 400) → fail-soft, don't block.
+  } catch {
+    return BuildLlmCreditResultSchema.parse({
+      ok: false,
+      provider,
+      checked: false,
+      reason: 'network_error',
+    });
+  }
+  if (res.ok) {
+    return BuildLlmCreditResultSchema.parse({
+      ok: true,
+      provider,
+      checked: true,
+      reason: 'anthropic_credit_ok',
+    });
+  }
+  let body: { error?: { message?: string } };
+  try {
+    body = (await res.json()) as { error?: { message?: string } };
+  } catch {
+    // Non-2xx AND unparseable body — can't confirm it's a credit failure. The server WAS
+    // reached (HTTP status in hand), so this is fail-soft (a blip), not a blocking outage.
     return BuildLlmCreditResultSchema.parse({
       ok: true,
       provider,
       checked: false,
       reason: `anthropic_non_credit_http_${res.status}`,
     });
-  } catch (err) {
-    return BuildLlmCreditResultSchema.parse({
-      ok: true,
-      provider,
-      checked: false,
-      reason: `check_failed_fail_soft:${err instanceof Error ? err.name : 'unknown'}`,
-    });
   }
+  const msg = body.error?.message ?? '';
+  const deadBalance = /credit balance is too low|insufficient|billing/i.test(msg);
+  if (deadBalance) {
+    return deadBalanceResult('anthropic', 'anthropic_dead_balance', seedOnlyAllowed(env));
+  }
+  // Any other non-2xx (rate-limit, transient 5xx, unrelated 400) → fail-soft, don't block.
+  return BuildLlmCreditResultSchema.parse({
+    ok: true,
+    provider,
+    checked: false,
+    reason: `anthropic_non_credit_http_${res.status}`,
+  });
 }

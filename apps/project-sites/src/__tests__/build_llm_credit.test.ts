@@ -88,14 +88,25 @@ describe('build_llm_credit — checkBuildLlmCredit (PRE-FLIGHT dead-balance gate
     expect(c.provider).toBe('anthropic');
   });
 
-  it('FAIL-SOFT: a network throw never blocks a legit build (ok:true, checked:false)', async () => {
+  it('NETWORK ERROR (fetch throws) → ok:false, reason:network_error — an OUTAGE must NOT read as "checked, available"; a DeepSeek/Anthropic reachability failure is surfaced, never masked as a pass (graceful-degradation-hides-outages)', async () => {
     const fetchImpl = (async () => {
       throw new TypeError('network down');
     }) as unknown as typeof fetch;
     const c = await checkBuildLlmCredit({ DEEPSEEK_API_KEY: 'k' }, { fetchImpl });
-    expect(c.ok).toBe(true);
+    expect(c.ok).toBe(false);
     expect(c.checked).toBe(false);
-    expect(c.reason).toContain('check_failed_fail_soft');
+    expect(c.reason).toBe('network_error');
+    expect(c.provider).toBe('deepseek');
+  });
+
+  it('PARSE ERROR (2xx body fails schema) → ok:false, reason:parse_error — a malformed balance body is an unverifiable outage, distinguished from a genuine zero-balance, never a silent "available"', async () => {
+    const fetchImpl = (async () =>
+      res(200, { unexpected: 'shape', balance_infos: 'not-an-array' })) as unknown as typeof fetch;
+    const c = await checkBuildLlmCredit({ DEEPSEEK_API_KEY: 'k' }, { fetchImpl });
+    expect(c.ok).toBe(false);
+    expect(c.checked).toBe(false);
+    expect(c.reason).toBe('parse_error');
+    expect(c.provider).toBe('deepseek');
   });
 
   it('FAIL-SOFT: an Anthropic rate-limit (429) does NOT block (transient, not a credit failure)', async () => {

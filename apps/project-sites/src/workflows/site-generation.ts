@@ -1325,7 +1325,9 @@ export class SiteGenerationWorkflow extends WorkflowEntrypoint<Env, SiteGenerati
     // broken build (the build-llm-402-dead-balance incident class). Refuse the spend here:
     // check the ACTIVE provider's balance and, on a DEFINITIVE dead balance, flip to `error` +
     // emit a structured event + throw BEFORE the container boots (no fake delivery, no email).
-    // Fail-soft — a transient/parse/network error returns ok:true and the build proceeds.
+    // Blocks (ok:false) on: a definitive dead-balance, a provider network_error (outage), or a
+    // parse_error (unverifiable balance body) — an outage must not read as "available". Only a
+    // REACHED-but-non-2xx HTTP blip stays fail-soft (ok:true) and lets the build proceed.
     await step.do(
       'preflight-build-llm-credit',
       { retries: { limit: 1, delay: '5 seconds', backoff: 'constant' }, timeout: '30 seconds' },

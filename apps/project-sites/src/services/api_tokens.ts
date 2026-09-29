@@ -134,6 +134,12 @@ export async function verifyApiToken(
   if (!plaintext.startsWith('psk_')) return null;
   const hash = await hashToken(plaintext);
 
+  // NO `.catch(() => null)` here: a genuine "no matching token" already resolves to
+  // null (`.first()` returns null for zero rows), but a real D1 error (DB down/timeout)
+  // MUST propagate so the caller can 503 — never conflate an outage with an empty result.
+  // Auth is the explicit exception to fail-soft-prod: a broken DB must not read as
+  // auth-DENIED (401). Fail fast so the caller distinguishes "no token" (401) from
+  // "can't check" (503). Per fail-fast-build-fail-soft-prod § security-critical paths.
   const row = await db
     .prepare(
       `SELECT * FROM api_tokens
@@ -144,8 +150,7 @@ export async function verifyApiToken(
        LIMIT 1`,
     )
     .bind(hash)
-    .first<ApiTokenRow>()
-    .catch(() => null);
+    .first<ApiTokenRow>();
 
   if (row) {
     // Throttle the last_used_at touch: this validates on EVERY public-API

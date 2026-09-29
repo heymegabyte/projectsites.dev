@@ -33,8 +33,11 @@ function toApiScopes(scopes: readonly string[]): ApiScope[] {
 
 /**
  * D1-backed provider for the production `api_tokens` keystore.
- * `verifyKey` fails soft: a thrown DB error returns `{ valid: false, code: 'NOT_FOUND' }`
- * rather than propagating (mirrors the keystore's own null-on-error behavior).
+ * `verifyKey` fails soft (never throws into the caller, per the port contract) but
+ * DISTINGUISHES a genuine miss from a DB outage: a `null` from the keystore →
+ * `{ valid: false, code: 'NOT_FOUND' }` (→ 401); a THROWN keystore error (D1
+ * down/timeout) → `{ valid: false, code: 'ERROR' }` (→ 503). Auth must not degrade
+ * a broken DB into auth-denied — the caller inspects `code` to pick 401 vs 503.
  */
 export class D1ApiKeyProvider implements ApiKeyProvider {
   readonly name = 'projectsites-d1-api-tokens';
@@ -63,8 +66,20 @@ export class D1ApiKeyProvider implements ApiKeyProvider {
         ownerId: row.org_id,
         scopes: toApiScopes(JSON.parse(row.scopes) as string[]),
       };
-    } catch {
-      return { valid: false, code: 'NOT_FOUND' };
+    } catch (err) {
+      // A THROWN keystore error means the lookup COULD NOT COMPLETE (D1 down/timeout),
+      // NOT that the key is absent. Return ERROR (→ caller 503) so a broken DB never
+      // reads as auth-denied (401). Fail soft (don't rethrow) per the port contract,
+      // but carry the "can't check" signal in the code. Log server-side for triage.
+      console.warn(
+        JSON.stringify({
+          level: 'warn',
+          service: 'api-keys',
+          event: 'verify_key_error',
+          message: err instanceof Error ? err.message : 'unknown keystore error',
+        }),
+      );
+      return { valid: false, code: 'ERROR' };
     }
   }
 

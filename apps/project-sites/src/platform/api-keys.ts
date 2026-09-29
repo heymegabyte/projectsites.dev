@@ -24,10 +24,15 @@
  * Verification outcome code for the native API-key provider.
  * - `VALID` — key found, not revoked, not expired.
  * - `NOT_FOUND` — no matching key (also covers revoked/expired, which the
- *   keystore collapses into "no valid row" — never leak which).
- * - `FORBIDDEN` — found but lacks a required scope (caller-side check).
+ *   keystore collapses into "no valid row" — never leak which). → caller 401.
+ * - `FORBIDDEN` — found but lacks a required scope (caller-side check). → 403.
+ * - `ERROR` — the keystore lookup FAILED (D1 down/timeout). Distinct from
+ *   `NOT_FOUND` so a Bearer route returns 503, never a silent 401 for a broken
+ *   DB — auth must NOT degrade an outage into auth-denied. `verifyKey` still
+ *   fails soft (never throws into the caller) per the port contract; the ERROR
+ *   code carries the "can't check" signal instead of a thrown exception.
  */
-export type KeyVerificationCode = 'VALID' | 'NOT_FOUND' | 'FORBIDDEN';
+export type KeyVerificationCode = 'VALID' | 'NOT_FOUND' | 'FORBIDDEN' | 'ERROR';
 
 /** Structured result of verifying an API key (create/verify/revoke contract). */
 export interface KeyVerificationResult {
