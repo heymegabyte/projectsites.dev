@@ -66,12 +66,16 @@ interface NotificationGroup {
  * Surfaces:
  *
  * 1. **Profile** — avatar, name/email, role pill (read-only summary).
- * 2. **Theme** — `dark | light | system`. Persisted to `ps_theme`.
+ * 2. **Theme** — `dark | light | system`. Persisted to `ps_theme` (this browser
+ *    only — theme does NOT yet sync cross-device; a server-backed ui_prefs store
+ *    is queued).
  * 3. **API keys** — create + reveal-once + copy + rotate-from-modal + revoke.
  *    Stored under `/api/admin/api-keys`. Secret only ever shown ONCE.
  * 4. **Sessions** — device list with last-active + revoke per row + revoke-all.
  * 5. **Notifications** — grouped toggles (product, security, billing) persisted
- *    locally and synced to `/api/admin/notifications` when the endpoint exists.
+ *    locally AND synced cross-device via the live `/api/admin/notifications`
+ *    (GET hydrates on load, POST saves; local storage is the instant source of
+ *    truth, the server is the cross-device mirror).
  * 6. **Danger zone** — account delete with confirm modal.
  *
  * @example
@@ -1107,8 +1111,15 @@ export class AdminUserSettingsComponent implements OnInit, OnDestroy {
   })());
 
   /**
-   * Switch theme. Persists to localStorage AND stamps `<html data-theme>` so the
-   * change applies immediately without a page reload.
+   * Switch theme. Persists to localStorage (THIS browser only) AND stamps
+   * `<html data-theme>` so the change applies immediately without a page reload.
+   *
+   * Scope note: unlike the display name and notification prefs (which sync
+   * cross-device via the server), theme is intentionally per-browser today — no
+   * server ui_prefs store exists yet, so the choice does NOT follow the user to a
+   * new device. A server-backed theme sync is queued (would add a ui_prefs field
+   * to the profile PATCH / a KV like notifications). Until then this is honestly
+   * a local preference, matching the "persisted per browser" copy in the UI.
    */
   setTheme(t: 'dark' | 'light' | 'system'): void {
     this.themeChoice.set(t);
@@ -1620,20 +1631,21 @@ export class AdminUserSettingsComponent implements OnInit, OnDestroy {
     this.notifSaved.set(true);
     if (this.notifSavedTimer) clearTimeout(this.notifSavedTimer);
     this.notifSavedTimer = setTimeout(() => this.notifSaved.set(false), 2200);
-    // Forward-compatible sync: POST the FULL pref map so the server route (when
-    // it ships) persists the complete state in one call. DEBOUNCED so flipping
-    // several switches in a row coalesces into a single request instead of one
-    // per click, and SUPPRESSED after the first failure so we never keep hammering
-    // a route that isn't there — local persistence is the source of truth.
+    // Cross-device sync: POST the FULL pref map so the live server route persists
+    // the complete state in one call. DEBOUNCED so flipping several switches in a
+    // row coalesces into a single request instead of one per click, and SUPPRESSED
+    // after the first transient failure so we never keep hammering a failing route
+    // this session — local persistence stays the instant source of truth.
     this.scheduleNotificationSync(flat);
   }
 
   /**
-   * Debounced, failure-latching forward-sync of the notification pref map.
-   * A burst of toggles re-schedules the timer, so only the final state is sent
-   * once the user stops. The first error (e.g. a 404 because the server route
-   * has not shipped) latches `notifSyncUnavailable` so subsequent toggles skip
-   * the request entirely — no silent, guaranteed-failing call on every click.
+   * Debounced, failure-latching forward-sync of the notification pref map to the
+   * live `POST /api/admin/notifications`. A burst of toggles re-schedules the
+   * timer, so only the final state is sent once the user stops. The first error
+   * (a transient network/5xx failure of an otherwise-live route) latches
+   * `notifSyncUnavailable` so we do not hammer a failing endpoint for the rest of
+   * the session — local persistence stays the instant source of truth regardless.
    */
   private scheduleNotificationSync(flat: Record<string, boolean>): void {
     if (this.notifSyncUnavailable) return;
@@ -1656,8 +1668,8 @@ export class AdminUserSettingsComponent implements OnInit, OnDestroy {
    * (localStorage-seeded) groups, leaving any pref id the server hasn't seen at
    * its local/default value (forward-compatible with new prefs), then refresh
    * the local cache so the instant source of truth matches. Fully defensive +
-   * `silent` — a 404 (route not yet deployed) or any error leaves the
-   * localStorage-seeded state untouched and never toasts.
+   * `silent` — any transient error (offline / 5xx) leaves the localStorage-seeded
+   * state untouched and never toasts.
    */
   private hydrateNotificationPrefs(): void {
     this.api
