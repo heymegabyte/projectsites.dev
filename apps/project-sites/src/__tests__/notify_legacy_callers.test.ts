@@ -362,7 +362,11 @@ describe('domain verify owner-bell emits the CANONICAL psnotify shape', () => {
       if (sql.includes('FROM hostnames WHERE site_id = ?')) return { hostname: 'shop.example.com' };
       return null;
     });
-    mockCfStatus.mockResolvedValue({ status: 'active', ssl_status: 'active', verification_errors: [] });
+    mockCfStatus.mockResolvedValue({
+      status: 'active',
+      ssl_status: 'active',
+      verification_errors: [],
+    });
 
     const res = await hostApp().request(
       '/api/admin/domains/h1/verify',
