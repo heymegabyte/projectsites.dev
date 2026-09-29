@@ -531,7 +531,6 @@ export interface ImageGenerationDispatch {
   status_url: string;
 }
 
-
 // ── Prompt Registration (called at startup) ──────────────────
 
 /**
