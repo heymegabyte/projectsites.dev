@@ -1,4 +1,4 @@
-import { Component, computed, inject, signal } from '@angular/core';
+import { Component, computed, ElementRef, inject, signal, viewChild } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { RouterLink } from '@angular/router';
 import { isValidEmail } from '../../../utils/validators/email';
@@ -37,7 +37,7 @@ import {
 
       @if (error()) {
         <div
-          class="mb-5 max-w-3xl rounded-lg border border-red-500/30 bg-red-500/10 px-3.5 py-2.5 text-[0.82rem] text-red-300"
+          class="mb-5 max-w-3xl rounded-lg border border-red-500/30 bg-red-500/10 px-3.5 py-2.5 text-[0.82rem] text-[var(--ps-danger)]"
           role="alert"
           data-testid="team-error"
         >
@@ -61,9 +61,9 @@ import {
         <span class="font-semibold text-white">{{ seatsUnlimited() ? 'unlimited' : seatLimit() }}</span>
         seats used
         @if (seatsFull()) {
-          <span class="text-amber-300/90" data-testid="team-seats-full">
+          <span class="text-[color-mix(in_oklch,var(--ps-warning)_90%,transparent)]" data-testid="team-seats-full">
             · Seat limit reached —
-            <a routerLink="/admin/billing" class="underline hover:text-amber-200">upgrade your plan</a>
+            <a routerLink="/admin/billing" class="underline hover:text-[var(--ps-warning)]">upgrade your plan</a>
             to invite more.
           </span>
         }
@@ -81,6 +81,7 @@ import {
               Email
             </label>
             <input
+              #inviteEmailInput
               id="team-invite-email"
               name="email"
               type="email"
@@ -183,9 +184,20 @@ import {
               }
             </ul>
           } @else {
-            <p class="text-[0.85rem] text-text-secondary" data-testid="team-members-empty">
-              No members yet.
-            </p>
+            <div
+              class="rounded-lg border border-white/[0.06] bg-dark-card px-4 py-5 text-center"
+              data-testid="team-members-empty"
+            >
+              <p class="text-[0.85rem] text-text-secondary m-0 mb-3">No members yet.</p>
+              <button
+                type="button"
+                (click)="focusInviteEmail()"
+                data-testid="team-members-empty-cta"
+                class="inline-flex min-h-[44px] items-center rounded-lg bg-primary px-4 text-[0.85rem] font-bold text-dark transition-colors motion-safe:transition-all hover:bg-primary/90 focus-visible:ring-2 focus-visible:ring-primary/50"
+              >
+                Invite your first member →
+              </button>
+            </div>
           }
         </section>
 
@@ -233,6 +245,9 @@ import {
 })
 export class TeamComponent {
   private readonly orgApi = inject(OrgApiService);
+
+  /** The invite-email input — focused by the empty-state launchpad CTA. */
+  private readonly inviteEmailInput = viewChild<ElementRef<HTMLInputElement>>('inviteEmailInput');
 
   /** Default seat cap when entitlements don't surface one. */
   private static readonly DEFAULT_SEAT_LIMIT = 10;
@@ -360,6 +375,11 @@ export class TeamComponent {
     } else {
       this.error.set(res.error);
     }
+  }
+
+  /** Empty-state launchpad → focus the invite email so the owner's next step is obvious. */
+  focusInviteEmail(): void {
+    this.inviteEmailInput()?.nativeElement.focus();
   }
 
   /**
