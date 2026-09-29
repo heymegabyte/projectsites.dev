@@ -25,9 +25,11 @@ import {
   filterRows,
   PAGE_SIZE_OPTIONS,
   clampPageSize,
+  detectChartable,
   type GridSort,
 } from './data-panel-logic';
 import { classifyCell } from './data-cell-format';
+import { ChartView } from './ChartView';
 
 export interface DataGridProps {
   /** Column display order (usually the query's select list, or `Object.keys(rows[0])`). */
@@ -123,6 +125,23 @@ export const DataGrid = memo(
     const [copiedCell, setCopiedCell] = useState<string | null>(null);
     const [exportOpen, setExportOpen] = useState(false);
 
+    /*
+     * Rev 5 — Grid | Chart view. Chartability is AUTO-DETECTED from the already-loaded result
+     * (`detectChartable`: a label column + ≥1 numeric column, summary-sized) — no new endpoint, no
+     * refetch. `view='chart'` renders the inline-SVG {@link ChartView}; when nothing is chartable the
+     * Chart affordance yields an honest note (never a dead/broken toggle).
+     */
+    const [view, setView] = useState<'grid' | 'chart'>('grid');
+    const chartSpec = useMemo(() => detectChartable(columns, rows), [columns, rows]);
+    const [measure, setMeasure] = useState<string | null>(null);
+
+    // Keep the chosen measure valid as the result (and thus its numeric columns) changes.
+    const activeMeasure = chartSpec
+      ? measure && chartSpec.valueCols.includes(measure)
+        ? measure
+        : chartSpec.valueCols[0]
+      : null;
+
     /** Click any result cell to copy its raw value — the SQL console's most-wanted micro-action. */
     const copyCell = useCallback((key: string, value: unknown) => {
       const text = value === null || value === undefined ? '' : String(value);
@@ -137,11 +156,13 @@ export const DataGrid = memo(
     }, []);
     const exportRef = useRef<HTMLDivElement | null>(null);
 
-    // A fresh result set (new columns/rows identity) resets the view so stale sort/search never linger.
+    // A fresh result set (new columns/rows identity) resets the view so stale sort/search/chart never linger.
     useEffect(() => {
       setSorts([]);
       setSearch('');
       setPageIndex(0);
+      setView('grid');
+      setMeasure(null);
     }, [columns, rows]);
 
     // Any search/sort/pagesize change returns to page 0 (never strand the user past the end).
@@ -254,6 +275,37 @@ export const DataGrid = memo(
             {search && rows.length !== total ? ` of ${rows.length.toLocaleString()}` : ''}
           </span>
 
+          {/* Grid | Chart view toggle — a SELECT becomes an instant visualization (Rev 5). */}
+          <div
+            role="group"
+            aria-label="Result view"
+            data-testid={`${testId}-viewtoggle`}
+            className="inline-flex overflow-hidden rounded-md border border-bolt-elements-borderColor"
+          >
+            {(['grid', 'chart'] as const).map((v) => {
+              const isActive = view === v;
+              return (
+                <button
+                  key={v}
+                  type="button"
+                  onClick={() => setView(v)}
+                  aria-pressed={isActive}
+                  data-testid={`${testId}-view-${v}`}
+                  title={v === 'grid' ? 'Table view' : 'Chart view — plot a numeric column'}
+                  className={classNames(
+                    'flex items-center gap-1 px-2 py-1.5 text-[11px] transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-bolt-elements-item-contentAccent',
+                    isActive
+                      ? 'bg-[#00e5ff26] text-bolt-elements-item-contentAccent'
+                      : 'text-bolt-elements-textSecondary hover:text-bolt-elements-textPrimary hover:bg-bolt-elements-item-backgroundAccent/10',
+                  )}
+                >
+                  <div className={classNames(v === 'grid' ? 'i-ph:table' : 'i-ph:chart-bar', 'text-sm')} aria-hidden />
+                  {v === 'grid' ? 'Grid' : 'Chart'}
+                </button>
+              );
+            })}
+          </div>
+
           <div className="relative" ref={exportRef}>
             <button
               type="button"
@@ -300,7 +352,33 @@ export const DataGrid = memo(
           </div>
         </div>
 
+        {/* Chart view — an inline-SVG bar chart of the already-loaded result (Rev 5). */}
+        {view === 'chart' &&
+          (chartSpec && activeMeasure ? (
+            <ChartView
+              spec={chartSpec}
+              rows={processed}
+              measure={activeMeasure}
+              onMeasureChange={setMeasure}
+              testId={`${testId}-chart`}
+            />
+          ) : (
+            <div
+              data-testid={`${testId}-chart-empty`}
+              className="flex flex-col items-center justify-center gap-2 rounded-md border border-dashed border-bolt-elements-borderColor bg-bolt-elements-background-depth-1 p-6 text-center"
+              role="status"
+            >
+              <div className="i-ph:chart-bar text-2xl text-bolt-elements-textTertiary" aria-hidden />
+              <p className="text-xs text-bolt-elements-textSecondary">No chartable columns in this result</p>
+              <p className="text-[11px] text-bolt-elements-textTertiary max-w-[280px]">
+                A chart needs a label column plus a numeric column to plot. Try a query that groups by a
+                category and returns a count or sum.
+              </p>
+            </div>
+          ))}
+
         {/* Grid */}
+        {view === 'grid' && (
         <div
           className={classNames(
             'overflow-auto modern-scrollbar rounded-md border border-bolt-elements-borderColor shadow-[inset_0_1px_0_rgba(255,255,255,0.02)]',
@@ -424,9 +502,10 @@ export const DataGrid = memo(
             </tbody>
           </table>
         </div>
+        )}
 
         {/* Pager */}
-        {total > pageSize && (
+        {view === 'grid' && total > pageSize && (
           <div className="mt-2 flex flex-wrap items-center justify-between gap-2 text-[11px] text-bolt-elements-textTertiary">
             <span className="tabular-nums">
               {rangeStart.toLocaleString()}–{rangeEnd.toLocaleString()} of {total.toLocaleString()}
