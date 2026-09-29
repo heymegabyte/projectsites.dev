@@ -57,9 +57,7 @@ function isCfAlreadyExists(status: number, json: unknown): boolean {
   if (status !== 409 && status !== 400) return false;
   const errors = (json as { errors?: Array<{ code?: number; message?: string }> } | null)?.errors;
   if (!Array.isArray(errors)) return false;
-  return errors.some(
-    (e) => e?.code === 7502 || /already exists/i.test(String(e?.message ?? '')),
-  );
+  return errors.some((e) => e?.code === 7502 || /already exists/i.test(String(e?.message ?? '')));
 }
 
 /** Inputs for {@link provisionSiteD1} — the site + its tenant, resolved server-side by the caller. */
