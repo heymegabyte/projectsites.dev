@@ -64,6 +64,15 @@ export const FLAG_REGISTRY: Record<string, FlagDefinition> = {
     owner_email: 'brian@megabyte.space',
     stage: 'experimental',
   },
+  voice_numbers: {
+    default_enabled: false,
+    default_rollout_percent: 0,
+    description:
+      'KILLSWITCH for the Twilio phone-number PURCHASE — the one voice endpoint that spends REAL carrier money. Gates POST /api/voice/numbers/purchase (routes/voice.ts), which buys a live phone number from Twilio and records it in voice_numbers. UN-gated, an orphan / no-payment / accidental buy fires a real carrier charge with no way to stop it without a redeploy — this flag is that stop.\n\n• Off (default, DARK) → the purchase route 404s (never 403 — do not leak existence) and, critically, NO Twilio purchase fires (fail-safe: off = no money spent). The gate runs FIRST, before auth/Twilio-config/DB, so an off flag is a hard 404 for everyone.\n• On → the handler proceeds to its normal path: auth → org-membership of the site → the 3-numbers-per-site cap → Twilio purchase → voice_numbers row → audit log.\n• Reversible instant killswitch: flip off in /admin/feature-flags to halt ALL carrier purchases with no redeploy. Only the purchase leg is gated; listing / releasing / test-SMS / call-token are unaffected.\n• Acceptance: with the flag off, POST /api/voice/numbers/purchase returns 404 and twilio.purchaseNumber is never called; with it on, an authed owner of the target site can buy a number under the 3-per-site cap.',
+    key: 'voice_numbers',
+    owner_email: 'brian@megabyte.space',
+    stage: 'experimental',
+  },
   cinematic_scroll_reveals: {
     default_enabled: false,
     default_rollout_percent: 0,

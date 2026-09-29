@@ -23,6 +23,7 @@ import { suggestVanityWords, type VanityBusinessProfile } from '../services/vani
 import { simulateInbound } from '../services/sms_agent.js';
 import * as auditService from '../services/audit.js';
 import { PROMPT_META } from '../services/voice_agent.js';
+import { requireOrgFlag } from '../lib/feature_guard.js';
 import {
   AppError,
   unauthorized,
@@ -187,11 +188,19 @@ const purchaseBody = z.object({
  * @throws 401 UNAUTHORIZED when auth context is missing.
  * @throws 404 NOT_FOUND when site isn't in the caller's org (never 403 — don't leak existence).
  * @throws 404 NOT_FOUND when site doesn't exist.
+ * @throws 404 NOT_FOUND when the `voice_numbers` killswitch flag is OFF (default) —
+ *   the flag gates this money-spending carrier purchase, so OFF = no buy, and we
+ *   404 (never 403) so the feature's existence isn't leaked.
  * @throws 409 CONFLICT when site already owns 3 numbers.
  * @throws 501 NOT_IMPLEMENTED when Twilio isn't configured on this worker.
  */
 voiceRoutes.post('/api/voice/numbers/purchase', async (c) => {
-  const { userId, orgId } = requireAuth(c);
+  // KILLSWITCH FIRST — this handler spends real carrier money. `voice_numbers` is
+  // default-OFF, so an accidental/orphan purchase can never fire without an explicit
+  // flag flip. The gate runs BEFORE auth/Twilio/DB so OFF is a hard, fail-safe 404.
+  const gate = await requireOrgFlag(c, 'voice_numbers');
+  if (gate instanceof Response) return gate;
+  const { userId, orgId } = gate;
   if (!isTwilioConfigured(c.env)) throw notConfigured();
   const body = purchaseBody.parse(await c.req.json().catch(() => ({})));
   await requireSiteMembership(c.env, body.siteId, orgId);
@@ -238,6 +247,24 @@ voiceRoutes.post('/api/voice/numbers/purchase', async (c) => {
   // drop = paid-but-invisible number (lying-success). Surface it so support can
   // reconcile the Twilio purchase against the missing D1 row.
   if (numErr) {
+    // Compensating action (B0): the number was bought from Twilio but the durable
+    // D1 record failed — release the carrier line so the org is never billed for an
+    // orphaned number that exists nowhere in our system. Best-effort; log both sides.
+    let released = false;
+    try {
+      await releaseNumber(c.env, purchased.sid);
+      released = true;
+    } catch (releaseErr) {
+      console.warn(
+        JSON.stringify({
+          level: 'warn',
+          service: 'voice',
+          message: 'voice_number_compensation_release_failed',
+          twilio_sid: purchased.sid,
+          error: releaseErr instanceof Error ? releaseErr.message : String(releaseErr),
+        }),
+      );
+    }
     console.warn(
       JSON.stringify({
         level: 'warn',
@@ -245,6 +272,8 @@ voiceRoutes.post('/api/voice/numbers/purchase', async (c) => {
         message: 'voice_numbers_insert_failed',
         id,
         org_id: orgId,
+        twilio_sid: purchased.sid,
+        compensated: released,
         error: numErr,
       }),
     );
@@ -252,7 +281,9 @@ voiceRoutes.post('/api/voice/numbers/purchase', async (c) => {
       {
         error: {
           code: 'INTERNAL_ERROR',
-          message: 'The number was purchased but could not be saved. Contact support with this ID.',
+          message: released
+            ? 'The number could not be saved and was safely released — no charge. Please try again.'
+            : 'The number was purchased but could not be saved. Contact support with this ID.',
           id,
         },
       },
@@ -1025,7 +1056,12 @@ voiceRoutes.post('/api/voice/test/call-token', async (c) => {
     twimlAppSid: appSid,
     ttlSeconds: 3600,
   });
-  return c.json({ token, identity, edge_url: 'wss://chunderw-vpc-gll.twilio.com/signal' });
+  // Nest under `data` — the Test Console FE reads `res.data.token`. A top-level
+  // `{ token }` left `res.data.token` undefined, so the Twilio Device booted with
+  // `undefined` and every test call failed (A0 fix).
+  return c.json({
+    data: { token, identity, edge_url: 'wss://chunderw-vpc-gll.twilio.com/signal' },
+  });
 });
 
 /**

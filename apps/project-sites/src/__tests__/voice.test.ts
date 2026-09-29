@@ -32,9 +32,19 @@ jest.mock('../services/sms_agent.js', () => ({ simulateInbound: jest.fn() }));
 jest.mock('../services/audit.js', () => ({
   writeAuditLog: jest.fn().mockResolvedValue(undefined),
 }));
+// The purchase handler is now gated behind the `voice_numbers` killswitch
+// (default OFF). Force it ON here so these tests exercise the ownership/cap/
+// orphan-compensation plumbing; the flag-OFF 404 is covered in
+// voice_numbers_flag.test.ts.
+jest.mock('../modules/feature_flags/services.js', () => ({
+  __esModule: true,
+  isFlagOn: jest.fn().mockResolvedValue(true),
+}));
 
 import { Hono } from 'hono';
-import { dbQuery, dbQueryOne, dbUpdate } from '../services/db.js';
+import { dbQuery, dbQueryOne, dbUpdate, dbInsert } from '../services/db.js';
+import { purchaseNumber, releaseNumber, isTwilioConfigured } from '../services/twilio.js';
+import { isFlagOn } from '../modules/feature_flags/services.js';
 import { voiceRoutes } from '../routes/voice.js';
 import { errorHandler } from '../middleware/error_handler.js';
 import type { Env, Variables } from '../types/env.js';
@@ -42,6 +52,7 @@ import type { Env, Variables } from '../types/env.js';
 const mockQuery = dbQuery as jest.MockedFunction<typeof dbQuery>;
 const mockQueryOne = dbQueryOne as jest.MockedFunction<typeof dbQueryOne>;
 const mockUpdate = dbUpdate as jest.MockedFunction<typeof dbUpdate>;
+const mockIsFlagOn = isFlagOn as jest.MockedFunction<typeof isFlagOn>;
 
 const baseDb = () =>
   ({
@@ -72,6 +83,10 @@ beforeEach(() => {
   mockQuery.mockResolvedValue({ data: [], error: null });
   mockQueryOne.mockResolvedValue(null);
   mockUpdate.mockResolvedValue({ error: null, changes: 1 });
+  // Re-arm after resetAllMocks: the purchase handler is gated behind `voice_numbers`
+  // (default OFF) — force it ON so these tests reach the handler body (the OFF 404 is
+  // covered in voice_numbers_flag.test.ts).
+  mockIsFlagOn.mockResolvedValue(true);
 });
 
 // ─── requireSiteMembership (via GET /numbers?siteId=) ─────────────────
@@ -187,5 +202,77 @@ describe('GET /api/voice/recordings/:id/stream (404 never 403)', () => {
     const res = await request('/api/voice/recordings/r1/stream');
     expect(res.status).toBe(404);
     expect(((await res.json()) as { error: { code: string } }).error.code).toBe('NOT_FOUND');
+  });
+});
+
+// ─── POST /numbers/purchase — orphan-number compensation (B0, money-loss fix) ──
+// A successful Twilio buy followed by a D1 insert failure MUST release the number,
+// or the org is charged monthly for a line that exists nowhere in our system.
+describe('POST /api/voice/numbers/purchase — orphan compensation (B0)', () => {
+  it('releases the just-purchased Twilio number when the D1 insert fails', async () => {
+    (isTwilioConfigured as jest.MockedFunction<typeof isTwilioConfigured>).mockReturnValue(true);
+    (isFlagOn as jest.MockedFunction<typeof isFlagOn>).mockResolvedValue(true); // pass the voice_numbers killswitch
+    mockQueryOne.mockResolvedValueOnce({ id: 's1', org_id: 'org-a' } as never); // membership passes
+    mockQuery.mockResolvedValueOnce({ data: [], error: null }); // active-count under the cap
+    (purchaseNumber as jest.MockedFunction<typeof purchaseNumber>).mockResolvedValueOnce({
+      sid: 'PNtest',
+      phone_number: '+15550000000',
+      friendly_name: 'x',
+      capabilities: { voice: true, sms: true, mms: false },
+    } as never);
+    (dbInsert as jest.MockedFunction<typeof dbInsert>).mockResolvedValueOnce({ error: 'boom' } as never);
+    const { request } = app({ userId: 'u', orgId: 'org-a' });
+    const res = await request('/api/voice/numbers/purchase', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ siteId: 's1', phoneNumber: '+15550000000' }),
+    });
+    expect(res.status).toBe(500);
+    // The compensating release is what keeps a paid Twilio line from being orphaned.
+    expect(releaseNumber).toHaveBeenCalledWith(expect.anything(), 'PNtest');
+  });
+});
+
+// ─── POST /test/call-token — response envelope (A0, Test Console token bug) ────
+// The Angular console reads res.data.token; a bare { token } → undefined → every
+// test call silently fails.
+describe('POST /api/voice/test/call-token — { data } envelope (A0)', () => {
+  const appTwilioClient = (ids: { userId: string; orgId: string }) => {
+    const a = new Hono<{ Bindings: Env; Variables: Variables }>();
+    a.use('*', async (c, next) => {
+      c.set('userId', ids.userId);
+      c.set('orgId', ids.orgId);
+      c.set('requestId', 'test-req');
+      await next();
+    });
+    a.onError(errorHandler);
+    a.route('/', voiceRoutes);
+    const env = {
+      DB: baseDb(),
+      ENVIRONMENT: 'test',
+      TWILIO_API_KEY: 'SKtest',
+      TWILIO_API_SECRET: 'secretsecretsecretsecret',
+      TWILIO_ACCOUNT_SID: 'ACtest',
+      TWILIO_TWIML_APP_SID: 'APtest',
+    } as unknown as Env;
+    const ctx = {
+      waitUntil: () => undefined,
+      passThroughOnException: () => undefined,
+    } as unknown as ExecutionContext;
+    return { request: (p: string, i?: RequestInit) => a.request(p, i, env, ctx) };
+  };
+
+  it('wraps the token in { data: { token, identity } } for the Angular console', async () => {
+    mockQueryOne.mockResolvedValueOnce({ id: 's1', org_id: 'org-a' } as never); // membership passes
+    const { request } = appTwilioClient({ userId: 'u', orgId: 'org-a' });
+    const res = await request('/api/voice/test/call-token', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ siteId: 's1' }),
+    });
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { data?: { token?: string; identity?: string } };
+    expect(body.data?.token).toBeTruthy();
+    expect(body.data?.identity).toBe('user-u-site-s1');
   });
 });
