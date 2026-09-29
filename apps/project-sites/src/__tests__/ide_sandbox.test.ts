@@ -61,59 +61,52 @@ describe('ide_sandbox — honest state (RED)', () => {
   });
 
   describe('buildSwarmSseStream', () => {
-    it('should NOT emit timer-driven fake progress events', async () => {
+    it('should emit honest not_provisioned, not timer-driven fake progress', async () => {
       const stream = buildSwarmSseStream(mockEnv, 'test-site', null);
       const reader = stream.getReader();
 
-      // RED: current code emits fake agent_started/file_emitted/agent_done every 1.5s
-      // Give it 2 seconds to emit fake events
-      const timeout = new Promise<boolean>((resolve) => {
-        setTimeout(() => resolve(false), 2000);
-      });
+      let eventCount = 0;
+      let lastEventText = '';
+      try {
+        // Read all events from the stream (should be exactly 1, then close)
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
+          eventCount++;
+          lastEventText = new TextDecoder().decode(value);
+        }
+      } catch {}
 
-      const streamComplete = (async () => {
-        let eventCount = 0;
-        try {
-          while (eventCount < 5) {
-            const { done } = await reader.read();
-            if (done) break;
-            eventCount++;
-          }
-        } catch {}
-        return eventCount > 0;
-      })();
-
-      const didEmitFakeEvents = await Promise.race([streamComplete, timeout]);
-      expect(didEmitFakeEvents).toBe(false); // Should NOT emit fake events
+      // HONEST: should emit exactly 1 honest event (not_provisioned), close immediately
+      expect(eventCount).toBe(1);
+      expect(lastEventText).toContain('not_provisioned');
+      expect(lastEventText).not.toContain('agent_started');
+      expect(lastEventText).not.toContain('file_emitted');
       reader.cancel();
     });
   });
 
   describe('buildProgressiveSseStream', () => {
-    it('should NOT emit timer-driven component_ready events', async () => {
+    it('should emit honest not_provisioned, not timer-driven component_ready', async () => {
       const stream = buildProgressiveSseStream(mockEnv, 'test-site');
       const reader = stream.getReader();
 
-      // RED: current code emits 9 fake component_ready events every 4s
       let eventCount = 0;
-      const timeout = new Promise<void>((resolve) => {
-        setTimeout(() => resolve(), 1500);
-      });
+      let lastEventText = '';
+      try {
+        // Read all events from the stream (should be exactly 1, then close)
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
+          eventCount++;
+          lastEventText = new TextDecoder().decode(value);
+        }
+      } catch {}
 
-      await Promise.race([
-        (async () => {
-          try {
-            while (eventCount < 5) {
-              const { done } = await reader.read();
-              if (done) break;
-              eventCount++;
-            }
-          } catch {}
-        })(),
-        timeout,
-      ]);
-
-      expect(eventCount).toBe(0); // Should NOT emit fake events
+      // HONEST: should emit exactly 1 honest event (not_provisioned), close immediately
+      expect(eventCount).toBe(1);
+      expect(lastEventText).toContain('not_provisioned');
+      expect(lastEventText).not.toContain('component_ready');
       reader.cancel();
     });
   });
