@@ -241,34 +241,13 @@ function sparklinePath(
           </p>
         </div>
         <div class="flex items-center gap-3 flex-wrap">
-          <button
-            class="btn-ghost refresh-btn"
-            type="button"
-            (click)="reload()"
-            [disabled]="loading()"
-            aria-label="Refresh analytics"
-            title="Refresh data now"
-          >
-            <svg
-              width="13"
-              height="13"
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              stroke-width="2"
-              stroke-linecap="round"
-              stroke-linejoin="round"
-              aria-hidden="true"
-              [class.spinning]="loading()"
-            >
-              <polyline points="23 4 23 10 17 10" />
-              <polyline points="1 20 1 14 7 14" />
-              <path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15" />
-            </svg>
-            <span>{{ loading() ? 'Refreshing' : 'Refresh' }}</span>
-          </button>
+          <!-- No manual Refresh button (real-time-data-no-manual-refresh): a
+               visibility-aware 60s auto-refresh already runs (ngOnInit), pausing on a
+               hidden tab and catching up on foreground. Freshness is surfaced by the
+               live "refreshes every 60s / Refreshing in Ns" countdown in the header —
+               a quiet affordance, never a click. -->
           <!-- Range pills + Export act on traffic data; hide them while analytics
-               is UNAVAILABLE (site not provisioned) — only Refresh re-checks. -->
+               is UNAVAILABLE (site not provisioned) — the auto-refresh re-checks. -->
           @if (!notAvailable()) {
             <div class="range-chip-strip" role="tablist" hlmTablist aria-label="Date range">
               @for (r of ranges; track r.id) {
@@ -485,8 +464,8 @@ function sparklinePath(
         >
           <strong class="text-white">No per-site traffic recorded for this site yet.</strong>
           <span class="block text-[0.74rem] mt-1"
-            >Per-site trends appear here once this site gets visitors — use
-            <strong class="text-white">Refresh</strong> to check again.</span
+            >Per-site trends appear here once this site gets visitors — this view
+            re-checks itself automatically.</span
           >
         </div>
       } @else if (error()) {
@@ -1527,20 +1506,9 @@ function sparklinePath(
         outline: 2px solid var(--ps-accent, #00e5ff);
         outline-offset: 2px;
       }
-      .refresh-btn {
-        min-width: 110px;
-        justify-content: center;
-      }
-      /* Reserve the width of the LONGEST label ("Refreshing", 10ch) so the button
-         never resizes when the text toggles Refresh ↔ Refreshing (rule:
-         buttons-accommodate-largest-text). 110px above is only a floor. */
-      .refresh-btn span {
-        min-width: 10ch;
-        text-align: center;
-      }
-      .refresh-btn .spinning {
-        animation: spin 1.2s linear infinite;
-      }
+      /* .refresh-btn removed with the manual refresh button
+         (real-time-data-no-manual-refresh) — analytics auto-refreshes every 60s.
+         @keyframes spin below is retained: still used by .rm-spin (URL-remove). */
       @keyframes spin {
         from {
           transform: rotate(0deg);
@@ -2089,7 +2057,6 @@ function sparklinePath(
         .skel::after,
         .empty-glyph,
         .dots span,
-        .refresh-btn .spinning,
         .rm-spin {
           animation: none;
         }

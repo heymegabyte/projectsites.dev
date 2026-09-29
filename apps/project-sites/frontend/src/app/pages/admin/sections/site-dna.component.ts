@@ -202,9 +202,14 @@ interface DnaPrefsResp {
         <div class="dna-table-wrap" appReveal tabindex="0" role="region" aria-label="Feedback history — scroll horizontally" data-testid="dna-table-scroll">
           <div class="dna-table-hdr">
             <span class="dna-section-label">Recent feedback</span>
-            <button class="dna-refresh-btn" (click)="load()" [disabled]="loading()" [attr.aria-busy]="loading()" aria-label="Refresh feedback history">
-              {{ loading() ? '…' : '↻' }}
-            </button>
+            <!-- No manual Refresh button (real-time-data-no-manual-refresh): a
+                 visibility-aware 30s auto-poll (ngOnInit) keeps this current, pausing on
+                 a hidden tab and refreshing immediately on foreground. This quiet live
+                 chip is the affordance — never a click. -->
+            <span class="dna-live" role="status" [attr.aria-label]="'Live — ' + freshnessLabel()">
+              <span class="dna-live-dot" aria-hidden="true"></span>
+              <span class="dna-live-text">{{ loading() ? 'Updating…' : freshnessLabel() }}</span>
+            </span>
           </div>
           <table class="dna-table" aria-label="Site DNA feedback history" [attr.aria-busy]="loading()">
             <thead>
@@ -399,9 +404,12 @@ interface DnaPrefsResp {
          stays hidden to preserve the rounded-corner clip. */
       .dna-table-wrap { background: rgba(255,255,255,0.02); border: 1px solid rgba(0,229,255,0.1); border-radius: 12px; overflow-x: auto; overflow-y: hidden; }
       .dna-table-hdr { display: flex; align-items: center; justify-content: space-between; padding: 10px 14px 8px; border-bottom: 1px solid rgba(255,255,255,0.05); }
-      .dna-refresh-btn { background: none; border: 1px solid rgba(0,229,255,0.2); border-radius: 6px; min-width: 28px; min-height: 24px; padding: 2px 8px; color: var(--ps-accent, #00e5ff); font-size: 14px; cursor: pointer; transition: background .15s, border-color .15s; }
-      .dna-refresh-btn:hover:not(:disabled) { background: rgba(0,229,255,0.08); border-color: rgba(0,229,255,0.4); }
-      .dna-refresh-btn:disabled { opacity: 0.4; cursor: default; }
+      /* Live affordance (replaced the manual refresh button, real-time-data-no-manual-refresh). */
+      .dna-live { display: inline-flex; align-items: center; gap: 6px; }
+      .dna-live-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--dna-accept, #2ee6a6); animation: dna-live-pulse 2.4s ease-out infinite; }
+      .dna-live-text { font-size: 10px; text-transform: uppercase; letter-spacing: 0.06em; color: rgba(244,244,255,0.6); font-variant-numeric: tabular-nums; }
+      @keyframes dna-live-pulse { 0% { box-shadow: 0 0 0 0 rgba(46,230,166,0.45); } 70% { box-shadow: 0 0 0 5px rgba(46,230,166,0); } 100% { box-shadow: 0 0 0 0 rgba(46,230,166,0); } }
+      @media (prefers-reduced-motion: reduce) { .dna-live-dot { animation: none; } }
       .dna-table { width: 100%; border-collapse: collapse; font-size: 12px; }
       .dna-table th { padding: 7px 12px; text-align: left; font-weight: 600; font-size: 11px; text-transform: uppercase; letter-spacing: 0.5px; color: rgba(244,244,255,0.8); }
       .dna-table td { padding: 6px 12px; border-bottom: 1px solid rgba(255,255,255,0.03); line-height: 1.3; max-height: 36px; overflow: hidden; }
@@ -446,6 +454,28 @@ export class AdminSiteDnaComponent implements OnInit, OnDestroy {
   readonly history = signal<DnaFeedbackRow[]>([]);
   readonly prefs = signal<DnaPrefRow[]>([]);
   readonly flagEnabled = signal(true); // assume on unless API 404s
+  /** Epoch ms of the last successful load — drives the "updated Ns ago" live chip. */
+  readonly lastSyncAt = signal(0);
+  /** 1s ticker so the freshness label re-renders under OnPush without a manual refresh. */
+  private readonly nowTick = signal(Date.now());
+  /** Visibility-aware 30s auto-poll (real-time-data-no-manual-refresh) — pauses on a
+   *  hidden tab, refreshes immediately on foreground. Mirrors AdminStateService. */
+  private static readonly POLL_MS = 30_000;
+  private pollTimer: ReturnType<typeof setInterval> | null = null;
+  private tickTimer: ReturnType<typeof setInterval> | null = null;
+  private visibilityHandler?: () => void;
+
+  /** Quiet "updated Ns ago" live affordance (no manual refresh). */
+  readonly freshnessLabel = computed(() => {
+    const t = this.lastSyncAt();
+    if (!t) return 'Live';
+    const secs = Math.max(0, Math.floor((this.nowTick() - t) / 1000));
+    if (secs < 5) return 'Live · just now';
+    if (secs < 60) return `Live · ${secs}s ago`;
+    const mins = Math.floor(secs / 60);
+    if (mins < 60) return `Live · ${mins}m ago`;
+    return `Live · ${Math.floor(mins / 60)}h ago`;
+  });
   /** Set on a non-404 load failure so the table shows a Retry row, not a fake "No feedback yet". */
   readonly loadError = signal<string | null>(null);
   /** Worker request_id from a failed (non-404) load, surfaced as a copyable support reference on the error card. */
@@ -506,14 +536,47 @@ export class AdminSiteDnaComponent implements OnInit, OnDestroy {
       .pipe(takeUntil(this.destroy$))
       .subscribe((on) => {
         this.flagEnabled.set(on);
-        if (on) this.load();
-        else this.loading.set(false);
+        if (on) {
+          this.load();
+          this.startPolling();
+        } else {
+          this.loading.set(false);
+        }
       });
+    // 1s ticker keeps the "updated Ns ago" chip current under OnPush.
+    this.tickTimer = setInterval(() => this.nowTick.set(Date.now()), 1000);
   }
 
   ngOnDestroy(): void {
     this.destroy$.next();
     this.destroy$.complete();
+    if (this.pollTimer) { clearInterval(this.pollTimer); this.pollTimer = null; }
+    if (this.tickTimer) { clearInterval(this.tickTimer); this.tickTimer = null; }
+    if (this.visibilityHandler && typeof document !== 'undefined') {
+      document.removeEventListener('visibilitychange', this.visibilityHandler);
+    }
+  }
+
+  /**
+   * Start the visibility-aware auto-poll (real-time-data-no-manual-refresh). Polls every
+   * 30s but skips ticks while the tab is hidden, and refreshes immediately on foreground —
+   * so the feedback history is always current without a manual Refresh button.
+   */
+  private startPolling(): void {
+    if (this.pollTimer) return; // guard against a double flag emission
+    this.pollTimer = setInterval(() => {
+      if (typeof document !== 'undefined' && document.visibilityState !== 'visible') return;
+      if (this.loading()) return; // don't stack an in-flight load
+      this.load();
+    }, AdminSiteDnaComponent.POLL_MS);
+    this.visibilityHandler = (): void => {
+      if (typeof document !== 'undefined' && document.visibilityState === 'visible' && !this.loading()) {
+        this.load();
+      }
+    };
+    if (typeof document !== 'undefined') {
+      document.addEventListener('visibilitychange', this.visibilityHandler);
+    }
   }
 
   load(): void {
@@ -539,6 +602,7 @@ export class AdminSiteDnaComponent implements OnInit, OnDestroy {
           this.loadError.set(null);
           this.loadErrorRef.set('');
           this.loading.set(false);
+          this.lastSyncAt.set(Date.now());
         },
         error: (err: { status?: number; error?: unknown }) => {
           // 404 means the flag is off (show the calm disabled message — no error

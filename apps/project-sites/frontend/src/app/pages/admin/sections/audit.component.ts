@@ -212,8 +212,11 @@ function actionToFallbackMessage(action: string): string {
             <path d="M3 6h18M3 12h18M3 18h12"/>
           </svg>
           <h3 class="empty-title">No audit events yet</h3>
-          <p class="empty-body">Privileged actions you take — deploys, hostname changes, billing edits — will appear here within seconds.</p>
-          <button class="btn-gradient" type="button" (click)="load()">Refresh now</button>
+          <!-- No manual "Refresh now" button (real-time-data-no-manual-refresh): the
+               15s visibility-aware auto-poll (ngOnInit) surfaces new events on its own —
+               the "Auto-refreshing every 15s · last sync Ns ago" line in the header is the
+               live affordance. The empty copy points to the real first action instead. -->
+          <p class="empty-body">Privileged actions — deploys, hostname changes, billing edits — appear here automatically within seconds of you taking them.</p>
         </div>
       }
 
@@ -397,8 +400,7 @@ function actionToFallbackMessage(action: string): string {
     .btn-mini { padding: 0.2rem 0.55rem; border-radius: 6px; background: rgba(0,229,255,0.12); border: 1px solid rgba(0,229,255,0.30); color: #00E5FF; font-size: 0.62rem; font-weight: 700; cursor: pointer; letter-spacing: 0.04em; text-transform: uppercase; transition: background 140ms ease; }
     .btn-mini:hover:not(:disabled) { background: rgba(0,229,255,0.22); }
     .btn-mini:disabled { opacity: 0.45; cursor: not-allowed; }
-    .btn-gradient { padding: 0.5rem 1rem; border-radius: 10px; background: var(--ps-grad-primary); color: #060610; font-size: 0.74rem; font-weight: 700; border: 0; cursor: pointer; box-shadow: 0 6px 18px -8px rgba(0, 212, 255, 0.55); transition: transform 140ms ease, box-shadow 140ms ease; }
-    .btn-gradient:hover:not(:disabled) { transform: translateY(-1px); box-shadow: 0 10px 24px -8px rgba(0, 212, 255, 0.7); }
+    /* .btn-gradient removed with the empty-state "Refresh now" button (real-time-data-no-manual-refresh). */
     .scope-chip { display: inline-flex; align-items: center; gap: 0.5rem; padding: 0.45rem 0.85rem; border-radius: 999px; background: rgba(0,229,255,0.10); color: #00E5FF; border: 1px solid rgba(0,229,255,0.35); cursor: pointer; font-size: 0.74rem; font-weight: 600; }
     .scope-chip:hover { background: rgba(0,229,255,0.18); }
     .scope-chip .x { font-size: 0.95rem; line-height: 1; opacity: 0.85; }

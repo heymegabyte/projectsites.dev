@@ -318,16 +318,21 @@ import { toCsv, downloadText } from '../../../utils/csv-export';
               >
                 JSON
               </button>
-              <button
-                type="button"
-                class="db-refresh"
-                (click)="refresh()"
-                [disabled]="rowsLoading() || exporting()"
-                data-testid="db-refresh"
-                aria-label="Refresh rows"
+              <!-- No manual Refresh button (real-time-data-no-manual-refresh): a
+                   visibility-aware 30s auto-poll (ngOnInit) keeps the current page
+                   current — pausing on a hidden tab, refreshing on foreground, and
+                   holding back while a row is expanded / a cell is being edited / a
+                   bulk selection is staged so it never disrupts active work. This quiet
+                   live chip is the affordance — never a click. -->
+              <span
+                class="db-live"
+                role="status"
+                [attr.aria-label]="'Live — ' + freshnessLabel()"
+                data-testid="db-live"
               >
-                <span class="inline-block text-center min-w-[8ch]">{{ rowsLoading() ? 'Loading…' : 'Refresh' }}</span>
-              </button>
+                <span class="db-live-dot" aria-hidden="true"></span>
+                <span class="db-live-text">{{ rowsLoading() ? 'Updating…' : freshnessLabel() }}</span>
+              </span>
             </div>
           </div>
           @if (exportNote(); as note) {
@@ -892,7 +897,6 @@ import { toCsv, downloadText } from '../../../utils/csv-export';
         gap: 0.35rem;
       }
       .db-pager button,
-      .db-refresh,
       .db-export {
         font: inherit;
         font-size: 0.76rem;
@@ -904,22 +908,55 @@ import { toCsv, downloadText } from '../../../utils/csv-export';
         border: 1px solid color-mix(in oklch, var(--ps-accent, #00e5ff) 28%, transparent);
       }
       .db-pager button:hover:not(:disabled),
-      .db-refresh:hover:not(:disabled),
       .db-export:hover:not(:disabled) {
         background: color-mix(in oklch, var(--ps-accent, #00e5ff) 18%, transparent);
       }
       .db-pager button:disabled,
-      .db-refresh:disabled,
       .db-export:disabled {
         opacity: 0.4;
         cursor: not-allowed;
       }
       .db-pager button:focus-visible,
-      .db-refresh:focus-visible,
       .db-export:focus-visible,
       .db-pagesize select:focus-visible {
         outline: 2px solid var(--ps-accent, #00e5ff);
         outline-offset: 2px;
+      }
+      /* Live affordance (replaced the manual refresh button, real-time-data-no-manual-refresh). */
+      .db-live {
+        display: inline-flex;
+        align-items: center;
+        gap: 0.35rem;
+      }
+      .db-live-dot {
+        width: 7px;
+        height: 7px;
+        border-radius: 50%;
+        background: var(--ps-accent, #00e5ff);
+        animation: db-live-pulse 2.4s ease-out infinite;
+      }
+      .db-live-text {
+        font-size: 0.66rem;
+        text-transform: uppercase;
+        letter-spacing: 0.05em;
+        font-variant-numeric: tabular-nums;
+        color: color-mix(in oklch, var(--ps-ink, #f4f4ff) 55%, transparent);
+      }
+      @keyframes db-live-pulse {
+        0% {
+          box-shadow: 0 0 0 0 color-mix(in oklch, var(--ps-accent, #00e5ff) 45%, transparent);
+        }
+        70% {
+          box-shadow: 0 0 0 5px transparent;
+        }
+        100% {
+          box-shadow: 0 0 0 0 transparent;
+        }
+      }
+      @media (prefers-reduced-motion: reduce) {
+        .db-live-dot {
+          animation: none;
+        }
       }
       .db-pagesize {
         display: inline-flex;
@@ -1552,12 +1589,116 @@ export class SiteDataBrowserComponent implements OnInit {
       : 'No rows yet — this table is empty for your site.',
   );
 
+  // ── Real-time freshness (replaced the manual refresh button) ──────────
+  /** Epoch ms of the last successful page load — drives the "updated Ns ago" chip. */
+  readonly lastSyncAt = signal(0);
+  /** 1s ticker so the freshness label re-renders under OnPush without a manual refresh. */
+  private readonly nowTick = signal(Date.now());
+  /** Visibility-aware auto-poll cadence (real-time-data-no-manual-refresh). */
+  private static readonly POLL_MS = 30_000;
+  private pollTimer: ReturnType<typeof setInterval> | null = null;
+  private tickTimer: ReturnType<typeof setInterval> | null = null;
+  private visibilityHandler?: () => void;
+
+  /** Quiet "updated Ns ago" live affordance (no manual refresh). */
+  readonly freshnessLabel = computed(() => {
+    const t = this.lastSyncAt();
+    if (!t) return 'Live';
+    const secs = Math.max(0, Math.floor((this.nowTick() - t) / 1000));
+    if (secs < 5) return 'Live · just now';
+    if (secs < 60) return `Live · ${secs}s ago`;
+    const mins = Math.floor(secs / 60);
+    if (mins < 60) return `Live · ${mins}m ago`;
+    return `Live · ${Math.floor(mins / 60)}h ago`;
+  });
+
   ngOnInit(): void {
     const id = this.siteId();
     if (id) {
       this.loadTables(id);
       this.loadActivity(id);
     }
+    this.startPolling();
+    // 1s ticker keeps the "updated Ns ago" chip current under OnPush.
+    this.tickTimer = setInterval(() => this.nowTick.set(Date.now()), 1000);
+    // DestroyRef teardown (no OnDestroy — this component uses takeUntilDestroyed elsewhere).
+    this.destroyRef.onDestroy(() => {
+      if (this.pollTimer) { clearInterval(this.pollTimer); this.pollTimer = null; }
+      if (this.tickTimer) { clearInterval(this.tickTimer); this.tickTimer = null; }
+      if (this.visibilityHandler && typeof document !== 'undefined') {
+        document.removeEventListener('visibilitychange', this.visibilityHandler);
+      }
+    });
+  }
+
+  /**
+   * Start the visibility-aware auto-poll (real-time-data-no-manual-refresh). Refetches the
+   * current page every 30s but SKIPS a tick while: the tab is hidden, a load is in flight, a
+   * row detail is expanded, a cell is being inline-edited, a bulk selection is staged, or a
+   * delete/edit is saving — so a background refresh never disrupts the owner's active work.
+   * Refreshes immediately on foreground under the same guard.
+   */
+  private startPolling(): void {
+    const shouldSkip = (): boolean =>
+      (typeof document !== 'undefined' && document.visibilityState !== 'visible') ||
+      !this.selected() ||
+      this.rowsLoading() ||
+      this.expandedRow() !== null ||
+      this.cellEdit() !== null ||
+      this.selectedIds().size > 0 ||
+      this.bulkDeleting() ||
+      this.savingEdit();
+    this.pollTimer = setInterval(() => {
+      if (shouldSkip()) return;
+      this.silentReload();
+    }, SiteDataBrowserComponent.POLL_MS);
+    this.visibilityHandler = (): void => {
+      if (typeof document !== 'undefined' && document.visibilityState === 'visible' && !shouldSkip()) {
+        this.silentReload();
+      }
+    };
+    if (typeof document !== 'undefined') {
+      document.addEventListener('visibilitychange', this.visibilityHandler);
+    }
+  }
+
+  /**
+   * Background reconcile of the current page for the auto-poll: re-fetches rows + total +
+   * the table row-counts WITHOUT collapsing the row detail or clearing the selection the way
+   * `loadPage()` does (the poll's skip-guard already holds it back while those are active, so
+   * this stays a quiet in-place update). Fail-soft: a transient failure leaves the last-good
+   * rows on screen (no error card flash on a background tick).
+   */
+  private silentReload(): void {
+    const sel = this.selected();
+    const id = this.siteId();
+    if (!sel || !id) return;
+    this.api
+      .browseDataTable(id, sel.key, {
+        limit: this.limit(),
+        offset: this.offset(),
+        orderBy: this.orderBy() ?? undefined,
+        dir: this.dir(),
+        search: this.search() || undefined,
+        filterCol: this.filterCol() || undefined,
+        filterVal: this.filterVal() || undefined,
+        silent: true,
+      })
+      .pipe(
+        catchError(() => of(null)),
+        takeUntilDestroyed(this.destroyRef),
+      )
+      .subscribe((res) => {
+        if (!res || !res.data || !Array.isArray(res.data.rows)) return; // keep last-good on a blip
+        this.columns.set(res.data.columns ?? sel.columns);
+        this.rows.set(res.data.rows);
+        this.total.set(res.total ?? res.data.rows.length);
+        if (typeof res.limit === 'number') this.limit.set(res.limit);
+        if (typeof res.offset === 'number') this.offset.set(res.offset);
+        this.lastSyncAt.set(Date.now());
+      });
+    // Keep the table-picker row counts fresh too (cheap, silent).
+    this.loadTables(id);
   }
 
   /** Load the recent data-mutation activity (deletes/edits) for this site. Fail-soft:
@@ -1690,6 +1831,7 @@ export class SiteDataBrowserComponent implements OnInit {
         // Echo the server-applied window so the pager math matches reality.
         if (typeof res.limit === 'number') this.limit.set(res.limit);
         if (typeof res.offset === 'number') this.offset.set(res.offset);
+        this.lastSyncAt.set(Date.now());
       });
   }
 
@@ -1798,9 +1940,6 @@ export class SiteDataBrowserComponent implements OnInit {
     this.loadPage();
   }
 
-  refresh(): void {
-    this.loadPage();
-  }
 
   /** True while a full-table export is fetching pages (disables the buttons). */
   readonly exporting = signal(false);
