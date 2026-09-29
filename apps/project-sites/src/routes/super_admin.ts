@@ -1581,7 +1581,15 @@ superAdmin.post(
       },
     });
 
-    return c.json({ dryRun: body.dryRun, processed, ensured, skipped, failed, planned, nextCursor });
+    return c.json({
+      dryRun: body.dryRun,
+      processed,
+      ensured,
+      skipped,
+      failed,
+      planned,
+      nextCursor,
+    });
   },
 );
 
