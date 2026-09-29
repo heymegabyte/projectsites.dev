@@ -184,6 +184,64 @@ describe('resolveSiteDataDb — isolation (the security boundary)', () => {
     }
   });
 
+  it('AWAITS readiness — first-query cold-open fails, the poll RETRIES, then succeeds', async () => {
+    // A brand-new CF D1's /query plane propagates for a beat, so the readiness SELECT 1 can fail on
+    // attempt 1 (cold-open). resolveSiteDataDb must POLL (bounded) until it answers, THEN return ok —
+    // so the caller's first real query lands on a ready DB. Here the first probe rejects, the second
+    // resolves; the resolve must still succeed.
+    mockProvision.mockResolvedValue({
+      databaseId: 'fresh-ready',
+      databaseName: 'ps-site-s6',
+      ok: true,
+      reused: false,
+    });
+    const h = createD1Sqlite();
+    try {
+      h.exec(ALLOC_DDL); // empty — s6 provisions fresh
+      const fetchMock = (global as unknown as { fetch: jest.Mock }).fetch;
+      fetchMock
+        .mockRejectedValueOnce(new Error('Could not open the site database')) // cold-open on probe 1
+        .mockResolvedValue({
+          json: async () => ({ result: [{ meta: {}, results: [{ '1': 1 }] }], success: true }),
+          ok: true,
+          status: 200,
+        } as unknown as Response); // probe 2 onward: ready
+
+      const res = await resolveSiteDataDb(envWith(h.db), 's6', { orgId: null });
+      expect(res.ok).toBe(true);
+      if (!res.ok) return;
+      expect(res.databaseId).toBe('fresh-ready');
+      expect(res.provisioned).toBe(true);
+      // The readiness poll issued at least two probes (the first failed, the second succeeded).
+      expect(fetchMock.mock.calls.length).toBeGreaterThanOrEqual(2);
+    } finally {
+      h.close();
+    }
+  });
+
+  it('BOUNDS the readiness poll — a DB that never comes up returns not_ready (never hangs)', async () => {
+    // Exhaustion path: every readiness probe fails. The poll is BOUNDED (fixed attempts + capped
+    // backoff) and, on exhaustion, resolveSiteDataDb returns a clear typed reason instead of hanging
+    // or returning a broken executor the caller would immediately fail on.
+    mockProvision.mockResolvedValue({
+      databaseId: 'never-ready',
+      databaseName: 'ps-site-s7',
+      ok: true,
+      reused: false,
+    });
+    const h = createD1Sqlite();
+    try {
+      h.exec(ALLOC_DDL);
+      const fetchMock = (global as unknown as { fetch: jest.Mock }).fetch;
+      fetchMock.mockRejectedValue(new Error('Could not open the site database')); // never ready
+
+      const res = await resolveSiteDataDb(envWith(h.db), 's7', { orgId: null });
+      expect(res).toEqual({ ok: false, reason: 'not_ready' });
+    } finally {
+      h.close();
+    }
+  }, 20000);
+
   it('fails closed with no_account_id when CF_ACCOUNT_ID is unset', async () => {
     const h = createD1Sqlite();
     try {

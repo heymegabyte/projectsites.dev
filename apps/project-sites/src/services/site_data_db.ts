@@ -86,6 +86,7 @@ export type ResolveSiteDataDbFailure =
   | 'no_account_id'
   | 'provision_failed'
   | 'not_provisioned'
+  | 'not_ready'
   | 'forbidden_shared_db';
 
 /** Result of {@link resolveSiteDataDb}: an executor on success, a typed reason on failure. */
@@ -172,7 +173,7 @@ export function makeSiteDataExecutor(
   };
 }
 
-/** Bounded readiness probe attempts for a freshly-provisioned D1 (linear backoff → ~6s total). */
+/** Bounded readiness probe attempts for a freshly-provisioned D1 (linear backoff → ~6s total cap). */
 const SITE_DATA_READY_ATTEMPTS = 5;
 
 /**
@@ -181,18 +182,28 @@ const SITE_DATA_READY_ATTEMPTS = 5;
  * transiently fail with a cold-open error ("Could not open the site database") even though the DB
  * exists — verified in prod on a first query against a brand-new site. Running this once, right after
  * WE provision, lets the caller's first query land on a ready DB instead of a scary error (INV-3).
- * Bounded + best-effort: swallows the transient failure and returns as soon as ready, or gives up
- * quietly after the window (the caller's real query then surfaces any genuine failure). Never throws.
+ *
+ * **Bounded, never hangs.** At most {@link SITE_DATA_READY_ATTEMPTS} probes with linear backoff
+ * (400·n ms between attempts → ~6s total worst case). Returns `true` as soon as a probe succeeds;
+ * returns `false` on exhaustion so the caller can surface a clear typed `not_ready` reason instead
+ * of handing back an executor that would immediately fail on the caller's first real query. Never
+ * throws (each probe's error is caught and retried).
+ *
+ * @returns `true` once the DB answered `SELECT 1`; `false` if every bounded attempt failed.
  */
-async function waitForSiteDataReady(db: SiteDataD1): Promise<void> {
+async function waitForSiteDataReady(db: SiteDataD1): Promise<boolean> {
   for (let attempt = 0; attempt < SITE_DATA_READY_ATTEMPTS; attempt++) {
     try {
       await db.query('SELECT 1');
-      return;
+      return true;
     } catch {
-      await new Promise((r) => setTimeout(r, 400 * (attempt + 1)));
+      // Last attempt just failed → don't sleep again, fall through to the bounded exhaustion.
+      if (attempt < SITE_DATA_READY_ATTEMPTS - 1) {
+        await new Promise((r) => setTimeout(r, 400 * (attempt + 1)));
+      }
     }
   }
+  return false;
 }
 
 /**
@@ -257,8 +268,11 @@ export async function resolveSiteDataDb(
 
   // When WE just created this D1, wait for its query plane to come up so the caller's FIRST statement
   // doesn't hit the cold-open error (runs once per site lifetime; no-op for an existing allocation).
+  // The poll is BOUNDED — on exhaustion we return a typed `not_ready` rather than hand back an
+  // executor the caller would immediately fail on, or hang.
   if (provisioned) {
-    await waitForSiteDataReady(db);
+    const ready = await waitForSiteDataReady(db);
+    if (!ready) return { ok: false, reason: 'not_ready' };
   }
 
   return { databaseId, db, ok: true, provisioned };

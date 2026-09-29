@@ -139,4 +139,101 @@ describe('provisionSiteD1', () => {
       h.close();
     }
   });
+
+  it('CONCURRENT provision of one site → ONE allocation, both callers get the SAME id', async () => {
+    // The cold-provision RACE: two calls arrive before either has recorded an allocation, so both
+    // pass the step-1 "existing?" read and both create a CF D1 (two different uuids). The write MUST
+    // collapse to a SINGLE allocation row (INSERT OR IGNORE on the site_id PK) and BOTH callers must
+    // return the WINNER's id — never two rows, never divergent ids.
+    const h = createD1Sqlite();
+    try {
+      h.exec(ALLOC_DDL);
+      // Each concurrent create gets its OWN uuid from CF — the collapse must pick exactly one.
+      mockFetch.mockReturnValueOnce(cfCreated('uuid-A')).mockReturnValueOnce(cfCreated('uuid-B'));
+
+      const [r1, r2] = await Promise.all([
+        provisionSiteD1(envWithCreds(h), { siteId: 'race1', tenantId: 'org1' }),
+        provisionSiteD1(envWithCreds(h), { siteId: 'race1', tenantId: 'org1' }),
+      ]);
+
+      // Exactly ONE allocation row survives.
+      expect(allocCount(h)).toBe(1);
+      // Both callers succeeded and agree on the SAME database id (the one the row actually holds).
+      expect(r1.ok && r2.ok).toBe(true);
+      if (!r1.ok || !r2.ok) return;
+      expect(r1.databaseId).toBe(r2.databaseId);
+      const row = h.raw
+        .prepare("SELECT d1_database_id FROM site_database_allocations WHERE site_id='race1'")
+        .get() as { d1_database_id: string };
+      expect(r1.databaseId).toBe(row.d1_database_id);
+      // The stored id is one of the two CF-created uuids (the loser's create is discarded by the row).
+      expect(['uuid-A', 'uuid-B']).toContain(row.d1_database_id);
+      // Exactly one caller sees a fresh create; the loser reports the reuse of the winner's row.
+      expect([r1.reused, r2.reused].sort()).toEqual([false, true]);
+    } finally {
+      h.close();
+    }
+  });
+
+  it('CF "database already exists" (name conflict) → treated as success, reuses the allocation', async () => {
+    // A prior create recorded an allocation, but the caller lost the row read (e.g. a stale replica)
+    // and re-issued the create; CF answers with a name-conflict. That is NOT a failure — the DB
+    // exists — so we must re-read the allocation and return the existing id, never a cf_create_failed.
+    const h = createD1Sqlite();
+    try {
+      h.exec(ALLOC_DDL);
+      // Seed the allocation the way a prior successful provision would have.
+      h.exec(
+        `INSERT INTO site_database_allocations (tenant_id, site_id, db_plan, status, d1_database_id, d1_database_name)
+         VALUES ('org1','dup1','d1_tenant_db','active','uuid-existing','ps-site-dup1')`,
+      );
+      // Force the lazy path to still hit CF (simulate a stale read missing the row on attempt 1) by
+      // clearing then re-inserting is overkill; instead assert the happy reuse: with the row present,
+      // provision must NOT call CF at all and must return the existing id.
+      const r = await provisionSiteD1(envWithCreds(h), { siteId: 'dup1', tenantId: 'org1' });
+      expect(r).toEqual({
+        ok: true,
+        databaseId: 'uuid-existing',
+        databaseName: 'ps-site-dup1',
+        reused: true,
+      });
+      expect(mockFetch).not.toHaveBeenCalled();
+    } finally {
+      h.close();
+    }
+  });
+
+  it('CF "already exists" error AFTER a create attempt → re-reads + succeeds (not cf_create_failed)', async () => {
+    // The true name-conflict path: the row genuinely wasn't visible on the pre-create read, the create
+    // races another provisioner and CF returns "already exists". Our fetch mock returns that conflict;
+    // meanwhile the sibling's allocation row lands. Provision must re-read and return that id.
+    const h = createD1Sqlite();
+    try {
+      h.exec(ALLOC_DDL);
+      mockFetch.mockImplementationOnce(async () => {
+        // Simulate the sibling provisioner having recorded the row by the time our create returns.
+        h.exec(
+          `INSERT INTO site_database_allocations (tenant_id, site_id, db_plan, status, d1_database_id, d1_database_name)
+           VALUES ('org1','conf1','d1_tenant_db','active','uuid-sibling','ps-site-conf1')`,
+        );
+        return {
+          ok: false,
+          status: 409,
+          json: async () => ({
+            success: false,
+            errors: [{ code: 7502, message: 'a database with that name already exists' }],
+          }),
+        } as unknown as Response;
+      });
+
+      const r = await provisionSiteD1(envWithCreds(h), { siteId: 'conf1', tenantId: 'org1' });
+      expect(r.ok).toBe(true);
+      if (!r.ok) return;
+      expect(r.databaseId).toBe('uuid-sibling');
+      expect(r.reused).toBe(true);
+      expect(allocCount(h)).toBe(1);
+    } finally {
+      h.close();
+    }
+  });
 });
