@@ -108,3 +108,9 @@ apps/project-sites/_ADMIN_CONTRACT_REPORT.json
 # trace files were accidentally committed once; never track these.
 apps/project-sites/tr-fj*/
 editor-vqa/
+
+# Recipient allowlist — the LOCAL config holds the operator's REAL email/phone that the
+# Long-Trail TDD browser-agent is permitted to send to. Secrets/PII stay OUT of git; only
+# `.recipient-allowlist.local.example.json` (placeholders) is committed. The loader
+# (scripts/recipient-allowlist.mjs) fails CLOSED when this file is absent.
+apps/project-sites/.recipient-allowlist.local.json

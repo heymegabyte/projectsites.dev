@@ -10,8 +10,10 @@ One deliberate fire of the ProjectSites convergence loop. Advance the **frontier
 `all`; or scope to `$ARGUMENTS`). **One coherent slice per role per fire** — never split a slice
 across follow-ups; never start a large pass in a context-saturated session.
 
-**Every fire is a MULTI-PHASE wave, never queue-draining.** A standing roster of 15 named roles
-(fan-out) runs in ONE message, followed by a **convergence phase** (normalize) and an
+**Every fire is a MULTI-PHASE wave, never queue-draining.** A roster of 15 rotating named roles
+plus 1 STANDING role — the **Long-Trail TDD case-owner** (§1.16), which runs EVERY cycle and grinds
+ONE checkpointed long browser case to completion — (fan-out) runs in ONE message, followed by a
+**convergence phase** (normalize) and an
 **adversarial-review phase** (hunt regressions). The loop replenishes its own backlog — Product
 Discovery + the audit roles GENERATE the next wave — and **every cycle leaves ≥1 improvement to how
 future loops operate** (§7). A fire that appends zero next-wave items OR zero loop-improvement means
@@ -36,7 +38,7 @@ These are settled. Never re-prompt Brian for them; they govern every fire.
 3. **Autonomy = FULL on reversible prod actions** — flag rollout/promotion, `strict` flip, ADDITIVE D1 migrations, and `wrangler deploy` are all standing-authorized (per `brian-preferences` § prod pre-authorized). Ship them the same fire when green; never hold as "committed but dark."
 4. **Pause ONLY for destructive/irreversible** — dropping columns/tables, bulk customer mutation, secret rotation, real mass outreach, billing/pricing changes, one-way-door architecture. Everything else is yours to drive to done.
 
-## 1 — Fan out the 15 NAMED ROLES (+ dynamic roles) — EVERY fire, in ONE message
+## 1 — Fan out the NAMED ROLES (15 rotating + the STANDING Long-Trail case-owner + dynamic roles) — EVERY fire, in ONE message
 Spawn the roster together in ONE message — fresh, worktree-isolated (mutating) or read-only
 (research) — on disjoint subtrees (editor `app/`, worker `apps/project-sites/src`, Angular
 `frontend/`, docs). Keep ≥1 coding role active whenever ready work exists. **≤6 concurrent mutating
@@ -45,7 +47,7 @@ sequential waves of ≤6). Each role maps to the best-fit specialist per `agent-
 bare `general-purpose` when a named specialist fits. Emit the assignment table + rejected-agent note
 BEFORE spawning; run the Agent Diversity Review gate before DONE.
 
-**The 15 canonical roles:**
+**The canonical roles (15 rotating + 1 STANDING):** roles 1-15 rotate under the §2 category budget; role 16 (Long-Trail TDD case-owner) is STANDING — it runs EVERY cycle and is not subject to rotation.
 1. **Feature Delivery** — take a READY frontier slice (incl. ones prior fires generated); ONE coherent slice end-to-end (schema + handler + UI + tests + flag + docs). Specialist: `general-purpose`/`migration-agent`/domain builder.
 2. **Product Discovery** — reconcile the money path + route/journey coverage; propose platform/journey/screen/component/state improvements; GENERATE next-wave `BACKLOG.md` items. Specialist: `architect`/`content-writer`.
 3. **Unit/Integration Testing** — TDD units + integration for shipped + at-risk code; close coverage gaps. Specialist: `test-writer`.
@@ -61,6 +63,8 @@ BEFORE spawning; run the Agent Diversity Review gate before DONE.
 13. **Accessibility** — axe 0 @ 6bp + the 8 manual WCAG 2.2 AA criteria. Specialist: `accessibility-auditor`.
 14. **Technology Scout** — verify stack currency + surface higher-leverage CF-native primitives / library upgrades (Context7/WebSearch); file adoption slices. Specialist: `dependency-auditor`/`Explore`.
 15. **Loop Improvement** — deliver the mandatory ≥1 improvement to how future loops run (§7): sharpen this command, the canonical docs, a gate/script, or a role brief. Specialist: `general-purpose`/`meta-orchestrator`.
+16. **Long-Trail TDD case-owner (STANDING — runs EVERY cycle)** — owns ONE checkpointed long browser case per the `long-trail-tdd` skill (`.claude/skills/long-trail-tdd/SKILL.md` — the case-design contract: 60-100 actions, 6+ surfaces, RED-before-fix, screenshot+AI-vision every view, durable checkpoint/resume). Works code+tests+live-browser TOGETHER in an ISOLATED worktree. **PRIORITIZES finishing a checkpointed case before rotating coverage** — it does NOT start a new case while one is `in-progress`. It is distinct from role 4 (Golden-Path E2E generates VARYING journeys each fire); role 16 GRINDS ONE case to completion across fires via checkpoint. Sends real email/SMS ONLY through the fail-closed `apps/project-sites/scripts/recipient-allowlist.mjs` (absent config / unlisted recipient → hard deny). Specialist: `test-writer`/`deploy-verifier`.
+    - **No-overlap lease (mandatory — prevents two copies fighting the same case/resources).** The scheduler fires `/run-the-loop` ≥ every 15 min and MAY run back-to-back (next cycle starts the instant the prev finishes), so two case-owner copies can be live at once. Serialize them with a LEASE on the case ID + the test-resource prefix, recorded in the case's checkpoint file: on start, read the checkpoint — if it holds a LIVE lease (`in-progress by <otherRunId>`, `heartbeat` within the last ~20 min), this copy MUST pick a DIFFERENT case (or wait), NEVER touch the leased case's files/resources; if the lease is absent or STALE (heartbeat older than ~20 min → the prior owner died mid-case), reclaim it. Claim by writing `{caseId, status:"in-progress", runId:<thisRunId>, resourcePrefix:<unique-per-case>, heartbeat:<now>}` to the checkpoint, refresh `heartbeat` each meaningful step, and clear/mark `done` on completion. The `resourcePrefix` (e.g. `ltt-<caseId>-`) namespaces every test artifact/site/row this case creates so a second copy on a different case can never collide. The UX/Visual role (5) SUPPORTS the active case-owner — it feeds screenshot/vision findings to the owner but makes NO competing edits to the owner's files.
 
 **Dynamic role creation** — when a fire surfaces a concern no canonical role owns (a new integration,
 a recurring incident class, a migration campaign), MINT a purpose-built role for it that fire: name it,
@@ -118,6 +122,18 @@ The Golden-Path E2E role does NOT write short happy paths. It generates **LONG j
 actions that emulate a developer building a real app** — proceeding deep into a flow, hitting an error
 mid-journey (~click 30-50), diagnosing + fixing it via TDD, then CONTINUING the journey to completion.
 This is the loop's primary way of finding + fixing real defects.
+
+**Role 4 (Golden-Path E2E) VARIES the journey each fire; role 16 (Long-Trail TDD case-owner, §1.16)
+GRINDS ONE checkpointed case to completion.** They complement: role 4 rotates coverage broadly, role 16
+finishes a single deep 60-100-action case across cycles via its lease + checkpoint before rotating. Both
+follow the `long-trail-tdd` skill contract when running long stateful cases.
+
+**Real email/SMS in ANY journey passes the fail-closed allowlist.** A journey that would send a real
+message (submit a contact form to a live inbox, trigger an SMS) MUST route the recipient through
+`apps/project-sites/scripts/recipient-allowlist.mjs` (`assertRecipientAllowed('email'|'sms', value)` /
+`isRecipientAllowed(...)`) — it hard-denies when the local `.recipient-allowlist.local.json` is absent or
+the recipient isn't explicitly listed, so a real send can only reach an operator-owned address. Never
+hardcode a recipient; never send to a discovered/business address during a journey.
 
 **The engine's per-journey contract:**
 - **Start at the homepage**, navigate by UI actions ONLY (clicks/keyboard/real forms) — never `page.goto()` after the initial load. Real UI + real backend, NEVER mocks (`feedback_loop_verifies_real_flows_not_programs`).
