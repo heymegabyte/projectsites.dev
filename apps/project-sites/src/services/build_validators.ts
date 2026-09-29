@@ -1424,6 +1424,52 @@ export const validateBuild = (
 };
 
 /**
+ * Enforcement mode for the build validators.
+ * - `'report'` (DEFAULT) — collect violations, log to the D1 audit, NEVER throw. A thin/broken
+ *   site still ships. This is the live behavior today; the default MUST stay `'report'`.
+ * - `'strict'` — throw a {@link BuildValidationStrictError} on any blocking (error-severity)
+ *   violation, so the build fails and the site stays `error`. Opt-in via `VALIDATOR_MODE` env
+ *   (canary-scoped) — no live behavior change until deliberately flipped.
+ */
+export type ValidatorMode = 'report' | 'strict';
+
+/**
+ * Fail-soft parse of the raw `VALIDATOR_MODE` env value into a {@link ValidatorMode}.
+ * Returns `'strict'` ONLY for an exact (case-insensitive, trimmed) `"strict"`; every other value
+ * — unset, empty, `"report"`, or garbage — resolves to `'report'`. Never throws. This keeps the
+ * default safe: a mis-set env can only ever fall back to report mode, never accidentally block builds.
+ */
+export const resolveValidatorMode = (raw: string | undefined | null): ValidatorMode =>
+  typeof raw === 'string' && raw.trim().toLowerCase() === 'strict' ? 'strict' : 'report';
+
+/**
+ * Typed error thrown by {@link assertBuildStrict} when strict mode meets a failing build. Carries
+ * the full {@link ValidationReport} so the workflow's validate-build step can log the same detail
+ * it logs in report mode before the build fails.
+ */
+export class BuildValidationStrictError extends Error {
+  readonly code = 'build.validation_failed_strict';
+  constructor(readonly report: ValidationReport) {
+    super(`Build validation failed in strict mode: ${report.summary}`);
+    this.name = 'BuildValidationStrictError';
+  }
+}
+
+/**
+ * Strict-mode gate. In `'strict'` mode, throws {@link BuildValidationStrictError} when the report
+ * has any blocking (error-severity) violation (`report.ok === false`). In `'report'` mode — and
+ * for a clean build in either mode — it is a pass-through that returns the report unchanged, so the
+ * caller keeps its existing logging-only behavior EXACTLY. Report mode never throws.
+ */
+export const assertBuildStrict = (
+  report: ValidationReport,
+  mode: ValidatorMode,
+): ValidationReport => {
+  if (mode === 'strict' && !report.ok) throw new BuildValidationStrictError(report);
+  return report;
+};
+
+/**
  * Read every file under `prefix` from R2 into memory as BuildFile[].
  *
  * Decodes text-ish files (HTML/JS/CSS/JSON/XML/SVG/TXT) with TextDecoder; binary files

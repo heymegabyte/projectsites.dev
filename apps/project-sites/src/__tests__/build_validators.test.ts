@@ -37,6 +37,9 @@ import {
   validateConversionFraming,
   scrubNonRetailCommerceCopy,
   validateBuild,
+  resolveValidatorMode,
+  assertBuildStrict,
+  BuildValidationStrictError,
   type BuildFile,
 } from '../services/build_validators';
 
@@ -1009,6 +1012,68 @@ describe('validateBuild (integration)', () => {
     expect(codes).toContain('sitemap.missing_lastmod');
     expect(codes).toContain('lightbox.zoomable_missing');
     expect(codes).toContain('lightbox.gallery_missing');
+  });
+});
+
+describe('VALIDATOR_MODE strict enforcement (Lane 7: report→strict canary, default report)', () => {
+  // A build with a blocking (error-severity) violation: single-page shell w/ short title/desc,
+  // no JSON-LD, no h1, no required files → validateBuild(...).ok === false.
+  const brokenBuild = (): BuildFile[] => [
+    file(
+      'index.html',
+      '<!DOCTYPE html><html><head><title>short</title><meta name="description" content="short"></head><body></body></html>',
+    ),
+  ];
+
+  describe('resolveValidatorMode (fail-soft env parse)', () => {
+    it("defaults to 'report' when the env value is unset", () => {
+      expect(resolveValidatorMode(undefined)).toBe('report');
+    });
+    it("resolves 'strict' exactly", () => {
+      expect(resolveValidatorMode('strict')).toBe('strict');
+      expect(resolveValidatorMode('STRICT')).toBe('strict');
+      expect(resolveValidatorMode('  strict  ')).toBe('strict');
+    });
+    it("resolves 'report' exactly", () => {
+      expect(resolveValidatorMode('report')).toBe('report');
+    });
+    it("fails soft to 'report' on any invalid / garbage value", () => {
+      expect(resolveValidatorMode('yolo')).toBe('report');
+      expect(resolveValidatorMode('')).toBe('report');
+      expect(resolveValidatorMode('true')).toBe('report');
+    });
+  });
+
+  it("(a) report-mode returns violations WITHOUT throwing (default, zero live change)", () => {
+    const report = validateBuild(brokenBuild());
+    expect(report.ok).toBe(false);
+    expect(report.errors.length).toBeGreaterThan(0);
+    // The whole point: report mode NEVER throws — behavior identical to today.
+    expect(() => assertBuildStrict(report, 'report')).not.toThrow();
+    // And it returns the report unchanged for the caller to log.
+    expect(assertBuildStrict(report, 'report')).toBe(report);
+  });
+
+  it("(b) strict-mode THROWS a typed error on a blocking violation", () => {
+    const report = validateBuild(brokenBuild());
+    expect(report.ok).toBe(false);
+    expect(() => assertBuildStrict(report, 'strict')).toThrow(BuildValidationStrictError);
+    // The thrown error carries the failing report for the workflow to log.
+    try {
+      assertBuildStrict(report, 'strict');
+      throw new Error('expected assertBuildStrict to throw in strict mode');
+    } catch (err) {
+      expect(err).toBeInstanceOf(BuildValidationStrictError);
+      expect((err as BuildValidationStrictError).report).toBe(report);
+      expect((err as BuildValidationStrictError).report.errors.length).toBeGreaterThan(0);
+    }
+  });
+
+  it("(c) strict-mode passes a clean build without throwing", () => {
+    const report = validateBuild(completeBuild());
+    expect(report.ok).toBe(true);
+    expect(() => assertBuildStrict(report, 'strict')).not.toThrow();
+    expect(assertBuildStrict(report, 'strict')).toBe(report);
   });
 });
 

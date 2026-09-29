@@ -22,7 +22,13 @@ import type { WorkflowStep, WorkflowEvent } from 'cloudflare:workers';
 import type { Env } from '../types/env.js';
 import { DOMAINS, AppError } from '@project-sites/shared';
 import { gatewayFetch } from '../services/ai_gateway.js';
-import { loadBuildFromR2, validateBuild } from '../services/build_validators.js';
+import {
+  loadBuildFromR2,
+  validateBuild,
+  assertBuildStrict,
+  resolveValidatorMode,
+  BuildValidationStrictError,
+} from '../services/build_validators.js';
 import { scoreReadiness } from '../services/production_readiness.js';
 import {
   checkBuildLlmCredit,
@@ -2392,10 +2398,13 @@ export class SiteGenerationWorkflow extends WorkflowEntrypoint<Env, SiteGenerati
       },
     );
 
-    // ── Step 3.5: Build validators (report mode — log to D1, never throw) ──
+    // ── Step 3.5: Build validators (env-selected mode — default 'report') ──
     // Enforces audit recommendations: asset existence, JSON-LD count, image format,
     // og-image quality, apple-touch-icon, meta lengths, H1 in shell, sitemap lastmod,
     // banned slop words, JS chunk size, lightbox presence, required well-known files.
+    // `VALIDATOR_MODE` (fail-soft parsed) selects enforcement: 'report' (DEFAULT) logs to
+    // D1 and never throws — unchanged live behavior; 'strict' (canary opt-in) fails the
+    // build on any blocking violation AFTER the audit log is written.
     // See services/build_validators.ts and skill 15 quality-gates.md.
     await step.do(
       'validate-build',
@@ -2448,6 +2457,10 @@ export class SiteGenerationWorkflow extends WorkflowEntrypoint<Env, SiteGenerati
             readiness_breakdown: readiness.breakdown,
             message: `Build validation: ${report.summary} · readiness ${readiness.grade} (${readiness.score}/100)`,
           });
+          // STRICT-mode canary: default 'report' is a pass-through (zero behavior change);
+          // 'strict' throws AFTER the audit log above so a blocking build fails the step. The
+          // typed error is re-thrown past the catch below so it never degrades to "skipped".
+          assertBuildStrict(report, resolveValidatorMode(env.VALIDATOR_MODE));
           return JSON.stringify({
             ok: report.ok,
             summary: report.summary,
@@ -2458,6 +2471,9 @@ export class SiteGenerationWorkflow extends WorkflowEntrypoint<Env, SiteGenerati
             },
           });
         } catch (err) {
+          // A strict-mode validation failure MUST fail the build — re-throw it so the Workflow
+          // step errors (and the site stays `error`), never swallowed as a skipped step.
+          if (err instanceof BuildValidationStrictError) throw err;
           await wfLog('workflow.build_validation_error', {
             error: err instanceof Error ? err.message : String(err),
             message: 'Build validation skipped due to error',

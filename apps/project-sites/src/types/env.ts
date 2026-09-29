@@ -225,6 +225,14 @@ export interface Env {
    * DO migration (which adds external-provider fan-out on top).
    */
   ANALYTICS_INGEST_ENABLED?: string;
+  /**
+   * Site-generation build-validator enforcement mode. `'strict'` fails a build (site stays
+   * `error`) on any blocking violation from `services/build_validators.ts`; anything else —
+   * unset, `'report'`, or garbage — resolves (fail-soft, via `resolveValidatorMode`) to `'report'`,
+   * the current logging-only behavior. DEFAULT is report: a canary flips this to `'strict'` for a
+   * scoped set (e.g. one org via `flag_overrides`) with NO change to any other live build.
+   */
+  VALIDATOR_MODE?: string;
 
   // ── Workers AI ────────────────────────────────────────────
   /** Cloudflare Workers AI binding for LLM inference. */
