@@ -45,8 +45,9 @@
 - **Done:** #3 cell click-to-copy · Actions dropdown · History="Create snapshot" · advanced cross-table search (`/db/search`) · minute-granular time-travel scrubber.
 - **Done (2026-09-28):** per-site D1 Data journey PROVEN GREEN on prod — `per_site_data` enabled SCOPED to the E2E org (`flag_overrides` row `scope='org', scope_id='e2e-test-org'`, mirroring `durable_preview`); `e2e/data-tab-journey.e2e.ts` (2 passed) drives create-table→row→add/rename/drop-column→SQL-console→drop, reconciling each op display-vs-store against the site's OWN D1 (`GET /db/tables[/:table]`, databaseId `131b9973…`, NOT shared platform), + browser leg mounts the flag-on Database→Tables surface in the editor iframe (not `sitedb-disabled`).
 - **Done (2026-09-29) — Rev 1/10 Rowid inline editing:** killed "no PK = read-only" — `PS_SITEDB_UPDATE_ROW` bridge (`requestDbUpdateRow` → `PATCH …/rows/:rowid`) + `rowStableKey`/`isRowEditableColumn` gate + `writeCell` (PK→exec-SQL, PK-less→rowid PATCH), optimistic+rollback+undo; 13 Vitest green; commit `b97abca9a`, editor Pages `2be849ed`.
-- **Next → Rev 2/10** (one measurable visual+functional upgrade per fire) draining the 15-idea backlog in priority order:
-  2. Schema/table browser rail · 4. Bulk edit + fill-down · 5. Rich field-type config · 6. Result→chart · 7. Saved queries + history rail · 8. AI "explain this" · 9. ERD/relationships diagram · 10. Global data search (⌘K) · 11. Airtable-class views (Gallery/Kanban/Calendar) · 12. Data-profile/insights strip · 13. KV manager — never a dead paywall · 14. Save/activity affordance · 15. Empty-state launchpad.
+- **Done (2026-09-29) — Rev 2/10 Schema/table-browser rail:** persistent Airtable-style left rail lists every table from the already-fetched `/db/tables` data (no new endpoint) — active table highlighted (`aria-current`) with live column/row counts, keyboard-navigable (↑↓/Enter), dark `--ps-accent`, no manual Refresh; `SchemaRail` in `SiteTablesPanel.tsx`; 27 Vitest green, tsc clean.
+- **Next → Rev 3/10** (one measurable visual+functional upgrade per fire) draining the 15-idea backlog in priority order:
+  4. Bulk edit + fill-down · 5. Rich field-type config · 6. Result→chart · 7. Saved queries + history rail · 8. AI "explain this" · 9. ERD/relationships diagram · 10. Global data search (⌘K) · 11. Airtable-class views (Gallery/Kanban/Calendar) · 12. Data-profile/insights strip · 13. KV manager — never a dead paywall · 14. Save/activity affordance · 15. Empty-state launchpad.
 - **Adjacent (capability matrix):** broaden typed cell editors — NULL/number/bool/JSON + INSERT add-row (needs stable-id plumbing; currently only enum columns editable).
 - **Phased roadmap (`data-platform-scope.md`, all PENDING) — nest the ideas under these:**
   - **Phase 0 — Foundation (gated):** greenfield reset (backup+confirm+reversible) · brian@megabyte.space → admin + payment bypass · re-point `form_submissions`/`visitor_events` ingestion to the site's OWN D1.
@@ -85,6 +86,7 @@
 
 ### 7. Site-generation quality  · ACTIVE (batch after 1–5)
 - **Source:** `_LOOP_LEDGER.md` (open items) · `src/services/build_validators.ts`
+- ✅ `build_validators.ts` report→strict via `VALIDATOR_MODE` env (canary): `resolveValidatorMode` (fail-soft → `'report'` default) + `assertBuildStrict` + typed `BuildValidationStrictError`; workflow `validate-build` step throws in `'strict'` AFTER the D1 audit log, re-thrown past the catch (never "skipped"). Default stays `'report'` → zero live change. TDD: +7 tests (report no-throw / strict throws / strict clean-passes), 197/197 jest green, tsc + validate:features clean.
 - Competitor-research service + floor check → wrap into site-gen Phase -1; flag `deepcrawl_competitor_research`.
 - SEO-audit crawler → post-deploy step; map violations to the 13 `build_validators.ts` invariant codes; log-only while experimental.
 - Promote cinematic flags `word_reveal` / `line_draw` / `clip_reveal` to ON-by-default on filled sections.
