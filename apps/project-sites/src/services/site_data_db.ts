@@ -26,7 +26,7 @@
 import type { Env } from '../types/env.js';
 
 import { type CfAuth, cfAuthHeaders, resolveCfCredentials } from './cf_credentials.js';
-import { provisionSiteD1, siteD1Name } from './d1_provisioner.js';
+import { provisionSiteD1 } from './d1_provisioner.js';
 import { dbQueryOne } from './db.js';
 
 const CF_API_BASE = 'https://api.cloudflare.com/client/v4';
@@ -712,6 +712,3 @@ export function buildUpdateRowSql(
     sql: `UPDATE ${quoteIdent(table)} SET ${assignments} WHERE rowid = ?`,
   };
 }
-
-/** The re-exported deterministic per-site D1 name (`ps-site-{id}`) — for logging / display. */
-export { siteD1Name };

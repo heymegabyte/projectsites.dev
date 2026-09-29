@@ -170,8 +170,6 @@ export function parseCron(expr: string): CronSchedule | null {
   }
 }
 
-export { parseCron as parse }; // convenience alias
-
 /**
  * Compute the next fire time (Unix milliseconds) after a reference timestamp.
  *

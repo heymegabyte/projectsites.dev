@@ -20,7 +20,6 @@ import { signFunctionToken } from './functions/internal.js';
 import { dbUpdate, dbQueryOne, dbQuery } from './db.js';
 import {
   isWfpConfigured,
-  siteFunctionsScriptName,
   uploadSiteFunctionsWorker,
   deleteSiteFunctionsWorker,
 } from './wfp_dispatch.js';
@@ -415,6 +414,3 @@ export async function listActiveFunctionsSchedules(db: D1Database): Promise<Site
   );
   return (data ?? []).map((r) => ({ siteId: r.site_id, cron: r.cron }));
 }
-
-/** The WfP script name a deploy targets — re-exported so callers/logs share the SSOT. */
-export { siteFunctionsScriptName };
