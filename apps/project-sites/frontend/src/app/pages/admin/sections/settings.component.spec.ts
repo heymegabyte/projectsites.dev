@@ -851,6 +851,128 @@ describe('AdminSettingsComponent — MCP connectOauth (bearer fetch, MailChimp a
 });
 
 /**
+ * fire-55 — General tab prefill from profile/site (embarrassingly-easy mandate).
+ *
+ * Deep UI Explorer run dux-2026-09-29T22-19-12-412Z state 11 found the Settings
+ * form rendering EMPTY except contact email. A busy owner should see their known
+ * info prefilled, not blanks: on init, EMPTY identity fields prefill from the
+ * signed-in profile (`/auth/me` → org_name/display_name → business name,
+ * email → contact email) WITHOUT ever clobbering a persisted or user-typed
+ * value. Prefilled values are unsaved suggestions — the form goes dirty so the
+ * owner confirms with one Save click — and a one-line muted hint explains what
+ * happened, rendered ONLY when ≥1 field was actually prefilled.
+ */
+describe('AdminSettingsComponent (General prefill from profile — fire-55)', () => {
+  interface ProfileStub { email?: string | null; display_name?: string | null; org_name?: string | null }
+
+  function build(opts: {
+    site: { id: string; slug: string; business_name?: string; business_address?: string; business_phone?: string };
+    profile: ProfileStub | null;
+    aiSettings?: { contact_email?: string | null; reply_email?: string | null };
+  }): ComponentFixture<AdminSettingsComponent> {
+    const get = jasmine.createSpy('get').and.callFake((path: string) => {
+      if (path === '/auth/me') return of({ data: opts.profile });
+      if (/\/ai-settings$/.test(path)) return of({ data: opts.aiSettings ?? {} });
+      return of({ data: null });
+    });
+    TestBed.configureTestingModule({
+      imports: [AdminSettingsComponent],
+      providers: [
+        { provide: ApiService, useValue: { get, put: () => of({}), post: () => of({}), delete: () => of({}), updateSite: () => of({}) } },
+        { provide: ToastService, useValue: { error: () => 0, success: () => 0, info: () => 0, warning: () => 0 } },
+        { provide: ConfirmService, useValue: { confirm: () => Promise.resolve(false) } },
+        { provide: Router, useValue: { navigate: jasmine.createSpy('navigate') } },
+        { provide: ActivatedRoute, useValue: { firstChild: null, fragment: of(null), snapshot: { fragment: null, url: [] } } },
+        { provide: AdminStateService, useValue: { selectedSite: signal(opts.site), loadData: () => undefined } },
+      ],
+    });
+    const fx = TestBed.createComponent(AdminSettingsComponent);
+    fx.detectChanges(); // ngOnInit → loadGeneral + profile fetch (sync of() mocks)
+    return fx;
+  }
+  const hint = (fx: ComponentFixture<AdminSettingsComponent>) =>
+    (fx.nativeElement as HTMLElement).querySelector('[data-testid="general-prefill-hint"]');
+  afterEach(() => TestBed.resetTestingModule());
+
+  it('prefills EMPTY name + email from the profile (org_name + email), goes dirty so Save confirms', () => {
+    const fx = build({
+      site: { id: 's', slug: 'demo' }, // no persisted business identity
+      profile: { email: 'owner@acme.com', display_name: 'Pat Owner', org_name: 'Acme Bakery' },
+      aiSettings: { contact_email: null },
+    });
+    const c = fx.componentInstance;
+    expect(c.business.business_name).withContext('empty name ← org_name').toBe('Acme Bakery');
+    expect(c.business.contact_email).withContext('empty contact email ← profile email').toBe('owner@acme.com');
+    expect(c.prefilledFields().length).withContext('both fields recorded as prefilled').toBe(2);
+    // Prefill is an unsaved suggestion — the form is dirty and Save is the one-click confirm.
+    expect(c.businessDirty()).withContext('prefill marks the form dirty (Save = confirm)').toBeTrue();
+    fx.detectChanges();
+    const save = (fx.nativeElement as HTMLElement).querySelector('[data-testid="general-save"]') as HTMLButtonElement;
+    expect(save.disabled).withContext('Save enabled — owner confirms in one click').toBeFalse();
+  });
+
+  it('falls back to display_name for the business name when the profile has no org_name', () => {
+    const fx = build({
+      site: { id: 's', slug: 'demo' },
+      profile: { email: 'pat@x.io', display_name: 'Pat Owner', org_name: null },
+      aiSettings: {},
+    });
+    expect(fx.componentInstance.business.business_name).withContext('org_name missing → display_name').toBe('Pat Owner');
+  });
+
+  it('NEVER overwrites persisted values — only genuinely empty fields prefill', () => {
+    const fx = build({
+      site: { id: 's', slug: 'demo', business_name: 'Persisted Name', business_phone: '555-0100', business_address: '1 Main St' },
+      profile: { email: 'owner@acme.com', display_name: 'Pat', org_name: 'Acme Bakery' },
+      aiSettings: { contact_email: 'saved@acme.com' },
+    });
+    const c = fx.componentInstance;
+    expect(c.business.business_name).withContext('persisted name untouched').toBe('Persisted Name');
+    expect(c.business.contact_email).withContext('persisted email untouched').toBe('saved@acme.com');
+    expect(c.business.business_phone).withContext('persisted phone untouched').toBe('555-0100');
+    expect(c.business.business_address).withContext('persisted address untouched').toBe('1 Main St');
+    expect(c.businessDirty()).withContext('nothing prefilled → form stays pristine').toBeFalse();
+    expect(c.prefilledFields().length).toBe(0);
+    fx.detectChanges();
+    expect(hint(fx)).withContext('no prefill → no hint').toBeNull();
+  });
+
+  it('prefills ONLY the empty field when identity is partially persisted (name kept, email filled)', () => {
+    const fx = build({
+      site: { id: 's', slug: 'demo', business_name: 'Persisted Name' },
+      profile: { email: 'owner@acme.com', org_name: 'Acme Bakery' },
+      aiSettings: { contact_email: null },
+    });
+    const c = fx.componentInstance;
+    expect(c.business.business_name).withContext('persisted name wins over org_name').toBe('Persisted Name');
+    expect(c.business.contact_email).withContext('empty email still prefills').toBe('owner@acme.com');
+    expect(c.prefilledFields()).toEqual(['contact email']);
+  });
+
+  it('renders the one-line muted hint ONLY when ≥1 field was prefilled', () => {
+    const fx = build({
+      site: { id: 's', slug: 'demo' },
+      profile: { email: 'owner@acme.com', org_name: 'Acme Bakery' },
+      aiSettings: { contact_email: null },
+    });
+    fx.detectChanges();
+    const el = hint(fx) as HTMLElement;
+    expect(el).withContext('≥1 field prefilled → hint present on the General tab').not.toBeNull();
+    expect(el.textContent).withContext('owner language, no jargon').toContain('Prefilled from your profile — edit anything');
+    expect(el.className).withContext('muted styling via existing text-secondary class').toContain('text-text-secondary');
+  });
+
+  it('shows no hint and no prefill when the profile fetch yields nothing (best-effort, never blocks)', () => {
+    const fx = build({ site: { id: 's', slug: 'demo' }, profile: null, aiSettings: { contact_email: null } });
+    const c = fx.componentInstance;
+    expect(c.business.business_name).toBe('');
+    expect(c.businessDirty()).toBeFalse();
+    fx.detectChanges();
+    expect(hint(fx)).toBeNull();
+  });
+});
+
+/**
  * AL-710 regression — knowledge-file upload auth + timeout hardening.
  *
  * The raw-XHR knowledge upload read a DEAD `localStorage.getItem('session_token')` key

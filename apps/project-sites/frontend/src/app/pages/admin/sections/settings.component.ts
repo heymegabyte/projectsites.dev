@@ -98,6 +98,12 @@ const PROVIDERS = MCP_PROVIDERS;
               <!-- Group: Contact + identity -->
               <fieldset class="biz-group">
                 <legend class="biz-legend">Identity</legend>
+                @if (prefilledFields().length) {
+                  <p class="text-[0.66rem] text-text-secondary m-0 mb-3 flex items-center gap-1.5" data-testid="general-prefill-hint">
+                    <app-ai-spark />
+                    <span>Prefilled from your profile — edit anything, then Save.</span>
+                  </p>
+                }
                 <div class="grid md:grid-cols-2 gap-4">
                   <label class="block md:col-span-2">
                     <span class="muted-h">Contact email <small class="text-text-secondary">(shown on your site · the AI router also replies here)</small></span>
@@ -1064,6 +1070,54 @@ export class AdminSettingsComponent implements OnInit {
 
   resetBusiness(): void { this.loadGeneral(); }
 
+  // ── Profile prefill (fire-55, embarrassingly-easy) ──
+  /** Signed-in profile from `/auth/me` — the prefill source for EMPTY identity fields. */
+  private profile: { email?: string | null; display_name?: string | null; org_name?: string | null } | null = null;
+  private profileLoaded = false;
+  private generalLoaded = false;
+  /** Field labels that were auto-prefilled (empty → filled from the profile). Drives the one-line hint. */
+  prefilledFields = signal<string[]>([]);
+
+  /** Best-effort, silent — a failed profile fetch never toasts and never blocks the form. */
+  private loadProfile(): void {
+    this.api
+      .get<{ data: { email?: string | null; display_name?: string | null; org_name?: string | null } | null }>('/auth/me', undefined, { silent: true })
+      .subscribe({
+        next: (r) => { this.profile = r?.data ?? null; this.profileLoaded = true; this.applyProfilePrefill(); },
+        error: () => { this.profileLoaded = true; /* no profile → no prefill; form works as before */ },
+      });
+  }
+
+  /**
+   * Prefill EMPTY identity fields once BOTH the persisted values (loadGeneral)
+   * and the profile (`/auth/me`) have landed: org_name (falling back to
+   * display_name) → business name, profile email → contact email. A persisted
+   * or user-typed value is NEVER overwritten — each field prefills only when
+   * blank and the form is pristine. Prefilled values are unsaved suggestions:
+   * the form goes dirty so the owner confirms with one Save click.
+   */
+  private applyProfilePrefill(): void {
+    if (!this.profileLoaded || !this.generalLoaded) return;
+    const p = this.profile;
+    if (!p) return;
+    if (this.businessDirty()) return; // owner already editing — never clobber
+    const filled: string[] = [];
+    const suggestedName = (p.org_name ?? '').trim() || (p.display_name ?? '').trim();
+    if (!this.business.business_name.trim() && suggestedName) {
+      this.business.business_name = suggestedName;
+      filled.push('business name');
+    }
+    const suggestedEmail = (p.email ?? '').trim();
+    if (!this.business.contact_email.trim() && suggestedEmail && !this.emailInvalid(suggestedEmail)) {
+      this.business.contact_email = suggestedEmail;
+      filled.push('contact email');
+    }
+    if (filled.length) {
+      this.prefilledFields.set(filled);
+      this.markBusinessDirty(); // unsaved suggestion — Save is the confirm
+    }
+  }
+
   private validateBusiness(): boolean {
     const errs: ReturnType<typeof this.businessErrors> = {};
     const b = this.business;
@@ -1186,6 +1240,7 @@ export class AdminSettingsComponent implements OnInit {
     this.route.fragment.pipe(takeUntilDestroyed(this.destroyRef)).subscribe((frag) => {
       if (frag && this.tab() !== frag && TABS.some((t) => t.id === frag)) this.tab.set(frag as Tab);
     });
+    this.loadProfile();
     this.loadGeneral();
     this.loadTeam();
     this.loadConnections();
@@ -1270,12 +1325,18 @@ export class AdminSettingsComponent implements OnInit {
         this.businessSnapshot = JSON.stringify({ ...this.business, logoFile: null, iconFile: null });
         this.businessDirty.set(false);
         this.businessErrors.set({});
+        this.generalLoaded = true;
+        this.prefilledFields.set([]);
+        this.applyProfilePrefill();
       },
       error: () => {
         // Still surface identity from the site record if ai-settings fails.
         this.business = { contact_email: '', ...identity, logoFile: null, iconFile: null };
         this.businessSnapshot = JSON.stringify({ ...this.business, logoFile: null, iconFile: null });
         this.businessDirty.set(false);
+        this.generalLoaded = true;
+        this.prefilledFields.set([]);
+        this.applyProfilePrefill();
       },
     });
   }
