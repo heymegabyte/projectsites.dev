@@ -26,9 +26,10 @@ import { uuidv7 } from '../../../src/lib/uuid.js';
 import {
   AddNotificationInputSchema,
   ListQuerySchema,
+  coerceNotificationType,
   type AddNotificationInput,
+  type InboxListResult,
   type ListQuery,
-  type ListResponse,
   type Notification,
 } from './schemas.js';
 
@@ -67,7 +68,10 @@ interface NotificationRow {
 function rowToNotification(r: NotificationRow): Notification {
   return {
     id: r.id,
-    type: r.type,
+    // Coerce the stored TEXT `type` to a canonical NotificationType — new rows are
+    // already canonical (add() coerces on write), and this self-heals any legacy
+    // row written before the enum landed.
+    type: coerceNotificationType(r.type),
     title: r.title,
     body: r.body ?? '',
     action_url: r.action_url ?? null,
@@ -113,7 +117,10 @@ export class PsNotifyDO extends DurableObject<Env> {
     const parsed = AddNotificationInputSchema.parse(input);
     const row: Notification = {
       id: uuidv7(),
-      type: parsed.type,
+      // Canonicalize the incoming workflow id/event name to a NotificationType so
+      // the stored type is always one of the six canonical buckets — live
+      // fire-and-forget writes (`site-published`, `ps-notify`, …) never reject.
+      type: coerceNotificationType(parsed.type),
       title: parsed.title,
       body: parsed.body,
       action_url: parsed.action_url,
@@ -140,7 +147,7 @@ export class PsNotifyDO extends DurableObject<Env> {
    *
    * @param query - Validated against {@link ListQuerySchema}.
    */
-  async list(query: ListQuery = {} as ListQuery): Promise<ListResponse> {
+  async list(query: ListQuery = {} as ListQuery): Promise<InboxListResult> {
     this.ensureSchema();
     const { unreadOnly, limit } = ListQuerySchema.parse(query);
     const where = unreadOnly ? 'WHERE read_at IS NULL' : '';
@@ -178,12 +185,30 @@ export class PsNotifyDO extends DurableObject<Env> {
   }
 
   /**
+   * Mark EVERY unread notification in this inbox read (idempotent — a fully-read
+   * inbox is a no-op). Mirrors the legacy D1 `POST /api/notifications/read-all`.
+   * Scoping is structural: the caller only ever reaches its OWN inbox DO
+   * (resolved by `getByName(userId)`), so this can never touch another user's rows.
+   *
+   * @returns The COUNT of rows flipped unread→read (0 when already all-read).
+   */
+  async markAllRead(): Promise<number> {
+    this.ensureSchema();
+    const cursor = this.sql.exec(
+      `UPDATE notifications SET read_at = ? WHERE read_at IS NULL`,
+      Date.now(),
+    );
+    return cursor.rowsWritten;
+  }
+
+  /**
    * HTTP surface for cross-isolate stub calls (`stub.fetch(...)`). The public
    * `/api/notifications` handlers reach the inbox through here.
    *
-   * - `POST /add`   `{type,title,body?,action_url?}` → `Notification`
-   * - `GET  /list?unreadOnly&limit`                  → `ListResponse`
-   * - `POST /read`  `{id}`                            → `{ ok, updated }`
+   * - `POST /add`      `{type,title,body?,action_url?}` → `Notification`
+   * - `GET  /list?unreadOnly&limit`                     → `InboxListResult`
+   * - `POST /read`     `{id}`                           → `{ ok, updated:boolean }`
+   * - `POST /read-all`                                  → `{ ok, updated:number }`
    */
   override async fetch(request: Request): Promise<Response> {
     const url = new URL(request.url);
@@ -206,6 +231,10 @@ export class PsNotifyDO extends DurableObject<Env> {
     if (request.method === 'POST' && url.pathname === '/read') {
       const { id } = (await request.json().catch(() => ({}))) as { id?: string };
       const updated = await this.markRead(id ?? '');
+      return Response.json({ ok: true, updated });
+    }
+    if (request.method === 'POST' && url.pathname === '/read-all') {
+      const updated = await this.markAllRead();
       return Response.json({ ok: true, updated });
     }
     return new Response('not found', { status: 404 });

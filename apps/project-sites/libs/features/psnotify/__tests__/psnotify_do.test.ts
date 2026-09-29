@@ -70,7 +70,8 @@ describe('PsNotifyDO — add → list → markRead (real SQLite)', () => {
     const n = await inbox.add({ type: 'site.published', title: 'Your site is live 🎉' });
 
     expect(n.id).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[0-9a-f]{4}-[0-9a-f]{12}$/);
-    expect(n.type).toBe('site.published');
+    // `site.published` coerces to the canonical `site_lifecycle` bucket.
+    expect(n.type).toBe('site_lifecycle');
     expect(n.title).toBe('Your site is live 🎉');
     expect(n.body).toBe('');
     expect(n.action_url).toBeNull();
@@ -164,5 +165,59 @@ describe('PsNotifyDO — add → list → markRead (real SQLite)', () => {
       new Request('http://do/add', { method: 'POST', body: JSON.stringify({ title: 'no type' }) }),
     );
     expect(res.status).toBe(400);
+  });
+
+  it('add() coerces a live free-form workflow type into a canonical enum type', async () => {
+    const inbox = makeDO();
+    // The live notifyUser transport passes `workflowId` as `type` (e.g. 'site-published',
+    // the default 'ps-notify', or a notifyEvent name). None of these are canonical enum
+    // members, so a hard enum would REJECT every live write. add() must instead COERCE.
+    const published = await inbox.add({ type: 'site-published', title: 'live 🎉' });
+    expect(published.type).toBe('site_lifecycle');
+
+    const unknown = await inbox.add({ type: 'ps-notify', title: 'generic' });
+    expect(unknown.type).toBe('system');
+
+    const domain = await inbox.add({ type: 'domain_active', title: 'connected 🌐' });
+    expect(domain.type).toBe('domain');
+
+    // A caller that already passes a canonical type is preserved verbatim.
+    const canonical = await inbox.add({ type: 'billing', title: 'payment received' });
+    expect(canonical.type).toBe('billing');
+  });
+
+  it('markAllRead() stamps every unread row, is idempotent, and returns the count changed', async () => {
+    const inbox = makeDO();
+    await inbox.add({ type: 'a', title: 'one' });
+    await inbox.add({ type: 'b', title: 'two' });
+    await inbox.add({ type: 'c', title: 'three' });
+
+    // First sweep marks all three unread rows read.
+    expect(await inbox.markAllRead()).toBe(3);
+
+    const after = await inbox.list({} as never);
+    expect(after.unread).toBe(0);
+    expect(after.notifications.every((n) => typeof n.read_at === 'number')).toBe(true);
+
+    // Idempotent — a second sweep changes nothing.
+    expect(await inbox.markAllRead()).toBe(0);
+  });
+
+  it('markAllRead() on an empty inbox is a guarded no-op (never a SQL error)', async () => {
+    const inbox = makeDO();
+    expect(await inbox.markAllRead()).toBe(0);
+  });
+
+  it('fetch() routes POST /read-all for cross-isolate stub calls', async () => {
+    const inbox = makeDO();
+    await inbox.add({ type: 'a', title: 'one' });
+    await inbox.add({ type: 'b', title: 'two' });
+
+    const res = await inbox.fetch(new Request('http://do/read-all', { method: 'POST' }));
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({ ok: true, updated: 2 });
+
+    const after = await inbox.list({} as never);
+    expect(after.unread).toBe(0);
   });
 });

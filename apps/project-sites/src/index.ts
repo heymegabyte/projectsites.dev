@@ -1129,7 +1129,7 @@ app.route('/', promptStudio); // /api/prompt-studio/* (flag: prompt_studio)
 app.route('/', promptSchedule); // /api/prompt-schedules/* (flag: prompt_schedule) — time-windowed prompt-variant activation
 app.route('/', contentImport); // /api/content-import/parse (flag: content_import) — parse platform exports → normalized items
 app.route('/', sitePublishSchedule); // /api/sites/:id/publish-schedule (flag: scheduled_publish) — scheduled site go-live
-app.route('/', psnotifyInbox); // /api/notifications + /api/notifications/:id/read (flag: psnotify) — per-user psnotify DO inbox
+app.route('/', psnotifyInbox); // /api/notifications ({data,unread_count}) + /api/notifications/:id/read + /api/notifications/read-all (flag: psnotify) — per-user psnotify DO inbox
 app.route('/', durablePreview); // /api/sites/:id/preview-state + /releases (flag: durable_preview) — Preview working-tree + release records
 app.route('/', aiGatewayGuardrails); // /api/guardrails/* (flag: ai_gateway_guardrails)
 app.route('/', wireframePlanning); // /api/wireframe/* (flag: wireframe_planning)

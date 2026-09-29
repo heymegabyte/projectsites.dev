@@ -4,6 +4,11 @@
  *
  * - `GET  /api/notifications`          — the caller's OWN inbox (+ unread count).
  * - `POST /api/notifications/:id/read` — mark one of the caller's notifications read.
+ * - `POST /api/notifications/read-all` — mark ALL the caller's unread read.
+ *
+ * The list response is the LEGACY D1 bell contract — `{ data, unread_count }`
+ * (matching `libs/features/notifications` + `notification-bell.component.ts`) —
+ * so promoting psnotify later is a clean flag-flip requiring no bell change.
  *
  * Caller-scoping is structural (the psnotify analogue of `assertSiteOwned`):
  * the inbox DO is resolved with `getByName(userId)` from the AUTHED session —
@@ -20,7 +25,7 @@ import { Hono } from 'hono';
 import type { Env, Variables } from '../../../src/types/env.js';
 import { unauthorized, notFound } from '../../../src/lib/feature_guard.js';
 import { isFlagOn } from '../../../src/modules/feature_flags/services.js';
-import { FLAG_KEY, type ListResponse } from './schemas.js';
+import { FLAG_KEY, type InboxListResult, type ListResponse } from './schemas.js';
 
 type AppContext = { Bindings: Env; Variables: Variables };
 export const psnotifyInbox = new Hono<AppContext>();
@@ -65,7 +70,7 @@ psnotifyInbox.get('/api/notifications', async (c) => {
   // Fail-soft: the DO binding is absent until the DO-migration deploy lands.
   if (!c.env.PSNOTIFY_DO) {
     log(c, 'inbox.list.binding_missing');
-    return c.json({ notifications: [], unread: 0 } satisfies ListResponse);
+    return c.json({ data: [], unread_count: 0 } satisfies ListResponse);
   }
 
   const unreadOnly = c.req.query('unreadOnly') === 'true' || c.req.query('unreadOnly') === '1';
@@ -76,9 +81,14 @@ psnotifyInbox.get('/api/notifications', async (c) => {
     const res = await stub.fetch(
       `http://do/list?unreadOnly=${unreadOnly ? '1' : '0'}&limit=${encodeURIComponent(limit)}`,
     );
-    const data = (await res.json()) as ListResponse;
-    log(c, 'inbox.list', { unread: data.unread, count: data.notifications.length });
-    return c.json(data);
+    // The DO returns its natural { notifications, unread } shape; map it to the
+    // legacy bell contract { data, unread_count } at the boundary.
+    const result = (await res.json()) as InboxListResult;
+    log(c, 'inbox.list', { unread: result.unread, count: result.notifications.length });
+    return c.json({
+      data: result.notifications,
+      unread_count: result.unread,
+    } satisfies ListResponse);
   } catch (err) {
     // Never 500 a bell fetch — degrade to an empty inbox + a correlated warn.
     console.warn(
@@ -90,7 +100,7 @@ psnotifyInbox.get('/api/notifications', async (c) => {
         reason: (err as Error)?.message || 'exception',
       }),
     );
-    return c.json({ notifications: [], unread: 0 } satisfies ListResponse);
+    return c.json({ data: [], unread_count: 0 } satisfies ListResponse);
   }
 });
 
@@ -126,5 +136,39 @@ psnotifyInbox.post('/api/notifications/:id/read', async (c) => {
       }),
     );
     return c.json({ ok: true, updated: false });
+  }
+});
+
+// POST /api/notifications/read-all — mark ALL of the caller's unread read.
+// Mirrors the legacy D1 endpoint; caller-scoped by the AUTHED userId. `updated`
+// is the COUNT of rows flipped unread→read.
+psnotifyInbox.post('/api/notifications/read-all', async (c) => {
+  const gated = await guard(c);
+  if (typeof gated !== 'string') return gated;
+  const userId = gated;
+
+  if (!c.env.PSNOTIFY_DO) {
+    log(c, 'inbox.read_all.binding_missing');
+    return c.json({ ok: true, updated: 0 });
+  }
+
+  try {
+    // Caller-scoping: resolve the inbox by the AUTHED userId — never a request-supplied id.
+    const stub = c.env.PSNOTIFY_DO.getByName(userId);
+    const res = await stub.fetch('http://do/read-all', { method: 'POST' });
+    const data = (await res.json()) as { ok: true; updated: number };
+    log(c, 'inbox.read_all', { updated: data.updated });
+    return c.json(data);
+  } catch (err) {
+    console.warn(
+      JSON.stringify({
+        level: 'warn',
+        service: 'psnotify',
+        event: 'inbox.read_all.error',
+        requestId: c.get('requestId') ?? null,
+        reason: (err as Error)?.message || 'exception',
+      }),
+    );
+    return c.json({ ok: true, updated: 0 });
   }
 });

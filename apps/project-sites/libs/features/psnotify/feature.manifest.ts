@@ -15,10 +15,9 @@ export default defineFeatureManifest({
   slug: 'psnotify',
   name: 'psnotify Notification Inbox',
   description:
-    'psnotify DO inbox (first slice): a SQLite-backed Durable Object (PsNotifyDO), one per user, ' +
-    'storing notifications (add/list/markRead). notifyUser() writes to it; authed GET ' +
-    '/api/notifications + POST /api/notifications/:id/read read the caller OWN inbox ' +
-    '(getByName(userId) scoping). Zero D1 tables. Dark behind psnotify → 404 when off.',
+    'psnotify DO inbox: a per-user SQLite Durable Object storing notifications. notifyUser writes to ' +
+    'it; authed GET/POST /api/notifications read+mark the caller OWN inbox, returning the legacy bell ' +
+    'contract. Canonical type enum. Zero D1 tables. Dark behind psnotify, 404 when off.',
   lifecycle: 'alpha',
   flagKey: 'psnotify',
   owner: 'brian@megabyte.space',
@@ -27,7 +26,11 @@ export default defineFeatureManifest({
 
   // ---- surfaces ----
   routes: [],
-  apiRoutes: ['GET /api/notifications', 'POST /api/notifications/:id/read'],
+  apiRoutes: [
+    'GET /api/notifications',
+    'POST /api/notifications/:id/read',
+    'POST /api/notifications/read-all',
+  ],
 
   // ---- governance ----
   permissions: [],
@@ -35,12 +38,27 @@ export default defineFeatureManifest({
 
   // ---- tests ----
   e2eTests: [],
-  unitTests: ['../libs/features/psnotify/__tests__/psnotify_do.test.ts'],
+  unitTests: [
+    '../libs/features/psnotify/__tests__/psnotify_do.test.ts',
+    '../libs/features/psnotify/__tests__/psnotify_handlers.test.ts',
+  ],
   integrationTests: [],
   testStatus: 'passing',
 
   // ---- schemas ----
   zodSchemas: ['schemas.ts'],
+
+  // ---- canonical notification types (schemas.ts NOTIFICATION_TYPES enum) ----
+  // Every stored notification `type` is one of these six buckets. The incoming
+  // workflow id / event name from notifyUser is coerced to the nearest bucket on
+  // write via coerceNotificationType (unknown maps to system), so the enum is
+  // enforced WITHOUT rejecting live fire-and-forget writes:
+  //   site_lifecycle — publish / build-complete / reset / deploy / snapshot
+  //   domain         — custom-hostname / DNS / subdomain / CNAME
+  //   billing        — subscription / payment / plan / invoice / entitlement
+  //   build_progress — in-flight generation progress (non-terminal)
+  //   security       — auth / login / access / secret / suspicious activity
+  //   system         — platform + generic notices (the catch-all default)
 
   // ---- observability ----
   observability: {
