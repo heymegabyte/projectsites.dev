@@ -28,6 +28,13 @@ const DISABLED_404 = 'not enabled';
 const ENVIRONMENTS = ['preview', 'production'] as const;
 type Env = (typeof ENVIRONMENTS)[number];
 
+/**
+ * Visibility-aware poll cadence (per `real-time-data-no-manual-refresh`): the grid silently re-fetches
+ * both environments every 30s while foregrounded — there is NO manual Refresh control. The poll pauses
+ * while `document.hidden` and refreshes immediately when the tab returns to the foreground.
+ */
+const POLL_INTERVAL_MS = 30_000;
+
 /** One environment's slot in the grid — the resolved resource (if any) for the kind in that environment. */
 interface EnvSlot {
   present: boolean;
@@ -123,8 +130,15 @@ export const EnvAssignmentGrid = memo(function EnvAssignmentGrid({ kind, environ
     });
   }, []);
 
-  const load = useCallback(async () => {
-    setState({ status: 'loading' });
+  /**
+   * Load (or silently reload) both environments' slots.
+   *
+   * @param silent - when `true` (a background poll / foreground refresh), the current grid stays
+   *   on-screen (no loading flash) and a transient failure keeps the last good view — freshness is
+   *   invisible, per `real-time-data-no-manual-refresh`.
+   */
+  const load = useCallback(async (silent = false) => {
+    if (!silent) setState({ status: 'loading' });
     if (!isEmbedded) {
       setState({ status: 'error', message: 'Open this from the ProjectSites admin to see environments.' });
       return;
@@ -140,7 +154,7 @@ export const EnvAssignmentGrid = memo(function EnvAssignmentGrid({ kind, environ
         }
       }
       if (!preview.ok && !production.ok) {
-        setState({ status: 'error', message: preview.error || production.error || 'Could not load environments.' });
+        if (!silent) setState({ status: 'error', message: preview.error || production.error || 'Could not load environments.' });
         return;
       }
 
@@ -150,13 +164,43 @@ export const EnvAssignmentGrid = memo(function EnvAssignmentGrid({ kind, environ
         status: 'ready',
       });
     } catch (err) {
-      setState({ status: 'error', message: err instanceof Error ? err.message : 'Could not load environments.' });
+      if (!silent) setState({ status: 'error', message: err instanceof Error ? err.message : 'Could not load environments.' });
     }
   }, [kind, requestOverview]);
 
   useEffect(() => {
     void load();
   }, [load]);
+
+  /*
+   * Visibility-aware real-time poll (per `real-time-data-no-manual-refresh`) — the manual Refresh
+   * control is gone; the grid keeps ITSELF current. Registered once; it reads the latest loader
+   * through a ref so a kind change never tears down the timer. Pauses while `document.hidden`,
+   * refreshes immediately on foreground, cleaned up on unmount.
+   */
+  const loadRef = useRef(load);
+  loadRef.current = load;
+  useEffect(() => {
+    if (!isEmbedded) return undefined;
+
+    const tick = () => {
+      if (typeof document !== 'undefined' && document.hidden) return;
+      void loadRef.current(true);
+    };
+
+    const interval = setInterval(tick, POLL_INTERVAL_MS);
+
+    const onVisibility = () => {
+      if (typeof document !== 'undefined' && !document.hidden) void loadRef.current(true);
+    };
+
+    document.addEventListener('visibilitychange', onVisibility);
+
+    return () => {
+      clearInterval(interval);
+      document.removeEventListener('visibilitychange', onVisibility);
+    };
+  }, []);
 
   if (state.status === 'disabled') return null;
 
@@ -167,14 +211,21 @@ export const EnvAssignmentGrid = memo(function EnvAssignmentGrid({ kind, environ
         <span className="text-[11px] font-semibold uppercase tracking-wider text-bolt-elements-textSecondary">
           Environments
         </span>
+        {/* Live affordance — the grid self-updates on a visibility-aware poll; no manual Refresh
+            (per `real-time-data-no-manual-refresh`). */}
         {state.status === 'ready' && (
-          <button
-            type="button"
-            onClick={() => void load()}
-            aria-label="Refresh environments"
-            title="Refresh environments"
-            className="ml-auto i-ph:arrows-clockwise text-xs text-bolt-elements-textTertiary hover:text-bolt-elements-item-contentAccent cursor-pointer"
-          />
+          <span
+            className="ml-auto inline-flex items-center gap-1 text-[9px] text-bolt-elements-textTertiary select-none"
+            role="status"
+            aria-live="off"
+            title="This view updates itself automatically"
+          >
+            <span
+              aria-hidden="true"
+              className="h-1 w-1 rounded-full bg-bolt-elements-item-contentAccent animate-pulse motion-reduce:animate-none"
+            />
+            Live
+          </span>
         )}
       </div>
 

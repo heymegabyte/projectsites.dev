@@ -37,6 +37,13 @@ const DISABLED_404 = 'not enabled';
 /** Files at/under this size can fall back to an inline `put` (base64/text) when a scoped URL isn't wired. */
 const INLINE_FALLBACK_MAX_BYTES = 1 * 1024 * 1024;
 
+/**
+ * Visibility-aware poll cadence (per `real-time-data-no-manual-refresh`): the listing silently
+ * re-fetches the current prefix every 30s while foregrounded — there is NO manual Refresh control.
+ * Pauses while `document.hidden` (and mid-upload), refreshes immediately on foreground.
+ */
+const POLL_INTERVAL_MS = 30_000;
+
 /** One R2 object row as the list surfaces it (from the R2 adapter's `objects[]`). */
 interface R2ObjectRow {
   key: string;
@@ -148,9 +155,16 @@ export const R2Browser = memo(function R2Browser({ target, mutate }: R2BrowserPr
     [target.kind, target.environment],
   );
 
+  /**
+   * Load (or silently reload) the listing for a prefix.
+   *
+   * @param silent - when `true` (a background poll / foreground refresh), the current listing stays
+   *   on-screen (no loading flash) and a transient failure keeps the last good view — freshness is
+   *   invisible, per `real-time-data-no-manual-refresh`.
+   */
   const load = useCallback(
-    async (listPrefix: string) => {
-      setState({ status: 'loading' });
+    async (listPrefix: string, silent = false) => {
+      if (!silent) setState({ status: 'loading' });
       if (!isEmbedded) {
         setState({ status: 'error', message: 'Open this from the ProjectSites admin to browse your files.' });
         return;
@@ -162,12 +176,12 @@ export const R2Browser = memo(function R2Browser({ target, mutate }: R2BrowserPr
             setState({ status: 'disabled' });
             return;
           }
-          setState({ status: 'error', message: reply.error || 'Could not list objects.' });
+          if (!silent) setState({ status: 'error', message: reply.error || 'Could not list objects.' });
           return;
         }
         const result = reply.result;
         if (!result || !result.ok) {
-          setState({ status: 'error', message: result?.error?.message || 'Could not list objects.' });
+          if (!silent) setState({ status: 'error', message: result?.error?.message || 'Could not list objects.' });
           return;
         }
         const data = (result.data ?? {}) as { objects?: R2ObjectRow[]; truncated?: boolean; cursor?: string };
@@ -178,7 +192,7 @@ export const R2Browser = memo(function R2Browser({ target, mutate }: R2BrowserPr
           truncated: data.truncated === true,
         });
       } catch (err) {
-        setState({ status: 'error', message: err instanceof Error ? err.message : 'Could not list objects.' });
+        if (!silent) setState({ status: 'error', message: err instanceof Error ? err.message : 'Could not list objects.' });
       }
     },
     [requestList],
@@ -187,6 +201,42 @@ export const R2Browser = memo(function R2Browser({ target, mutate }: R2BrowserPr
   useEffect(() => {
     void load(prefix);
   }, [prefix, load]);
+
+  /*
+   * Visibility-aware real-time poll (per `real-time-data-no-manual-refresh`) — the manual Refresh
+   * button is gone; the listing keeps ITSELF current. Registered once; the tick reads the latest
+   * loader/prefix through refs so prefix navigation never tears down the timer. It skips while the
+   * tab is hidden or an upload is in flight, refreshes immediately on foreground, cleans up on
+   * unmount.
+   */
+  const loadRef = useRef(load);
+  loadRef.current = load;
+  const prefixRef = useRef(prefix);
+  prefixRef.current = prefix;
+  const uploadingRef = useRef(uploading);
+  uploadingRef.current = uploading;
+  useEffect(() => {
+    if (!isEmbedded) return undefined;
+
+    const tick = () => {
+      if (typeof document !== 'undefined' && document.hidden) return;
+      if (uploadingRef.current) return;
+      void loadRef.current(prefixRef.current, true);
+    };
+
+    const interval = setInterval(tick, POLL_INTERVAL_MS);
+
+    const onVisibility = () => {
+      if (typeof document !== 'undefined' && !document.hidden) tick();
+    };
+
+    document.addEventListener('visibilitychange', onVisibility);
+
+    return () => {
+      clearInterval(interval);
+      document.removeEventListener('visibilitychange', onVisibility);
+    };
+  }, []);
 
   const { folders, files } = useMemo(
     () => (state.status === 'ready' ? splitByPrefix(state.objects, prefix) : { files: [], folders: [] }),
@@ -307,7 +357,7 @@ export const R2Browser = memo(function R2Browser({ target, mutate }: R2BrowserPr
 
   return (
     <div className="flex-1 flex flex-col min-h-0" data-testid="r2-browser">
-      {/* Toolbar: breadcrumbs + upload + refresh. */}
+      {/* Toolbar: breadcrumbs + upload + the quiet live affordance (self-updating; no manual refresh). */}
       <div className="shrink-0 flex items-center gap-2 px-4 py-2.5 border-b border-bolt-elements-borderColor">
         <nav className="flex items-center gap-1 min-w-0 flex-1 overflow-x-auto" aria-label="Folder path">
           {crumbs.map((c, i) => (
@@ -349,15 +399,20 @@ export const R2Browser = memo(function R2Browser({ target, mutate }: R2BrowserPr
           <div className={classNames(uploading ? 'i-ph:circle-notch animate-spin motion-reduce:animate-none' : 'i-ph:upload-simple-duotone', 'text-sm')} />
           <span className="inline-block text-center">{uploading ? 'Uploading' : 'Upload'}</span>
         </button>
-        <button
-          type="button"
-          onClick={() => void load(prefix)}
-          aria-label="Refresh"
-          title="Refresh"
-          className="min-h-[28px] min-w-[28px] flex items-center justify-center rounded border border-bolt-elements-borderColor bg-bolt-elements-background-depth-2 text-bolt-elements-item-contentAccent hover:bg-bolt-elements-background-depth-3 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-bolt-elements-item-contentAccent cursor-pointer shrink-0"
+        {/* Live affordance — the listing self-updates on a visibility-aware poll; no manual Refresh
+            (per `real-time-data-no-manual-refresh`). */}
+        <span
+          className="hidden sm:inline-flex items-center gap-1.5 text-[10px] text-bolt-elements-textTertiary select-none shrink-0"
+          role="status"
+          aria-live="off"
+          title="This view updates itself automatically"
         >
-          <div className="i-ph:arrows-clockwise text-sm" />
-        </button>
+          <span
+            aria-hidden="true"
+            className="h-1.5 w-1.5 rounded-full bg-bolt-elements-item-contentAccent animate-pulse motion-reduce:animate-none"
+          />
+          Live
+        </span>
       </div>
 
       {banner && (

@@ -121,6 +121,14 @@ const REQUEST_TIMEOUT_MS = 20_000;
 const DISABLED_404 = 'not enabled';
 
 /**
+ * Visibility-aware poll cadence (per `real-time-data-no-manual-refresh`): the open view (list or
+ * child `get`) silently re-fetches every 30s while foregrounded — there is NO manual Refresh button.
+ * Pauses while `document.hidden`; refreshes immediately when the tab returns to the foreground. The
+ * R2 top-level view is excluded (the embedded {@link R2Browser} runs its own listing poll).
+ */
+const POLL_INTERVAL_MS = 30_000;
+
+/**
  * The named mutations each kind's adapter declares (`supports.mutations`) — mirrored here so the write
  * controls render WITHOUT a round-trip; the worker RE-VALIDATES `action ∈ supports.mutations`, so this
  * is a UI hint, never the authority. Keep in lock-step with the adapters' `supports.mutations` blocks.
@@ -538,10 +546,18 @@ export const ResourceDetailPanel = memo(({ target, onBack }: { target: ResourceD
     };
   }, []);
 
-  /** Load a `list` (action='list') or a child `get` (action='get' + params) for the target resource. */
+  /**
+   * Load a `list` (action='list') or a child `get` (action='get' + params) for the target resource.
+   *
+   * @param silent - when `true` (a background poll / foreground refresh), the current view is kept
+   *   on-screen instead of flashing the loading spinner, and a transient failure keeps the last good
+   *   view — freshness is invisible, per `real-time-data-no-manual-refresh`.
+   */
   const load = useCallback(
-    async (action: 'list' | 'get', params?: DetailParams) => {
-      setState({ status: 'loading' });
+    async (action: 'list' | 'get', params?: DetailParams, silent = false) => {
+      if (!silent) {
+        setState({ status: 'loading' });
+      }
 
       if (!isEmbedded) {
         setState({ status: 'error', message: 'Open this from the ProjectSites admin to see your resources.' });
@@ -564,13 +580,18 @@ export const ResourceDetailPanel = memo(({ target, onBack }: { target: ResourceD
             return;
           }
 
-          setState({ status: 'error', message: reply.error || 'Could not load this resource.' });
+          if (!silent) {
+            setState({ status: 'error', message: reply.error || 'Could not load this resource.' });
+          }
+
           return;
         }
 
         setState({ status: 'ready', result: reply.result ?? { ok: false, error: { code: 'empty', message: 'No result.' } } });
       } catch (err) {
-        setState({ status: 'error', message: err instanceof Error ? err.message : 'Could not load this resource.' });
+        if (!silent) {
+          setState({ status: 'error', message: err instanceof Error ? err.message : 'Could not load this resource.' });
+        }
       }
     },
     [request, target.kind, target.environment],
@@ -653,6 +674,59 @@ export const ResourceDetailPanel = memo(({ target, onBack }: { target: ResourceD
     }
   }, [child, load]);
 
+  /*
+   * Visibility-aware real-time poll (per `real-time-data-no-manual-refresh`) — the header's manual
+   * Refresh button is gone; the open view keeps ITSELF current. Registered once; the tick reads the
+   * latest loader/child/target through refs so drilling in/out never tears down the timer. It skips
+   * while the tab is hidden, skips the R2 top-level view (the embedded R2Browser polls its own
+   * listing), refreshes immediately on foreground, and cleans up on unmount.
+   */
+  const loadRef = useRef(load);
+  loadRef.current = load;
+  const childRef = useRef(child);
+  childRef.current = child;
+  const targetKindRef = useRef(target.kind);
+  targetKindRef.current = target.kind;
+  useEffect(() => {
+    if (!isEmbedded) {
+      return undefined;
+    }
+
+    const tick = () => {
+      if (typeof document !== 'undefined' && document.hidden) {
+        return;
+      }
+
+      const currentChild = childRef.current;
+
+      // R2 at the top level renders the R2Browser, which owns its own real-time listing poll.
+      if (!currentChild && targetKindRef.current.toLowerCase().includes('r2')) {
+        return;
+      }
+
+      if (currentChild) {
+        void loadRef.current('get', currentChild.params, true);
+      } else {
+        void loadRef.current('list', undefined, true);
+      }
+    };
+
+    const interval = setInterval(tick, POLL_INTERVAL_MS);
+
+    const onVisibility = () => {
+      if (typeof document !== 'undefined' && !document.hidden) {
+        tick();
+      }
+    };
+
+    document.addEventListener('visibilitychange', onVisibility);
+
+    return () => {
+      clearInterval(interval);
+      document.removeEventListener('visibilitychange', onVisibility);
+    };
+  }, []);
+
   /**
    * Compute the `get` params to inspect a clicked list row, GENERICALLY: a D1 table row → `{ table }`;
    * a KV/R2 row → `{ key }`; a workflow/DO/connection row → `{ id }`; a vectorize vector → `{ ids:[id] }`.
@@ -707,7 +781,6 @@ export const ResourceDetailPanel = memo(({ target, onBack }: { target: ResourceD
         child={child}
         onBack={onBack}
         onClearChild={() => setChild(null)}
-        onRefresh={refresh}
       />
 
       {showWrite && (
@@ -765,13 +838,11 @@ const DetailHeader = memo(
     child,
     onBack,
     onClearChild,
-    onRefresh,
   }: {
     target: ResourceDetailTarget;
     child: { label: string; params: DetailParams } | null;
     onBack: () => void;
     onClearChild: () => void;
-    onRefresh: () => void;
   }) => (
     <div className="flex items-center gap-2.5 px-4 py-3 border-b border-bolt-elements-borderColor shrink-0">
       <button
@@ -798,15 +869,20 @@ const DetailHeader = memo(
         </p>
       </div>
 
-      <button
-        type="button"
-        onClick={onRefresh}
-        aria-label="Refresh"
-        title="Refresh"
-        className="ml-auto min-h-[24px] min-w-[24px] flex items-center justify-center rounded border border-bolt-elements-borderColor bg-bolt-elements-background-depth-2 text-bolt-elements-item-contentAccent hover:bg-bolt-elements-background-depth-3 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-bolt-elements-item-contentAccent cursor-pointer shrink-0"
+      {/* Live affordance — the view self-updates on a visibility-aware poll; no manual Refresh
+          (per `real-time-data-no-manual-refresh`). */}
+      <span
+        className="ml-auto hidden sm:inline-flex items-center gap-1.5 text-[10px] text-bolt-elements-textTertiary select-none shrink-0"
+        role="status"
+        aria-live="off"
+        title="This view updates itself automatically"
       >
-        <div className="i-ph:arrows-clockwise text-sm" />
-      </button>
+        <span
+          aria-hidden="true"
+          className="h-1.5 w-1.5 rounded-full bg-bolt-elements-item-contentAccent animate-pulse motion-reduce:animate-none"
+        />
+        Live
+      </span>
     </div>
   ),
 );

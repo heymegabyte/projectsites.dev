@@ -10,7 +10,7 @@
  *   4. the object browser lists objects for the selected bucket.
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { cleanup, render, screen, waitFor } from '@testing-library/react';
+import { act, cleanup, render, screen, waitFor } from '@testing-library/react';
 import React from 'react';
 
 const { requestR2, requestBucketUpload, requestBucketDownload, postToastToParent } = vi.hoisted(() => ({
@@ -101,5 +101,75 @@ describe('BucketsPanel', () => {
     render(<BucketsPanel />);
     await waitFor(() => expect(screen.getByTestId('buckets-object-list')).toBeTruthy());
     expect(screen.getByText('logo.png')).toBeTruthy();
+  });
+});
+
+describe('BucketsPanel — real-time, no manual refresh (R1)', () => {
+  /** Count how many bucket-list reads the panel has issued so far. */
+  function listBucketsCount(): number {
+    return requestR2.mock.calls.filter((c) => (c[0] as { op?: string })?.op === 'listBuckets').length;
+  }
+
+  /** A ready single-bucket world (object ops on) for the real-time tests. */
+  function mockReadyWorld() {
+    requestR2.mockImplementation(async (input: { op: string }) => {
+      if (input.op === 'listBuckets') {
+        return {
+          type: 'PS_R2_RESULT',
+          ok: true,
+          objectOpsAvailable: true,
+          buckets: [{ name: 'uploads', isDefault: true, public: false, environment: 'preview' }],
+        };
+      }
+      return { type: 'PS_R2_RESULT', ok: true, objects: [], prefixes: [], truncated: false };
+    });
+  }
+
+  it('renders NO manual Refresh button — the bucket inventory self-updates', async () => {
+    mockReadyWorld();
+    render(<BucketsPanel />);
+    await waitFor(() => expect(screen.getByTestId('buckets-list-item')).toBeTruthy());
+
+    expect(screen.queryByRole('button', { name: /refresh|reconcile/i })).toBeNull();
+  });
+
+  it('re-fetches the bucket list automatically on a visibility-aware interval (no click)', async () => {
+    vi.useFakeTimers();
+
+    try {
+      mockReadyWorld();
+      render(<BucketsPanel />);
+
+      await act(async () => {
+        await Promise.resolve();
+      });
+
+      const afterMount = listBucketsCount();
+      expect(afterMount).toBeGreaterThanOrEqual(1);
+
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(31_000);
+      });
+
+      expect(listBucketsCount()).toBeGreaterThan(afterMount);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('re-fetches immediately when the tab returns to the foreground (visibilitychange)', async () => {
+    mockReadyWorld();
+    render(<BucketsPanel />);
+    await waitFor(() => expect(screen.getByTestId('buckets-list-item')).toBeTruthy());
+
+    const before = listBucketsCount();
+
+    await act(async () => {
+      Object.defineProperty(document, 'visibilityState', { configurable: true, value: 'visible' });
+      Object.defineProperty(document, 'hidden', { configurable: true, value: false });
+      document.dispatchEvent(new Event('visibilitychange'));
+    });
+
+    await waitFor(() => expect(listBucketsCount()).toBeGreaterThan(before));
   });
 });

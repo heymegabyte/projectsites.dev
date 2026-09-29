@@ -1599,3 +1599,105 @@ describe('SiteTablesPanel — Rev 10 Airtable-class views (Grid | Gallery | Kanb
     expect(screen.getByTestId('sitedb-table-empty')).toBeTruthy();
   });
 });
+
+// ─── Real-time data — no manual Refresh (per `real-time-data-no-manual-refresh`) ──
+
+describe('SiteTablesPanel — real-time data, no manual Refresh', () => {
+  beforeEach(() => {
+    postToParentSpy.mockClear();
+    onParentMessageSpy.mockClear();
+    parentHandlers.clear();
+  });
+
+  afterEach(() => {
+    cleanup();
+    parentHandlers.clear();
+  });
+
+  /** Count how many table-list reads the panel has issued so far. */
+  function tablesRequestCount(): number {
+    return postToParentSpy.mock.calls.filter(
+      (c) => (c[0] as { type?: string })?.type === 'PS_SITEDB_TABLES_REQUEST',
+    ).length;
+  }
+
+  /** Reply to the panel's latest tables request with a ready (empty) database. */
+  async function replyTablesReady(): Promise<void> {
+    await act(async () => {
+      fireReply({
+        type: 'PS_SITEDB_TABLES_RESPONSE',
+        correlationId: lastCorrelationId(),
+        ok: true,
+        databaseId: 'db-live',
+        provisioned: true,
+        tables: [],
+      });
+    });
+  }
+
+  it('offers NO Refresh action — the Actions menu carries only New Table · Import · History', async () => {
+    render(<SiteTablesPanel />);
+
+    await waitFor(() => {
+      expect(postToParentSpy).toHaveBeenCalledWith(expect.objectContaining({ type: 'PS_SITEDB_TABLES_REQUEST' }));
+    });
+    await replyTablesReady();
+
+    await act(async () => {
+      screen.getByTestId('sitedb-actions').click();
+    });
+
+    // The three real actions stay…
+    expect(screen.getByTestId('sitedb-action-new-table')).toBeTruthy();
+    expect(screen.getByTestId('sitedb-action-import')).toBeTruthy();
+    expect(screen.getByTestId('sitedb-action-history')).toBeTruthy();
+
+    // …but a manual Refresh (or Reconcile) is a DEFECT: the surface self-updates.
+    expect(screen.queryByTestId('sitedb-action-refresh')).toBeNull();
+    expect(screen.queryByRole('menuitem', { name: /refresh|reconcile/i })).toBeNull();
+  });
+
+  it('re-fetches the table list automatically on a visibility-aware interval (no click)', async () => {
+    vi.useFakeTimers();
+
+    try {
+      render(<SiteTablesPanel />);
+
+      await act(async () => {
+        await Promise.resolve();
+      });
+      await replyTablesReady();
+
+      const afterMount = tablesRequestCount();
+      expect(afterMount).toBeGreaterThanOrEqual(1);
+
+      // Advancing past the poll cadence fires another list read — with zero user interaction.
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(31_000);
+      });
+
+      expect(tablesRequestCount()).toBeGreaterThan(afterMount);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('re-fetches immediately when the tab returns to the foreground (visibilitychange)', async () => {
+    render(<SiteTablesPanel />);
+
+    await waitFor(() => {
+      expect(postToParentSpy).toHaveBeenCalledWith(expect.objectContaining({ type: 'PS_SITEDB_TABLES_REQUEST' }));
+    });
+    await replyTablesReady();
+
+    const before = tablesRequestCount();
+
+    await act(async () => {
+      Object.defineProperty(document, 'visibilityState', { configurable: true, value: 'visible' });
+      Object.defineProperty(document, 'hidden', { configurable: true, value: false });
+      document.dispatchEvent(new Event('visibilitychange'));
+    });
+
+    await waitFor(() => expect(tablesRequestCount()).toBeGreaterThan(before));
+  });
+});

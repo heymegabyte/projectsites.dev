@@ -230,6 +230,14 @@ interface ExecResult {
 /** Browse window: pull a generous page so client-side filter/sort/paginate sees the (small) table. */
 const FETCH_LIMIT = 500;
 const REQUEST_TIMEOUT_MS = 20_000;
+
+/**
+ * Visibility-aware poll cadence (per `real-time-data-no-manual-refresh`): the open view (table list
+ * or the selected table's rows) silently re-fetches every 30s while foregrounded — the Actions menu
+ * carries NO manual Refresh. The poll pauses while `document.hidden` (and mid-edit, so a background
+ * refetch can never clobber an in-flight write) and refreshes immediately on foreground.
+ */
+const POLL_INTERVAL_MS = 30_000;
 const DISABLED_404 = 'Per-site data is not enabled';
 const UNDO_WINDOW_MS = 8000;
 const DEFAULT_PAGE_SIZE = 50;
@@ -648,9 +656,17 @@ export const SiteTablesPanel = memo(
       [request],
     );
 
-    /** Load (or reload) the table list. */
-    const loadTables = useCallback(async () => {
-      setTables({ status: 'loading' });
+    /**
+     * Load (or reload) the table list.
+     *
+     * @param silent - when `true` (a background poll / foreground refresh), the current list stays
+     *   on-screen (no loading flash) and a transient failure keeps the last good view — freshness is
+     *   invisible, per `real-time-data-no-manual-refresh`.
+     */
+    const loadTables = useCallback(async (silent = false) => {
+      if (!silent) {
+        setTables({ status: 'loading' });
+      }
 
       if (!isEmbedded) {
         setTables({ status: 'error', message: 'Open this from the ProjectSites admin to browse your data.' });
@@ -670,7 +686,9 @@ export const SiteTablesPanel = memo(
             return;
           }
 
-          setTables({ status: 'error', message: reply.error || 'Could not load your tables.' });
+          if (!silent) {
+            setTables({ status: 'error', message: reply.error || 'Could not load your tables.' });
+          }
 
           return;
         }
@@ -682,7 +700,9 @@ export const SiteTablesPanel = memo(
           tables: reply.tables ?? [],
         });
       } catch (err) {
-        setTables({ status: 'error', message: err instanceof Error ? err.message : 'Could not load your tables.' });
+        if (!silent) {
+          setTables({ status: 'error', message: err instanceof Error ? err.message : 'Could not load your tables.' });
+        }
       }
     }, [request]);
 
@@ -709,10 +729,18 @@ export const SiteTablesPanel = memo(
       [execSql],
     );
 
-    /** Load one page of rows for the given table. Pulls a generous window for client-side query. */
+    /**
+     * Load one page of rows for the given table. Pulls a generous window for client-side query.
+     *
+     * @param silent - when `true` (a background poll / foreground refresh), the current grid stays
+     *   on-screen (no loading flash) and a transient failure keeps the last good rows — freshness is
+     *   invisible, per `real-time-data-no-manual-refresh`.
+     */
     const loadRows = useCallback(
-      async (table: string) => {
-        setRows({ status: 'loading' });
+      async (table: string, silent = false) => {
+        if (!silent) {
+          setRows({ status: 'loading' });
+        }
 
         try {
           const reply = (await request({
@@ -724,7 +752,10 @@ export const SiteTablesPanel = memo(
           })) as SiteDbRowsResponseMessage;
 
           if (!reply.ok) {
-            setRows({ status: 'error', message: reply.error || `Could not load "${table}".` });
+            if (!silent) {
+              setRows({ status: 'error', message: reply.error || `Could not load "${table}".` });
+            }
+
             return;
           }
 
@@ -745,7 +776,9 @@ export const SiteTablesPanel = memo(
             },
           });
         } catch (err) {
-          setRows({ status: 'error', message: err instanceof Error ? err.message : `Could not load "${table}".` });
+          if (!silent) {
+            setRows({ status: 'error', message: err instanceof Error ? err.message : `Could not load "${table}".` });
+          }
         }
       },
       [request],
@@ -762,6 +795,61 @@ export const SiteTablesPanel = memo(
         void loadRows(selectedTable);
       }
     }, [selectedTable, loadRows]);
+
+    /*
+     * Visibility-aware real-time poll (per `real-time-data-no-manual-refresh`) — the Actions menu no
+     * longer carries a manual Refresh; the open view keeps ITSELF current. Registered once; the tick
+     * reads the LATEST state through a ref, so table selection changes never tear down the timer. It
+     * skips while the tab is hidden and while any write is in flight (an open cell editor, a busy
+     * edit/bulk/add operation) so a background refetch can never clobber an in-progress change.
+     * Refreshes immediately on foreground; cleaned up on unmount.
+     */
+    const pollTickRef = useRef<() => void>(() => {});
+    pollTickRef.current = () => {
+      if (tables.status === 'disabled' || tables.status === 'loading') {
+        return;
+      }
+
+      // Never clobber an in-flight edit with a background refetch.
+      if (editing || editBusy || addingRow || bulkBusy) {
+        return;
+      }
+
+      if (selectedTable) {
+        void loadRows(selectedTable, true);
+      } else {
+        void loadTables(true);
+      }
+    };
+
+    useEffect(() => {
+      if (!isEmbedded) {
+        return undefined;
+      }
+
+      const tick = () => {
+        if (typeof document !== 'undefined' && document.hidden) {
+          return;
+        }
+
+        pollTickRef.current();
+      };
+
+      const interval = setInterval(tick, POLL_INTERVAL_MS);
+
+      const onVisibility = () => {
+        if (typeof document !== 'undefined' && !document.hidden) {
+          pollTickRef.current();
+        }
+      };
+
+      document.addEventListener('visibilitychange', onVisibility);
+
+      return () => {
+        clearInterval(interval);
+        document.removeEventListener('visibilitychange', onVisibility);
+      };
+    }, []);
 
     /*
      * External open request (⌘K global data-search): select the requested table so the grid opens it (the
@@ -2392,7 +2480,6 @@ export const SiteTablesPanel = memo(
           onNewTable={() => setCreateTableOpen(true)}
           onImport={() => (onImportCsv ? onImportCsv() : flashComingSoon('Import'))}
           onHistory={() => (onHistory ? onHistory() : flashComingSoon('History'))}
-          onRefresh={selectedTable ? () => void loadRows(selectedTable) : () => void loadTables()}
           subtitle={
             selectedTable
               ? pkCols.length > 0
@@ -2715,17 +2802,16 @@ const Header = memo(
     onNewTable,
     onImport,
     onHistory,
-    onRefresh,
   }: {
     subtitle: string;
     editable: boolean;
     onNewTable: () => void;
     onImport: () => void;
     onHistory: () => void;
-    onRefresh: () => void;
   }) => {
-    // Single "Actions" dropdown consolidates the old Seed/refresh buttons + the removed toolbar row
-    // (Brian 2026-09-28) — New Table · Import · History · Refresh. Mirrors the DataGrid export menu.
+    // Single "Actions" dropdown consolidates the removed toolbar row (Brian 2026-09-28) —
+    // New Table · Import · History. NO manual Refresh: the panel self-updates on a visibility-aware
+    // poll (per `real-time-data-no-manual-refresh`). Mirrors the DataGrid export menu.
     const [open, setOpen] = useState(false);
     const menuRef = useRef<HTMLDivElement | null>(null);
 
@@ -2754,7 +2840,6 @@ const Header = memo(
       { label: 'New Table', icon: 'i-ph:blueprint-duotone', on: onNewTable },
       { label: 'Import', icon: 'i-ph:upload-simple-duotone', on: onImport },
       { label: 'History', icon: 'i-ph:clock-counter-clockwise-duotone', on: onHistory },
-      { label: 'Refresh', icon: 'i-ph:arrows-clockwise', on: onRefresh },
     ];
 
     return (

@@ -14,10 +14,12 @@
  *      the unsupported treatment, never a fake count.
  *   4. Namespace label — derived from a WfP/function entry when present, else an honest fallback (never
  *      a fabricated name).
- *   5. Reconcile nudge — appears only when there's drift or available-to-add, and calls back.
+ *   5. Real-time reconcile (per `real-time-data-no-manual-refresh`) — NO manual Reconcile button;
+ *      drift auto-reconciles via a DEBOUNCED `onReconcile` call, and a quiet "synced" affordance
+ *      stands in for the removed button.
  */
 import { describe, it, expect, vi, afterEach } from 'vitest';
-import { render, screen, cleanup, fireEvent, within } from '@testing-library/react';
+import { render, screen, cleanup, act, within } from '@testing-library/react';
 import React from 'react';
 import { NamespaceSummary } from './NamespaceSummary';
 import type { ResourceOverviewEntry } from '~/lib/embed/embedded-mode';
@@ -97,27 +99,65 @@ describe('NamespaceSummary', () => {
     expect(screen.getByText(/resolved server-side/i)).toBeTruthy();
   });
 
-  it('shows the reconcile nudge only when there is drift or available-to-add, and calls back', () => {
-    const onReconcile = vi.fn();
-    const drifted: ResourceOverviewEntry[] = [
-      entry({ id: '1', resource_kind: 'd1', drift_code: 'binding_mismatch' }),
-    ];
-    const { rerender } = render(
-      <NamespaceSummary resources={drifted} environment="production" onReconcile={onReconcile} />,
-    );
+  it('renders NO manual Reconcile button and auto-reconciles drift with a DEBOUNCED onReconcile call', () => {
+    vi.useFakeTimers();
 
-    const btn = screen.getByTestId('ns-reconcile');
-    fireEvent.click(btn);
-    expect(onReconcile).toHaveBeenCalledTimes(1);
+    try {
+      const onReconcile = vi.fn();
+      const drifted: ResourceOverviewEntry[] = [
+        entry({ id: '1', resource_kind: 'd1', drift_code: 'binding_mismatch' }),
+      ];
+      render(<NamespaceSummary resources={drifted} environment="production" onReconcile={onReconcile} />);
 
-    // All-connected, nothing to heal → no nudge.
-    rerender(
-      <NamespaceSummary
-        resources={[entry({ id: '2', resource_kind: 'd1', lifecycle_state: 'connected' })]}
-        environment="production"
-        onReconcile={onReconcile}
-      />,
-    );
-    expect(screen.queryByTestId('ns-reconcile')).toBeNull();
+      // A manual Reconcile/Refresh button is a DEFECT (per `real-time-data-no-manual-refresh`).
+      expect(screen.queryByTestId('ns-reconcile')).toBeNull();
+      expect(screen.queryByRole('button', { name: /reconcile|refresh/i })).toBeNull();
+
+      // The reconcile is DEBOUNCED — not fired synchronously on render…
+      expect(onReconcile).not.toHaveBeenCalled();
+
+      // …but fires automatically (no click) once the debounce elapses.
+      act(() => {
+        vi.advanceTimersByTime(2_000);
+      });
+      expect(onReconcile).toHaveBeenCalledTimes(1);
+
+      // The SAME persistent drift set does not spam repeat reconcile calls.
+      act(() => {
+        vi.advanceTimersByTime(60_000);
+      });
+      expect(onReconcile).toHaveBeenCalledTimes(1);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('shows a quiet "synced" affordance instead of a button, and never auto-reconciles a clean inventory', () => {
+    vi.useFakeTimers();
+
+    try {
+      const onReconcile = vi.fn();
+      render(
+        <NamespaceSummary
+          resources={[entry({ id: '2', resource_kind: 'd1', lifecycle_state: 'connected' })]}
+          environment="production"
+          onReconcile={onReconcile}
+        />,
+      );
+
+      // The only freshness signal is a quiet status line — never a clickable control.
+      const status = screen.getByTestId('ns-sync-status');
+      expect(status).toBeTruthy();
+      expect(status.tagName).not.toBe('BUTTON');
+      expect(screen.queryByTestId('ns-reconcile')).toBeNull();
+
+      // Nothing drifted → nothing to heal → no reconcile call, ever.
+      act(() => {
+        vi.advanceTimersByTime(60_000);
+      });
+      expect(onReconcile).not.toHaveBeenCalled();
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });

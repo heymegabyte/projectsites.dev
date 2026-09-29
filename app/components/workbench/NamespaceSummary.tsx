@@ -24,9 +24,37 @@
  * `motion-reduce:*`). Presentational + pure — it takes the already-loaded entries and renders; it owns
  * no bridge state of its own.
  */
-import React, { memo, useMemo } from 'react';
+import React, { memo, useEffect, useMemo, useRef, useState } from 'react';
 import { classNames } from '~/utils/classNames';
 import type { ResourceOverviewEntry } from '~/lib/embed/embedded-mode';
+
+/**
+ * How long a freshly-observed drift set sits before the AUTOMATIC reconcile fires (per
+ * `real-time-data-no-manual-refresh` — reconciliation is silent + automatic, never a button). The
+ * debounce coalesces bursty inventory updates so one heal covers them, and a ref-key on the drifted
+ * ids makes persistent drift reconcile ONCE per observed set instead of spamming the server.
+ */
+const AUTO_RECONCILE_DEBOUNCE_MS = 1_500;
+
+/** Cadence for re-rendering the quiet "synced Ns ago" label so it stays honest without user action. */
+const SYNC_TICK_MS = 15_000;
+
+/** Format a wall-clock delta as a compact "Ns/Nm/Nh ago" for the quiet sync affordance. */
+function syncedAgo(sinceMs: number): string {
+  const seconds = Math.max(0, Math.round(sinceMs / 1000));
+
+  if (seconds < 60) {
+    return `${seconds}s ago`;
+  }
+
+  const minutes = Math.round(seconds / 60);
+
+  if (minutes < 60) {
+    return `${minutes}m ago`;
+  }
+
+  return `${Math.round(minutes / 60)}h ago`;
+}
 
 // ── Kind taxonomy (the canonical set the summary always accounts for) ────────────
 
@@ -233,7 +261,10 @@ function computeRollup(resources: ResourceOverviewEntry[]): NamespaceRollup {
 /**
  * The per-site WfP-namespace summary. Renders a hero band (namespace identity + headline stats) over a
  * per-kind accounting grid. Presentational — it derives everything from `resources` (the same inventory
- * the overview loaded) and never fetches. A drift click scrolls the owner to the drifted cards below.
+ * the overview loaded) and never fetches. Reconciliation is REAL-TIME (per
+ * `real-time-data-no-manual-refresh`): when `onReconcile` is provided and drift appears, the summary
+ * calls it automatically (debounced, once per observed drift set) — there is no manual button; the only
+ * freshness signal is the quiet "synced Ns ago" status line.
  */
 export const NamespaceSummary = memo(
   ({
@@ -244,11 +275,91 @@ export const NamespaceSummary = memo(
   }: {
     resources: ResourceOverviewEntry[];
     environment: string;
+    /** Silent auto-heal hook — invoked AUTOMATICALLY (debounced) when drift is observed; never a button. */
     onReconcile?: () => void;
+    /** True while the parent's reconcile is in flight — drives the quiet "Syncing…" affordance. */
     reconciling?: boolean;
   }) => {
     const rollup = useMemo(() => computeRollup(resources), [resources]);
     const envLabel = environment.charAt(0).toUpperCase() + environment.slice(1);
+
+    /*
+     * AUTOMATIC + SILENT drift reconcile. A stable signature of the drifted ids gates the call so one
+     * observed drift set heals exactly once (a persistent-drift re-render can't spam the server), and
+     * the debounce lets bursty inventory updates settle before the single heal fires. Cleared when the
+     * inventory comes back clean so a NEW drift set reconciles again. Never a click (R1 mandate).
+     */
+    const driftKey = useMemo(
+      () =>
+        resources
+          .filter((r) => Boolean(r.drift_code))
+          .map((r) => r.id)
+          .sort()
+          .join('|'),
+      [resources],
+    );
+    const lastReconciledKey = useRef('');
+    useEffect(() => {
+      if (!onReconcile || reconciling) {
+        return undefined;
+      }
+
+      if (!driftKey) {
+        lastReconciledKey.current = '';
+        return undefined;
+      }
+
+      if (driftKey === lastReconciledKey.current) {
+        return undefined;
+      }
+
+      const timer = setTimeout(() => {
+        lastReconciledKey.current = driftKey;
+        onReconcile();
+      }, AUTO_RECONCILE_DEBOUNCE_MS);
+
+      return () => clearTimeout(timer);
+    }, [driftKey, onReconcile, reconciling]);
+
+    /*
+     * The quiet "synced Ns ago" freshness affordance — the ONLY signal standing in for the removed
+     * Reconcile button. Stamped when a reconcile completes (reconciling true→false) or when the
+     * inventory is first observed clean; a slow self-tick keeps the relative label honest (paused
+     * while the tab is hidden).
+     */
+    const [lastSyncedAt, setLastSyncedAt] = useState<number | null>(null);
+    const prevReconciling = useRef(Boolean(reconciling));
+    useEffect(() => {
+      if (prevReconciling.current && !reconciling) {
+        setLastSyncedAt(Date.now());
+      }
+
+      prevReconciling.current = Boolean(reconciling);
+    }, [reconciling]);
+    useEffect(() => {
+      if (rollup.drifted === 0) {
+        setLastSyncedAt((cur) => cur ?? Date.now());
+      }
+    }, [rollup.drifted]);
+    const [, forceTick] = useState(0);
+    useEffect(() => {
+      const id = setInterval(() => {
+        if (typeof document === 'undefined' || !document.hidden) {
+          forceTick((n) => n + 1);
+        }
+      }, SYNC_TICK_MS);
+
+      return () => clearInterval(id);
+    }, []);
+
+    const syncing = Boolean(reconciling) || rollup.drifted > 0;
+    const syncLabel = reconciling
+      ? 'Syncing your resources…'
+      : rollup.drifted > 0
+        ? `${rollup.drifted} resource${rollup.drifted === 1 ? '' : 's'} drifted · syncing automatically`
+        : lastSyncedAt
+          ? `In sync · synced ${syncedAgo(Date.now() - lastSyncedAt)}`
+          : 'In sync';
 
     return (
       <section
@@ -336,35 +447,27 @@ export const NamespaceSummary = memo(
               ))}
             </div>
 
-            {/* Optional reconcile nudge — one obvious action, only when something can be healed */}
-            {onReconcile && (rollup.drifted > 0 || rollup.available > 0) && (
-              <div className="mt-4 flex items-center gap-2.5 rounded-xl border border-bolt-elements-item-contentAccent/25 bg-bolt-elements-item-contentAccent/[0.04] px-3.5 py-2.5">
-                <div className="i-ph:sparkle-duotone text-base text-bolt-elements-item-contentAccent shrink-0" />
-                <p className="text-[11px] text-bolt-elements-textSecondary flex-1 min-w-0">
-                  {rollup.drifted > 0
-                    ? `${rollup.drifted} resource${rollup.drifted === 1 ? '' : 's'} drifted from desired state.`
-                    : `${rollup.available} resource${rollup.available === 1 ? '' : 's'} available to connect.`}{' '}
-                  Reconcile brings everything into sync.
-                </p>
-                <button
-                  type="button"
-                  onClick={onReconcile}
-                  disabled={reconciling}
-                  data-testid="ns-reconcile"
-                  className="min-h-[24px] text-[11px] font-semibold px-3 py-1.5 rounded-lg bg-bolt-elements-item-contentAccent text-[#061018] enabled:hover:opacity-90 disabled:opacity-50 disabled:cursor-not-allowed transition-opacity flex items-center gap-1.5 shrink-0 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-offset-bolt-elements-background-depth-2 focus-visible:ring-bolt-elements-item-contentAccent cursor-pointer"
-                >
-                  <div
-                    className={classNames(
-                      reconciling
-                        ? 'i-ph:circle-notch animate-spin motion-reduce:animate-none'
-                        : 'i-ph:arrows-counter-clockwise',
-                      'text-sm shrink-0',
-                    )}
-                  />
-                  <span className="min-w-[9ch] text-center">{reconciling ? 'Reconciling…' : 'Reconcile'}</span>
-                </button>
-              </div>
-            )}
+            {/* Quiet sync affordance — reconciliation is AUTOMATIC + silent (per
+                `real-time-data-no-manual-refresh`); this status line is the only freshness signal,
+                never a button. Drift heals itself on the next automatic cycle. */}
+            <div
+              className="mt-4 flex items-center gap-2 text-[10px] text-bolt-elements-textTertiary select-none"
+              data-testid="ns-sync-status"
+              role="status"
+              aria-live="off"
+              title="Reconciliation runs automatically — nothing to click"
+            >
+              <span
+                aria-hidden="true"
+                className={classNames(
+                  'h-1.5 w-1.5 rounded-full shrink-0',
+                  syncing
+                    ? 'bg-amber-400 animate-pulse motion-reduce:animate-none'
+                    : 'bg-emerald-400',
+                )}
+              />
+              <span className="tabular-nums">{syncLabel}</span>
+            </div>
           </div>
         </div>
       </section>

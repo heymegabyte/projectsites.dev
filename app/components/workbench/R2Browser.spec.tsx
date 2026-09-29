@@ -11,7 +11,7 @@
  *   5. Delete opens the confirm dialog, then calls mutate('delete', {key}, true).
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { render, screen, cleanup, fireEvent, waitFor } from '@testing-library/react';
+import { render, screen, cleanup, fireEvent, waitFor, act } from '@testing-library/react';
 import React from 'react';
 
 const { postToParent, handlers } = vi.hoisted(() => {
@@ -152,5 +152,64 @@ describe('R2 object browser', () => {
     fireEvent.click(screen.getByTestId('confirm-ok'));
 
     await waitFor(() => expect(mutate).toHaveBeenCalledWith('delete', { key: 'logo.png' }, true));
+  });
+});
+
+describe('R2 object browser — real-time, no manual refresh (R1)', () => {
+  /** Count how many list requests the browser has posted so far. */
+  function listCount(): number {
+    return postToParent.mock.calls.filter(
+      (c) => (c[0] as { type?: string })?.type === 'PS_RES_DETAIL_REQUEST',
+    ).length;
+  }
+
+  it('renders NO manual Refresh button — the listing self-updates', async () => {
+    render(<R2Browser target={TARGET} mutate={vi.fn()} />);
+    await waitFor(() => expect(postToParent.mock.calls.length).toBeGreaterThanOrEqual(1));
+    replyList([{ key: 'logo.png', size: 2048 }]);
+
+    await waitFor(() => expect(screen.getByTestId('r2-browser')).toBeTruthy());
+    expect(screen.queryByRole('button', { name: /refresh|reconcile/i })).toBeNull();
+  });
+
+  it('re-lists the current prefix automatically on a visibility-aware interval (no click)', async () => {
+    vi.useFakeTimers();
+
+    try {
+      render(<R2Browser target={TARGET} mutate={vi.fn()} />);
+
+      await act(async () => {
+        await Promise.resolve();
+      });
+
+      replyList([{ key: 'logo.png', size: 2048 }]);
+
+      const afterMount = listCount();
+      expect(afterMount).toBeGreaterThanOrEqual(1);
+
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(31_000);
+      });
+
+      expect(listCount()).toBeGreaterThan(afterMount);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('re-lists immediately when the tab returns to the foreground (visibilitychange)', async () => {
+    render(<R2Browser target={TARGET} mutate={vi.fn()} />);
+    await waitFor(() => expect(postToParent.mock.calls.length).toBeGreaterThanOrEqual(1));
+    replyList([{ key: 'logo.png', size: 2048 }]);
+
+    const before = listCount();
+
+    await act(async () => {
+      Object.defineProperty(document, 'visibilityState', { configurable: true, value: 'visible' });
+      Object.defineProperty(document, 'hidden', { configurable: true, value: false });
+      document.dispatchEvent(new Event('visibilitychange'));
+    });
+
+    await waitFor(() => expect(listCount()).toBeGreaterThan(before));
   });
 });

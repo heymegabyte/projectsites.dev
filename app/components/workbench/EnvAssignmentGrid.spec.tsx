@@ -9,7 +9,7 @@
  *   3. a flag-dark reply (enabled:false) hides the grid entirely.
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { render, screen, cleanup, waitFor } from '@testing-library/react';
+import { render, screen, cleanup, waitFor, act } from '@testing-library/react';
 import React from 'react';
 
 const { postToParent, handlers } = vi.hoisted(() => {
@@ -108,5 +108,68 @@ describe('environment assignment grid', () => {
     }
 
     await waitFor(() => expect(container.querySelector('[data-testid="resource-env-grid"]')).toBeNull());
+  });
+});
+
+describe('environment assignment grid — real-time, no manual refresh (R1)', () => {
+  /** Count how many overview requests (either environment) the grid has posted so far. */
+  function overviewCount(): number {
+    return postToParent.mock.calls.filter(
+      (c) => (c[0] as { type?: string })?.type === 'PS_RES_OVERVIEW_REQUEST',
+    ).length;
+  }
+
+  it('renders NO manual Refresh button — the grid self-updates', async () => {
+    render(<EnvAssignmentGrid kind="r2" environment="production" />);
+    await waitFor(() => expect(postToParent.mock.calls.length).toBeGreaterThanOrEqual(2));
+
+    replyOverview('preview', { resources: [] });
+    replyOverview('production', { resources: [] });
+
+    await waitFor(() => expect(screen.getByTestId('resource-env-grid')).toBeTruthy());
+    expect(screen.queryByRole('button', { name: /refresh|reconcile/i })).toBeNull();
+  });
+
+  it('re-fetches both environments automatically on a visibility-aware interval (no click)', async () => {
+    vi.useFakeTimers();
+
+    try {
+      render(<EnvAssignmentGrid kind="r2" environment="production" />);
+
+      await act(async () => {
+        await Promise.resolve();
+      });
+
+      replyOverview('preview', { resources: [] });
+      replyOverview('production', { resources: [] });
+
+      const afterMount = overviewCount();
+      expect(afterMount).toBeGreaterThanOrEqual(2);
+
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(31_000);
+      });
+
+      expect(overviewCount()).toBeGreaterThan(afterMount);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('re-fetches immediately when the tab returns to the foreground (visibilitychange)', async () => {
+    render(<EnvAssignmentGrid kind="kv" environment="preview" />);
+    await waitFor(() => expect(postToParent.mock.calls.length).toBeGreaterThanOrEqual(2));
+
+    replyOverview('preview', { resources: [] });
+    replyOverview('production', { resources: [] });
+    const before = overviewCount();
+
+    await act(async () => {
+      Object.defineProperty(document, 'visibilityState', { configurable: true, value: 'visible' });
+      Object.defineProperty(document, 'hidden', { configurable: true, value: false });
+      document.dispatchEvent(new Event('visibilitychange'));
+    });
+
+    await waitFor(() => expect(overviewCount()).toBeGreaterThan(before));
   });
 });

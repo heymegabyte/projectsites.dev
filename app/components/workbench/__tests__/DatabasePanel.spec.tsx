@@ -112,7 +112,8 @@ describe('DatabasePanel — consolidated per-site data surface (concise nav)', (
     render(<DatabasePanel />);
 
     // The Tables view embeds SiteTablesPanel; its header hosts the single "Actions" dropdown that carries
-    // the entries removed from the top nav (New Table / Import / History / Refresh) — all real buttons.
+    // the entries removed from the top nav (New Table / Import / History) — all real buttons. A manual
+    // Refresh is NOT among them: the surface self-updates (per `real-time-data-no-manual-refresh`).
     const actions = screen.getByTestId('sitedb-actions');
     expect(actions).toBeTruthy();
     fireEvent.click(actions);
@@ -120,7 +121,7 @@ describe('DatabasePanel — consolidated per-site data surface (concise nav)', (
     expect(screen.getByTestId('sitedb-action-new-table')).toBeTruthy();
     expect(screen.getByTestId('sitedb-action-import')).toBeTruthy();
     expect(screen.getByTestId('sitedb-action-history')).toBeTruthy();
-    expect(screen.getByTestId('sitedb-action-refresh')).toBeTruthy();
+    expect(screen.queryByTestId('sitedb-action-refresh')).toBeNull();
   });
 
   it('opens a modal overlay hosting the Import panel when the Import action is chosen', () => {

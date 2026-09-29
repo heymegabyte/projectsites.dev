@@ -327,3 +327,67 @@ describe('CSV export', () => {
     expect(() => fireEvent.click(screen.getByTestId('resource-detail-export-csv'))).not.toThrow();
   });
 });
+
+// ── Real-time, no manual refresh (R1 / `real-time-data-no-manual-refresh`) ────────
+
+describe('real-time detail view — no manual refresh', () => {
+  /** Count how many detail read requests the panel has posted so far. */
+  function detailCount(): number {
+    return postToParent.mock.calls.filter(
+      (c) => (c[0] as { type?: string })?.type === 'PS_RES_DETAIL_REQUEST',
+    ).length;
+  }
+
+  it('renders NO manual Refresh button in the header — the view self-updates', async () => {
+    render(<ResourceDetailPanel target={{ kind: 'kv', environment: 'production' }} onBack={() => {}} />);
+
+    await waitFor(() => expect(last()?.type).toBe('PS_RES_DETAIL_REQUEST'));
+    replyToLast('PS_RES_DETAIL_RESPONSE', { ok: true, result: { ok: true, data: { keys: [], listComplete: true } } });
+
+    await waitFor(() => expect(screen.getByTestId('resource-detail')).toBeTruthy());
+    expect(screen.queryByRole('button', { name: /^refresh$/i })).toBeNull();
+    expect(screen.queryByRole('button', { name: /reconcile/i })).toBeNull();
+  });
+
+  it('re-fetches the open view automatically on a visibility-aware interval (no click)', async () => {
+    vi.useFakeTimers();
+
+    try {
+      render(<ResourceDetailPanel target={{ kind: 'kv', environment: 'production' }} onBack={() => {}} />);
+
+      await act(async () => {
+        await Promise.resolve();
+      });
+
+      replyToLast('PS_RES_DETAIL_RESPONSE', { ok: true, result: { ok: true, data: { keys: [], listComplete: true } } });
+
+      const afterMount = detailCount();
+      expect(afterMount).toBeGreaterThanOrEqual(1);
+
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(31_000);
+      });
+
+      expect(detailCount()).toBeGreaterThan(afterMount);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('re-fetches immediately when the tab returns to the foreground (visibilitychange)', async () => {
+    render(<ResourceDetailPanel target={{ kind: 'kv', environment: 'production' }} onBack={() => {}} />);
+
+    await waitFor(() => expect(last()?.type).toBe('PS_RES_DETAIL_REQUEST'));
+    replyToLast('PS_RES_DETAIL_RESPONSE', { ok: true, result: { ok: true, data: { keys: [], listComplete: true } } });
+
+    const before = detailCount();
+
+    await act(async () => {
+      Object.defineProperty(document, 'visibilityState', { configurable: true, value: 'visible' });
+      Object.defineProperty(document, 'hidden', { configurable: true, value: false });
+      document.dispatchEvent(new Event('visibilitychange'));
+    });
+
+    await waitFor(() => expect(detailCount()).toBeGreaterThan(before));
+  });
+});

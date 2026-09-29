@@ -40,6 +40,13 @@ const PURPLE_INK = '#a97bff';
 
 const DISABLED_404 = 'not enabled';
 
+/**
+ * Visibility-aware poll cadence (per `real-time-data-no-manual-refresh`): the bucket inventory
+ * silently re-fetches every 30s while foregrounded — there is NO manual Refresh button. Pauses while
+ * `document.hidden`; refreshes immediately when the tab returns to the foreground.
+ */
+const POLL_INTERVAL_MS = 30_000;
+
 // POLISH 1: shared control base — cyan focus ring, 24px targets, motion-reduce-safe, muted disabled.
 const CTRL_BASE =
   'inline-flex items-center justify-center gap-1.5 rounded-lg font-medium transition-all duration-150 ' +
@@ -218,7 +225,7 @@ export const BucketsPanel = memo(() => {
     void loadBuckets();
   }, [loadBuckets]);
 
-  /** After a mutation, refresh the bucket list while keeping the current selection. */
+  /** After a mutation (or a background poll tick), silently refresh the bucket list while keeping the current selection. */
   const refreshBuckets = useCallback(async () => {
     try {
       const reply = await requestR2({ op: 'listBuckets' });
@@ -226,6 +233,40 @@ export const BucketsPanel = memo(() => {
     } catch {
       /* keep prior list on a transient refresh error */
     }
+  }, []);
+
+  /*
+   * Visibility-aware real-time poll (per `real-time-data-no-manual-refresh`) — the header's manual
+   * Refresh button is gone; the inventory keeps ITSELF current via the silent `refreshBuckets` (no
+   * loading flash, transient errors keep the last good list). Registered once; the tick reads the
+   * latest state through refs. Pauses while `document.hidden` or before the first load settles;
+   * refreshes immediately on foreground; cleaned up on unmount.
+   */
+  const refreshRef = useRef(refreshBuckets);
+  refreshRef.current = refreshBuckets;
+  const bucketsStatusRef = useRef(buckets.status);
+  bucketsStatusRef.current = buckets.status;
+  useEffect(() => {
+    if (!isEmbedded) return undefined;
+
+    const tick = () => {
+      if (typeof document !== 'undefined' && document.hidden) return;
+      if (bucketsStatusRef.current === 'disabled' || bucketsStatusRef.current === 'loading') return;
+      void refreshRef.current();
+    };
+
+    const interval = setInterval(tick, POLL_INTERVAL_MS);
+
+    const onVisibility = () => {
+      if (typeof document !== 'undefined' && !document.hidden) tick();
+    };
+
+    document.addEventListener('visibilitychange', onVisibility);
+
+    return () => {
+      clearInterval(interval);
+      document.removeEventListener('visibilitychange', onVisibility);
+    };
   }, []);
 
   const onCreated = useCallback(
@@ -289,7 +330,7 @@ export const BucketsPanel = memo(() => {
   if (buckets.status === 'disabled') {
     return (
       <div className="h-full flex flex-col bg-bolt-elements-background-depth-1 text-bolt-elements-textPrimary [color-scheme:dark]">
-        <BucketsHeader buckets={[]} objectOpsAvailable={false} onCreate={() => {}} onRefresh={() => void loadBuckets()} createDisabled />
+        <BucketsHeader buckets={[]} objectOpsAvailable={false} onCreate={() => {}} createDisabled />
         <DisabledCard />
       </div>
     );
@@ -301,7 +342,6 @@ export const BucketsPanel = memo(() => {
         buckets={buckets.status === 'ready' ? buckets.buckets : []}
         objectOpsAvailable={objectOpsAvailable}
         onCreate={() => setShowCreate(true)}
-        onRefresh={() => void loadBuckets()}
       />
 
       {/* Needs-creds banner — object ops disabled but bucket CRUD works. */}
@@ -363,13 +403,11 @@ const BucketsHeader = memo(
     buckets,
     objectOpsAvailable,
     onCreate,
-    onRefresh,
     createDisabled,
   }: {
     buckets: BucketEntry[];
     objectOpsAvailable: boolean;
     onCreate: () => void;
-    onRefresh: () => void;
     createDisabled?: boolean;
   }) => {
     // POLISH 3: usage rollup across all buckets (count + a subtle quota bar + est. monthly cost).
@@ -410,9 +448,20 @@ const BucketsHeader = memo(
               <div className="i-ph:plus-bold text-sm shrink-0" aria-hidden />
               <span className="min-w-[9ch] text-center">New bucket</span>
             </button>
-            <button type="button" onClick={onRefresh} aria-label="Refresh buckets" title="Refresh" className={classNames(BTN_SECONDARY, 'min-h-[26px] min-w-[26px] px-1.5 py-1')}>
-              <div className="i-ph:arrows-clockwise text-sm" />
-            </button>
+            {/* Live affordance — the inventory self-updates on a visibility-aware poll; no manual
+                Refresh (per `real-time-data-no-manual-refresh`). */}
+            <span
+              className="hidden sm:inline-flex items-center gap-1.5 text-[10px] text-bolt-elements-textTertiary select-none"
+              role="status"
+              aria-live="off"
+              title="This view updates itself automatically"
+            >
+              <span
+                aria-hidden="true"
+                className="h-1.5 w-1.5 rounded-full bg-bolt-elements-item-contentAccent animate-pulse motion-reduce:animate-none"
+              />
+              Live
+            </span>
           </div>
         </div>
       </div>
