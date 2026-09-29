@@ -540,6 +540,38 @@ try {
       });
       await refreshProbe();
     }
+    // Advanced console — the per-kind CF-resource tiles (fire-55 salvaged the
+    // drill-ins for the 5 dark per_site_* surfaces; verify honest flag-dark states).
+    // The Buckets subview hides the top chrome (its own header by design), so
+    // return to the first subview before reaching for Advanced.
+    if (subviews.length) {
+      await clickFirst(frame, [
+        (f) => f.getByRole('tab', { name: new RegExp(`^${subviews[0].replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, 'i') }),
+      ]);
+    }
+    const advOpened = await clickFirst(frame, [
+      (f) => f.getByTestId('resources-open-console'),
+      (f) => f.getByRole('button', { name: /advanced/i }),
+    ]);
+    await capture(page, advOpened ? 'open Advanced console (ResourceOverview)' : 'Advanced button NOT FOUND', {
+      surface: 'editor-resources',
+      overlay: advOpened ? 'advanced-console' : 'missing-advanced',
+      iframe: 'editor',
+    });
+    if (advOpened) {
+      await refreshProbe();
+      const tile = await clickFirst(frame, [
+        (f) => f.getByRole('button', { name: /\bKV\b/i }),
+        (f) => f.getByRole('button', { name: /key.?value/i }),
+      ]);
+      await capture(page, tile ? 'KV tile drill-in (expect honest not-enabled/empty state)' : 'KV tile not clickable', {
+        surface: 'editor-resources',
+        overlay: 'advanced-kv-detail',
+        iframe: 'editor',
+      });
+      await refreshProbe();
+      await page.keyboard.press('Escape');
+    }
     finish(
       manifest.blocked.length === 0
         ? acq.coverage === 'CLOUD_PASS_ELIGIBLE'

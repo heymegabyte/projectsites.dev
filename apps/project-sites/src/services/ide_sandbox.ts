@@ -140,22 +140,16 @@ export async function spinUpSandbox(env: Env, p: { siteId: string; userId: strin
     .bind(id, p.siteId, p.userId, 'spinning_up', t, t)
     .run()
     .catch(() => {});
+  // HONEST: state is 'spinning_up' until a real backing signal confirms 'ready'
+  // No estimated_boot_ms without real measurement
   return {
     sandbox_id: id,
     site_id: p.siteId,
     user_id: p.userId,
-    state: 'ready',
+    state: 'spinning_up',
     ide_url: `https://ide.projectsites.dev/sandbox/${id}`,
     runtime: 'cloudflare-sandbox',
     container_image: 'node:22-slim',
-    monaco_url: `https://ide.projectsites.dev/sandbox/${id}/monaco`,
-    terminal_url: `https://ide.projectsites.dev/sandbox/${id}/term`,
-    file_tree_url: `https://ide.projectsites.dev/sandbox/${id}/files`,
-    preview_url: `https://ide.projectsites.dev/sandbox/${id}/preview`,
-    estimated_boot_ms: 800,
-    auto_destroy_idle_minutes: 30,
-    cpu_limit_ms: 50,
-    memory_mb: 256,
     created_at: t,
   };
 }
@@ -268,8 +262,9 @@ export async function listMultiAgentRuns(env: Env, siteId: string) {
         started_at: string;
       }>,
     }));
+  // HONEST: empty DB = no runs exist yet, never fabricate demo data
   if (!rows.results?.length) {
-    return getDemoRuns();
+    return [{ state: 'not_provisioned', reason: 'no_runs_yet' } as any];
   }
   return rows.results.map((r) => ({ ...r, agents: safeJsonParse(r.agents_json, []) }));
 }
@@ -335,73 +330,11 @@ export async function getMultiAgentRunDetail(env: Env, runId: string) {
       finished_at: string | null;
     }>()
     .catch(() => null);
-  if (!row) return getDemoRunDetail(runId);
+  // HONEST: run not found = return error, never fabricate demo data
+  if (!row) {
+    return { state: 'not_found', run_id: runId, reason: 'run_does_not_exist' } as any;
+  }
   return { ...row, agents: safeJsonParse(row.agents_json, []) };
-}
-
-function getDemoRunDetail(runId: string) {
-  return {
-    run_id: runId,
-    site_id: 'demo-site',
-    prompt: 'Build a landing page for an artisan bakery',
-    status: 'running',
-    file_partitioning: true,
-    conflict_detection: true,
-    agents: [
-      {
-        id: 'a1',
-        name: 'visual',
-        status: 'done',
-        file_glob: SPECIALIST_PARTITION.visual.file_glob,
-        duration_ms: 21_400,
-        output_preview: '<section class="hero" data-gallery="hero">…</section>',
-      },
-      {
-        id: 'a2',
-        name: 'copy',
-        status: 'done',
-        file_glob: SPECIALIST_PARTITION.copy.file_glob,
-        duration_ms: 17_900,
-        output_preview: 'Artisan sourdough since 2008. Hand-shaped, wood-fired.',
-      },
-      {
-        id: 'a3',
-        name: 'seo',
-        status: 'running',
-        file_glob: SPECIALIST_PARTITION.seo.file_glob,
-        started_at: new Date(Date.now() - 4_000).toISOString(),
-      },
-      { id: 'a4', name: 'a11y', status: 'queued', file_glob: SPECIALIST_PARTITION.a11y.file_glob },
-      {
-        id: 'a5',
-        name: 'motion',
-        status: 'queued',
-        file_glob: SPECIALIST_PARTITION.motion.file_glob,
-      },
-      {
-        id: 'a6',
-        name: 'media',
-        status: 'queued',
-        file_glob: SPECIALIST_PARTITION.media.file_glob,
-      },
-      { id: 'a7', name: 'qa', status: 'queued', file_glob: SPECIALIST_PARTITION.qa.file_glob },
-    ],
-    conflicts: [],
-    live_stream_events: [
-      { ts: new Date(Date.now() - 28_000).toISOString(), agent: 'visual', event: 'started' },
-      { ts: new Date(Date.now() - 26_000).toISOString(), agent: 'copy', event: 'started' },
-      {
-        ts: new Date(Date.now() - 8_000).toISOString(),
-        agent: 'visual',
-        event: 'emitted_component',
-        component: 'Hero',
-        path: 'src/components/Hero.tsx',
-      },
-      { ts: new Date(Date.now() - 6_400).toISOString(), agent: 'visual', event: 'done' },
-      { ts: new Date(Date.now() - 4_100).toISOString(), agent: 'copy', event: 'done' },
-      { ts: new Date(Date.now() - 4_000).toISOString(), agent: 'seo', event: 'started' },
-    ],
-  };
 }
 
 /**
@@ -414,61 +347,23 @@ export function buildSwarmSseStream(
   siteId: string,
   runId: string | null,
 ): ReadableStream {
-  let interval: ReturnType<typeof setInterval> | undefined;
-  const agentNames: SwarmSpecialist[] = ['visual', 'copy', 'seo', 'a11y', 'motion', 'media', 'qa'];
-  let tick = 0;
-
   return new ReadableStream({
     start(controller) {
       const send = (data: unknown) => {
         controller.enqueue(new TextEncoder().encode(`data: ${JSON.stringify(data)}\n\n`));
       };
 
-      send({ type: 'connected', site_id: siteId, run_id: runId, ts: nowIso() });
+      // HONEST: no real backing signal? Emit a single honest envelope and close
+      // Don't emit timer-driven fake agent_started/file_emitted/agent_done events
+      send({
+        type: 'not_provisioned',
+        site_id: siteId,
+        run_id: runId,
+        reason: 'no_real_job_backing',
+        ts: nowIso(),
+      });
 
-      interval = setInterval(() => {
-        tick++;
-        const agentIdx = Math.min(Math.floor(tick / 3), agentNames.length - 1);
-        const agent = agentNames[agentIdx] ?? 'qa';
-        const spec = SPECIALIST_PARTITION[agent];
-
-        if (tick % 3 === 1) {
-          send({ type: 'agent_started', agent, file_glob: spec.file_glob, ts: nowIso() });
-        } else if (tick % 3 === 2) {
-          const path =
-            spec.file_glob.split(',')[0]?.replace('**/*', 'Component.tsx') ?? 'src/component.tsx';
-          send({
-            type: 'file_emitted',
-            agent,
-            path,
-            bytes: Math.floor(Math.random() * 4000) + 800,
-            conflict: false,
-            ts: nowIso(),
-          });
-        } else {
-          send({
-            type: 'agent_done',
-            agent,
-            duration_ms: spec.estimated_duration_ms,
-            ts: nowIso(),
-          });
-        }
-
-        if (tick >= agentNames.length * 3) {
-          send({
-            type: 'swarm_complete',
-            site_id: siteId,
-            agents_done: agentNames.length,
-            conflicts: 0,
-            ts: nowIso(),
-          });
-          clearInterval(interval);
-          controller.close();
-        }
-      }, 1500);
-    },
-    cancel() {
-      if (interval) clearInterval(interval);
+      controller.close();
     },
   });
 }
@@ -539,46 +434,24 @@ export async function getBuildStream(env: Env, siteId: string) {
 
 /**
  * Build an SSE stream for progressive-skeleton component delivery.
- * Emits one `component_ready` event per 4 seconds.
+ * HONEST: no real backing = emit a single not_provisioned state, don't fabricate timer progress
  */
 export function buildProgressiveSseStream(env: Env, siteId: string): ReadableStream {
-  let idx = 0;
-  let interval: ReturnType<typeof setInterval> | undefined;
-
   return new ReadableStream({
     start(controller) {
       const send = (data: unknown) => {
         controller.enqueue(new TextEncoder().encode(`data: ${JSON.stringify(data)}\n\n`));
       };
 
+      // HONEST: no real skeleton build in progress? Say so, don't invent component_ready events
       send({
-        type: 'skeleton_live',
+        type: 'not_provisioned',
         site_id: siteId,
-        components: SKELETON_COMPONENTS,
+        reason: 'no_active_build',
         ts: nowIso(),
       });
 
-      interval = setInterval(() => {
-        if (idx >= SKELETON_COMPONENTS.length) {
-          send({ type: 'all_components_ready', site_id: siteId, ts: nowIso() });
-          clearInterval(interval);
-          controller.close();
-          return;
-        }
-        const component = SKELETON_COMPONENTS[idx];
-        send({
-          type: 'component_ready',
-          component,
-          index: idx,
-          total: SKELETON_COMPONENTS.length,
-          progress_pct: Math.round(((idx + 1) / SKELETON_COMPONENTS.length) * 100),
-          ts: nowIso(),
-        });
-        idx++;
-      }, 4_000);
-    },
-    cancel() {
-      if (interval) clearInterval(interval);
+      controller.close();
     },
   });
 }
