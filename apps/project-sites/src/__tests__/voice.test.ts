@@ -220,7 +220,9 @@ describe('POST /api/voice/numbers/purchase — orphan compensation (B0)', () => 
       friendly_name: 'x',
       capabilities: { voice: true, sms: true, mms: false },
     } as never);
-    (dbInsert as jest.MockedFunction<typeof dbInsert>).mockResolvedValueOnce({ error: 'boom' } as never);
+    (dbInsert as jest.MockedFunction<typeof dbInsert>).mockResolvedValueOnce({
+      error: 'boom',
+    } as never);
     const { request } = app({ userId: 'u', orgId: 'org-a' });
     const res = await request('/api/voice/numbers/purchase', {
       method: 'POST',
