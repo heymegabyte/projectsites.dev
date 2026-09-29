@@ -323,7 +323,9 @@ export async function membershipCreateTier(
   return { id, ...p, stripe_price_id: `price_demo_${id.slice(0, 8)}`, billing_cycle: 'monthly' };
 }
 export async function membershipListTiers(env: Env, siteId: string) {
-  const rows: DbListResult = await env.DB.prepare('SELECT * FROM membership_tiers WHERE site_id = ?')
+  const rows: DbListResult = await env.DB.prepare(
+    'SELECT * FROM membership_tiers WHERE site_id = ?',
+  )
     .bind(siteId)
     .all()
     .then((r) => ({ ok: true, results: r.results ?? [] }))

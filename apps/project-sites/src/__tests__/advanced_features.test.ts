@@ -173,15 +173,13 @@ describe('advanced_features — list-read outage is observable + discriminable (
       name: 'lmsListCourses',
       integration: 'lms_courses',
       invoke: (env) => lmsListCourses(env, 'site-x'),
-      assertFallback: (r) =>
-        expect((r as Array<{ id: string }>)[0].id).toBe('c-demo'),
+      assertFallback: (r) => expect((r as Array<{ id: string }>)[0].id).toBe('c-demo'),
     },
     {
       name: 'communityListTopics',
       integration: 'community_topics',
       invoke: (env) => communityListTopics(env, 'site-x'),
-      assertFallback: (r) =>
-        expect((r as Array<{ id: string }>)[0].id).toBe('t-demo'),
+      assertFallback: (r) => expect((r as Array<{ id: string }>)[0].id).toBe('t-demo'),
     },
     {
       name: 'membershipListTiers',
