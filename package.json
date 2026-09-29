@@ -27,6 +27,7 @@
     "dockerbuild": "docker build -t bolt-ai:development -t bolt-ai:latest --target development .",
     "typecheck": "tsc",
     "validate:e2e-inventory": "node scripts/validate-e2e-inventory.mjs",
+    "validate:lockfile": "node scripts/check-lockfile-drift.mjs",
     "typegen": "wrangler types",
     "preview": "pnpm run build && pnpm run start",
     "prepare": "husky",

@@ -20,6 +20,10 @@ on:
       - 'apps/project-sites/scripts/validate-e2e-inventory.mjs'
       - 'apps/project-sites/frontend/scripts/validate-e2e-inventory.mjs'
       - 'apps/project-sites/package.json'
+      - 'scripts/check-lockfile-drift.mjs'
+      - 'pnpm-lock.yaml'
+      - 'package.json'
+      - 'pnpm-workspace.yaml'
   pull_request:
     branches: [main]
     paths:
@@ -33,6 +37,10 @@ on:
       - 'apps/project-sites/scripts/validate-e2e-inventory.mjs'
       - 'apps/project-sites/frontend/scripts/validate-e2e-inventory.mjs'
       - 'apps/project-sites/package.json'
+      - 'scripts/check-lockfile-drift.mjs'
+      - 'pnpm-lock.yaml'
+      - 'package.json'
+      - 'pnpm-workspace.yaml'
   # Allow manual trigger at any time
   workflow_dispatch:
 
@@ -261,6 +269,23 @@ jobs:
         if: hashFiles('apps/project-sites/scripts/check-action-pins.mjs') != ''
         working-directory: apps/project-sites
         run: npm run validate:action-pins
+
+      # Lockfile-drift gate — the committed root `pnpm-lock.yaml` MUST stay in sync with
+      # package.json + the workspace. This class RECURS: 6+ "regenerate pnpm-lock" commits +
+      # a ~30-run silently-RED worker deploy pipeline (every worker commit stranded via
+      # `ERR_PNPM_OUTDATED_LOCKFILE`, since CI installs `--frozen-lockfile`). The gate copies
+      # the lockfile → regenerates via the pinned `pnpm@9.14.4` (packageManager field) with
+      # `--lockfile-only` → diffs → RESTORES the original UNCONDITIONALLY (try/finally, never
+      # leaves the committed lockfile mutated) → exits 1 on drift. Fail-OPEN if pnpm is
+      # unavailable (never breaks CI on a missing tool). Corepack activates the pinned pnpm.
+      # Runs at repo ROOT (no working-directory). Conditional on script presence so it
+      # fails-open on repos lacking it (per conditional-ci-gates). Mirrors
+      # `npm run validate:lockfile`. Pure Node driver, no deps beyond pnpm itself.
+      - name: Lockfile-drift gate
+        if: hashFiles('scripts/check-lockfile-drift.mjs') != ''
+        run: |
+          corepack enable
+          node scripts/check-lockfile-drift.mjs
 
       # ── Step 3: Upload drift report as artifact (always, even on failure) ─
       - name: Upload drift report
