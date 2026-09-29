@@ -821,20 +821,44 @@ describe('validateSitemapRoutesExist', () => {
       .map((p) => `<url><loc>https://acme.test${p}</loc><lastmod>2026-01-01</lastmod></url>`)
       .join('')}</urlset>`;
 
-  it('flags a sitemap route with no page (SPA soft-404 → duplicate homepage content)', () => {
+  it('does NOT flag an extensionless sitemap route with NO dedicated page when a SPA shell exists (soft-404 reconcile)', () => {
+    // RECONCILED with serveSiteFromR2: the Worker's getKnownRoutes SSOT IS this sitemap — it
+    // returns 200 for a sitemap-listed extensionless route served by the SPA index.html shell.
+    // Such a route is a REAL SPA route, not the duplicate-content orphan the old gate assumed
+    // (this was the strict-flip false positive that blocked 3/3 known-good pure-SPA sites).
     const files = [
       file('sitemap.xml', sm(['/', '/about', '/services'])),
       file('index.html', '<html><title>Home</title></html>'),
       file('about.html', '<html><title>About</title></html>'),
-      // NO services page → the SPA fallback serves the homepage shell at /services.
+      // NO /services page → the SPA index.html shell soft-serves it as a real 200 (sitemap-listed).
+    ];
+    expect(
+      validateSitemapRoutesExist(files).filter((x) => x.code === 'sitemap.orphan_route'),
+    ).toEqual([]);
+  });
+
+  it('DOES flag a sitemap route when the build has NO SPA shell to serve it (a genuine orphan)', () => {
+    // No index.html anywhere → nothing soft-serves /services → a real sitemap↔build drift.
+    const files = [
+      file('sitemap.xml', sm(['/about', '/services'])),
+      file('about.html', '<html><title>About</title></html>'),
+      // NO index.html, NO services page → /services is truly unserved.
     ];
     const v = validateSitemapRoutesExist(files);
-    const orphan = v.find((x) => x.code === 'sitemap.orphan_route');
+    const orphan = v.find((x) => x.code === 'sitemap.orphan_route' && x.detail === '/services');
     expect(orphan).toBeDefined();
     expect(orphan?.severity).toBe('error');
-    expect(orphan?.detail).toBe('/services');
-    // The pages that DO exist are not flagged.
-    expect(v.filter((x) => x.code === 'sitemap.orphan_route')).toHaveLength(1);
+  });
+
+  it('DOES flag an EXTENSIONED sitemap route the SPA fallback never handles (e.g. /feed.xml)', () => {
+    // The SPA index.html fallback only handles EXTENSIONLESS paths; an extensioned route with no
+    // file is a hard 404 even with a shell present → still an orphan.
+    const files = [
+      file('sitemap.xml', sm(['/', '/feed.xml'])),
+      file('index.html', '<html><title>Home</title></html>'),
+    ];
+    const v = validateSitemapRoutesExist(files);
+    expect(v.find((x) => x.code === 'sitemap.orphan_route')?.detail).toBe('/feed.xml');
   });
 
   it('passes when every sitemap route has a page (all 3 resolution conventions)', () => {
@@ -852,9 +876,10 @@ describe('validateSitemapRoutesExist', () => {
     expect(validateSitemapRoutesExist([file('index.html', '<html></html>')])).toEqual([]);
   });
 
-  it('dedupes so a route listed twice is flagged once', () => {
+  it('dedupes so an EXTENSIONED orphan route listed twice is flagged once', () => {
+    // Use an extensioned route so the SPA shell can't serve it (extensionless would be soft-served).
     const files = [
-      file('sitemap.xml', sm(['/ghost', '/ghost'])),
+      file('sitemap.xml', sm(['/ghost.xml', '/ghost.xml'])),
       file('index.html', '<html></html>'),
     ];
     expect(

@@ -100,6 +100,25 @@ const isPng = (p: string) => p.toLowerCase().endsWith('.png');
 const isFavicon = (p: string) => /favicon|apple-touch-icon|icon-\d+x\d+/i.test(p);
 const isOgImage = (p: string) => /og-image|opengraph|social-card/i.test(p);
 
+/**
+ * Non-content HTML SHELL (404 / 500 / offline / generic error page), matched anywhere in the
+ * path (root OR nested). These are intentionally noindex, legitimately ship short/absent
+ * `<title>`/`<meta description>`, and carry no per-page JSON-LD — so the CONTENT validators
+ * (title/desc length, JSON-LD count, noindex-leak) MUST skip them or they wrongly reject every
+ * good build under strict (proven live: 404/500.html tripped `meta.*`/`jsonld.count_below_threshold`/
+ * `seo.noindex_leak` on 3/3 known-good sites). SSOT for "is this a real content route?".
+ */
+const NON_CONTENT_HTML = /(?:^|\/)(?:offline|404|500|error)\.html$/i;
+const isContentHtml = (p: string) => isHtml(p) && !NON_CONTENT_HTML.test(p);
+
+/**
+ * `applied/*` — demo-gallery "applied to a real business" thumbnail assets shipped on the
+ * template gallery/demo surface. They are DEMO assets, not images a visitor's page loads, so the
+ * PNG-weight rule (`image.png_too_large`) must exclude them (path-exclusion over raising the
+ * global cap) — proven live: `applied/*.png` tripped the rule 9-11× on 3/3 known-good sites.
+ */
+const isDemoGalleryAsset = (p: string) => /(?:^|\/)applied\//i.test(p);
+
 const stripScripts = (html: string) =>
   html.replace(/<script[\s\S]*?<\/script>/gi, '').replace(/<style[\s\S]*?<\/style>/gi, '');
 
@@ -193,7 +212,11 @@ export const validateImageFormat = (files: BuildFile[]): Violation[] => {
   return files
     .filter(
       (f) =>
-        isPng(f.path) && !isFavicon(f.path) && f.size > 200 * 1024 && !hasOptimizedSibling(f.path),
+        isPng(f.path) &&
+        !isFavicon(f.path) &&
+        !isDemoGalleryAsset(f.path) &&
+        f.size > 200 * 1024 &&
+        !hasOptimizedSibling(f.path),
     )
     .map((f) => ({
       code: 'image.png_too_large',
@@ -297,7 +320,8 @@ const metaDescLength = (html: string): number => metaDescText(html).length;
 export const validateMetaLengths = (files: BuildFile[]): Violation[] => {
   const out: Violation[] = [];
   for (const file of files) {
-    if (!isHtml(file.path) || !file.text) continue;
+    // Skip non-content SHELLS (404/500/offline) — they legitimately ship short/absent meta.
+    if (!isContentHtml(file.path) || !file.text) continue;
     const t = titleLength(file.text);
     if (t < 50 || t > 60) {
       out.push({
@@ -445,7 +469,8 @@ export const validateJsonLdStructure = (files: BuildFile[]): Violation[] => {
 export const validateJsonLdCount = (files: BuildFile[]): Violation[] => {
   const out: Violation[] = [];
   for (const file of files) {
-    if (!isHtml(file.path) || !file.text) continue;
+    // Skip non-content SHELLS (404/500/offline) — they carry no per-page JSON-LD by design.
+    if (!isContentHtml(file.path) || !file.text) continue;
     const count = (file.text.match(/application\/ld\+json/gi) || []).length;
     if (count < 4) {
       out.push({
@@ -542,7 +567,9 @@ export const validateIndexable = (files: BuildFile[]): Violation[] => {
   // <meta name="robots|googlebot" content="… noindex …"> — attribute-order-robust; scan the content value.
   const ROBOTS_META = /<meta\s+[^>]*\bname=["'](?:robots|googlebot)["'][^>]*>/gi;
   for (const file of files) {
-    if (!isHtml(file.path) || !file.text) continue;
+    // Skip non-content SHELLS (404/500/offline) — they are CORRECTLY noindex (junk URLs must
+    // not be indexed); flagging their noindex is the strict-flip false positive this excludes.
+    if (!isContentHtml(file.path) || !file.text) continue;
     ROBOTS_META.lastIndex = 0;
     let m: RegExpExecArray | null;
     while ((m = ROBOTS_META.exec(file.text)) !== null) {
@@ -601,9 +628,9 @@ export const validateHtmlLang = (files: BuildFile[]): Violation[] => {
  * (warn when absent), AND distinct routes must NOT share one canonical href — a site-wide
  * `canonical=/` collapse de-dupes every page to a single indexable URL, so sub-pages drop out
  * of the index. Non-route HTML (offline / 404 / 500 / error shells) is excluded — those
- * legitimately share or omit a canonical and are not indexable targets.
+ * legitimately share or omit a canonical and are not indexable targets. (Uses the single
+ * {@link NON_CONTENT_HTML} shell SSOT declared above — same set the content validators skip.)
  */
-const NON_ROUTE_HTML = /(?:^|\/)(?:offline|404|500|error)\.html$/i;
 const canonicalHref = (html: string): string | undefined => {
   const m =
     html.match(/<link\s+[^>]*rel=["']canonical["'][^>]*href=["']([^"']*)["']/i) ??
@@ -614,7 +641,7 @@ export const validateCanonical = (files: BuildFile[]): Violation[] => {
   const out: Violation[] = [];
   const byHref = new Map<string, string[]>();
   for (const file of files) {
-    if (!isHtml(file.path) || !file.text || NON_ROUTE_HTML.test(file.path)) continue;
+    if (!isHtml(file.path) || !file.text || NON_CONTENT_HTML.test(file.path)) continue;
     const href = canonicalHref(file.text);
     if (!href) {
       out.push({
@@ -658,7 +685,7 @@ export const validateCanonical = (files: BuildFile[]): Violation[] => {
 const CONTACT_AFFORDANCE =
   /href=["']\s*(?:tel:|mailto:)|<form[\s>]|href=["'][^"']*(?:\/contact|\/book|\/appointment|\/schedule|\/quote|calendly\.com|cal\.com|wa\.me)/i;
 export const validateContactPath = (files: BuildFile[]): Violation[] => {
-  const routeHtml = files.filter((f) => isHtml(f.path) && f.text && !NON_ROUTE_HTML.test(f.path));
+  const routeHtml = files.filter((f) => isHtml(f.path) && f.text && !NON_CONTENT_HTML.test(f.path));
   if (routeHtml.length === 0) return [];
   const hasAffordance = routeHtml.some((f) => CONTACT_AFFORDANCE.test(f.text!));
   if (hasAffordance) return [];
@@ -685,7 +712,7 @@ export const validateImageWeightBudget = (files: BuildFile[]): Violation[] => {
   const sizeByPath = new Map(files.map((f) => [f.path, f.size]));
   const out: Violation[] = [];
   for (const file of files) {
-    if (!isHtml(file.path) || !file.text || NON_ROUTE_HTML.test(file.path)) continue;
+    if (!isHtml(file.path) || !file.text || NON_CONTENT_HTML.test(file.path)) continue;
     let total = 0;
     const seen = new Set<string>();
     for (const ref of collectRefs(file.text)) {
@@ -735,19 +762,29 @@ export const validateSitemapLastmod = (files: BuildFile[]): Violation[] => {
 };
 
 /**
- * Sitemap ↔ build-routes drift guard. `validateSitemapLastmod` proves the sitemap EXISTS + every
- * `<url>` has a `<lastmod>` — but NOT that each `<loc>` route actually has a page in the build. A
- * sitemap that lists `/services` when the build shipped no `services.html` is worse than a plain
- * 404: the SPA fallback in `serveSiteFromR2` returns the HOMEPAGE shell with a 200 for any
- * sitemap-listed extensionless route → crawlers follow the sitemap, get 200, and index DUPLICATE
- * homepage content under that URL (self-competing, crawl-budget waste). This flags every sitemap
- * route with no dedicated HTML file, mirroring `serveSiteFromR2`'s resolution order exactly
- * (`X/index.html` → `X.html` → flat `a-b.html` for `/a/b`).
+ * Sitemap ↔ build-routes drift guard, RECONCILED with the Worker's SPA soft-404 model.
+ *
+ * `serveSiteFromR2`'s `getKnownRoutes` SSOT IS the site's own `sitemap.xml`: for an extensionless
+ * path served by the SPA `index.html` shell it returns **200 when the path is listed in the
+ * sitemap** (a real SPA route), and 404 only for paths the sitemap does NOT list. So a
+ * sitemap-listed extensionless route served by the SPA shell is a LEGITIMATE 200 route — NOT the
+ * duplicate-content orphan the old gate assumed. Flagging every SPA route as an orphan was the
+ * strict-flip false positive that blocked 3/3 known-good pure-SPA sites (21 routes each).
+ *
+ * A route is a TRUE orphan only when NOTHING can serve it: it has no dedicated HTML file AND the
+ * build ships no `index.html` SPA shell to soft-serve it (or it is an extension'd path the SPA
+ * fallback never handles). Multi-page builds are unaffected (their routes resolve to real files).
+ * Dedicated-file resolution mirrors `serveSiteFromR2` exactly (`X/index.html` → `X.html` → flat
+ * `a-b.html` for `/a/b`); extensionless routes additionally resolve via the SPA shell.
  */
 export const validateSitemapRoutesExist = (files: BuildFile[]): Violation[] => {
   const sitemap = files.find((f) => f.path === 'sitemap.xml');
   if (!sitemap?.text) return []; // validateSitemapLastmod owns the missing-sitemap error
   const htmlPaths = new Set(files.filter((f) => isHtml(f.path)).map((f) => f.path));
+  // A SPA shell (root index.html) soft-serves EVERY sitemap-listed extensionless route as a real
+  // 200 — the Worker's soft-404 SSOT resolves those against this same sitemap. Its presence turns
+  // every extensionless sitemap route into a served route, never an orphan.
+  const hasSpaShell = htmlPaths.has('index.html');
   const out: Violation[] = [];
   const seen = new Set<string>();
   for (const raw of sitemap.text.match(/<loc>[^<]+<\/loc>/g) ?? []) {
@@ -767,11 +804,16 @@ export const validateSitemapRoutesExist = (files: BuildFile[]): Violation[] => {
       route === '/'
         ? ['index.html']
         : [`${bare}.html`, `${bare}/index.html`, `${bare.replace(/\//g, '-')}.html`];
-    if (!candidates.some((c) => htmlPaths.has(c))) {
+    // An extensionless route (no dot in the last segment) is soft-served by the SPA shell when
+    // one exists — that is the Worker's intended 200, not an orphan. Only an extension'd route
+    // (e.g. /feed.xml) or a build with NO SPA shell can leave a sitemap route truly unserved.
+    const isExtensionless = !bare.split('/').pop()?.includes('.');
+    const servedBySpa = hasSpaShell && isExtensionless;
+    if (!servedBySpa && !candidates.some((c) => htmlPaths.has(c))) {
       out.push({
         code: 'sitemap.orphan_route',
         severity: 'error',
-        message: `sitemap lists ${route} but the build has no page for it — the SPA fallback soft-404s it (200 homepage shell), so crawlers index duplicate homepage content under this URL`,
+        message: `sitemap lists ${route} but the build has no page for it and no SPA shell serves it — crawlers would get a hard 404 or duplicate content under this URL`,
         file: 'sitemap.xml',
         detail: route,
       });
@@ -2048,7 +2090,7 @@ export const finalizeSeoInvariants = (
   // route-distinct description below, so no two routes serve the same <meta description>.
   const homeDesc = (() => {
     const home = files.find(
-      (f) => isHtml(f.path) && !NON_ROUTE_HTML.test(f.path) && routeSegOf(f.path) === '',
+      (f) => isHtml(f.path) && !NON_CONTENT_HTML.test(f.path) && routeSegOf(f.path) === '',
     );
     return home?.text
       ? readAttrContent(home.text, /<meta\s+[^>]*\bname=["']description["'][^>]*>/i).trim()
@@ -2056,7 +2098,7 @@ export const finalizeSeoInvariants = (
   })();
 
   const fixed = files.map((f) => {
-    if (!isHtml(f.path) || !f.text || NON_ROUTE_HTML.test(f.path)) return f;
+    if (!isHtml(f.path) || !f.text || NON_CONTENT_HTML.test(f.path)) return f;
     let text = f.text;
 
     // 1. Invalid `\'` escapes outside script/style.
