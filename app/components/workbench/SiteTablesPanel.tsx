@@ -3498,11 +3498,18 @@ const TableListView = memo(
 
     return (
       <div className="flex-1 overflow-auto modern-scrollbar" data-testid="sitedb-table-list">
-        {/* Toolbar: table count + the expanding advanced search (Use AI / Create Table now live in the header Actions menu). */}
+        {/* Pick-a-table launchpad header — deliberately DISTINCT from the left rail's "Tables (N)"
+            inventory header so the two side-by-side panes never read as a duplicated list (evidence:
+            fire-53 dux state 08). The rail is the always-on index; THIS pane says what to do next. */}
         <div className="flex items-center gap-2 px-3 py-2 border-b border-bolt-elements-borderColor sticky top-0 bg-bolt-elements-background-depth-1 z-10">
-          <span className="text-[10px] uppercase tracking-wider text-bolt-elements-textTertiary">
-            Tables ({state.tables.length})
-          </span>
+          <div className="flex flex-col min-w-0">
+            <span data-testid="sitedb-browse-header" className="text-xs font-medium text-bolt-elements-textPrimary">
+              Browse a table
+            </span>
+            <span data-testid="sitedb-browse-hint" className="text-[10px] text-bolt-elements-textTertiary truncate">
+              Pick a table to view and edit its rows.
+            </span>
+          </div>
           <div className="ml-auto flex items-center gap-1.5">
             <TableSearch onOpen={onOpen} />
           </div>
@@ -3523,6 +3530,15 @@ const TableListView = memo(
             >
               <div className="i-ph:table text-sm text-bolt-elements-textTertiary shrink-0" />
               <span className="text-bolt-elements-textPrimary font-mono flex-1 truncate">{t.name}</span>
+              {/* Hover affordance — pairs with the chevron so rows read as OPENABLE, not as a
+                  second index of the rail. Decorative: the whole button is the open action. */}
+              <span
+                data-testid="sitedb-row-open-hint"
+                aria-hidden
+                className="shrink-0 text-[10px] uppercase tracking-wider text-bolt-elements-item-contentAccent opacity-0 group-hover/row:opacity-100 group-focus-within/row:opacity-100 transition-opacity pointer-events-none"
+              >
+                Browse
+              </span>
             </button>
             <button
               type="button"
@@ -3595,8 +3611,13 @@ const SchemaRail = memo(
         data-testid="sitedb-rail"
         className="w-52 shrink-0 flex flex-col min-h-0 border-r border-bolt-elements-borderColor bg-bolt-elements-background-depth-2"
       >
+        {/* Visually SECONDARY inventory header — the right pane carries the primary "Browse a
+            table" launchpad header, so this one stays a small uppercase-muted index label. */}
         <div className="px-3 py-2 border-b border-bolt-elements-borderColor sticky top-0 bg-bolt-elements-background-depth-2 z-10">
-          <span className="text-[10px] uppercase tracking-wider text-bolt-elements-textTertiary">
+          <span
+            data-testid="sitedb-rail-header"
+            className="text-[9px] uppercase tracking-widest text-bolt-elements-textTertiary/70"
+          >
             Tables ({tables.length})
           </span>
         </div>

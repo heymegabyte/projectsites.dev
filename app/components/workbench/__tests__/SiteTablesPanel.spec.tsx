@@ -1701,3 +1701,108 @@ describe('SiteTablesPanel — real-time data, no manual Refresh', () => {
     await waitFor(() => expect(tablesRequestCount()).toBeGreaterThan(before));
   });
 });
+
+// ─── Dual-pane differentiation (fire-55) ─────────────────────────────────────
+
+/**
+ * Evidence (fire-53 dux-2026-09-29T20-01-44-425Z state 08): with tables present
+ * and none selected, the left SchemaRail AND the right list pane both rendered
+ * the SAME "Tables (N)" header over the same table names — two near-identical
+ * lists side-by-side read as a duplication bug. The contract under test:
+ *
+ *  - The two panes render DISTINCT headers: the rail keeps its (visually
+ *    secondary) "Tables (N)" inventory header; the right pane becomes a
+ *    "Browse a table" pick-one launchpad.
+ *  - The launchpad carries a one-line hint telling the owner what to do.
+ *  - Each right-pane row carries a hover "Browse" affordance (plus the
+ *    existing chevron) so rows read as openable, not as a second index.
+ *  - All pre-existing testids + row controls survive (open / drop / rail).
+ */
+describe('SiteTablesPanel — dual-pane differentiation (rail vs browse launchpad)', () => {
+  beforeEach(() => {
+    postToParentSpy.mockClear();
+    onParentMessageSpy.mockClear();
+    parentHandlers.clear();
+  });
+
+  afterEach(() => {
+    cleanup();
+    parentHandlers.clear();
+  });
+
+  /** Render + drive to "tables present, none selected" (both panes visible). */
+  async function renderWithTables(): Promise<void> {
+    render(<SiteTablesPanel />);
+
+    await waitFor(() => {
+      expect(postToParentSpy).toHaveBeenCalledWith(expect.objectContaining({ type: 'PS_SITEDB_TABLES_REQUEST' }));
+    });
+
+    const correlationId = lastCorrelationId();
+
+    await act(async () => {
+      fireReply({
+        type: 'PS_SITEDB_TABLES_RESPONSE',
+        correlationId,
+        ok: true,
+        databaseId: 'db-abc123',
+        provisioned: true,
+        tables: [{ name: 'posts' }, { name: 'users' }],
+      });
+    });
+  }
+
+  it('renders DISTINCT headers on the rail and the browse pane when no table is selected', async () => {
+    await renderWithTables();
+
+    // Both panes are on screen.
+    expect(screen.getByTestId('sitedb-rail')).toBeTruthy();
+    expect(screen.getByTestId('sitedb-table-list')).toBeTruthy();
+
+    // The rail keeps its inventory header (with the count)…
+    const railHeader = screen.getByTestId('sitedb-rail-header');
+    expect(railHeader.textContent).toContain('Tables (2)');
+
+    // …while the right pane is a pick-a-table launchpad with a DIFFERENT header.
+    const browseHeader = screen.getByTestId('sitedb-browse-header');
+    expect(browseHeader.textContent).toMatch(/browse a table/i);
+    expect(browseHeader.textContent).not.toEqual(railHeader.textContent);
+  });
+
+  it('shows the pick-a-table hint in the browse pane when no table is selected', async () => {
+    await renderWithTables();
+
+    const hint = screen.getByTestId('sitedb-browse-hint');
+    expect(hint.textContent).toMatch(/pick a table/i);
+  });
+
+  it('gives every browse row a hover "Browse" affordance alongside the chevron', async () => {
+    await renderWithTables();
+
+    const rows = screen.getAllByTestId('sitedb-table-row');
+    expect(rows.length).toBe(2);
+
+    const hints = screen.getAllByTestId('sitedb-row-open-hint');
+    expect(hints.length).toBe(2);
+    expect(hints[0].textContent).toMatch(/browse/i);
+  });
+
+  it('keeps all pre-existing testids + row controls intact', async () => {
+    await renderWithTables();
+
+    expect(screen.getAllByTestId('sitedb-rail-item').length).toBe(2);
+    expect(screen.getAllByTestId('sitedb-table-open').length).toBe(2);
+    expect(screen.getAllByTestId('sitedb-table-drop').length).toBe(2);
+
+    // Clicking a row's open button still fires the rows request (keyboard/click path unchanged).
+    postToParentSpy.mockClear();
+
+    await act(async () => {
+      screen.getAllByTestId('sitedb-table-open')[0].click();
+    });
+
+    await waitFor(() => {
+      expect(postToParentSpy).toHaveBeenCalledWith(expect.objectContaining({ type: 'PS_SITEDB_ROWS_REQUEST' }));
+    });
+  });
+});

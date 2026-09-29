@@ -9,49 +9,86 @@ interface LockedItem {
   type: 'file' | 'folder';
 }
 
+/**
+ * Lock-list poll cadence while the tab is FOREGROUNDED. Locks change rarely (explicit user/AI
+ * actions), so a 10s cadence keeps the list honest without burning store reads — and the poll
+ * pauses entirely while `document.hidden` (visibility-aware, per `real-time-data-no-manual-refresh`;
+ * same pattern as ResourceOverviewPanel).
+ */
+const LOCK_POLL_INTERVAL_MS = 10_000;
+
 export function LockManager() {
   const [lockedItems, setLockedItems] = useState<LockedItem[]>([]);
   const [selectedItems, setSelectedItems] = useState<Set<string>>(new Set());
   const [filter, setFilter] = useState<'all' | 'files' | 'folders'>('all');
   const [searchTerm, setSearchTerm] = useState('');
 
-  // Load locked items
+  /*
+   * Load locked items — visibility-aware poll (per `real-time-data-no-manual-refresh`, mirroring
+   * ResourceOverviewPanel): load once on mount, tick every LOCK_POLL_INTERVAL_MS while the tab is
+   * visible, NO-OP every tick while `document.hidden` (no wasted reads in a background tab), and
+   * refetch IMMEDIATELY on visibilitychange back to the foreground. Errors are silent — a failed
+   * read keeps the last-known list on screen rather than flashing an empty/error state. Both the
+   * interval and the listener are cleaned up on unmount.
+   */
   useEffect(() => {
     const loadLockedItems = () => {
-      // We don't need to filter by chat ID here as we want to show all locked files
-      const items: LockedItem[] = [];
+      try {
+        // We don't need to filter by chat ID here as we want to show all locked files
+        const items: LockedItem[] = [];
 
-      // Get all files and folders from the workbench store
-      const allFiles = workbenchStore.files.get();
+        // Get all files and folders from the workbench store
+        const allFiles = workbenchStore.files.get();
 
-      // Check each file/folder for locks
-      Object.entries(allFiles).forEach(([path, item]) => {
-        if (!item) {
-          return;
-        }
+        // Check each file/folder for locks
+        Object.entries(allFiles).forEach(([path, item]) => {
+          if (!item) {
+            return;
+          }
 
-        if (item.type === 'file' && item.isLocked) {
-          items.push({
-            path,
-            type: 'file',
-          });
-        } else if (item.type === 'folder' && item.isLocked) {
-          items.push({
-            path,
-            type: 'folder',
-          });
-        }
-      });
+          if (item.type === 'file' && item.isLocked) {
+            items.push({
+              path,
+              type: 'file',
+            });
+          } else if (item.type === 'folder' && item.isLocked) {
+            items.push({
+              path,
+              type: 'folder',
+            });
+          }
+        });
 
-      setLockedItems(items);
+        setLockedItems(items);
+      } catch {
+        // Silent — keep the last-known view; the next visible tick retries.
+      }
     };
 
     loadLockedItems();
 
-    // Set up an interval to refresh the list periodically
-    const intervalId = setInterval(loadLockedItems, 5000);
+    const tick = () => {
+      if (typeof document !== 'undefined' && document.hidden) {
+        return;
+      }
 
-    return () => clearInterval(intervalId);
+      loadLockedItems();
+    };
+
+    const intervalId = setInterval(tick, LOCK_POLL_INTERVAL_MS);
+
+    const onVisibility = () => {
+      if (typeof document !== 'undefined' && !document.hidden) {
+        loadLockedItems();
+      }
+    };
+
+    document.addEventListener('visibilitychange', onVisibility);
+
+    return () => {
+      clearInterval(intervalId);
+      document.removeEventListener('visibilitychange', onVisibility);
+    };
   }, []);
 
   // Filter and sort the locked items
