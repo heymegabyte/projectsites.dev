@@ -30,6 +30,7 @@ import {
   ChangeDetectionStrategy,
   ChangeDetectorRef,
   Component,
+  computed,
   effect,
   inject,
   signal,
@@ -41,6 +42,7 @@ import { ToastService } from '../../../../services/toast.service';
 import { RevealOnScrollDirective } from '../../../../animations/reveal-on-scroll.directive';
 import { HlmInputDirective, HlmSelectDirective } from '../../../../ui';
 import { ErrorCardComponent } from '../../../../components/states';
+import { EmptyStateComponent } from '../../empty-state.component';
 
 interface AgentSettings {
   voice_system_prompt: string;
@@ -143,13 +145,26 @@ export function settingsToVoicePayload(siteId: string, s: AgentSettings): Record
   selector: 'app-voice-agent-settings',
   standalone: true,
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [FormsModule, RevealOnScrollDirective, HlmInputDirective, HlmSelectDirective, ErrorCardComponent],
+  imports: [FormsModule, RevealOnScrollDirective, HlmInputDirective, HlmSelectDirective, ErrorCardComponent, EmptyStateComponent],
   template: `
     <section class="space-y-5" psReveal>
       @if (loadError()) {
         <app-error-card title="Couldn't load your saved voice settings"
           [message]="loadError() ?? ''" (retry)="reload()" data-testid="agent-settings-load-error" />
+      } @else if (loaded() && !configured() && !revealForm()) {
+        <!-- First-action launchpad — a fresh voice site with no agent configured gets a
+             friendly panel + one obvious CTA, never a blank pre-filled form. The CTA reveals
+             the form seeded with smart DEFAULTS (per embarrassingly-easy-to-use). -->
+        <app-empty-state
+          icon="📞"
+          title="Configure your voice agent"
+          body="No voice agent is set up for this site yet. Set how the AI answers calls + texts — we'll start you with sensible defaults you can tweak, then save."
+          primary="Configure your voice agent"
+          (primaryClick)="startConfiguring()"
+          data-testid="agent-settings-empty"
+        />
       }
+      @if (showForm()) {
       <!-- Voice + SMS system prompts -->
       <article class="card" psReveal>
         <header class="mb-3">
@@ -291,6 +306,7 @@ export function settingsToVoicePayload(siteId: string, s: AgentSettings): Record
           {{ saving() ? 'Saving…' : 'Save changes' }}
         </button>
       </div>
+      }
     </section>
   `,
   styles: [`
@@ -360,6 +376,17 @@ export class VoiceAgentSettingsComponent {
   /** Set when the settings load FAILS for a real reason (non-404). Gates Save so a
    *  failed load can't be saved over the user's real settings with DEFAULTS. */
   loadError = signal<string | null>(null);
+  /** True once the initial settings fetch has resolved (success or 404). Gates the
+   *  empty-state so it never flashes before we know whether an agent exists. */
+  readonly loaded = signal(false);
+  /** True when a saved voice_agent_settings row EXISTS for this site (non-null load).
+   *  False for a fresh site → show the first-action launchpad instead of a blank form. */
+  readonly configured = signal(false);
+  /** Set once the operator clicks "Configure your voice agent" — reveals the form
+   *  (seeded with DEFAULTS) on an un-provisioned site. */
+  readonly revealForm = signal(false);
+  /** Show the editor when an agent already exists OR the operator opted in to configure. */
+  readonly showForm = computed(() => !this.loadError() && (this.configured() || this.revealForm()));
   metaOpen = signal(false);
   metaPrompt = signal<string>('Loading…');
 
@@ -373,9 +400,17 @@ export class VoiceAgentSettingsComponent {
     this.loadMeta();
   });
 
+  /** Reveal the editor (seeded with DEFAULTS) for a fresh, un-provisioned site. */
+  startConfiguring(): void {
+    this.revealForm.set(true);
+    this.cdr.markForCheck();
+  }
+
   reload(): void {
     const site = this.state.selectedSite();
     if (!site) return;
+    // Reset the opt-in reveal so the load result (configured vs fresh) decides the surface.
+    this.revealForm.set(false);
     // {silent}: this passive tab-entry load degrades gracefully to DEFAULTS, so a
     // generic "Can't reach the server" toast on top is redundant + scary for an
     // un-provisioned org (the form just shows defaults).
@@ -386,6 +421,10 @@ export class VoiceAgentSettingsComponent {
         // ONE seam (reading r.data left the form on DEFAULTS forever; reading the
         // row verbatim left voice_id/llm_model keys blank forever).
         this.settings = mapVoiceRowToSettings(r.settings);
+        // A non-null row = an agent is already configured → show the form directly.
+        // A null row (never saved) = fresh site → the launchpad, not a blank form.
+        this.configured.set(!!r.settings);
+        this.loaded.set(true);
         // OnPush: the plain-object reassignment does NOT schedule change
         // detection — without markForCheck the template keeps the PREVIOUS
         // object's values (re-mount showed stale DEFAULTS while D1 held the
@@ -396,8 +435,8 @@ export class VoiceAgentSettingsComponent {
       // failure (500/network) → DON'T overwrite; flag loadError so Save is blocked and
       // the user can retry instead of clobbering saved settings with DEFAULTS.
       error: (err: { status?: number } | undefined) => {
-        if (err?.status === 404) { this.settings = mapVoiceRowToSettings(null); this.loadError.set(null); this.cdr.markForCheck(); }
-        else { this.loadError.set('Could not load your saved voice settings.'); }
+        if (err?.status === 404) { this.settings = mapVoiceRowToSettings(null); this.loadError.set(null); this.configured.set(false); this.loaded.set(true); this.cdr.markForCheck(); }
+        else { this.loadError.set('Could not load your saved voice settings.'); this.loaded.set(true); }
       },
     });
   }

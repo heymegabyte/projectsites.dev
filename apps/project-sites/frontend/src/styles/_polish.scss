@@ -236,6 +236,15 @@
   --ps-danger: #ff5555;
   // Soft danger tint — for "removed"/"from" diff text + subtle destructive fills.
   --ps-danger-soft: color-mix(in oklch, var(--ps-danger, #ff5555) 62%, var(--ps-ink, #f4f4ff) 38%);
+  // Sentiment scale — for voice/SMS call-sentiment bars + chips (positive / neutral
+  // / negative). Derived in OKLCH from the brand success/accent/danger so they read
+  // as one on-brand family, never off-the-shelf traffic-light greens/reds. Positive
+  // ≈ mint-cyan (sibling of --ps-success), neutral ≈ cool slate (readable on dark),
+  // negative ≈ warm amber-red. WCAG: ≥3:1 as fill bars on #060610. Consumers use
+  // var(--ps-sentiment-*) rather than hard-coded hex (was #f6c344 / #ff6b6b drift).
+  --ps-sentiment-positive: color-mix(in oklch, var(--ps-success, #4dffb5) 88%, var(--ps-accent, #00E5FF) 12%);
+  --ps-sentiment-neutral:  oklch(0.7 0.03 250);
+  --ps-sentiment-negative: oklch(0.68 0.19 25);
   // Tertiary/metadata text ("muted") — one step dimmer than --text-secondary,
   // for timestamps, actor names, helper captions. AA-safe (≥4.5:1) over every
   // admin elevation surface (--ps-elev-1..3 + the near-base widget panels).

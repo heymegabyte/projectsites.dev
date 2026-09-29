@@ -190,7 +190,8 @@ interface SentimentRow {
         display: block;
         height: 100%;
         border-radius: 6px;
-        background: var(--ps-accent, #00e5ff);
+        /* Positive/good sentiment — on-brand mint-cyan token (was raw --ps-accent). */
+        background: var(--ps-sentiment-positive, #4dffb5);
         transition: width 0.5s ease;
       }
       .sentiment-count {
@@ -199,15 +200,21 @@ interface SentimentRow {
         text-align: right;
         color: var(--text-secondary, #9aa);
       }
-      .sentiment-row[data-tone='warn'] .sentiment-bar {
-        background: #f6c344;
+      /* Neutral sentiment — cool slate token (was the default accent fill). */
+      .sentiment-row[data-tone='muted'] .sentiment-bar {
+        background: var(--ps-sentiment-neutral, #9fb0c3);
       }
+      /* Negative sentiment — on-brand amber token (was hard-coded #f6c344). */
+      .sentiment-row[data-tone='warn'] .sentiment-bar {
+        background: var(--ps-sentiment-negative, #ff6b6b);
+      }
+      /* Escalated / flagged-scam — on-brand danger token (was hard-coded #ff6b6b). */
       .sentiment-row[data-tone='bad'] .sentiment-bar {
-        background: #ff6b6b;
+        background: var(--ps-danger, #ff5555);
       }
       .err {
         font-size: 0.82rem;
-        color: #ff9b9b;
+        color: var(--ps-danger-soft, #ff9b9b);
         padding: 16px;
       }
     `,

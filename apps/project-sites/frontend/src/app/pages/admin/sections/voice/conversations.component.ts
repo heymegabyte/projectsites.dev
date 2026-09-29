@@ -120,7 +120,14 @@ type DayGroup = { label: string; items: Conversation[] };
             <input type="checkbox" [ngModel]="escalatedOnly()" (ngModelChange)="escalatedOnly.set($event)" />
             <span>Escalated only</span>
           </label>
-          <button class="btn-ghost text-xs" type="button" (click)="refresh()">Refresh</button>
+          <!-- Live-sync affordance (no manual Refresh — the feed self-updates every 30s,
+               visibility-aware). Mirrors the feature-flags/analytics "always live" pattern
+               per real-time-data-no-manual-refresh. -->
+          <span class="conv-synced" role="status" aria-live="off" data-testid="conversations-synced"
+                [attr.title]="'Auto-refreshes every 30 seconds. ' + syncedLabel()">
+            <span class="conv-synced-dot" aria-hidden="true"></span>
+            <span>{{ syncedLabel() }}</span>
+          </span>
         </div>
       </article>
 
@@ -294,6 +301,13 @@ type DayGroup = { label: string; items: Conversation[] };
        (mono + 40px preserved via font-mono min-h-[40px] Tailwind). */
     .ck { display: inline-flex; align-items: center; gap: 6px; font-size: 0.74rem; color: rgba(255,255,255,0.78); cursor: pointer; }
 
+    /* Quiet live-sync chip (replaces the manual Refresh button) — a pulsing dot +
+       "Synced · updated Ns ago". Freshness is visible but never gated behind a click. */
+    .conv-synced { margin-left: auto; display: inline-flex; align-items: center; gap: 0.4rem; font: 600 0.66rem 'JetBrains Mono', ui-monospace, monospace; letter-spacing: 0.06em; text-transform: uppercase; color: rgba(255,255,255,0.58); }
+    .conv-synced-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--ps-success, #4dffb5); flex: none; animation: conv-pulse 2.4s ease-out infinite; }
+    @keyframes conv-pulse { 0% { box-shadow: 0 0 0 0 color-mix(in oklch, var(--ps-success, #4dffb5) 55%, transparent); } 70% { box-shadow: 0 0 0 6px transparent; } 100% { box-shadow: 0 0 0 0 transparent; } }
+    @media (prefers-reduced-motion: reduce) { .conv-synced-dot { animation: none; } }
+
     .group-label {
       font: 600 0.66rem 'JetBrains Mono', ui-monospace, monospace;
       text-transform: uppercase; letter-spacing: 0.12em;
@@ -407,10 +421,31 @@ export class VoiceConversationsComponent implements OnDestroy {
   escalatedOnly = signal(false);
 
   private pollTimer?: ReturnType<typeof setInterval>;
+  private tickTimer?: ReturnType<typeof setInterval>;
   private visibilityHandler = (): void => {
     if (document.hidden) { this.stopPolling(); }
     else { this.startPolling(); this.refresh(); }
   };
+
+  /**
+   * Live-sync affordance state (per real-time-data-no-manual-refresh). The feed
+   * self-updates on the visibility-aware 30s poll — no manual Refresh button.
+   * `lastSynced` is stamped on every successful load; `nowTick` ticks each second
+   * so the "updated Ns ago" label stays live without spamming change detection.
+   */
+  private readonly lastSynced = signal<number | null>(null);
+  private readonly nowTick = signal<number>(Date.now());
+
+  /** Human "Synced · updated Ns ago" — recomputes each 1s tick off lastSynced. */
+  readonly syncedLabel = computed<string>(() => {
+    const ts = this.lastSynced();
+    if (ts === null) return 'Syncing…';
+    const secs = Math.max(0, Math.round((this.nowTick() - ts) / 1000));
+    if (secs < 5) return 'Synced · just now';
+    if (secs < 60) return `Synced · updated ${secs}s ago`;
+    const mins = Math.floor(secs / 60);
+    return `Synced · updated ${mins}m ago`;
+  });
 
   filtered = computed(() => {
     const q = this.searchQ().toLowerCase().trim();
@@ -524,7 +559,14 @@ export class VoiceConversationsComponent implements OnDestroy {
     // left the feed empty ("No conversations yet") even with real calls; map the
     // raw rows → Conversation so it populates correctly.
     this.api.get<{ items: Record<string, unknown>[] }>(`/voice/conversations?siteId=${site.id}`, undefined, { silent: true }).subscribe({
-      next: (r) => { this.conversations.set((r.items ?? []).map((row) => this.mapConversation(row))); this.loadError.set(null); this.loading.set(false); },
+      next: (r) => {
+        this.conversations.set((r.items ?? []).map((row) => this.mapConversation(row)));
+        this.loadError.set(null);
+        this.loading.set(false);
+        // Stamp the live-sync clock only on a successful load (drives "updated Ns ago").
+        this.lastSynced.set(Date.now());
+        this.nowTick.set(Date.now());
+      },
       // Keep any already-loaded calls on a transient poll blip; surface a Retry
       // card (not a fake "No conversations yet") when there's nothing to show.
       error: () => { this.loading.set(false); this.loadError.set('The conversation feed did not respond.'); },
@@ -559,10 +601,13 @@ export class VoiceConversationsComponent implements OnDestroy {
   private startPolling(): void {
     this.stopPolling();
     this.pollTimer = setInterval(() => this.refresh(), 30_000);
+    // Keep the "updated Ns ago" label live between reloads (cheap signal write).
+    this.tickTimer = setInterval(() => this.nowTick.set(Date.now()), 1000);
   }
 
   private stopPolling(): void {
     if (this.pollTimer) { clearInterval(this.pollTimer); this.pollTimer = undefined; }
+    if (this.tickTimer) { clearInterval(this.tickTimer); this.tickTimer = undefined; }
   }
 
 
