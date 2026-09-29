@@ -82,6 +82,15 @@ export const FLAG_REGISTRY: Record<string, FlagDefinition> = {
     owner_email: 'brian@megabyte.space',
     stage: 'experimental',
   },
+  voice_receptionist: {
+    default_enabled: false,
+    default_rollout_percent: 0,
+    description:
+      "AI voice receptionist — a per-site AI persona that ANSWERS inbound phone calls, greets the caller in the site's own voice, converses in real time, and routes/handles the call, with the recording + transcript landing in the admin Conversations surface (ADR-0056: Twilio number → Cloudflare-native voice runtime, superseding the LiveKit transport).\n\n• Gates the per-site receptionist surface: the owner-facing config (greeting script, persona/tone, routing/hours) plus the runtime dispatch that answers a call for a site whose flag is ON. When ON, an authed owner of the site sees the receptionist config in the admin and calls to that site's provisioned number are answered by the AI persona; the signed voice-lifecycle webhook persists the recording/transcript to D1.\n• Surfaces touched: the admin receptionist config UI + Conversations, the site's Twilio number → CF-native voice runtime, the signed voice-lifecycle webhook receiver, and the voice tables (0036b_voice.sql). Distinct from voice_numbers (the carrier-purchase killswitch) — this flag gates the RECEPTIONIST behavior, not the number buy.\n• Failure mode when OFF (default, DARK): the feature is dark — the receptionist config routes 404 (never 403, to avoid leaking existence) and the UI renders null; no call is auto-answered by an AI persona and the runtime never dispatches. Off = zero receptionist activity, no regression to number listing/release/test-SMS.\n• Acceptance: with the flag OFF, the receptionist config route 404s and no inbound call is AI-answered; with it ON, an authed owner configures the greeting/persona and a call to that site's number is answered by the persona with the transcript reaching Conversations.",
+    key: 'voice_receptionist',
+    owner_email: 'brian@megabyte.space',
+    stage: 'experimental',
+  },
   cinematic_scroll_reveals: {
     default_enabled: false,
     default_rollout_percent: 0,

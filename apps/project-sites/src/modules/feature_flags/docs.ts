@@ -194,6 +194,23 @@ export const FLAG_DOCS: Record<string, FlagDocs> = {
       'On → an authed owner of the target site can buy a number under the 3-per-site cap',
     ],
   },
+  voice_receptionist: {
+    checklist: [
+      "Per-site AI voice receptionist — an AI persona that ANSWERS inbound calls, greets, converses, and routes for the site",
+      'Gates the owner-facing receptionist config (greeting/persona/routing) + the runtime dispatch that answers a call',
+      'Recording + transcript land in the admin Conversations surface via the signed voice-lifecycle webhook → D1',
+      'Distinct from voice_numbers (the carrier-purchase killswitch) — this gates RECEPTIONIST behavior, not the number buy',
+      'CF-native voice runtime per ADR-0056 (Twilio number → Cloudflare, superseding LiveKit); voice tables 0036b_voice.sql',
+      'Off (default, DARK) → config route 404s (never 403) + UI renders null + no call is AI-answered',
+    ],
+    explanation:
+      "AI voice receptionist: a per-site AI persona that answers inbound phone calls, greets the caller in the site's own voice, converses in real time, and routes/handles the call — with the recording + transcript landing in the admin Conversations surface. When ON for a site, an authed owner configures the greeting script, persona/tone, and routing/hours in the admin, and inbound calls to that site's provisioned number are answered by the AI persona; the signed voice-lifecycle webhook persists the recording + transcript to D1. Per ADR-0056 the voice runtime is Cloudflare-native (Twilio number → CF Realtime/Workers), superseding the prior LiveKit transport + its pricing model. This flag gates the RECEPTIONIST behavior — distinct from voice_numbers, which is the carrier-purchase killswitch. Off (default, DARK) → the receptionist config routes 404 (never 403, to avoid leaking existence), the UI renders null, and no call is AI-answered — zero receptionist activity, no regression to number listing/release/test-SMS.",
+    smoke_test: [
+      'Off (default) → the receptionist config route 404s, the admin UI hides the surface, and no inbound call is AI-answered',
+      'On → an authed owner configures the greeting/persona and a call to that site\'s number is answered by the persona',
+      'On → after the call ends, the recording + transcript appear in the admin Conversations surface',
+    ],
+  },
   r2_bucket_manager: {
     checklist: [
       "AUTHORITATIVE, site-scoped catalog over ALL of a site's R2 surfaces in the editor Resources tab",
