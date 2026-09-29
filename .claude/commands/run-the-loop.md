@@ -26,7 +26,8 @@ a role under-delivered.
   - `DISCOVERIES.md` + `LEDGER.md` — append-only; the main thread does NOT read these wholesale (delegate any deep read to a fresh `Explore` agent, ≤150-line output cap). LEDGER is where completed slices + SHAs land.
   - The retired `_LOOP.md` / `apps/project-sites/_RUN_THE_LOOP.md` are being folded into these — prefer the canonical home; only fall back to a legacy file if the canonical one is absent.
 - `git fetch origin main -q && git pull --rebase origin main` — a concurrent session may have progressed work; re-inspect the ACTUAL repo, never assume a prior attempt landed.
-- **Context budget (per `monitor-orchestration` § context thrash):** the main thread holds conclusions only. Never ingest `_LOOP_LEDGER.md` / `SCOPE.md` / `DECISIONS.md` / subagent `.output` transcripts — the `guard-oversized-read.py` hook will block oversized reads; heed it. HARD STOP + fresh session on autocompact thrash / "prompt too long" / `subagent_tokens: 0`.
+- **Context budget (per `monitor-orchestration` § context thrash):** the main thread holds conclusions only. Never ingest `_LOOP_LEDGER.md` / `SCOPE.md` / `DECISIONS.md` / subagent `.output` transcripts — the `guard-oversized-read.py` hook will block oversized reads; heed it.
+- **HARD STOP = LEAD saturation ONLY, never a single agent's transient failure** (per `OPERATING-PRINCIPLES.md` § Failure taxonomy vs HARD-STOP). Checkpoint to `progress.md` + fresh session ONLY when the ORCHESTRATOR hits "Prompt is too long" / an `autocompact thrashing` notice fires on the LEAD / the main thread can't spawn. ONE agent dying on ECONNRESET or returning `subagent_tokens: 0` from a network drop is fan-out ATTRITION → salvage its commit (`git show <branch-tip>` before `git branch -D`), re-queue its slice in `BACKLOG.md`, and KEEP THE LOOP RUNNING. Read WHICH thing failed before checkpointing.
 
 ## The 4 canonical answers (BAKED IN — init-gate satisfied 2026-09-29, DO NOT re-ask)
 These are settled. Never re-prompt Brian for them; they govern every fire.
@@ -175,7 +176,7 @@ A fire that ships zero loop-improvement under-delivered — surface why in the r
 
 ## Discipline (non-negotiable)
 - One coherent slice per role per fire; fan out for independence; the main thread orchestrates + converges + reviews + **deploys once** + verifies — agents never deploy independently.
-- **Delegate-when-saturated:** if the main thread is context-heavy, the fresh agents do the heavy pass while the main thread stays lean. **HARD STOP + fresh session** on autocompact thrash / "prompt too long" / `subagent_tokens: 0` — never retry in place.
+- **Delegate-when-saturated:** if the main thread is context-heavy, the fresh agents do the heavy pass while the main thread stays lean. **HARD STOP + fresh session is a LEAD-saturation trigger ONLY** — the ORCHESTRATOR hitting "Prompt is too long" / an `autocompact thrashing` notice on the LEAD / inability to spawn; never retry in place. A single worker agent's transient failure (ECONNRESET, `subagent_tokens: 0` from a network drop, cut-off output) is fan-out attrition, NOT a checkpoint trigger → salvage (`git show <branch-tip>` before deleting the branch) + re-queue + keep the loop running (`OPERATING-PRINCIPLES.md` § Failure taxonomy vs HARD-STOP).
 - **`.gitignore` blocks `*.md`** → `git add -f` for canonical-home / backlog / ledger / doc updates.
 - Destructive/irreversible actions (canonical answer #4) → ship the decision-independent slice, never auto-execute the destructive action.
 - A workstream is DONE only when Acceptance passes + `LEDGER.md` records it + no dead refs remain.

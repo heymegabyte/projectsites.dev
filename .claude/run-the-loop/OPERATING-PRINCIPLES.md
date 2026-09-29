@@ -255,7 +255,30 @@
   paths · 10–20% architecture · 5–15% UX/a11y · 5–15% cleanup/compression · 5–10% docs ·
   5–10% discovery · 5% loop-improvement.
 - Context budget — main thread NEVER reads giant ledgers wholesale; delegate inventory reads
-  to a fresh Explore agent (≤150-line cap); HARD STOP on autocompact thrash / "prompt too
-  long" / `subagent_tokens:0` → checkpoint to `progress.md` + fresh session.
+  to a fresh Explore agent (≤150-line cap).
 - Auto-integrate-recs — anything <2h with no design call ships INLINE; the Recs list is only
   for genuine >2h / design-conversation / external-blocker / irreversible items.
+
+## Failure taxonomy vs HARD-STOP (recover vs checkpoint — never conflate)
+
+A worker AGENT failing is normal fan-out attrition — RECOVER + keep the loop running. The
+LEAD (orchestrator) failing is the ONLY checkpoint trigger. These are two DIFFERENT things;
+treating an agent's transient death as the session HARD-STOP wrongly checkpoints a healthy loop.
+
+- **Transient single-agent failure → RECOVER, keep the loop running.** ONE agent hits
+  ECONNRESET / a network drop returns `subagent_tokens:0` for that one agent / one agent's
+  output is cut off mid-stream. This is attrition, not saturation. Do NOT checkpoint the
+  session. Instead: (1) **salvage its work FIRST** — if the agent pushed/committed, `git show
+  <branch-tip>` BEFORE deleting the worktree branch; cherry-pick any COMPLETE, verified commit
+  (never `git branch -D` an agent's branch unshown — fire-51 nearly lost a complete verified
+  fix `4334a853e` this way); (2) **re-queue** its unfinished slice as a `BACKLOG.md` item; (3)
+  **continue** the fire with the remaining agents. Never re-fan-out for repair — fix-forward or
+  ONE targeted agent (`parallel-subagent-economy`).
+- **Genuine LEAD saturation → THEN checkpoint to a fresh session.** The ORCHESTRATOR itself
+  hits "Prompt is too long", an `autocompact thrashing` notice fires on the LEAD (context
+  refilled to the limit within a few turns, repeatedly), or the main thread can no longer spawn.
+  THIS is the HARD STOP: checkpoint to `progress.md` + continue in a FRESH session. Never retry
+  in place.
+- **Rule of thumb:** an *agent* failing is expected + recoverable (salvage + re-queue +
+  continue); the *lead* failing is the only signal to checkpoint. `subagent_tokens:0` from a
+  network drop on one agent ≠ lead saturation — read WHICH thing failed before deciding.
