@@ -91,6 +91,36 @@
 
 ---
 
+## CF-NATIVE CONVERGENCE RUN — streams A–E + Resources cockpit  · ACTIVE (lanes 12–18)
+
+> Full decomposition + fire-1 audit findings + dependency graph + one-owner rules + acceptance
+> matrix live in **`_CF_NATIVE_CONVERGENCE.md`** (immutable spec `docs/_cf-convergence/MANDATE.md`).
+> This is the INDEX; the command advances the next RED-first slice per stream each fire.
+
+- **F — shared contracts + migrations (SERIAL, single-owner):** `packages/shared/**` + `migrations/**`
+  are F-exclusive; ascending from **0648**. Next: F1 register `voice_receptionist` flag · F2 ADR 0056
+  (LiveKit→CF, supersedes prior LiveKit ADR + PRICING-MODEL). `_CF_NATIVE_CONVERGENCE.md` §2.
+- **A — Voice + all-call media:** A0 🔴 Test Console token-shape fix (`voice.ts:1028` `r.data.token`),
+  then A1–A9 (setup tabs · gallery+interactive console on shared AI chat · every-call session+Live View ·
+  CDP pixel-capture spike · dual-channel WAV · synced detail · 206 directory · timecoded critique · consent). §3.
+- **B — Twilio/SMS/Stripe 🔴:** B0 register `voice_numbers` killswitch + gate purchase + mock-Twilio
+  compensation (orphan-number/no-payment buy is LIVE money-loss, `voice.ts:193-261`); then B1–B6. §4.
+- **C — Editor Claude-Code + Sandbox + browser:** C1 `/api/sites/:id/workspace` 501-when-Sandbox-unbound
+  (pin `@cloudflare/sandbox` — ABSENT today); cull/repurpose orphaned `ide_sandbox.ts`; CF Browser Run
+  Live View replaces Browserbase-only; ideas 1–12. §5.
+- **D — MCP broker:** D0 audience-bound site-scoped token (wire orphaned `mcp_resource_tokens`); one
+  versioned Streamable-HTTP endpoint + OAuth 2.1; ideas 1–12; recheck policy at tools/call. §6.
+- **E — CF-native surfaces:** Inspector-removal (26 files/~4600 LOC) · EmDash/microfeed/Traks/OpenSEO/
+  Slink/Automations/Email/health-widget · Social 10-pass campaign; E7 D1-export + E8 shortlinks near-done. §7,§9.
+- **Resources cockpit + Advanced console (Brian directive) 🔴:** R1 kill manual Refresh/Reconcile
+  (`ResourceOverviewPanel.tsx:457-458`) · R2 promote 9 adapters to tabs · R3 drop Site-files/Media tabs
+  (security) · R4 R2 manager · R5 fix dead Add · R6 Advanced→tabs · R7 Secrets/Connections/Functions/
+  Schedules · R8 honest-limit tabs. §8.
+- **Cross-cutting:** Jest→Vitest (kills `@swc/jest` mock-hoist) · psnotify deploy `v_psnotify_do` +
+  fan-out/bell-unify. §10.
+
+---
+
 ## § Harvested backlog — non-workstream items (2026-09-28)
 
 ### Source TODOs / FIXMEs (grep receipts)
