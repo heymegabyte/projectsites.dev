@@ -236,6 +236,32 @@ jobs:
         working-directory: apps/project-sites
         run: node scripts/check-fabricated-kit-defaults.mjs --ci
 
+      # IDOR ownership-gate DRIFT detector — every `/api/sites/:siteId`/`:id` route handler
+      # across src/routes + libs/features MUST call a per-site ownership guard
+      # (assertSiteOwned / loadOwnedSite / requireSiteMembership / org_id-SQL / super-admin
+      # idioms), with a small PUBLIC_ALLOWLIST for genuine public/org-only routes. Caps the
+      # 2026-09-29 §4.6 security-discovery arc (audit found 0 gaps → now defended against
+      # drift). 0-finding-stable (206 `:siteId` handlers, 0 offenders) → CI-mirroring gate,
+      # graduated immediately per audit-arc-maturity-ladder short-path. Mirrors
+      # `npm run validate:idor`. Pure Node, no deps. Conditional on script presence so it
+      # fails-open on repos lacking the script (per conditional-ci-gates).
+      - name: IDOR ownership drift gate
+        if: hashFiles('apps/project-sites/scripts/validate-idor-gates.mjs') != ''
+        working-directory: apps/project-sites
+        run: npm run validate:idor
+
+      # Action-pin gate — every GitHub Actions `uses:` (except local `./`-path composite
+      # actions) MUST be pinned to a full 40-hex commit SHA, never a mutable `@v4`/`@master`
+      # tag (a compromised maintainer ships unnoticed through a moving tag, per
+      # supply-chain-integrity). Caps the 2026-09-29 §4.6 SHA-pinning arc (122 refs pinned
+      # across 23 workflows). 0-finding-stable → CI-mirroring gate, graduated immediately per
+      # audit-arc-maturity-ladder short-path. Mirrors `npm run validate:action-pins`. Pure
+      # Node, no deps. Conditional on script presence so it fails-open on repos lacking it.
+      - name: GitHub Actions SHA-pin gate
+        if: hashFiles('apps/project-sites/scripts/check-action-pins.mjs') != ''
+        working-directory: apps/project-sites
+        run: npm run validate:action-pins
+
       # ── Step 3: Upload drift report as artifact (always, even on failure) ─
       - name: Upload drift report
         if: always()
