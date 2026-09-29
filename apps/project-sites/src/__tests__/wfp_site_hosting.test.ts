@@ -243,6 +243,36 @@ describe('deploySiteToWfp', () => {
     expect(String(recorded.usageJson)).toContain(res.sourceDigest);
   });
 
+  it('sends a CF assets manifest whose every file hash is exactly 32 hex chars (truncated SHA-256)', async () => {
+    // CF Workers Static Assets rejects a full 64-char SHA-256 with CF 10304
+    // "Invalid manifest: file hash size of 64 is too large" — each manifest hash MUST be
+    // a 32-hex-char (16-byte) truncated SHA-256. This is RED without the `.slice(0, 32)` at
+    // the manifest boundary (the raw sha256Hex is 64 chars), GREEN with it.
+    const res = await deploySiteToWfp(envWith() as never, OWNED_SITE, {
+      orgId: OWNER_ORG,
+      slot: 'production',
+      version: 'v2',
+    });
+    expect(res.ok).toBe(true);
+    if (!res.ok) throw new Error(res.error);
+
+    // The manifest rides in the assets-upload-session POST body: { manifest: { path: { hash, size } } }.
+    const sessionCall = fetchMock.mock.calls.find((c) =>
+      String(c[0]).includes('/assets-upload-session'),
+    );
+    expect(sessionCall).toBeDefined();
+    const body = JSON.parse((sessionCall![1] as RequestInit).body as string) as {
+      manifest: Record<string, { hash: string; size: number }>;
+    };
+    const entries = Object.entries(body.manifest);
+    // The R2 build has 3 files → 3 manifest entries; each hash is exactly 32 lowercase hex.
+    expect(entries.length).toBe(3);
+    for (const [, { hash }] of entries) {
+      // Exactly 32 hex chars — a full 64-char SHA-256 here is the CF 10304 bug.
+      expect(hash).toMatch(/^[0-9a-f]{32}$/);
+    }
+  });
+
   it('deploys the PREVIEW slot to site-<id>-preview', async () => {
     const res = await deploySiteToWfp(envWith() as never, OWNED_SITE, {
       orgId: OWNER_ORG,

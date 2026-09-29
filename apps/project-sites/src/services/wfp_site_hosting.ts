@@ -219,9 +219,17 @@ async function uploadSiteAssets(
   scriptPath: string,
   assets: BuiltAsset[],
 ): Promise<{ ok: true; jwt: string | null } | { ok: false; error: string; status?: number }> {
-  // manifest: path -> { hash, size }
+  // manifest: path -> { hash, size }.
+  // CF Workers Static Assets requires each manifest file hash to be a 32-hex-char string
+  // (a 16-byte truncated SHA-256) — the full 64-char SHA-256 is rejected with CF 10304
+  // "Invalid manifest: file hash size of 64 is too large". Truncate ONLY here, at the CF
+  // manifest boundary; the full 64-char `a.hash` stays load-bearing for sourceDigest /
+  // artifactDigest / content-integrity elsewhere. CF echoes these manifest hashes back in
+  // its `buckets` response, so the bucket-upload lookup (`byHash`) MUST key on the SAME
+  // 32-char value — hence `cfHash(a)` is used for both the manifest and the byHash map.
+  const cfHash = (a: BuiltAsset): string => a.hash.slice(0, 32);
   const manifest: Record<string, { hash: string; size: number }> = {};
-  for (const a of assets) manifest[a.path] = { hash: a.hash, size: a.bytes.length };
+  for (const a of assets) manifest[a.path] = { hash: cfHash(a), size: a.bytes.length };
 
   // `scriptPath` is ALREADY the dispatch-namespace-scoped path
   // (`dispatch/namespaces/{ns}/scripts/{script}`) — it sits directly under `.../workers/`,
@@ -254,9 +262,10 @@ async function uploadSiteAssets(
   let jwt = startJson.result?.jwt ?? null;
   const buckets = startJson.result?.buckets ?? [];
 
-  // hash -> asset, for the bucket uploads CF asks for.
+  // hash -> asset, for the bucket uploads CF asks for. Keyed on the SAME 32-char CF hash
+  // sent in the manifest, because CF returns exactly those manifest hashes in `buckets`.
   const byHash: Record<string, BuiltAsset> = {};
-  for (const a of assets) byHash[a.hash] = a;
+  for (const a of assets) byHash[cfHash(a)] = a;
 
   for (const bucket of buckets) {
     const form = new FormData();
