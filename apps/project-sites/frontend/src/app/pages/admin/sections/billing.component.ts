@@ -233,7 +233,7 @@ interface ForecastBar {
                 <h2 class="m-0 text-base font-semibold text-white text-sm">Stripe Checkout</h2>
                 <button class="btn-ghost" (click)="closeEmbeddedCheckout()">Close</button>
               </div>
-              <div #embeddedMount data-testid="stripe-embedded-iframe" class="billing-embedded-frame min-h-96 w-full rounded-lg bg-white/5" aria-label="Stripe embedded checkout"></div>
+              <div #embeddedMount data-testid="stripe-embedded-iframe" class="billing-embedded-frame min-h-96 w-full rounded-lg bg-white/5" title="Stripe secure checkout" aria-label="Stripe embedded checkout"></div>
             </div>
           }
         </div>
@@ -1139,6 +1139,11 @@ interface ForecastBar {
                 </div>
                 <h3 class="empty-h">No projects yet</h3>
                 <p class="empty-p">Create your first site to set per-project AI credit caps.</p>
+                <button
+                  class="btn-primary mt-3"
+                  type="button"
+                  data-testid="billing-caps-modal-create-site"
+                  (click)="goCreateSite()">Create your first site</button>
               </div>
             } @else {
               <ul class="list-none p-0 m-0 space-y-2 max-h-[50vh] overflow-y-auto pr-1">
@@ -1215,18 +1220,21 @@ interface ForecastBar {
       display: inline-flex; align-items: center; gap: 5px;
       padding: 3px 10px; border-radius: 999px;
       font-size: 0.65rem; font-weight: 700; text-transform: capitalize;
-      background: rgba(148,163,184,0.1); color: #94a3b8;
+      background: rgba(148,163,184,0.1); color: var(--ps-muted, #94a3b8);
       border: 1px solid rgba(148,163,184,0.25);
     }
-    .subscription-status-badge[data-status="active"] { background: rgba(52,211,153,0.1); color: #6ee7b7; border-color: rgba(52,211,153,0.3); }
-    .subscription-status-badge[data-status="past_due"] { background: rgba(251,191,36,0.1); color: #fbbf24; border-color: rgba(251,191,36,0.3); }
-    .subscription-status-badge[data-status="canceled"] { background: rgba(248,113,113,0.1); color: #fca5a5; border-color: rgba(248,113,113,0.25); }
+    /* Status text colors map to brand semantic tokens (muted/success/warning/danger/
+       accent) instead of per-status hard-coded hexes; the low-alpha rgba tint + border
+       stay as the historical fill so the rendered look is unchanged. */
+    .subscription-status-badge[data-status="active"] { background: rgba(52,211,153,0.1); color: var(--ps-success, #4dffb5); border-color: rgba(52,211,153,0.3); }
+    .subscription-status-badge[data-status="past_due"] { background: rgba(251,191,36,0.1); color: var(--ps-warning, #ffd166); border-color: rgba(251,191,36,0.3); }
+    .subscription-status-badge[data-status="canceled"] { background: rgba(248,113,113,0.1); color: var(--ps-danger, #ff5555); border-color: rgba(248,113,113,0.25); }
     /* Stripe passes subscription.status through verbatim — cover the rest of the
        vocabulary so a trial reads as active (not the neutral slate fallback) + the
        dunning states warn. active=green · past_due/incomplete=amber · canceled/unpaid=red. */
-    .subscription-status-badge[data-status="trialing"] { background: rgba(0,229,255,0.1); color: #67e8f9; border-color: rgba(0,229,255,0.3); }
-    .subscription-status-badge[data-status="incomplete"] { background: rgba(251,191,36,0.1); color: #fbbf24; border-color: rgba(251,191,36,0.3); }
-    .subscription-status-badge[data-status="unpaid"] { background: rgba(248,113,113,0.1); color: #fca5a5; border-color: rgba(248,113,113,0.3); }
+    .subscription-status-badge[data-status="trialing"] { background: rgba(0,229,255,0.1); color: var(--ps-accent, #00E5FF); border-color: rgba(0,229,255,0.3); }
+    .subscription-status-badge[data-status="incomplete"] { background: rgba(251,191,36,0.1); color: var(--ps-warning, #ffd166); border-color: rgba(251,191,36,0.3); }
+    .subscription-status-badge[data-status="unpaid"] { background: rgba(248,113,113,0.1); color: var(--ps-danger, #ff5555); border-color: rgba(248,113,113,0.3); }
 
     /* ─────── Billing warning / grace-period banners ─────── */
     .billing-warning-banner {
@@ -2705,6 +2713,19 @@ export class AdminBillingComponent implements OnInit {
     if (this.savingCapsBulk()) return;
     this.capsModalOpen.set(false);
     this.capsModalError.set(null);
+  }
+
+  /**
+   * Caps-modal empty state ("No projects yet") first-action: close the modal and
+   * route to the site-creation wizard. The caps modal is a paywall dead-end with
+   * zero sites — this turns it into a launchpad (per embarrassingly-easy-to-use +
+   * action-button-must-gate). Bypasses the savingCapsBulk guard in closeCapsModal
+   * (there's nothing to save when sites=0) so navigation always fires.
+   */
+  goCreateSite(): void {
+    this.capsModalOpen.set(false);
+    this.capsModalError.set(null);
+    void this.router.navigate(['/create']);
   }
 
   /**

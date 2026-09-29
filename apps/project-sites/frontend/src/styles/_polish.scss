@@ -241,6 +241,11 @@
   // ~14:1, and as small text still clears AA. Consumers use var(--ps-warning) rather
   // than a hard-coded #ffd166 (was inline drift on the api-tokens reveal dialog).
   --ps-warning: #ffd166;
+  // Muted/neutral accent — cool slate for "unknown"/idle/neutral status chips (e.g. a
+  // subscription with no known state). Readable-but-quiet on #060610 (~5:1 as text, a
+  // sibling of --ps-sentiment-neutral). Consumers use var(--ps-muted) rather than a
+  // hard-coded slate hex (was inline #94a3b8 drift on the billing status badge).
+  --ps-muted: #94a3b8;
   // HTTP status-class fills for the edge-delivery card's status bars (delivery-card).
   // Kept as distinct amber/red hues (NOT --ps-warning/--ps-danger) so the rendered
   // colors match the historical inline hexes exactly; a status bar is a GRAPHICAL
