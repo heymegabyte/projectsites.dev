@@ -89,7 +89,7 @@
   - admin sections with no nav entry (cross-check `/admin/*` routes vs sidebar);
   - worker `libs/features/*/handlers` + `src/routes` endpoints with no admin/editor caller + no intentional-headless note;
   - MCP tools in `src/services` not represented in UI.
-- **Found (2026-09-29, `detect-orphans.mjs`: 1 flagged / 1 real):** `app/components/workbench/GitPanel.tsx` (1134 LOC) — **0 importers, no JSX render** anywhere in `app/`. Likely superseded by `SourceControlPanel` when the Git tab was retired (Lane 1). **[DELETE|WIRE — deliberate call]** — look-before-delete: confirm `SourceControlPanel` fully covers its capability, then delete (never orphan-keep per interconnectedness); else wire into `Workbench.client.tsx`. The other checked units (SchemaBuilder/ImportPanel/AiSeedPanel/GreenfieldReset/KvManager/SqlNavigator) had no non-test source refs (aspirational, not yet built); the 4 CF-inspector sections ARE routed+labeled (intentional flag/super-admin gating). Parked: `docs/_loop-scan/discovery-orphans-2026-09-29.md`.
+- **Done (2026-09-29) — GitPanel orphan resolved (DELETED, 1134 LOC):** `detect-orphans.mjs` flagged `GitPanel.tsx` (0 importers, never rendered). Look-before-delete capability diff confirmed FULL supersession — file-tree→`FileTree`, history→`ProjectHub`, diff/release/promote→`SourceControlPanel`, shared helpers→`git-browser-logic` (kept, live). Deleted `GitPanel.tsx` + `.spec.tsx`; repointed stale "preserved GitPanel" comments/`@link` in 7 files (incl. `app/lib/stores/workbench.ts`) to the live `SourceControlPanel`. Detector green (0/0), tsc 0, `grep GitPanel app/` clean; commit `5b44836b9`, editor Pages `7e190809`. (SchemaBuilder/ImportPanel/AiSeedPanel/GreenfieldReset/KvManager/SqlNavigator = aspirational, not built; 4 CF-inspectors routed+labeled — intentional.)
 - **Acceptance:** zero orphaned major units; detector green.
 
 ### 6. App-completion journeys (whole-app DoD)  · ACTIVE (batch after 1–5)
@@ -169,7 +169,8 @@
 
 ### Standing infra
 - Apply migration `0646` to prod D1 (additive/idempotent, DARK) — full-visibility run.
-- Cold-provision fix in `src/services/d1_provisioner.ts` — idempotent create + await readiness (new-site first `/db/query` CREATEs race).
+- **[x] DONE (2026-09-29)** Cold-provision fix in `src/services/d1_provisioner.ts` + `site_data_db.ts` — idempotent INSERT-OR-IGNORE allocation collapse + CF-already-exists=success + bounded `SELECT 1` readiness poll (5 attempts, linear 400·n backoff, ~6s cap, typed `not_ready` on exhaustion — never hangs). jest 63/63, consumer regression 272/272; commit `f095ffc9a`, worker prod-deployed `8cbc8f82`.
+- **[loop-discipline] Editor verify MUST run the FULL Vitest suite, not scoped** (`npm test`, not `npm test -- <files>`). Fire 17 found 10 pre-existing RED editor tests (`DatabasePanel.spec`/`data-grid-features.spec`) that scoped runs had hidden across ≥3 fires — all spec-drift from the Rev 1-10 arc (testid/bridge migration + localStorage view-mode test-bleed), 0 source regressions, now green (full suite 1237✓). Per `[[handler-change-breaks-existing-contract-tests-run-full-suite]]`.
 - Preview loading UX (Msg-3b remainder): mirror the preview-boot message into the editor CHAT + wire the signal to BaseChat + the AI-ensures-boot backend (`app/components/workbench/Preview.tsx`).
 
 ---
