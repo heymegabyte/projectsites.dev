@@ -478,8 +478,19 @@ const PLATFORMS: readonly PlatformDef[] = [
             <input #fileInput type="file" accept="image/*,video/*" multiple hidden (change)="onFiles($event)" />
             @if (media().length === 0) {
               <div class="media-empty">
-                <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="9" cy="9" r="2"/><path d="m21 15-5-5L5 21"/></svg>
-                <span>Drag images/video here, or click to browse</span>
+                <svg class="media-empty__icon" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="9" cy="9" r="2"/><path d="m21 15-5-5L5 21"/></svg>
+                <div class="media-empty__body">
+                  <span class="media-empty__copy">Add a photo or video to make this post pop.</span>
+                  <button
+                    type="button"
+                    class="media-empty__cta"
+                    (click)="fileInput.click(); $event.stopPropagation()"
+                    aria-label="Upload media from your device">
+                    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+                    Upload media
+                  </button>
+                  <span class="media-empty__hint">or drag &amp; drop anywhere here</span>
+                </div>
               </div>
             } @else {
               <div class="media-grid">
@@ -1100,7 +1111,23 @@ const PLATFORMS: readonly PlatformDef[] = [
         background: color-mix(in oklch, var(--ps-accent, #00e5ff) 4%, transparent);
       }
       .media-zone:focus-visible { outline: 2px solid var(--ps-accent, #00e5ff); outline-offset: 2px; }
-      .media-empty { display: flex; align-items: center; gap: 10px; color: color-mix(in oklch, var(--ps-ink, #f4f4ff) 82%, transparent); font-size: 0.82rem; }
+      .media-empty { display: flex; align-items: center; gap: 12px; color: color-mix(in oklch, var(--ps-ink, #f4f4ff) 82%, transparent); font-size: 0.82rem; }
+      .media-empty__icon { color: color-mix(in oklch, var(--ps-accent, #00e5ff) 70%, var(--ps-ink, #f4f4ff) 30%); flex-shrink: 0; }
+      .media-empty__body { display: flex; flex-direction: column; align-items: flex-start; gap: 6px; min-width: 0; }
+      .media-empty__copy { font-weight: 600; color: var(--ps-ink, #f4f4ff); }
+      .media-empty__cta {
+        display: inline-flex; align-items: center; gap: 7px; cursor: pointer; font-family: inherit;
+        padding: 7px 14px; border-radius: 999px; font-size: 0.78rem; font-weight: 700;
+        color: var(--ps-bg, #060610);
+        background: var(--ps-accent, #00e5ff);
+        border: 1px solid color-mix(in oklch, var(--ps-accent, #00e5ff) 60%, transparent);
+        transition: filter 0.18s ease, transform 0.18s ease;
+      }
+      .media-empty__cta:hover { filter: brightness(1.08); }
+      .media-empty__cta:active { transform: translateY(1px); }
+      .media-empty__cta:focus-visible { outline: 2px solid var(--ps-accent, #00e5ff); outline-offset: 3px; }
+      .media-empty__hint { font-size: 0.7rem; color: color-mix(in oklch, var(--ps-ink, #f4f4ff) 55%, transparent); }
+      @media (prefers-reduced-motion: reduce) { .media-empty__cta { transition: none; } }
       .media-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(110px, 1fr)); gap: 8px; }
       .media-tile {
         position: relative; aspect-ratio: 1; border-radius: 10px; overflow: hidden; margin: 0;
