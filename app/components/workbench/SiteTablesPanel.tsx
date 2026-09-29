@@ -1927,8 +1927,21 @@ export const SiteTablesPanel = memo(
           }
         />
 
-        {/* Table list ↔ browse view */}
-        {!selectedTable ? (
+        {/* Persistent schema rail (left) + Table list ↔ browse view (right).
+            The rail lists every table from the ALREADY-FETCHED tables response (no new endpoint) and
+            stays mounted across list↔browse so switching tables is one click — an Airtable-style browser. */}
+        <div className="flex-1 flex min-h-0">
+          {tables.status === 'ready' && tables.tables.length > 0 && (
+            <SchemaRail
+              tables={tables.tables}
+              activeTable={selectedTable}
+              activeColumnCount={rows.status === 'ready' ? rows.page.columns.length : null}
+              activeRowCount={rows.status === 'ready' ? rows.page.total : null}
+              onOpen={openTable}
+            />
+          )}
+          <div className="flex-1 flex flex-col min-w-0">
+            {!selectedTable ? (
           <TableListView
             state={tables}
             onOpen={openTable}
@@ -2041,6 +2054,8 @@ export const SiteTablesPanel = memo(
             onRetry={() => void loadRows(selectedTable)}
           />
         )}
+          </div>
+        </div>
 
         {/* One-click Undo toast (embarrassingly-easy: every mutation is reversible) */}
         {undo && (
@@ -2898,6 +2913,110 @@ const TableListView = memo(
 );
 
 TableListView.displayName = 'SiteTablesPanel.TableListView';
+
+// ── Schema / table-browser rail (Rev 2) ──────────────────────────────────────
+
+/**
+ * A persistent Airtable/NocoDB-style LEFT RAIL over the site's tables. It lists every table straight
+ * from the ALREADY-FETCHED `PS_SITEDB_TABLES_RESPONSE` (no new endpoint, no per-table round-trip) so
+ * switching tables is a single click and stays visible across the list↔browse views. Each entry shows
+ * a table glyph + the name; the ACTIVE table additionally surfaces its loaded column-count + row-count
+ * (from the already-loaded `PS_SITEDB_ROWS_RESPONSE`) and is highlighted (`aria-current`). Real-time by
+ * construction — it re-renders whenever the parent refreshes the tables/rows via the existing bridge,
+ * so there is NO manual Refresh control here (per the real-time-data mandate). Keyboard-navigable:
+ * ↑/↓ move focus between entries, Enter/Space opens the focused table (arrow keys never scroll the page).
+ * Brand-locked dark styling via the editor's `bolt-elements-*` tokens (black `#060610` + cyan `#00E5FF`).
+ */
+const SchemaRail = memo(
+  ({
+    tables,
+    activeTable,
+    activeColumnCount,
+    activeRowCount,
+    onOpen,
+  }: {
+    tables: { name: string }[];
+    activeTable: string | null;
+    activeColumnCount: number | null;
+    activeRowCount: number | null;
+    onOpen: (name: string) => void;
+  }) => {
+    const itemRefs = useRef<(HTMLButtonElement | null)[]>([]);
+
+    /** ↑/↓ move focus between rail entries; Enter/Space opens the focused one. */
+    const onKeyDown = useCallback(
+      (e: React.KeyboardEvent<HTMLButtonElement>, index: number) => {
+        if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+          e.preventDefault();
+          const dir = e.key === 'ArrowDown' ? 1 : -1;
+          const next = (index + dir + tables.length) % tables.length;
+          itemRefs.current[next]?.focus();
+        } else if (e.key === 'Enter' || e.key === ' ') {
+          e.preventDefault();
+          onOpen(tables[index].name);
+        }
+      },
+      [tables, onOpen],
+    );
+
+    return (
+      <nav
+        aria-label="Tables"
+        data-testid="sitedb-rail"
+        className="w-52 shrink-0 flex flex-col min-h-0 border-r border-bolt-elements-borderColor bg-bolt-elements-background-depth-2"
+      >
+        <div className="px-3 py-2 border-b border-bolt-elements-borderColor sticky top-0 bg-bolt-elements-background-depth-2 z-10">
+          <span className="text-[10px] uppercase tracking-wider text-bolt-elements-textTertiary">
+            Tables ({tables.length})
+          </span>
+        </div>
+        <div className="flex-1 overflow-auto modern-scrollbar py-1">
+          {tables.map((t, i) => {
+            const active = t.name === activeTable;
+            return (
+              <button
+                key={t.name}
+                ref={(el) => (itemRefs.current[i] = el)}
+                type="button"
+                data-testid="sitedb-rail-item"
+                aria-current={active ? 'true' : undefined}
+                onClick={() => onOpen(t.name)}
+                onKeyDown={(e) => onKeyDown(e, i)}
+                className={classNames(
+                  'group/rail w-full min-h-[28px] flex items-center gap-2 pl-3 pr-2 py-1.5 text-xs text-left transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-bolt-elements-item-contentAccent cursor-pointer',
+                  active
+                    ? 'bg-bolt-elements-item-backgroundActive border-l-2 border-[color:var(--ps-accent,#00e5ff)] pl-[10px] text-bolt-elements-item-contentAccent'
+                    : 'border-l-2 border-transparent text-bolt-elements-textSecondary hover:bg-bolt-elements-item-backgroundActive hover:text-bolt-elements-textPrimary',
+                )}
+              >
+                <div
+                  className={classNames(
+                    'i-ph:table text-sm shrink-0',
+                    active ? 'text-bolt-elements-item-contentAccent' : 'text-bolt-elements-textTertiary',
+                  )}
+                  aria-hidden
+                />
+                <span className="font-mono flex-1 truncate">{t.name}</span>
+                {active && activeColumnCount !== null && (
+                  <span
+                    data-testid="sitedb-rail-active-meta"
+                    className="shrink-0 text-[10px] font-mono text-bolt-elements-textTertiary tabular-nums"
+                    title={`${activeColumnCount} columns · ${activeRowCount ?? 0} rows`}
+                  >
+                    {activeColumnCount}c
+                    {activeRowCount !== null ? ` · ${activeRowCount}r` : ''}
+                  </span>
+                )}
+              </button>
+            );
+          })}
+        </div>
+      </nav>
+    );
+  },
+);
+
+SchemaRail.displayName = 'SiteTablesPanel.SchemaRail';
 
 // ── Shared edit-engine prop bundle ──────────────────────────────────────────
 

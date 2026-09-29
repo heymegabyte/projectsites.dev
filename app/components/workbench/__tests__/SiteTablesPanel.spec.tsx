@@ -1065,6 +1065,132 @@ describe('SiteTablesPanel — Revision 1 rowid inline edit (no-PK table)', () =>
 });
 
 /*
+ * ─── Rev 2 — persistent schema / table-browser rail ──────────────────────────
+ *
+ * The per-site Database surface now carries a persistent Airtable-style LEFT
+ * RAIL listing every table (from the already-fetched PS_SITEDB_TABLES_RESPONSE —
+ * NO new endpoint). Each rail row shows a table glyph + name; the ACTIVE table
+ * additionally shows its column-count + row-count (from the already-loaded
+ * PS_SITEDB_ROWS_RESPONSE). Clicking a rail row opens that table in the main
+ * grid; the active table's rail row is highlighted (aria-current="true"). The
+ * rail is keyboard-navigable (↑/↓ move focus, Enter opens).
+ *
+ * These cases prove: (1) the rail renders one entry per table from the tables
+ * response; (2) clicking a rail entry fires that table's PS_SITEDB_ROWS_REQUEST
+ * and marks it active; (3) the active entry shows the loaded column/row counts.
+ */
+describe('SiteTablesPanel — Rev 2 schema/table rail', () => {
+  beforeEach(() => {
+    postToParentSpy.mockClear();
+    onParentMessageSpy.mockClear();
+    parentHandlers.clear();
+  });
+
+  afterEach(() => {
+    cleanup();
+    parentHandlers.clear();
+  });
+
+  /** Drive to the tables-ready state with a two-table database. */
+  async function openTablesReady(): Promise<void> {
+    render(<SiteTablesPanel />);
+
+    await waitFor(() => {
+      expect(postToParentSpy).toHaveBeenCalledWith(expect.objectContaining({ type: 'PS_SITEDB_TABLES_REQUEST' }));
+    });
+
+    await act(async () => {
+      fireReply({
+        type: 'PS_SITEDB_TABLES_RESPONSE',
+        correlationId: lastCorrelationId(),
+        ok: true,
+        databaseId: 'db-rev2',
+        provisioned: true,
+        tables: [{ name: 'posts' }, { name: 'users' }],
+      });
+    });
+  }
+
+  it('renders a persistent rail listing every table from the tables response', async () => {
+    await openTablesReady();
+
+    // The rail is present with one entry per table (reuses the fetched table list — no new endpoint).
+    expect(screen.getByTestId('sitedb-rail')).toBeTruthy();
+
+    const railItems = screen.getAllByTestId('sitedb-rail-item');
+    expect(railItems.length).toBe(2);
+    expect(railItems[0].textContent).toContain('posts');
+    expect(railItems[1].textContent).toContain('users');
+  });
+
+  it('clicking a rail entry opens that table (fires its rows request) and marks it active', async () => {
+    await openTablesReady();
+
+    postToParentSpy.mockClear();
+
+    await act(async () => {
+      screen.getAllByTestId('sitedb-rail-item')[0].click();
+    });
+
+    // The clicked table's rows request goes out (reuses the existing PS_SITEDB_ROWS_REQUEST bridge).
+    await waitFor(() => {
+      expect(postToParentSpy).toHaveBeenCalledWith(
+        expect.objectContaining({ type: 'PS_SITEDB_ROWS_REQUEST', table: 'posts' }),
+      );
+    });
+
+    // The active rail entry is highlighted (aria-current).
+    const activeItem = screen.getAllByTestId('sitedb-rail-item')[0];
+    expect(activeItem.getAttribute('aria-current')).toBe('true');
+  });
+
+  it('shows the active table column + row counts on its rail entry once rows load', async () => {
+    await openTablesReady();
+
+    postToParentSpy.mockClear();
+
+    await act(async () => {
+      screen.getAllByTestId('sitedb-rail-item')[0].click();
+    });
+
+    await waitFor(() => {
+      expect(postToParentSpy).toHaveBeenCalledWith(
+        expect.objectContaining({ type: 'PS_SITEDB_ROWS_REQUEST', table: 'posts' }),
+      );
+    });
+
+    const rowsReq = postToParentSpy.mock.calls
+      .map((c) => c[0])
+      .find((m: unknown) => (m as { type?: string })?.type === 'PS_SITEDB_ROWS_REQUEST') as
+      | { correlationId: string }
+      | undefined;
+
+    await act(async () => {
+      fireReply({
+        type: 'PS_SITEDB_ROWS_RESPONSE',
+        correlationId: rowsReq?.correlationId,
+        ok: true,
+        table: 'posts',
+        columns: [
+          { name: 'id', type: 'INTEGER', notnull: 1, pk: 1 },
+          { name: 'title', type: 'TEXT', notnull: 0, pk: 0 },
+          { name: 'body', type: 'TEXT', notnull: 0, pk: 0 },
+        ],
+        rows: [{ id: 1, title: 'A', body: 'x' }, { id: 2, title: 'B', body: 'y' }],
+        limit: 25,
+        offset: 0,
+        total: 2,
+      });
+    });
+
+    // The active rail entry surfaces the loaded schema shape: 3 columns · 2 rows.
+    const activeMeta = screen.getByTestId('sitedb-rail-active-meta');
+    expect(activeMeta.textContent).toContain('3');
+    expect(activeMeta.textContent).toContain('2');
+  });
+});
+
+/*
  * ─── PS_SITEDB_UPDATE_ROW message field contract ─────────────────────────────
  * The request/response shape agree on field names — the runtime contract guard
  * that catches drift between the child sender and the parent handler.
