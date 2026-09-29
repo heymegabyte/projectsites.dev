@@ -517,4 +517,49 @@ describe('CreateComponent — inline required-field error on blur (WCAG 3.3.1)',
     fx.detectChanges();
     expect(c.nameError).withContext('error clears once the field is valid again').toBeNull();
   });
+
+  // ── Focus-then-blur-empty (fire-52) ──────────────────────────────────────────
+  // The most common keyboard/AT pattern is: TAB into a required field, TAB out
+  // without typing anything. The original fire-51 fix only marked a field "touched"
+  // on TYPING (onBusinessInput / onAddressInput) or on a query-param prefill, so a
+  // visit-then-leave (focus → blur, zero keystrokes) surfaced NO error and left the
+  // Create-site button disabled with no explanation — the exact WCAG 3.3.1 catch-22
+  // the fix was meant to kill, still live for the focus-only path. A blur IS a visit:
+  // leaving a required field empty must explain itself whether or not a key was pressed.
+  // Caught by the fire-52 golden-path prod journey (address focus→Tab surfaced nothing).
+
+  it('surfaces the name error on a focus-then-blur-empty (no keystroke, no submit)', () => {
+    const fx = render();
+    const c = fx.componentInstance;
+    // User TABS into the empty name field and TABS out — never types. The template's
+    // (focus) handler does not mark the field touched, so this is the pure focus→blur path.
+    c.closeBusinessDropdown();
+    fx.detectChanges();
+    expect(c.attempted())
+      .withContext('no submit happened — pure focus→blur path')
+      .toBe(false);
+    expect(c.nameError)
+      .withContext('leaving a required field empty on blur must explain itself, even with no keystroke')
+      .toContain('required');
+    const input = (fx.nativeElement as HTMLElement).querySelector<HTMLInputElement>('#create-name');
+    expect(input?.getAttribute('aria-invalid'))
+      .withContext('AT must hear the field is invalid after a focus→blur')
+      .toBe('true');
+  });
+
+  it('surfaces the address error on a focus-then-blur-empty (no keystroke)', () => {
+    const fx = render();
+    const c = fx.componentInstance;
+    c.closeAddressDropdown();
+    fx.detectChanges();
+    expect(c.addressError)
+      .withContext('address blurred-while-empty after a bare focus must explain itself')
+      .toContain('required');
+    const input = (fx.nativeElement as HTMLElement).querySelector<HTMLInputElement>(
+      '#create-address',
+    );
+    expect(input?.getAttribute('aria-invalid'))
+      .withContext('AT must hear the address field is invalid after a focus→blur')
+      .toBe('true');
+  });
 });

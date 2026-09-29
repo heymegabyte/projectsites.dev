@@ -621,8 +621,12 @@ export class CreateComponent implements OnInit, OnDestroy {
   }
 
   closeAddressDropdown(): void {
-    // A touched required field left empty on blur must explain itself (WCAG 3.3.1).
-    if (this.touchedFields().has('address')) this.markBlurredEmpty('address', this.businessAddress);
+    // A blur IS a visit — mark the field touched so the required-field error fires
+    // even when the user tabbed in and straight back out WITHOUT typing (the most
+    // common keyboard/AT path). Gating on "typed-touched" alone left focus→blur-empty
+    // silent — the WCAG 3.3.1 catch-22 the blur fix targets (fire-52 prod journey).
+    this.markTouched('address');
+    this.markBlurredEmpty('address', this.businessAddress);
     setTimeout(() => this.addressDropdownOpen.set(false), 200);
   }
 
@@ -662,8 +666,12 @@ export class CreateComponent implements OnInit, OnDestroy {
   }
 
   closeBusinessDropdown(): void {
-    // A touched required field left empty on blur must explain itself (WCAG 3.3.1).
-    if (this.touchedFields().has('name')) this.markBlurredEmpty('name', this.businessName);
+    // A blur IS a visit — mark the field touched so the required-field error fires
+    // even when the user tabbed in and straight back out WITHOUT typing (the most
+    // common keyboard/AT path). Gating on "typed-touched" alone left focus→blur-empty
+    // silent — the WCAG 3.3.1 catch-22 the blur fix targets (fire-52 prod journey).
+    this.markTouched('name');
+    this.markBlurredEmpty('name', this.businessName);
     setTimeout(() => this.businessDropdownOpen.set(false), 200);
   }
 
