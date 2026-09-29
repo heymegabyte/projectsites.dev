@@ -38,6 +38,7 @@ import {
   scrubNonRetailCommerceCopy,
   validateBuild,
   resolveValidatorMode,
+  resolveEffectiveValidatorMode,
   assertBuildStrict,
   BuildValidationStrictError,
   type BuildFile,
@@ -1074,6 +1075,37 @@ describe('VALIDATOR_MODE strict enforcement (Lane 7: report→strict canary, def
     expect(report.ok).toBe(true);
     expect(() => assertBuildStrict(report, 'strict')).not.toThrow();
     expect(assertBuildStrict(report, 'strict')).toBe(report);
+  });
+
+  // Per-org `validator_strict` flag canary (Lane 7). The workflow computes the EFFECTIVE mode as
+  // `resolveEffectiveValidatorMode(await isFlagOn(env,'validator_strict',{orgId}), env.VALIDATOR_MODE)`.
+  // The flag can only ESCALATE report→strict for one canary org; it never relaxes a globally-strict env.
+  describe('resolveEffectiveValidatorMode (per-org validator_strict flag ⊕ global env)', () => {
+    it('flag OFF → the global env mode (default report, zero live change)', () => {
+      expect(resolveEffectiveValidatorMode(false, undefined)).toBe('report');
+      expect(resolveEffectiveValidatorMode(false, 'report')).toBe('report');
+      expect(resolveEffectiveValidatorMode(false, 'yolo')).toBe('report');
+    });
+    it('flag OFF but global env already strict → stays strict (flag never relaxes global)', () => {
+      expect(resolveEffectiveValidatorMode(false, 'strict')).toBe('strict');
+    });
+    it('flag ON → strict regardless of the global env (the canary escalation)', () => {
+      expect(resolveEffectiveValidatorMode(true, undefined)).toBe('strict');
+      expect(resolveEffectiveValidatorMode(true, 'report')).toBe('strict');
+      expect(resolveEffectiveValidatorMode(true, 'strict')).toBe('strict');
+    });
+    it('flag ON + failing report → assertBuildStrict THROWS (canary org fails the build)', () => {
+      const report = validateBuild(brokenBuild());
+      expect(report.ok).toBe(false);
+      const mode = resolveEffectiveValidatorMode(true, undefined); // global unset → flag drives strict
+      expect(() => assertBuildStrict(report, mode)).toThrow(BuildValidationStrictError);
+    });
+    it('flag OFF + failing report + global report → assertBuildStrict does NOT throw (today, off org)', () => {
+      const report = validateBuild(brokenBuild());
+      expect(report.ok).toBe(false);
+      const mode = resolveEffectiveValidatorMode(false, undefined);
+      expect(() => assertBuildStrict(report, mode)).not.toThrow();
+    });
   });
 });
 

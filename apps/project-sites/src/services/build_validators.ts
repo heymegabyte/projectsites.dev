@@ -1443,6 +1443,21 @@ export const resolveValidatorMode = (raw: string | undefined | null): ValidatorM
   typeof raw === 'string' && raw.trim().toLowerCase() === 'strict' ? 'strict' : 'report';
 
 /**
+ * Resolve the EFFECTIVE validator mode for one build from the per-org `validator_strict` canary
+ * flag ⊕ the global `VALIDATOR_MODE` env. The flag can only ESCALATE report→strict for a canary
+ * org — it NEVER relaxes a globally-strict env. So the result is `'strict'` when EITHER the org's
+ * flag is on OR the global env resolves strict, else `'report'`. Pure (no env / no I/O): the
+ * caller passes the already-resolved `isFlagOn(env, 'validator_strict', { orgId })` boolean plus
+ * the raw env value, keeping the escalation logic unit-testable without mocking KV/D1.
+ *
+ * Off flag + unset/`'report'`/garbage env → `'report'` — identical to today's default (zero change).
+ */
+export const resolveEffectiveValidatorMode = (
+  orgFlagOn: boolean,
+  rawEnv: string | undefined | null,
+): ValidatorMode => (orgFlagOn || resolveValidatorMode(rawEnv) === 'strict' ? 'strict' : 'report');
+
+/**
  * Typed error thrown by {@link assertBuildStrict} when strict mode meets a failing build. Carries
  * the full {@link ValidationReport} so the workflow's validate-build step can log the same detail
  * it logs in report mode before the build fails.

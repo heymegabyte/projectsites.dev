@@ -64,6 +64,15 @@ export const FLAG_REGISTRY: Record<string, FlagDefinition> = {
     owner_email: 'brian@megabyte.space',
     stage: 'experimental',
   },
+  validator_strict: {
+    default_enabled: false,
+    default_rollout_percent: 0,
+    description:
+      "Per-org strict build-validation canary — when ON for an org, VALIDATOR_MODE=strict for that org's site builds regardless of the global env, so a validator error FAILS the build (the site stays `error`). DARK — run the false-positive audit before flipping any org.\n\n• Read in the site-generation workflow's validate-build step (workflows/site-generation.ts): the effective mode = isFlagOn(env,'validator_strict',{orgId}) ? 'strict' : resolveValidatorMode(env.VALIDATOR_MODE), then assertBuildStrict(report, mode) AFTER the D1 audit log. The org-flag can only ESCALATE report→strict for the canary org; it never relaxes a globally-strict env.\n• Backend-only; no route surface. Highest false-positive risk on png_too_large + h1_count (dynamic-hydration shells) — audit ~10 known-good published builds before enabling any org.\n• Off (default) → the global report-mode default; zero change, no build ever fails on a validator violation.",
+    key: 'validator_strict',
+    owner_email: 'brian@megabyte.space',
+    stage: 'experimental',
+  },
   voice_numbers: {
     default_enabled: false,
     default_rollout_percent: 0,

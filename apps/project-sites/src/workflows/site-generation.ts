@@ -26,7 +26,7 @@ import {
   loadBuildFromR2,
   validateBuild,
   assertBuildStrict,
-  resolveValidatorMode,
+  resolveEffectiveValidatorMode,
   BuildValidationStrictError,
 } from '../services/build_validators.js';
 import { scoreReadiness } from '../services/production_readiness.js';
@@ -2460,7 +2460,15 @@ export class SiteGenerationWorkflow extends WorkflowEntrypoint<Env, SiteGenerati
           // STRICT-mode canary: default 'report' is a pass-through (zero behavior change);
           // 'strict' throws AFTER the audit log above so a blocking build fails the step. The
           // typed error is re-thrown past the catch below so it never degrades to "skipped".
-          assertBuildStrict(report, resolveValidatorMode(env.VALIDATOR_MODE));
+          // Per-org `validator_strict` flag can ESCALATE report→strict for ONE canary org without a
+          // global env flip; it never relaxes a globally-strict env. Off (default) → the global
+          // env mode → today's report-mode pass-through (zero live change). Fail-safe: a flag/KV
+          // error resolves the flag false, so an outage can only fall back to the global env mode.
+          const strictFlagOn = await isFlagOn(env, 'validator_strict', {
+            orgId: params.orgId,
+          }).catch(() => false);
+          const validatorMode = resolveEffectiveValidatorMode(strictFlagOn, env.VALIDATOR_MODE);
+          assertBuildStrict(report, validatorMode);
           return JSON.stringify({
             ok: report.ok,
             summary: report.summary,
