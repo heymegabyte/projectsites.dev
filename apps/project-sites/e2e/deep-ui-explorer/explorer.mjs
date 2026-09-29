@@ -175,11 +175,15 @@ function budgetExceeded() {
 async function capture(page, action, coords = {}) {
   stepNo += 1;
   // Bounded settle: network quiet + no "Loading …" text; fail-open (never hang).
-  await page.waitForLoadState('networkidle', { timeout: 12_000 }).catch(() => {});
+  // Tunable: persistent analytics beacons keep networkidle from EVER resolving,
+  // so every state otherwise pays the full timeout — breadth runs shrink it.
+  const NET_MS = parseInt(process.env.EXPLORER_SETTLE_NET_MS || '12000', 10);
+  const LOAD_MS = parseInt(process.env.EXPLORER_SETTLE_LOAD_MS || '8000', 10);
+  await page.waitForLoadState('networkidle', { timeout: NET_MS }).catch(() => {});
   await page
     .waitForFunction(
       () => !/\bLoading\b[^\n]{0,40}(…|\.\.\.)/.test(document.body?.innerText || ''),
-      { timeout: 8_000 },
+      { timeout: LOAD_MS },
     )
     .catch(() => {});
   await page.waitForTimeout(350); // paint settle for animations
@@ -424,6 +428,47 @@ try {
     throw new Error('BLOCKED:identity');
   }
   console.warn(`  ✓ identity: ${me.email} superAdmin=${me.isSuperAdmin} org=${me.orgId.slice(0, 8)}…`);
+
+  // ---- Journey switch (coverage-ledger rotation across fires) --------------
+  // EXPLORER_JOURNEY=admin-breadth walks the Angular admin's nav sections
+  // (no editor iframe — fast, wide); default database-history grinds the
+  // deep editor path. Rotate per fire via the coverage ledger.
+  const JOURNEY = process.env.EXPLORER_JOURNEY || 'database-history';
+  if (JOURNEY === 'admin-breadth') {
+    const SECTIONS = (
+      process.env.EXPLORER_SECTIONS ||
+      'Snapshots,Analytics,Forms,Apps,Hosting,Features,Social,Voice,Logs,Feature Flags,System Services,Settings,Super admin'
+    ).split(',');
+    for (const name of SECTIONS) {
+      if (budgetExceeded()) {
+        manifest.blocked.push({ phase: 'breadth', reason: `budget exhausted before "${name}"` });
+        break;
+      }
+      const clicked = await clickFirst(page, [
+        (p) => p.getByRole('link', { name: new RegExp(`^${name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, 'i') }),
+        (p) => p.getByRole('link', { name: new RegExp(name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'i') }),
+      ]);
+      await capture(page, clicked ? `nav → ${name}` : `nav link "${name}" NOT FOUND`, {
+        surface: `admin-${name.toLowerCase().replace(/\s+/g, '-')}`,
+        overlay: clicked ? '' : 'missing-nav-link',
+      });
+      if (!clicked) {
+        manifest.blocked.push({ phase: 'breadth', reason: `nav link "${name}" not found` });
+      }
+    }
+    // Return-to-dashboard closes the tour; proves nav persistence both ways.
+    await clickFirst(page, [(p) => p.getByRole('link', { name: /^Dashboard$/ })]);
+    await capture(page, 'nav → Dashboard (tour closes)', { surface: 'admin-dashboard' });
+    finish(
+      manifest.blocked.length === 0
+        ? acq.coverage === 'CLOUD_PASS_ELIGIBLE'
+          ? 'PASS_CLOUDFLARE'
+          : 'PASS_ON_FALLBACK_PROVIDER'
+        : 'PARTIAL',
+    );
+    await acq.browser.close().catch(() => {});
+    process.exit(manifest.status.startsWith('PASS') ? 0 : 2);
+  }
 
   // ---- Phase 3: /admin → Editor (persistent bolt.diy iframe) ---------------
   await clickFirst(page, [
