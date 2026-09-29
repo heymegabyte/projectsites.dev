@@ -42,6 +42,7 @@ import { ImportPanel } from './ImportPanel';
 import { AiSeedPanel } from './AiSeedPanel';
 import { FormBuilder } from './FormBuilder';
 import { DangerZone } from './DangerZone';
+import { DataSearchPalette, type OpenTablePayload } from './DataSearchPalette';
 
 // ── Sub-nav model ────────────────────────────────────────────────────────────
 
@@ -80,7 +81,23 @@ export const DatabasePanel = memo(() => {
   /** The Tables-view action overlay currently open (Import / History / Schema / AI-seed), or null. */
   const [tableAction, setTableAction] = useState<TableAction | null>(null);
 
+  /**
+   * A pending ⌘K "open this table" request handed to {@link SiteTablesPanel}. The `nonce` increments per
+   * activation so re-opening the SAME table still re-selects it; `rowid` is reserved for scroll-to-row.
+   */
+  const [openTable, setOpenTable] = useState<{ table: string; rowid?: number; nonce: number } | null>(null);
+
+  /** Bumped to open the ⌘K data-search palette from the visible "Search data" button (not only the shortcut). */
+  const [searchOpenNonce, setSearchOpenNonce] = useState<number | undefined>(undefined);
+
   const visibleNav = useMemo(() => SUB_NAV, []);
+
+  /** ⌘K palette activated a result — switch to the Tables view and ask it to open the matched table. */
+  const onOpenTableFromSearch = useCallback((payload: OpenTablePayload) => {
+    setSubView('table');
+    setTableAction(null);
+    setOpenTable({ table: payload.table, rowid: payload.rowid, nonce: Date.now() });
+  }, []);
 
   // Roving-tabindex keyboard nav across the segmented button bar (Left/Right/Home/End).
   const onNavKeyDown = useCallback(
@@ -157,6 +174,21 @@ export const DatabasePanel = memo(() => {
             );
           })}
         </div>
+
+        {/* Visible ⌘K affordance — so global data search isn't discoverable ONLY via the shortcut. */}
+        <button
+          type="button"
+          data-testid="database-search-open"
+          onClick={() => setSearchOpenNonce(Date.now())}
+          title="Search across every table — names and content (⌘K)"
+          className="ml-auto min-h-[24px] flex items-center gap-1.5 rounded-md border border-bolt-elements-borderColor/70 bg-bolt-elements-background-depth-2 px-2.5 py-1 text-[11px] text-bolt-elements-textTertiary hover:text-bolt-elements-textPrimary hover:border-[#00e5ff66] transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-bolt-elements-item-contentAccent cursor-pointer"
+        >
+          <div className="i-ph:magnifying-glass text-sm" aria-hidden />
+          <span className="hidden sm:inline">Search data</span>
+          <kbd className="hidden sm:inline-block font-mono text-[9px] border border-bolt-elements-borderColor rounded px-1 py-0.5 leading-none">
+            ⌘K
+          </kbd>
+        </button>
       </div>
 
       {/* Active sub-view — each stays lightweight; only the mounted view holds a live bridge. */}
@@ -173,6 +205,7 @@ export const DatabasePanel = memo(() => {
                 onImportCsv={() => setTableAction('import')}
                 onNewTableSql={() => setSubView('sql')}
                 onHistory={() => setTableAction('history')}
+                openTableRequest={openTable}
               />
             </div>
             <div className="shrink-0 px-3 pb-4">
@@ -187,6 +220,13 @@ export const DatabasePanel = memo(() => {
         {subView === 'table' && tableAction && (
           <TableActionOverlay action={tableAction} onClose={closeAction} />
         )}
+
+        {/*
+         * ⌘K global data search — searches ACROSS every table (names + content) via the EXISTING
+         * `POST /db/search` bridge, and opens the matched table. Mounted at the panel level so ⌘K works from
+         * ANY sub-view (Tables / SQL / KV); it renders nothing until opened.
+         */}
+        <DataSearchPalette onOpenTable={onOpenTableFromSearch} openNonce={searchOpenNonce} />
       </div>
     </div>
   );

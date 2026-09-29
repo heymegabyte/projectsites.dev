@@ -421,10 +421,17 @@ export interface SiteTablesPanelProps {
 
   /** Optional: open the History (Time-travel) panel — wired into the Tables "Actions" dropdown. */
   onHistory?: () => void;
+
+  /**
+   * Optional: an external request to OPEN a specific table (fired by the ⌘K global data-search palette when
+   * a result is activated). The `nonce` changes on every request so repeatedly opening the SAME table still
+   * re-triggers selection; `rowid` is reserved for a future scroll-to-row (the matched content row).
+   */
+  openTableRequest?: { table: string; rowid?: number; nonce: number } | null;
 }
 
 export const SiteTablesPanel = memo(
-  ({ onCreateTable, onSeedWithAi, onImportCsv, onNewTableSql, onHistory }: SiteTablesPanelProps = {}) => {
+  ({ onCreateTable, onSeedWithAi, onImportCsv, onNewTableSql, onHistory, openTableRequest }: SiteTablesPanelProps = {}) => {
     const [tables, setTables] = useState<TablesState>({ status: 'loading' });
     const [selectedTable, setSelectedTable] = useState<string | null>(null);
     const [rows, setRows] = useState<RowsState>({ status: 'idle' });
@@ -729,6 +736,25 @@ export const SiteTablesPanel = memo(
         void loadRows(selectedTable);
       }
     }, [selectedTable, loadRows]);
+
+    /*
+     * External open request (⌘K global data-search): select the requested table so the grid opens it (the
+     * effect above then loads its rows). Guarded to a REAL table from THIS site's loaded list so a stale
+     * result can never select a nonexistent table; if the list hasn't loaded yet, select optimistically (the
+     * name came from the site's OWN search endpoint). Keyed on `nonce` so re-opening the same table re-fires.
+     */
+    useEffect(() => {
+      if (!openTableRequest) {
+        return;
+      }
+
+      const known = tables.status === 'ready' ? tables.tables.map((t) => t.name) : [];
+
+      if (known.length === 0 || known.includes(openTableRequest.table)) {
+        setSelectedTable(openTableRequest.table);
+      }
+      // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [openTableRequest?.nonce]);
 
     /** Reset all per-table grid view state to defaults (fresh table = fresh query). */
     const resetGridView = useCallback(() => {
