@@ -59,6 +59,22 @@ const sendReplyBody = z.object({
   override_to: z.string().email().optional(),
 });
 
+/**
+ * Request body for `POST /api/sites/:siteId/form-router/improve`.
+ *
+ * @remarks
+ * Intentionally permissive on PRESENCE (`value` is optional so an empty `{}`
+ * body maps to the seed-prompt path) but STRICT on SHAPE — `value` must be a
+ * string when present, and `.strict()` rejects any unknown key so a malformed
+ * client body is a 400 `VALIDATION_ERROR` at the boundary rather than a silent
+ * `as`-cast coercion. Cap mirrors the router prompt's realistic size ceiling.
+ */
+const FormRouterImproveBody = z
+  .object({
+    value: z.string().max(20_000).optional(),
+  })
+  .strict();
+
 const forms = new Hono<{ Bindings: Env; Variables: Variables }>();
 
 // ─── Public ingest ───────────────────────────────────────────
@@ -1024,8 +1040,22 @@ forms.post('/api/sites/:siteId/form-router/improve', async (c) => {
   const orgId = c.get('orgId');
   if (!orgId) throw unauthorized('Must be authenticated');
   await loadOwnedSite(c, orgId);
-  const body = (await c.req.json().catch(() => ({}))) as { value?: unknown };
-  const value = typeof body.value === 'string' ? body.value : '';
+  const raw = await c.req.json().catch(() => ({}));
+  const parsed = FormRouterImproveBody.safeParse(raw);
+  if (!parsed.success) {
+    return c.json(
+      {
+        error: {
+          code: 'VALIDATION_ERROR',
+          message: 'Invalid form-router improve request',
+          request_id: c.get('requestId'),
+          details: { issues: parsed.error.issues.map((i) => ({ path: i.path.join('.'), message: i.message })) },
+        },
+      },
+      400,
+    );
+  }
+  const value = parsed.data.value ?? '';
   const out = await improveRouterPrompt(c.env, value);
   return c.json({ data: out });
 });

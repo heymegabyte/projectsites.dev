@@ -930,4 +930,53 @@ describe('POST /api/sites/:siteId/form-router/improve', () => {
     // value defaults to '' when body has no string value.
     expect(mockImprove.mock.calls[0][1]).toBe('');
   });
+
+  it('returns 200 with the improver output when value is a real string', async () => {
+    mockDbQueryOne.mockResolvedValueOnce(OWNED_SITE);
+    const env = makeEnv();
+    const res = await request(
+      makeApp(AUTH),
+      '/api/sites/site-1/form-router/improve',
+      { method: 'POST', body: { value: 'route sales@ to the sales inbox' } },
+      env,
+    );
+    expect(res.status).toBe(200);
+    expect(mockImprove).toHaveBeenCalledTimes(1);
+    expect(mockImprove.mock.calls[0][1]).toBe('route sales@ to the sales inbox');
+  });
+
+  // ── Zod boundary (Lane 6 hardening) ────────────────────────────────────────
+  // The body is now guarded by a colocated `.strict()` schema. A non-string
+  // `value`, or any unknown key, is a 400 VALIDATION_ERROR — never silently
+  // coerced past the boundary, and the improver is never invoked.
+
+  it('returns 400 VALIDATION_ERROR when value is the wrong type (owned site)', async () => {
+    mockDbQueryOne.mockResolvedValueOnce(OWNED_SITE);
+    const env = makeEnv();
+    const res = await request(
+      makeApp(AUTH),
+      '/api/sites/site-1/form-router/improve',
+      { method: 'POST', body: { value: 42 } },
+      env,
+    );
+    expect(res.status).toBe(400);
+    const json = (await res.json()) as { error?: { code?: string } };
+    expect(json.error?.code).toBe('VALIDATION_ERROR');
+    expect(mockImprove).not.toHaveBeenCalled();
+  });
+
+  it('returns 400 VALIDATION_ERROR when the body carries an unknown key (strict)', async () => {
+    mockDbQueryOne.mockResolvedValueOnce(OWNED_SITE);
+    const env = makeEnv();
+    const res = await request(
+      makeApp(AUTH),
+      '/api/sites/site-1/form-router/improve',
+      { method: 'POST', body: { value: 'ok', bogus: true } },
+      env,
+    );
+    expect(res.status).toBe(400);
+    const json = (await res.json()) as { error?: { code?: string } };
+    expect(json.error?.code).toBe('VALIDATION_ERROR');
+    expect(mockImprove).not.toHaveBeenCalled();
+  });
 });
