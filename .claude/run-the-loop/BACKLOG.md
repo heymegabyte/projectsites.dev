@@ -689,6 +689,23 @@
 
 ---
 
+## fire-52 replenish — golden-path gen-site defects + editor-resources discovery + follow-ons
+
+- [ ] Generated-site quality defects (lone-mountain-global + template) — golden-path fire-52 found
+  - cadence: every-2-loops · priority: high · category: bug · estimate: 90m · depends_on: none · discovered_by: fire-52
+  - context: LONG journey on live generated sites surfaced REAL product-output bugs: (1) `lone-mountain-global` brand assets 404 — `logo-wordmark.png`, `favicon.ico`, `apple-touch-icon.png` (RFG favicon set not shipped; see fire-50 gen-site-runtime discovery); (2) doubled-word content bug across pages — title "Local **local** business", H1 "Your **your** community" (generation defect in the content pipeline); (3) build prompt LEAKED into the footer tagline ("Rebuild + enhance the source site…"); (4) ecommerce/"local business" MISFRAME for a global logistics firm + empty NAP (Address/Phone/Email/Hours blank on `/contact`) + no Google Maps panel. Each is a site-gen pipeline / `build_validators` gap — fix + add a validator so it can't reship.
+- [ ] Generated-site cmd-palette Esc-close + soft-404 consistency (serving)
+  - cadence: every-4-loops · priority: med · category: bug · estimate: 45m · depends_on: none · discovered_by: fire-52
+  - context: (a) the generated-site template's command palette does NOT close on Escape (keyboard-trap-adjacent — WCAG 2.1.2). (b) `search-verify.projectsites.dev` soft-404 inconsistency: `/this-page-does-not-exist-zzz` → 200 but `/nonexistent-xyz-123` → 404 (WfP serving path, `site_serving`-owned — reconcile the known-route gate).
+- [ ] notify-shape follow-on — 4 more callers still pass the legacy novu shape
+  - cadence: every-2-loops · priority: high · category: bug · estimate: 45m · depends_on: none · discovered_by: fire-52
+  - context: `0915cfeb6` fixed only the workflow. `src/services/notify_site_built.ts` (bolt-publish "site is live" bell, from `api.ts` publish) + callers in `webhooks.ts`, `ai_admin.ts`, `hostnames.ts` STILL pass `{event,…}` → `invalid_event` → their bells silently never fire. Apply the same canonical `{name,subscriberId,payload}` fix + kill the mocked tests that false-green the broken shape. Per `notification-source-is-psnotify-do`.
+- [ ] Editor Resources — kill remaining manual Refresh/Reconcile (real-time-data)
+  - cadence: every-loop · priority: med · category: ux · estimate: 60m · depends_on: none · discovered_by: fire-52
+  - context: `real-time-data-no-manual-refresh`. Ground-truthed remaining editor targets: `BucketsPanel.tsx:413` (`onRefresh` mount-only, no poll) + `EnvAssignmentGrid.tsx:174` (click-only Refresh) → visibility-aware poll/SSE; `LockManager.tsx:52` `setInterval(…,5000)` unconditional → gate on `document.hidden`; `NamespaceSummary.tsx:340-351` explicit "Reconcile" button → auto-drift-sync + "Last synced" label. Hide manual buttons once auto-refresh is live.
+
+---
+
 ## Brian-gated (approval-required — ship the decision-independent slice, NEVER auto-execute)
 
 - ConversationHub DO deletion (`src/index.ts:250`) — destructive one-way-door DO migration
