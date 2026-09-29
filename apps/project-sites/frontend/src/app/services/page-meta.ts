@@ -102,7 +102,7 @@ export const PAGE_META: Record<string, PageMeta> = {
     // hydrated tab (crawlers were fine — the server injects this). Mirrors
     // MARKETING_META['/pricing'].
     title: 'Pricing — Pay Exact Cost Plus $50/mo | ProjectSites',
-    description: 'Transparent pricing: you pay the exact metered Cloudflare cost of your site (Worker, D1, R2, snapshots, AI, voice) plus a flat $50 per month per site. No hidden markup, no membership fees.',
+    description: 'Transparent pricing: pay the exact metered Cloudflare cost of your site (Worker, D1, R2, AI, voice) plus a flat $50/mo per site. No markup, no membership fees.',
   },
   'auth/sign-up': {
     // Was MISSING → /auth/sign-up client nav showed the homepage title. Mirrors

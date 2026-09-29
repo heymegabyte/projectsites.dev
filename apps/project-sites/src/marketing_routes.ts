@@ -96,7 +96,7 @@ export const MARKETING_META: Readonly<Record<string, MarketingMeta>> = {
   '/pricing': {
     title: 'Pricing — Pay Exact Cost Plus $50/mo | ProjectSites',
     description:
-      'Transparent pricing: you pay the exact metered Cloudflare cost of your site (Worker, D1, R2, snapshots, AI, voice) plus a flat $50 per month per site. No hidden markup, no membership fees.',
+      'Transparent pricing: pay the exact metered Cloudflare cost of your site (Worker, D1, R2, AI, voice) plus a flat $50/mo per site. No markup, no membership fees.',
   },
   '/search': {
     title: 'Find Your Business — Start an AI Website | ProjectSites',

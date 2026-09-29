@@ -17,9 +17,14 @@ import { readdirSync, readFileSync, statSync } from 'node:fs';
 import { join } from 'node:path';
 
 const SRC = join(__dirname, '..');
+// Feature-module DO/Workflow classes now live under libs/features/<slug>/ per
+// feature-module-architecture (e.g. PsNotifyDO in libs/features/psnotify/do.ts,
+// re-exported by src/index.ts). Scan libs/ too so a live class declared OUTSIDE
+// src/ is still recognised — else a real, wired class reads as a dangling binding.
+const LIBS = join(__dirname, '../../libs');
 const WRANGLER = join(__dirname, '../../wrangler.toml');
 
-/** Every `export class X` name declared anywhere under src/ (tests excluded). */
+/** Every `export class X` name declared anywhere under a source root (tests excluded). */
 function exportedClasses(dir: string, acc: Set<string>): Set<string> {
   for (const entry of readdirSync(dir)) {
     if (entry === '__tests__' || entry === 'node_modules') continue;
@@ -43,8 +48,9 @@ function liveWranglerClassNames(): string[] {
 }
 
 describe('wrangler class_name ↔ exported src class lockstep (deploy safety)', () => {
-  it('every live wrangler.toml class_name resolves to an exported class in src/', () => {
+  it('every live wrangler.toml class_name resolves to an exported class in src/ or libs/', () => {
     const exported = exportedClasses(SRC, new Set());
+    exportedClasses(LIBS, exported); // feature-module classes (e.g. PsNotifyDO) live under libs/
     const missing = liveWranglerClassNames().filter((cn) => !exported.has(cn));
     expect(missing).toEqual([]);
   });
@@ -53,13 +59,12 @@ describe('wrangler class_name ↔ exported src class lockstep (deploy safety)', 
     // Guards against a regex that silently matches nothing → the check above
     // passing on an empty list.
     //
-    // Floor recount 2026-07-31: commit 655ccf2c ("feat(catalog): enable Deploy
-    // for all 68 catalog apps", 2026-07-14) removed the live SiteBuilderContainer /
-    // AppRuntimeContainer / TraceHub / ActivityHub / ConversationHub bindings
-    // (containers now live as commented per-image deferred config). Live ground
-    // truth is 6 distinct class_names — the 6 Workflows (SiteGeneration,
-    // SocialPublish, PseoGeneration, DriveSync, ImageGeneration, SnapshotQuality).
-    // Raise this floor again when container/DO bindings go live-uncommented.
+    // Floor recount 2026-09-29: live ground truth is 7 distinct class_names —
+    // the 5 Workflows (SiteGeneration, SocialPublish, DriveSync, ImageGeneration,
+    // SnapshotQuality) + the SiteBuilderContainer + the PsNotifyDO (SQLite DO,
+    // binding PSNOTIFY_DO, declared in libs/features/psnotify/do.ts and scanned
+    // via LIBS above). Raise this floor again when more container/DO bindings go
+    // live-uncommented.
     expect(liveWranglerClassNames().length).toBeGreaterThanOrEqual(5);
   });
 });

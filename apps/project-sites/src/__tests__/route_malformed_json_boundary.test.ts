@@ -37,6 +37,21 @@ const mockDb = {
   })),
 } as unknown as D1Database;
 
+// Minimal KV stub so the `voice_numbers` killswitch gate on the purchase route
+// (`requireOrgFlag` → `resolveFlag` → `env.CACHE_KV.get()`) resolves instead of
+// throwing a `TypeError: Cannot read properties of undefined (reading 'get')`.
+// That gate was added AFTER this boundary test (commit 65cc02b) and reads KV
+// FIRST; without the binding the read throws → the error handler maps it to a
+// 500, masking the malformed-body path under test. `get` returns null (cache
+// miss → registry default: voice_numbers is default-off → the gate 404s, a clean
+// 4xx that lets the boundary assertion pass). Same class as memory `[mockK]`.
+const flagKvStub = {
+  get: async () => null,
+  put: async () => undefined,
+  list: async () => ({ keys: [], list_complete: true }),
+  delete: async () => undefined,
+};
+
 function makeEnv(): Env {
   // TWILIO_* set so the voice handlers' `isTwilioConfigured` gate (which throws
   // a 501 BEFORE the body parse) passes and the malformed body actually reaches
@@ -44,6 +59,7 @@ function makeEnv(): Env {
   return {
     ENVIRONMENT: 'test',
     DB: mockDb,
+    CACHE_KV: flagKvStub,
     TWILIO_ACCOUNT_SID: 'AC_test',
     TWILIO_AUTH_TOKEN: 'tok_test',
   } as unknown as Env;

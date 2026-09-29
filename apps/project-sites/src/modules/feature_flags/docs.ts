@@ -149,6 +149,67 @@ export const FLAG_DOCS: Record<string, FlagDocs> = {
       'Off → every rebuild runs the full 5-call research pipeline',
     ],
   },
+  pricing_engine: {
+    checklist: [
+      'Cost-metering + pricing engine (PRICING-MODEL.md Wave 1)',
+      'Gates GET /api/sites/:id/cost + GET /api/apps/instances/:id/cost — owner-scoped, read-only rollups',
+      'Prices each site/instance CF resource (Worker req+CPU, D1 rows+storage, R2 ops+storage) at published unit prices + the flat $50/site fee',
+      'Server-resolves resources from site_database_allocations / app_instances — never client-supplied',
+      'Off (default, DARK) → both endpoints 404 (never 403)',
+    ],
+    explanation:
+      'Cost-metering + pricing engine (PRICING-MODEL.md Wave 1). Gates the owner-scoped, read-only cost rollups GET /api/sites/:id/cost + GET /api/apps/instances/:id/cost, each pricing that site/instance CF resource usage (Worker requests + CPU, D1 rows + storage, R2 ops + storage incl. sites/ snapshots) at published unit prices plus the flat $50/site platform fee. Resources are server-resolved from site_database_allocations / app_instances (never client-supplied). Off (default, DARK) → both endpoints 404. Wave 2 adds the Super-admin pricing_config table + live wiring.',
+    smoke_test: [
+      'Enable → GET /api/sites/:id/cost (authed owner) → 200 with a per-resource cost rollup + the $50/site fee',
+      'Off (default) → GET /api/sites/:id/cost returns 404 (never 403)',
+    ],
+  },
+  validator_strict: {
+    checklist: [
+      "Per-org strict build-validation canary — ON for an org forces VALIDATOR_MODE=strict for that org's builds",
+      'A validator error then FAILS the build (the site stays `error`), regardless of the global env',
+      "Read in the site-generation workflow's validate-build step; can only ESCALATE report→strict for the canary org, never relax a globally-strict env",
+      'Backend-only; no route surface. Highest false-positive risk on png_too_large + h1_count',
+      'Off (default) → the global report-mode default; no build ever fails on a validator violation',
+    ],
+    explanation:
+      "Per-org strict build-validation canary. When ON for an org, VALIDATOR_MODE=strict for that org's site builds regardless of the global env, so a validator error FAILS the build (the site stays `error`). Read in the site-generation workflow's validate-build step: the effective mode = isFlagOn(env,'validator_strict',{orgId}) ? 'strict' : resolveValidatorMode(env.VALIDATOR_MODE), then assertBuildStrict runs AFTER the D1 audit log. The org-flag can only ESCALATE report→strict for the canary org; it never relaxes a globally-strict env. DARK by default — run the false-positive audit (~10 known-good published builds) before flipping any org, since png_too_large + h1_count carry the highest false-positive risk on dynamic-hydration shells.",
+    smoke_test: [
+      'Enable for a canary org → rebuild a site with a known validator violation → the build fails (site stays `error`)',
+      'Off (default) → the same build logs the violation to the D1 audit but publishes (report mode)',
+    ],
+  },
+  voice_numbers: {
+    checklist: [
+      'KILLSWITCH for the Twilio phone-number PURCHASE — the one voice endpoint that spends REAL carrier money',
+      'Gates POST /api/voice/numbers/purchase; the gate runs FIRST, before auth/Twilio-config/DB',
+      'Off (default, DARK) → the route 404s AND no Twilio purchase fires (fail-safe: off = no money spent)',
+      'On → auth → org-membership of the site → the 3-numbers-per-site cap → Twilio purchase → voice_numbers row → audit log',
+      'Reversible instant killswitch: flip off in /admin/feature-flags to halt ALL carrier purchases with no redeploy',
+    ],
+    explanation:
+      'KILLSWITCH for the Twilio phone-number PURCHASE — the one voice endpoint that spends REAL carrier money. Gates POST /api/voice/numbers/purchase (routes/voice.ts), which buys a live phone number from Twilio and records it in voice_numbers. The gate runs FIRST, before auth/Twilio-config/DB, so an off flag is a hard 404 for everyone and, critically, NO Twilio purchase fires (fail-safe: off = no money spent). On → the handler proceeds to its normal path: auth → org-membership of the site → the 3-numbers-per-site cap → Twilio purchase → voice_numbers row → audit log. Only the purchase leg is gated; listing / releasing / test-SMS / call-token are unaffected. Flip off in /admin/feature-flags to instantly halt all carrier purchases with no redeploy.',
+    smoke_test: [
+      'Off (default) → POST /api/voice/numbers/purchase returns 404 and twilio.purchaseNumber is never called',
+      'On → an authed owner of the target site can buy a number under the 3-per-site cap',
+    ],
+  },
+  r2_bucket_manager: {
+    checklist: [
+      "AUTHORITATIVE, site-scoped catalog over ALL of a site's R2 surfaces in the editor Resources tab",
+      'The layer ON TOP of the per-site custom-bucket plane (r2_buckets flag) — reconciles them into ONE list, never replaces it',
+      'resolveSiteBuckets is authoritative + site-scoped (assertSiteOwned-gated, cursor-paginated, structural WHERE site_id=?)',
+      'ALWAYS surfaces the protected isogit "Project code · Preview" system bucket as a distinct is_system entry (surfaced, NEVER mutable)',
+      'assertBucketMutable() HARD-THROWS on config/reset/empty/delete of the system bucket; assertBucketOwnedBySite() HARD-THROWS on a cross-site bucket',
+      'Off (default, DARK) → every route 404s + FE hides the Manager → zero real R2 resources; the live r2_buckets surface is unaffected',
+    ],
+    explanation:
+      "R2 Bucket Manager — the AUTHORITATIVE, site-scoped catalog + view over ALL of a site's R2 surfaces in the editor Resources tab. The layer ON TOP of the per-site custom-bucket plane (r2_buckets flag / site_r2_allocations); it reconciles them into ONE list rather than replacing it. src/services/site_r2_manager.ts resolveSiteBuckets(env, siteId, orgId) is authoritative + site-scoped (assertSiteOwned-gated, cursor-paginated, structural WHERE site_id=?) and ALWAYS surfaces the protected isogit \"Project code · Preview\" system bucket as a distinct is_system entry (surfaced, NEVER mutable). assertBucketMutable() HARD-THROWS at the SERVICE layer on config/reset/empty/delete of the system bucket; assertBucketOwnedBySite() HARD-THROWS on a cross-site bucket. The catalog table site_r2_buckets (migration 0647) models a per-bucket credential REFERENCE (via ai_crypto — never the secret) + provisioning state. Off (default, DARK) → every route 404s + the FE hides the Manager → zero real R2 resources are created and the already-live r2_buckets surface is unaffected.",
+    smoke_test: [
+      'Enable → open the editor Resources tab → the site sees its authoritative bucket list with the isogit system bucket present + protected',
+      'Off (default) → the Manager routes 404 and the FE hides the Manager; the r2_buckets surface still works',
+    ],
+  },
   r2_buckets: {
     checklist: [
       'Per-site R2 bucket manager in the editor Resources → Buckets tab',
