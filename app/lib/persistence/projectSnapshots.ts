@@ -233,13 +233,34 @@ export async function deleteProjectSnapshot(id: string): Promise<void> {
   });
 }
 
-async function pruneOld(slug: string): Promise<void> {
-  const all = await listProjectSnapshots(slug);
-  const excess = all.slice(MAX_SNAPSHOTS_PER_SITE);
-
+/**
+ * Delete every excess snapshot, enforcing the per-site cap. Best-effort by
+ * contract — a failed delete NEVER rejects (so it can't fail the create) — but a
+ * failure is logged with a structured warn naming the breached id, because a
+ * silently-swallowed delete leaves the store unbounded (the exact quota-balloon
+ * the cap exists to prevent) with no signal. Testable seam: the delete op is
+ * injected so the warn path is unit-verifiable without a browser IndexedDB.
+ *
+ * @param excess - snapshot metadata to delete (typically `all.slice(MAX)`).
+ * @param deleteFn - the per-id delete op; defaults to {@link deleteProjectSnapshot}.
+ */
+export async function pruneExcessSnapshots(
+  excess: ProjectSnapshotMeta[],
+  deleteFn: (id: string) => Promise<void> = deleteProjectSnapshot,
+): Promise<void> {
   for (const snapshot of excess) {
-    await deleteProjectSnapshot(snapshot.id).catch(() => {
-      /* best-effort prune — a failed delete must never fail the create. */
+    await deleteFn(snapshot.id).catch((error: unknown) => {
+      // Best-effort prune — a failed delete must never fail the create — but it
+      // MUST be observable: an un-pruned store silently balloons past the cap.
+      console.warn(
+        `projectSnapshots: prune FAILED to delete excess snapshot "${snapshot.id}" — the per-site cap (${MAX_SNAPSHOTS_PER_SITE}) is NOT enforced for it and storage may grow unbounded:`,
+        error,
+      );
     });
   }
+}
+
+async function pruneOld(slug: string): Promise<void> {
+  const all = await listProjectSnapshots(slug);
+  await pruneExcessSnapshots(all.slice(MAX_SNAPSHOTS_PER_SITE));
 }
