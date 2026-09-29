@@ -41,6 +41,26 @@ import {
 
 const CF_BASE = 'https://api.cloudflare.com/client/v4';
 
+/**
+ * Emit a structured warn line for a WfP deploy failure (observability, ADDITIVE ONLY).
+ * The fail-soft `{ ok:false }` return value + behaviour is unchanged — this only makes a
+ * previously-silent miss greppable. Matches the repo's structured-log shape
+ * (`console.warn(JSON.stringify({ level, ... }))`, e.g. `wallet.ts`). `console.warn`
+ * (not `console.log`) — `console.log` is ESLint-blocked in this repo.
+ */
+function logWfpDeployFailure(error: string, siteId: string, slot: WfpSlot): void {
+  console.warn(
+    JSON.stringify({
+      level: 'warn',
+      service: 'wfp_site_hosting',
+      msg: 'WfP deploy failed',
+      error,
+      siteId,
+      slot,
+    }),
+  );
+}
+
 /** Which slot to deploy — the two isolated environments every site is born with. */
 export type WfpSlot = 'preview' | 'production';
 
@@ -289,7 +309,10 @@ export async function deploySiteToWfp(
   const token = env.CF_API_TOKEN!;
   const namespace = env.WFP_NAMESPACE_NAME!;
   const bucket = env.SITES_BUCKET;
-  if (!bucket) return { ok: false, error: 'no_sites_bucket' };
+  if (!bucket) {
+    logWfpDeployFailure('no_sites_bucket', siteId, opts.slot);
+    return { ok: false, error: 'no_sites_bucket' };
+  }
 
   // 3. Resolve slug + version from the OWNED site row (version falls back to current build).
   const site = await dbQueryOne<{ slug: string; current_build_version: string | null }>(
@@ -297,21 +320,29 @@ export async function deploySiteToWfp(
     'SELECT slug, current_build_version FROM sites WHERE id = ? AND deleted_at IS NULL',
     [siteId],
   );
-  if (!site?.slug) return { ok: false, error: 'site_not_found' };
+  if (!site?.slug) {
+    logWfpDeployFailure('site_not_found', siteId, opts.slot);
+    return { ok: false, error: 'site_not_found' };
+  }
   const version = opts.version ?? site.current_build_version ?? '';
-  if (!version) return { ok: false, error: 'no_build_version' };
+  if (!version) {
+    logWfpDeployFailure('no_build_version', siteId, opts.slot);
+    return { ok: false, error: 'no_build_version' };
+  }
 
   // 4. Load the R2 build; a version with no files can't be hosted.
   let assets: BuiltAsset[];
   try {
     assets = await readBuildAssets(bucket, site.slug, version);
   } catch (err) {
-    return {
-      ok: false,
-      error: `r2_read_failed: ${err instanceof Error ? err.message : String(err)}`,
-    };
+    const error = `r2_read_failed: ${err instanceof Error ? err.message : String(err)}`;
+    logWfpDeployFailure(error, siteId, opts.slot);
+    return { ok: false, error };
   }
-  if (assets.length === 0) return { ok: false, error: 'empty_build' };
+  if (assets.length === 0) {
+    logWfpDeployFailure('empty_build', siteId, opts.slot);
+    return { ok: false, error: 'empty_build' };
+  }
 
   // 5. Digests — source over the ordered file set; artifact over shim + manifest.
   const ordered = [...assets].sort((a, b) => (a.path < b.path ? -1 : a.path > b.path ? 1 : 0));
@@ -327,7 +358,10 @@ export async function deploySiteToWfp(
 
   // 7. Upload the static assets onto the script (Workers Static Assets).
   const assetRes = await uploadSiteAssets(accountId, token, dispatchScriptPath, ordered);
-  if (!assetRes.ok) return { ok: false, error: assetRes.error, status: assetRes.status };
+  if (!assetRes.ok) {
+    logWfpDeployFailure(assetRes.error, siteId, opts.slot);
+    return { ok: false, error: assetRes.error, status: assetRes.status };
+  }
 
   // 8. Multipart script upload: the serving shim + the ASSETS binding + a digest tag.
   const metadata: Record<string, unknown> = {
@@ -360,11 +394,9 @@ export async function deploySiteToWfp(
   });
   const putJson = (await put.json().catch(() => ({}))) as { success?: boolean; errors?: unknown };
   if (!put.ok || !putJson.success) {
-    return {
-      ok: false,
-      error: `script upload failed: ${JSON.stringify(putJson.errors ?? '')}`.slice(0, 400),
-      status: put.status,
-    };
+    const error = `script upload failed: ${JSON.stringify(putJson.errors ?? '')}`.slice(0, 400);
+    logWfpDeployFailure(error, siteId, opts.slot);
+    return { ok: false, error, status: put.status };
   }
 
   // 9. RECORD the slot in the authoritative registry (WfP concept, slot env, script, version).
@@ -392,7 +424,9 @@ export async function deploySiteToWfp(
   if (!recorded.ok) {
     // The script + assets are LIVE; the row write failed. Report a recoverable partial
     // (a re-run overwrites the same script + retries the record) — never a silent half-deploy.
-    return { ok: false, error: `record_failed: ${recorded.error}` };
+    const error = `record_failed: ${recorded.error}`;
+    logWfpDeployFailure(error, siteId, opts.slot);
+    return { ok: false, error };
   }
 
   return {

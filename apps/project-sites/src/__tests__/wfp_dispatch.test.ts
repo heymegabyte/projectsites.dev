@@ -74,6 +74,16 @@ describe('isWfpConfigured', () => {
     expect(isWfpConfigured(makeEnv({ CF_API_TOKEN: undefined }))).toBe(false);
   });
 
+  it('is false when CF_API_TOKEN is unset but the other three fields are present', () => {
+    // The single external gate (discovery-wfp-2026-09-29): binding + namespace + account
+    // are all wired, yet an unset token must still fail-soft the whole WfP path.
+    const env = makeEnv({ CF_API_TOKEN: undefined });
+    expect(env.USER_DISPATCH).toBeTruthy();
+    expect(env.WFP_NAMESPACE_NAME).toBeTruthy();
+    expect(env.CF_ACCOUNT_ID).toBeTruthy();
+    expect(isWfpConfigured(env)).toBe(false);
+  });
+
   it('is false on a totally bare env', () => {
     expect(isWfpConfigured({} as unknown as Env)).toBe(false);
   });
@@ -347,6 +357,34 @@ describe('siteFunctionsScriptName', () => {
   });
   it('appends -preview for the preview slot (Stage 2.3)', () => {
     expect(siteFunctionsScriptName('abc', { preview: true })).toBe('site-abc-preview');
+  });
+
+  it('caps the script name at the WfP 64-char limit for a long site id', () => {
+    // WfP script names have a 64-char ceiling; a raw `site-<uuid-ish-long-id>` can exceed it.
+    const longId = 'a'.repeat(120);
+    const name = siteFunctionsScriptName(longId);
+    expect(name.length).toBeLessThanOrEqual(64);
+    expect(name).toMatch(/^[a-z0-9-]+$/); // lowercase alphanumeric + hyphen only
+    expect(name.startsWith('site-')).toBe(true);
+    // -preview variant also stays within the cap (suffix reserved, not truncated away).
+    const preview = siteFunctionsScriptName(longId, { preview: true });
+    expect(preview.length).toBeLessThanOrEqual(64);
+    expect(preview.endsWith('-preview')).toBe(true);
+    expect(preview).toMatch(/^[a-z0-9-]+$/);
+  });
+
+  it('is collision-safe — two distinct long ids yield two distinct names', () => {
+    // Truncation alone would collide any two ids sharing a long common prefix; a stable
+    // hash suffix keeps them distinct even when the readable prefix is identical.
+    const a = 'z'.repeat(60) + 'aaaaaaaa';
+    const b = 'z'.repeat(60) + 'bbbbbbbb';
+    const nameA = siteFunctionsScriptName(a);
+    const nameB = siteFunctionsScriptName(b);
+    expect(nameA).not.toBe(nameB);
+    expect(nameA.length).toBeLessThanOrEqual(64);
+    expect(nameB.length).toBeLessThanOrEqual(64);
+    // Deterministic: same id → same name (idempotent overwrite target).
+    expect(siteFunctionsScriptName(a)).toBe(nameA);
   });
 });
 

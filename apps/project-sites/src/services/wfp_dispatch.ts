@@ -140,18 +140,48 @@ export async function dispatchToUserWorker(
 
 // ─── Functions on WfP (ADR-0035) — one bundled `functions/` worker per site ───
 
+/** WfP script names cap at 64 chars; `-preview` (8 chars) is reserved so both slots fit. */
+const WFP_SCRIPT_NAME_MAX = 64;
+const WFP_PREVIEW_SUFFIX = '-preview';
+
+/**
+ * Stable, sync 8-hex-char FNV-1a hash — a deterministic collision-resistant suffix for
+ * a truncated script name. Not cryptographic; only needs to keep two distinct long site
+ * ids from colliding after truncation (crypto.subtle is async + overkill for a name).
+ */
+function shortHash8(input: string): string {
+  let h = 0x811c9dc5; // FNV offset basis
+  for (let i = 0; i < input.length; i++) {
+    h ^= input.charCodeAt(i);
+    h = Math.imul(h, 0x01000193); // FNV prime
+  }
+  return (h >>> 0).toString(16).padStart(8, '0');
+}
+
 /**
  * WfP script name for a site's bundled `functions/` worker — the SSOT shared by
  * upload (Stage 2.2), the preview slot (Stage 2.3 → `-preview`), and dispatch
  * (Stage 3.1 → `env.USER_DISPATCH.get(name)`). `site-<siteId>` per ADR-0035 §5,
  * normalised to the WfP-legal charset (lowercase alphanumeric + hyphen).
  *
+ * The WfP script-name limit is 64 chars. Short ids pass through byte-identical; a long id
+ * that would exceed the cap is truncated and given a stable `-<hash8>` suffix (derived from
+ * the FULL id) so two distinct long ids can never collide. `-preview` is always reserved
+ * within the cap, never truncated away.
+ *
  * @example siteFunctionsScriptName('AbC-123')                 // 'site-abc-123'
  * @example siteFunctionsScriptName('abc', { preview: true })  // 'site-abc-preview'
  */
 export function siteFunctionsScriptName(siteId: string, opts: { preview?: boolean } = {}): string {
-  const base = `site-${siteId.toLowerCase().replace(/[^a-z0-9-]/g, '-')}`;
-  return opts.preview ? `${base}-preview` : base;
+  const normalised = siteId.toLowerCase().replace(/[^a-z0-9-]/g, '-');
+  const suffixLen = opts.preview ? WFP_PREVIEW_SUFFIX.length : 0;
+  const budget = WFP_SCRIPT_NAME_MAX - suffixLen; // chars available before the -preview suffix
+  let base = `site-${normalised}`;
+  if (base.length > budget) {
+    const hash = `-${shortHash8(normalised)}`; // 9 chars, derived from the FULL id
+    base = `${base.slice(0, budget - hash.length)}${hash}`;
+  }
+  return opts.preview ? `${base}${WFP_PREVIEW_SUFFIX}` : base;
 }
 
 /**
