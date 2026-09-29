@@ -236,6 +236,11 @@
   --ps-danger: #ff5555;
   // Soft danger tint — for "removed"/"from" diff text + subtle destructive fills.
   --ps-danger-soft: color-mix(in oklch, var(--ps-danger, #ff5555) 62%, var(--ps-ink, #f4f4ff) 38%);
+  // Warning/caution accent — amber for "store this securely" alerts + caution icons.
+  // As a GRAPHICAL element (icon stroke) needs ≥3:1 on #060610; #ffd166 clears at
+  // ~14:1, and as small text still clears AA. Consumers use var(--ps-warning) rather
+  // than a hard-coded #ffd166 (was inline drift on the api-tokens reveal dialog).
+  --ps-warning: #ffd166;
   // Sentiment scale — for voice/SMS call-sentiment bars + chips (positive / neutral
   // / negative). Derived in OKLCH from the brand success/accent/danger so they read
   // as one on-brand family, never off-the-shelf traffic-light greens/reds. Positive

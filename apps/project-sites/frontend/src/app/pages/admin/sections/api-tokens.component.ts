@@ -279,7 +279,7 @@ const ALL_SCOPES = [
             placeholder="Never expires"
             class="w-full" />
           @if (expiryInvalid()) {
-            <span id="token-expiry-err" data-testid="token-expiry-err" class="block text-[0.7rem] text-[#ff8888] mt-1" role="alert">Expiry must be in the future — leave blank for a token that never expires.</span>
+            <span id="token-expiry-err" data-testid="token-expiry-err" class="block text-[0.7rem] mt-1" style="color:var(--ps-danger)" role="alert">Expiry must be in the future — leave blank for a token that never expires.</span>
           } @else {
             <span class="at-field-hint">Leave blank for a token that never expires.</span>
           }
@@ -302,7 +302,7 @@ const ALL_SCOPES = [
       <span dialogTitle>Token created</span>
       <div class="at-dialog-body">
         <div class="at-warning-box" role="alert">
-          <svg width="1em" height="1em" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="color:#ffd166"><path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3z"/><path d="M12 9v4"/><path d="M12 17h.01"/></svg>
+          <svg width="1em" height="1em" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="color:var(--ps-warning)"><path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3z"/><path d="M12 9v4"/><path d="M12 17h.01"/></svg>
           Store this token securely — it will <strong>not</strong> be shown again.
         </div>
         <div class="at-token-reveal" data-testid="at-token-reveal">
