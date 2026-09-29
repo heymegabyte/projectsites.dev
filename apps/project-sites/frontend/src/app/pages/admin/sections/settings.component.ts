@@ -375,8 +375,8 @@ const PROVIDERS = MCP_PROVIDERS;
 
               <!-- MCP allow-list moved into right column under knowledge files for cohesion -->
               <div>
-                <span class="muted-h">MCP available to AI Chat</span>
-                <p class="text-[0.66rem] text-text-secondary m-0 mt-1 mb-2">Check any connected MCP you want the chat to be allowed to call.</p>
+                <span class="muted-h">MCP available to AI Chat @if (savingChatMcps()) { <span class="text-[0.6rem] text-text-secondary font-normal" aria-live="polite">· saving…</span> }</span>
+                <p class="text-[0.66rem] text-text-secondary m-0 mt-1 mb-2">Check any connected MCP you want the chat to be allowed to call. Saved automatically — no extra step.</p>
                 <div class="grid sm:grid-cols-2 gap-1.5">
                   @for (m of connections(); track m.id) {
                     <label class="flex items-center gap-2 p-2 rounded-lg cursor-pointer hover:bg-white/[0.04] border border-white/[0.04]" [title]="m.provider + ' — toggle availability for AI Chat'">
@@ -1189,6 +1189,7 @@ export class AdminSettingsComponent implements OnInit {
     this.loadGeneral();
     this.loadTeam();
     this.loadConnections();
+    this.loadChatMcps();
     this.loadOrgEnvVars();
     this.handleMcpReturn();
   }
@@ -1549,14 +1550,45 @@ export class AdminSettingsComponent implements OnInit {
 
   // ── AI Chat: Improve system prompt + MCP allow-list ──
   improvingField = signal<'system' | null>(null);
+  // The allow-list is SERVER-BACKED via ai-settings.enabled_mcps (same field the
+  // Forms tab writes) — the shared source of truth for which connected MCPs the
+  // site's AI may call. localStorage seeds the UI before the fetch lands (avoids a
+  // blank flash) but the server reconciles it in loadChatMcps() / after every save.
   chatMcps = signal<string[]>(((): string[] => {
     try { return JSON.parse(localStorage.getItem('ps_chat_mcps') ?? '[]'); } catch { return []; }
   })());
+  savingChatMcps = signal(false);
+  /** Reconcile the allow-list from the server (ai-settings.enabled_mcps). */
+  loadChatMcps(): void {
+    const s = this.state.selectedSite(); if (!s) return;
+    this.api.get<{ data: { enabled_mcps?: string[] } }>(`/sites/${s.id}/ai-settings`).subscribe({
+      next: (r) => {
+        if (Array.isArray(r.data?.enabled_mcps)) {
+          this.chatMcps.set(r.data.enabled_mcps);
+          try { localStorage.setItem('ps_chat_mcps', JSON.stringify(r.data.enabled_mcps)); } catch { /* */ }
+        }
+      },
+      error: () => { /* keep the localStorage-seeded value; api.service already toasted */ },
+    });
+  }
+  /** Optimistic toggle -> persist to ai-settings; roll back on failure. */
   toggleChatMcp(provider: string): void {
-    const cur = this.chatMcps();
-    const next = cur.includes(provider) ? cur.filter((p) => p !== provider) : [...cur, provider];
-    this.chatMcps.set(next);
+    const s = this.state.selectedSite();
+    if (!s) { this.toast.error('Select a site first'); return; }
+    const prev = this.chatMcps();
+    const next = prev.includes(provider) ? prev.filter((p) => p !== provider) : [...prev, provider];
+    this.chatMcps.set(next); // optimistic
     try { localStorage.setItem('ps_chat_mcps', JSON.stringify(next)); } catch { /* */ }
+    this.savingChatMcps.set(true);
+    this.api.put(`/sites/${s.id}/ai-settings`, { enabled_mcps: next }).subscribe({
+      next: () => { this.savingChatMcps.set(false); },
+      error: () => {
+        this.savingChatMcps.set(false);
+        this.chatMcps.set(prev); // roll back to server-consistent state
+        try { localStorage.setItem('ps_chat_mcps', JSON.stringify(prev)); } catch { /* */ }
+        // api.service already toasted the failure
+      },
+    });
   }
   /**
    * "Improve with AI" — an empty system-prompt field loads the v2 best-prompt
