@@ -59,7 +59,7 @@ jobs:
       matrix:
         shard: [1, 2, 3, 4, 5, 6, 7, 8]
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
 
       # Presence gate: secrets can't be used in job-level `if:`, so check here and
       # gate the suite step on the output. Absent secret → skip, not fail.
@@ -75,7 +75,7 @@ jobs:
             echo "::notice::E2E_API_KEY secret not set — skipping prod E2E (fail-open)."
           fi
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         if: steps.gate.outputs.has_key == 'true'
         with:
           node-version: ${{ env.NODE_VERSION }}
@@ -102,7 +102,7 @@ jobs:
 
       - name: Upload Playwright report
         if: steps.gate.outputs.has_key == 'true' && always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: playwright-prod-report-shard-${{ matrix.shard }}
           path: apps/project-sites/playwright-report/
@@ -128,7 +128,7 @@ jobs:
       matrix:
         shard: [1, 2, 3, 4, 5, 6, 7, 8]
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
 
       - name: Check E2E_API_KEY is configured
         id: gate
@@ -142,7 +142,7 @@ jobs:
             echo "::notice::E2E_API_KEY secret not set — skipping frontend prod E2E (fail-open)."
           fi
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         if: steps.gate.outputs.has_key == 'true'
         with:
           node-version: ${{ env.NODE_VERSION }}
@@ -169,7 +169,7 @@ jobs:
 
       - name: Upload Playwright report
         if: steps.gate.outputs.has_key == 'true' && always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: playwright-prod-report-frontend-shard-${{ matrix.shard }}
           path: apps/project-sites/frontend/playwright-report/
@@ -184,7 +184,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
 
       - name: Check E2E_TEST_PASSWORD is configured
         id: gate
@@ -198,7 +198,7 @@ jobs:
             echo "::notice::E2E_TEST_PASSWORD secret not set — skipping sign-in E2E (fail-open)."
           fi
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         if: steps.gate.outputs.has_key == 'true'
         with:
           node-version: ${{ env.NODE_VERSION }}
@@ -227,7 +227,7 @@ jobs:
 
       - name: Upload Playwright report
         if: steps.gate.outputs.has_key == 'true' && always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: playwright-signin-report
           path: apps/project-sites/frontend/playwright-report/
@@ -249,7 +249,7 @@ jobs:
     # A Browserbase session is billed — nightly + manual only, never on push.
     if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
 
       - name: Check Browserbase + E2E secrets are configured
         id: gate
@@ -265,7 +265,7 @@ jobs:
             echo "::notice::Browserbase/E2E secrets not all set — skipping visual sweep (fail-open)."
           fi
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         if: steps.gate.outputs.ready == 'true'
         with:
           node-version: ${{ env.NODE_VERSION }}
@@ -299,7 +299,7 @@ jobs:
 
       - name: Upload section screenshots + report
         if: steps.gate.outputs.ready == 'true' && always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: browserbase-visual-sweep
           path: |
@@ -323,7 +323,7 @@ jobs:
     timeout-minutes: 25
     if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
 
       - name: Check Browserbase + E2E + brian-login secrets are configured
         id: gate
@@ -340,7 +340,7 @@ jobs:
             echo "::notice::Browserbase/E2E/brian-login secrets not all set — skipping brian sweep (fail-open)."
           fi
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         if: steps.gate.outputs.ready == 'true'
         with:
           node-version: ${{ env.NODE_VERSION }}
@@ -373,7 +373,7 @@ jobs:
 
       - name: Upload brian section screenshots + report
         if: steps.gate.outputs.ready == 'true' && always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: browserbase-visual-sweep-brian
           path: |
@@ -393,9 +393,9 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
           node-version: ${{ env.NODE_VERSION }}
           cache: npm
@@ -493,7 +493,7 @@ jobs:
     if: github.event_name != 'push'
     timeout-minutes: 35
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
 
       - name: Check E2E_API_KEY is configured
         id: gate
@@ -507,7 +507,7 @@ jobs:
             echo "::notice::E2E_API_KEY secret not set — skipping admin-verify suite (fail-open)."
           fi
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         if: steps.gate.outputs.has_key == 'true'
         with:
           node-version: ${{ env.NODE_VERSION }}

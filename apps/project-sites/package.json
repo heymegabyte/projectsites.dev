@@ -59,6 +59,7 @@
     "validate:features": "node scripts/validate-feature-manifests.mjs && node scripts/validate-feature-drift.mjs",
     "validate:features:quick": "node scripts/validate-feature-manifests.mjs && node scripts/validate-feature-drift.mjs --quick",
     "validate:idor": "node scripts/validate-idor-gates.mjs",
+    "validate:action-pins": "node scripts/check-action-pins.mjs",
     "admin:verify": "node e2e/admin-verify/run-all.mjs",
     "audit:schema-applied": "node scripts/audit-schema-migrations-applied.mjs",
     "audit:flag-registration": "node scripts/audit-flag-registration.mjs",
