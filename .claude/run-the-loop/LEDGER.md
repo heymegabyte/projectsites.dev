@@ -160,3 +160,30 @@ git history._
   9 branches purged; `worktree-wf_59b344e1-c59-{6,8}` are NOT ancestors — inspect next fire.
 - Loop improvements landed: fire-lease mutex ACTIVE first fire (claim/heartbeat/release used
   throughout) + explorer journey rotation + settle tunables + ledger-cursor resume proven.
+
+## Fire 55 (2026-09-29) — money-path endpoint + stranded-work salvage + campaign opened
+
+- Money-path: super-admin cross-org WfP backfill `POST /api/super-admin/wfp/backfill` (`c18d3a8ff`)
+  — gate-covered, Zod-strict, dryRun-default, keyset cursor, 13/13 RED-first; prod gate-probed 401.
+- Salvage (main-only doctrine): yesterday's stranded workflow branches LANDED — site_versioning
+  provenance `4288a2c3f` + the 5 dark per-site Resource surfaces wired+flagged `9f9fcf599`
+  (conflicts hand-resolved preserving fire-54 intents; all 5 manifests experimental/dark);
+  branches deleted. Union gates on merged HEAD: editor 1297 ✓, worker jest FULL 13,901 ✓.
+- Explorer live rule-probe (role 17, resources-deep journey): caught the ONE Refresh control
+  fire-54 missed — ResourcesPanel's own header button — fixed to visibility-aware poll
+  (`869f17d9c`, latest-ref pattern) + LockManager 5s-blind→visibility-aware + pick-a-table pane
+  (`990ccaef8`) + Settings prefill (`71a5affe3`). Post-deploy replay: **PASS_CLOUDFLARE, 0
+  refresh/reconcile controls across all Resources states**, true subviews Media/Files/Buckets.
+- Deploys verified: editor Pages `40eed71a` · worker `00b82f00` (+`473755ae`) · frontend R2
+  299/299 purged, served `main-BEAVLNRK.js` == built. Template repo `d5f4ba5` (5 defects incl.
+  Quote JSON-LD token leak sealed; 533 tests).
+- Security sweep (fire-54 diffs): ALL 6 CHECKS CLEAN (info-leak/notify-payloads/IDOR/auto-
+  reconcile-authz/explorer-secrets/SSRF). Optional rec queued: assert payment payloads contain
+  ONLY amounts fields.
+- ⭐ CAMPAIGN OPENED: Brian's Cloudflare-native AI/MCP/Chat/workspaces directive → canonical
+  condensed spec `.claude/run-the-loop/CAMPAIGN-cf-native-ai.md`; wave-0 running (backlog lanes
+  1-11, RED compat-API acceptance specs, LiteLLM inventory, §2 foundations-verify at HEAD).
+- Loop improvements: scheduler file untracked (recurring dirty-tree blocker dead, `e286c14a3`) +
+  explorer resources-deep journey w/ LIVE real-time-contract probe + scoped pill discovery.
+  Attrition: long-trail died 2nd time mid-stack-boot (patch salvaged; next attempt = pre-booted
+  stack). Fire-lease coalescing PROVEN: the 18:58 cron tick joined this fire instead of stacking.

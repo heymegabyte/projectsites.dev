@@ -2,43 +2,43 @@
   "states": {
     "/::public-home::::d05f796d": {
       "discovered": "2026-09-29T19:57:38.675Z",
-      "visits": 6,
+      "visits": 7,
       "status": "visited",
       "lastAction": "homepage loads (initial state)",
-      "lastVisited": "2026-09-29T22:52:25.750Z",
-      "lastRun": "dux-2026-09-29T22-52-17-937Z"
+      "lastVisited": "2026-09-29T23:16:56.997Z",
+      "lastRun": "dux-2026-09-29T23-16-49-067Z"
     },
     "/signin::signin::::576d826f": {
       "discovered": "2026-09-29T19:57:43.656Z",
-      "visits": 6,
+      "visits": 7,
       "status": "visited",
       "lastAction": "click Sign In (header) → /signin",
-      "lastVisited": "2026-09-29T22:52:32.336Z",
-      "lastRun": "dux-2026-09-29T22-52-17-937Z"
+      "lastVisited": "2026-09-29T23:17:00.289Z",
+      "lastRun": "dux-2026-09-29T23-16-49-067Z"
     },
     "/signin::signin-test-seam::::02622a42": {
       "discovered": "2026-09-29T19:57:48.051Z",
-      "visits": 6,
+      "visits": 7,
       "status": "visited",
       "lastAction": "enter test seam (/signin?test=1) — panel render",
-      "lastVisited": "2026-09-29T22:52:35.341Z",
-      "lastRun": "dux-2026-09-29T22-52-17-937Z"
+      "lastVisited": "2026-09-29T23:17:03.320Z",
+      "lastRun": "dux-2026-09-29T23-16-49-067Z"
     },
     "/admin::admin-dashboard::::fec53253": {
       "discovered": "2026-09-29T19:57:55.718Z",
-      "visits": 7,
+      "visits": 8,
       "status": "visited",
       "lastAction": "test login submit → lands /admin",
-      "lastVisited": "2026-09-29T22:52:39.523Z",
-      "lastRun": "dux-2026-09-29T22-52-17-937Z"
+      "lastVisited": "2026-09-29T23:17:07.642Z",
+      "lastRun": "dux-2026-09-29T23-16-49-067Z"
     },
     "/admin/editor::admin-editor-shell::::6eca7550": {
       "discovered": "2026-09-29T19:58:16.461Z",
-      "visits": 4,
+      "visits": 5,
       "status": "visited",
       "lastAction": "click Editor nav → /admin/editor (iframe mounts)",
-      "lastVisited": "2026-09-29T22:52:46.448Z",
-      "lastRun": "dux-2026-09-29T22-52-17-937Z"
+      "lastVisited": "2026-09-29T23:17:14.479Z",
+      "lastRun": "dux-2026-09-29T23-16-49-067Z"
     },
     "/admin/editor::editor-workbench::::ea74008d": {
       "discovered": "2026-09-29T19:58:22.511Z",
@@ -202,11 +202,11 @@
     },
     "/admin/editor::editor-resources::::9ae378df": {
       "discovered": "2026-09-29T22:53:04.101Z",
-      "visits": 1,
+      "visits": 2,
       "status": "visited",
       "lastAction": "open Resources tab",
-      "lastVisited": "2026-09-29T22:53:04.101Z",
-      "lastRun": "dux-2026-09-29T22-52-17-937Z"
+      "lastVisited": "2026-09-29T23:17:30.177Z",
+      "lastRun": "dux-2026-09-29T23-16-49-067Z"
     },
     "/admin/editor::editor-resources::::b12d1d8f": {
       "discovered": "2026-09-29T22:53:18.949Z",
@@ -266,14 +266,39 @@
     },
     "/admin/editor::editor-resources::::eaf80a8d": {
       "discovered": "2026-09-29T22:54:45.510Z",
-      "visits": 1,
+      "visits": 2,
       "status": "visited",
       "lastAction": "Resources › Media library sub-view",
-      "lastVisited": "2026-09-29T22:54:45.510Z",
-      "lastRun": "dux-2026-09-29T22-52-17-937Z"
+      "lastVisited": "2026-09-29T23:17:35.797Z",
+      "lastRun": "dux-2026-09-29T23-16-49-067Z"
+    },
+    "/admin/editor::editor-resources::::6c3300fb": {
+      "discovered": "2026-09-29T23:17:41.604Z",
+      "visits": 1,
+      "status": "visited",
+      "lastAction": "Resources › Site files sub-view",
+      "lastVisited": "2026-09-29T23:17:41.604Z",
+      "lastRun": "dux-2026-09-29T23-16-49-067Z"
+    },
+    "/admin/editor::editor-resources::::8391e2b2": {
+      "discovered": "2026-09-29T23:17:50.088Z",
+      "visits": 1,
+      "status": "visited",
+      "lastAction": "Resources › Buckets sub-view",
+      "lastVisited": "2026-09-29T23:17:50.088Z",
+      "lastRun": "dux-2026-09-29T23-16-49-067Z"
     }
   },
   "runs": [
+    {
+      "runId": "dux-2026-09-29T23-16-49-067Z",
+      "status": "PASS_CLOUDFLARE",
+      "provider": "cloudflare-browser-run",
+      "coverage": "CLOUD_PASS_ELIGIBLE",
+      "statesVisited": 9,
+      "blockedStates": {},
+      "finishedAt": "2026-09-29T23:17:50.663Z"
+    },
     {
       "runId": "dux-2026-09-29T22-52-17-937Z",
       "status": "PARTIAL",

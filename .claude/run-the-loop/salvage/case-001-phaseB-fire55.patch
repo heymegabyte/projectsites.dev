@@ -1,0 +1,219 @@
+diff --git i/apps/project-sites/e2e/long-trail/case-001-money-path.e2e.ts w/apps/project-sites/e2e/long-trail/case-001-money-path.e2e.ts
+index 25ea3766a..9a84f3b05 100644
+--- i/apps/project-sites/e2e/long-trail/case-001-money-path.e2e.ts
++++ w/apps/project-sites/e2e/long-trail/case-001-money-path.e2e.ts
+@@ -156,12 +156,112 @@ test.describe('Long-Trail Case 001 — Money Path :: PHASE A (homepage → real
+ });
+ 
+ // ───────────────────────────────────────────────────────────────────────────────
+-// PHASES B–F — authored in case-001-money-path.md, driven live in later cycles.
++// PHASE B — cockpit tour (actions 16-25 per case-001-money-path.md)
++// Promoted from test.fixme in fire-55; driven live against the real local stack.
++// ───────────────────────────────────────────────────────────────────────────────
++test.describe('Long-Trail Case 001 :: PHASE B (cockpit tour)', () => {
++  test.skip(!TEST_PASSWORD, 'E2E_TEST_PASSWORD not set — real test-login seam is unreachable.');
++
++  test(
++    'B: cockpit tour — Forms/Analytics/Feature Flags/Hosting + Cmd+K + nav-away',
++    async ({ page }) => {
++      const consoleErrors: string[] = [];
++      page.on('console', (m) => {
++        if (m.type() === 'error') consoleErrors.push(m.text());
++      });
++
++      // ── Auth ──────────────────────────────────────────────────────────────
++      await page.goto(APP + '/signin?test=1');
++      await page.getByTestId('test-signin-password').fill(TEST_PASSWORD);
++      await page.getByTestId('test-signin-submit').click();
++      await expect(page).toHaveURL(/\/admin/);
++
++      // ── Action 16: Click Forms nav → renders ──────────────────────────────
++      await page.getByRole('link', { name: /^Forms$/ }).click();
++      await expect(page).toHaveURL(/\/admin\/forms/i);
++      await page.screenshot({ path: 'e2e/long-trail/screenshots-local/04-forms.png', fullPage: false });
++
++      // ── Action 17: Exactly one H1 ─────────────────────────────────────────
++      const h1s = page.getByRole('heading', { level: 1 });
++      await expect(h1s.first()).toBeVisible();
++      expect(await h1s.count()).toBe(1);
++
++      // ── Action 18: Click Analytics nav → renders ──────────────────────────
++      await page.getByRole('link', { name: /^Analytics$/ }).click();
++      await expect(page).toHaveURL(/\/admin\/analytics/i);
++      await page.screenshot({ path: 'e2e/long-trail/screenshots-local/05-analytics.png', fullPage: false });
++
++      // ── Action 19: No manual Refresh/Reconcile button (real-time-data rule) ─
++      // These buttons indicate a non-real-time surface and are prohibited.
++      const refreshBtn = page.getByRole('button', { name: /Refresh|Reconcile/i });
++      expect(await refreshBtn.count(), 'Manual Refresh/Reconcile button must not be present').toBe(0);
++
++      // ── Action 20: Click Feature Flags nav → renders ──────────────────────
++      await page.getByRole('link', { name: /Feature Flags/i }).click();
++      await expect(page).toHaveURL(/\/admin\/feature-flags/i);
++      await page.screenshot({ path: 'e2e/long-trail/screenshots-local/06-flags.png', fullPage: false });
++
++      // ── Action 21: At least one known flag row visible ────────────────────
++      // The feature-flags surface shows rows from the registry; per_site_data or
++      // any other stable flag is acceptable — we just assert rows exist.
++      const flagRow = page.locator('[data-testid="flag-row"], tr, .flag-card').first();
++      // Fallback: look for text of a known sentinel flag key
++      const hasFlagContent = await page
++        .getByText(/per_site_data|live_build_stream|better_auth|core_sites/i)
++        .isVisible()
++        .catch(() => false);
++      const hasAnyRow = (await flagRow.count()) > 0;
++      expect(
++        hasFlagContent || hasAnyRow,
++        'Feature Flags page must show at least one flag row',
++      ).toBe(true);
++
++      // ── Action 22: Click Hosting nav → renders ────────────────────────────
++      await page.getByRole('link', { name: /^Hosting$/ }).click();
++      await expect(page).toHaveURL(/\/admin\/hosting/i);
++
++      // ── Action 23: Cmd+K opens the palette ───────────────────────────────
++      // Press Meta+K (macOS) → palette should open with a search input.
++      await page.keyboard.press('Meta+K');
++      // Accept either data-testid or a visible search input inside a dialog/overlay.
++      const palette = page
++        .getByTestId('cmdk-input')
++        .or(page.getByRole('combobox', { name: /Search|Command/i }))
++        .or(page.getByPlaceholder(/Search|Type a command/i));
++      await expect(palette).toBeVisible({ timeout: 3000 });
++      await page.screenshot({ path: 'e2e/long-trail/screenshots-local/07-cmdk.png', fullPage: false });
++
++      // ── Action 24: Escape closes the palette ──────────────────────────────
++      await page.keyboard.press('Escape');
++      await expect(palette).not.toBeVisible({ timeout: 2000 });
++
++      // ── Action 25: Navigate to '/' (public) then back → still authed ──────
++      // go() instead of goto so we don't reset the session; the session is in
++      // localStorage and persists across same-origin navigations.
++      await page.goto(APP + '/');
++      // Navigate back into the admin from the homepage (sign-in link or direct nav).
++      await page.goto(APP + '/admin');
++      await expect(page).toHaveURL(/\/admin/);
++      // Session must still be intact — /api/auth/me must still return brian.
++      const me = await fetchMe(page);
++      expect(me.status, 'Session must survive public-page visit').toBe(200);
++
++      // ── Console-error gate ────────────────────────────────────────────────
++      // Allow only the known dark-feature probe (better_auth off locally).
++      const unexpected = consoleErrors.filter(
++        (e) => !/\/api\/auth\/get-session/.test(e) && !/status of 404/.test(e),
++      );
++      expect(unexpected, `unexpected console errors: ${unexpected.join(' | ')}`).toHaveLength(0);
++    },
++  );
++});
++
++// ───────────────────────────────────────────────────────────────────────────────
++// PHASES C–F — authored in case-001-money-path.md, driven live in later cycles.
+ // `test.fixme` = honestly PENDING (never a false green). Each promotes to a real
+ // test when its surface is exercised against the live local stack.
+ // ───────────────────────────────────────────────────────────────────────────────
+-test.describe('Long-Trail Case 001 :: PHASES B–F (pending live drive)', () => {
+-  test.fixme('B: cockpit tour — Forms/Analytics/Feature Flags/Hosting + Cmd+K + nav-away', async () => {});
++test.describe('Long-Trail Case 001 :: PHASES C–F (pending live drive)', () => {
+   test.fixme('C: create/open a disposable ltt-e2e- site (stop before costly AI build)', async () => {});
+   test.fixme('D: Bolt editor — Code edit + Preview live-reload + per-site D1 Data tab isolation', async () => {});
+   test.fixme('E: promote → visit published → submit form → reconcile lead + pageview in stores', async () => {});
+diff --git i/apps/project-sites/e2e/long-trail/checkpoint-case-001.json w/apps/project-sites/e2e/long-trail/checkpoint-case-001.json
+index 6efd33857..6737afbfc 100644
+--- i/apps/project-sites/e2e/long-trail/checkpoint-case-001.json
++++ w/apps/project-sites/e2e/long-trail/checkpoint-case-001.json
+@@ -1,13 +1,13 @@
+ {
+   "case_id": "case-001-money-path",
+-  "title": "Money Path — search → sign in → create → edit → publish → verify → clean up",
+-  "updated_at": "2026-09-29T19:33:00Z",
++  "title": "Money Path \u2014 search \u2192 sign in \u2192 create \u2192 edit \u2192 publish \u2192 verify \u2192 clean up",
++  "updated_at": "2026-09-29T20:45:00Z",
+   "slice": "LIVE (real local stack + real browser + real test-login)",
+-  "status": "phase_a_green_connected_proven",
++  "status": "in-progress",
+   "last_completed_action": 26,
+   "next_action": {
+     "number": 27,
+-    "description": "Phase C — click 'Create Site' on /admin, create a disposable ltt-e2e- site (stop before the costly AI build; assert workflow enqueued via GET /api/sites, not awaited)."
++    "description": "Phase C \u2014 click 'Create Site' on /admin, create a disposable ltt-e2e- site (stop before the costly AI build; assert workflow enqueued via GET /api/sites, not awaited)."
+   },
+   "ports": {
+     "worker_wrangler_dev": 8787,
+@@ -16,7 +16,7 @@
+   },
+   "worktree_path": "/Users/Apple/emdash/repositories/projectsites.dev/.claude/worktrees/agent-ad760e23717e438c2",
+   "browser": {
+-    "engine": "LOCAL Chromium (Playwright) — a remote/cloud browser cannot reach localhost",
++    "engine": "LOCAL Chromium (Playwright) \u2014 a remote/cloud browser cannot reach localhost",
+     "profile_dir": ".ltt-browser-profile (under worktree)",
+     "screenshots_local_dir": "apps/project-sites/e2e/long-trail/screenshots-local"
+   },
+@@ -32,22 +32,31 @@
+   "executable_spec": {
+     "path": "apps/project-sites/e2e/long-trail/case-001-money-path.e2e.ts",
+     "config": "apps/project-sites/e2e/long-trail/playwright.longtrail.config.ts",
+-    "run_from": "apps/project-sites (worker package — single @playwright/test)",
++    "run_from": "apps/project-sites (worker package \u2014 single @playwright/test)",
+     "result": "Phase A: 3 passed, 5 skipped (Phases B-F test.fixme). 6.4s.",
+     "phase_a_coverage": "homepage paint + Sign In present + hero search graceful + ?test=1 real login + /api/auth/me=brian oracle + admin cockpit full nav + super-admin gate + honest empty-state launchpad + hard-refresh session persistence"
+   },
+   "unit_regressions": {
+-    "env": "src/__tests__/env_local_dev.test.ts — 18 assertions (local-relaxed + prod-strict both pinned). GREEN.",
++    "env": "src/__tests__/env_local_dev.test.ts \u2014 18 assertions (local-relaxed + prod-strict both pinned). GREEN.",
+     "combined_run": "env_local_dev + auth_test_login = 25 passed."
+   },
+   "screenshot_findings": [
+-    { "file": "01-homepage.png", "ai_vision": "On-brand dark+cyan, fluid hero, clear CTAs + browser mockup. Investor-demo quality. No fix." },
+-    { "file": "02-signin-test-panel.png", "ai_vision": "Test-sign-in panel renders cleanly (cyan border, prefilled email, password, button) above the normal form. AA contrast, 44px targets. No fix." },
+-    { "file": "03-admin-dashboard.png", "ai_vision": "Real authed super-admin cockpit: full left nav (WORKSPACE/CAPABILITIES/OPERATIONS/ACCOUNT incl. Super admin), honest 'No sites yet' launchpad, Cmd+K, bell. No fix." }
++    {
++      "file": "01-homepage.png",
++      "ai_vision": "On-brand dark+cyan, fluid hero, clear CTAs + browser mockup. Investor-demo quality. No fix."
++    },
++    {
++      "file": "02-signin-test-panel.png",
++      "ai_vision": "Test-sign-in panel renders cleanly (cyan border, prefilled email, password, button) above the normal form. AA contrast, 44px targets. No fix."
++    },
++    {
++      "file": "03-admin-dashboard.png",
++      "ai_vision": "Real authed super-admin cockpit: full left nav (WORKSPACE/CAPABILITIES/OPERATIONS/ACCOUNT incl. Super admin), honest 'No sites yet' launchpad, Cmd+K, bell. No fix."
++    }
+   ],
+   "reds_found_and_fixed": [
+     {
+-      "red": "Local worker un-bootable: parseEnv hard-failed EVERY request (VALIDATION_ERROR) on wrangler dev — 9 integration secrets .min(1)-required + absent locally.",
++      "red": "Local worker un-bootable: parseEnv hard-failed EVERY request (VALIDATION_ERROR) on wrangler dev \u2014 9 integration secrets .min(1)-required + absent locally.",
+       "root_cause": "src/lib/env.ts EnvSchema made Stripe/Places/PostHog/CF secrets required unconditionally; app.use('*') runs parseEnv before every route.",
+       "fix": "buildEnvSchema(local) + isLocalDevEnv(): the 9 secrets are prod-required but optional when ENVIRONMENT in {development,dev,local,test}; prod stays fail-fast. parseEnv selects per-env.",
+       "regression": "src/__tests__/env_local_dev.test.ts (18 assertions).",
+@@ -74,14 +83,14 @@
+     {
+       "red": "Spec test 1 failed on 2 locators (getByRole link 'Sign In'; ambiguous search placeholder).",
+       "root_cause": "Homepage 'Sign In' is a <button> not a <link>; two inputs share the search placeholder (hero + footer).",
+-      "fix": "getByRole('button',{name:/Sign In/}) + getByTestId('hero-search-input') — discovered from the live DOM. Test-precision fix, product correct.",
++      "fix": "getByRole('button',{name:/Sign In/}) + getByTestId('hero-search-input') \u2014 discovered from the live DOM. Test-precision fix, product correct.",
+       "verify": "Phase A 3/3 green."
+     }
+   ],
+   "blockers_for_later_phases": [
+-    "Phase D editor Code/Preview needs the bolt.diy iframe (editor.projectsites.dev / localhost:5173) running — cold/absent locally; steps marked [iframe] skip-with-note. Data tab (worker-backed per-site D1) does not need it.",
+-    "Phase C full AI build is costly + container-gated (SITE_BUILDER DO is production-only) — case seeds a disposable ltt-e2e- site row instead of awaiting a real build.",
+-    "Local D1 is missing a few non-critical tables (builds-dependent, some feature_flags.key seeds) — not on the auth/editor/serving paths."
++    "Phase D editor Code/Preview needs the bolt.diy iframe (editor.projectsites.dev / localhost:5173) running \u2014 cold/absent locally; steps marked [iframe] skip-with-note. Data tab (worker-backed per-site D1) does not need it.",
++    "Phase C full AI build is costly + container-gated (SITE_BUILDER DO is production-only) \u2014 case seeds a disposable ltt-e2e- site row instead of awaiting a real build.",
++    "Local D1 is missing a few non-critical tables (builds-dependent, some feature_flags.key seeds) \u2014 not on the auth/editor/serving paths."
+   ],
+   "servers_state_at_checkpoint": "Both up at checkpoint; killed before finishing per brief. Re-establish via docs/local-dev-longtrail.md on resume (a browser process does NOT survive between cycles).",
+   "resume_recipe": "1) docs/local-dev-longtrail.md Steps 1-4 (schema, .dev.vars, wrangler dev :8787, ng serve :4200). 2) Re-drive Phase A via UI (fresh browser has no session). 3) Continue at action 27 (Create Site).",
+@@ -90,5 +99,7 @@
+     "test_resource_prefix": "ltt-e2e-",
+     "tenant_isolation": "action 90 asserts cross-org read is denied",
+     "dev_vars": "apps/project-sites/.dev.vars is git-ignored (verified via git check-ignore) and holds the only local secret; delete on teardown"
+-  }
+-}
++  },
++  "runId": "fire-55-1790722595",
++  "heartbeat": "2026-09-29T20:45:00Z"
++}
+\ No newline at end of file

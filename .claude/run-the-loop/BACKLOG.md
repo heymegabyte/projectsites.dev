@@ -801,17 +801,17 @@
 
 ## fire-54 replenish (verified, deduplicated)
 
-- [ ] LockManager unconditional poll → visibility-aware (the one fire-52 real-time item the
+- [x] (fire-55 `990ccaef8`) LockManager unconditional poll → visibility-aware (the one fire-52 real-time item the
   fire-54 sweep did NOT cover; same ResourceOverviewPanel pattern). Owner: Feature Delivery. Est: S.
-- [ ] Long-Trail case-001 Phase B re-queue — prerequisite discovered: apps/project-sites/.dev.vars
+- [ ] Long-Trail case-001 Phase B re-queue (2nd agent attrition fire-55 — died mid-run again; partial spec salvaged to .claude/run-the-loop/salvage/case-001-phaseB-fire55.patch; NEXT ATTEMPT: main thread pre-boots the stack, agent only writes+runs specs) — prerequisite discovered: apps/project-sites/.dev.vars
   needs ENVIRONMENT=development (has E2E_TEST_PASSWORD); agent died mid stack-setup, 0 commits.
-- [ ] Settings page prefill (vision 8/10, run dux-…22-19-12): form fields empty except contact
+- [x] (fire-55 `71a5affe3`, live main-BEAVLNRK) Settings page prefill (vision 8/10, run dux-…22-19-12): form fields empty except contact
   email — prefill from org/business profile or add inline guidance. Owner: UX. Est: S.
-- [ ] Template defects from catalog inventory (template repo, role 18): LogoCloud marquee
+- [x] (fire-55 template repo `d5f4ba5`, 533 tests) Template defects from catalog inventory (template repo, role 18): LogoCloud marquee
   focusable-in-aria-hidden; scrubText firewall missing on MetricRow/Quote/Spotlight (Quote leaks
   into Quotation JSON-LD); Timeline year token unscrubbed; CaseStudyGrid fallback lacks DEV gate;
   docs/COMPONENTS.md lagging. Acceptance: validator/test per fix in template repo. Est: M.
-- [ ] Hygiene: inspect non-ancestor branches `worktree-wf_59b344e1-c59-6/8` — salvage or delete
+- [x] (fire-55: REAL stranded work — salvaged `4288a2c3f` + `9f9fcf599`, branches deleted) Hygiene: inspect non-ancestor branches `worktree-wf_59b344e1-c59-6/8` — salvage or delete
   with rationale. Est: S.
 
 ---
