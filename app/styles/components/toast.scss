@@ -4,7 +4,20 @@
   @extend .z-toast;
 }
 
-.Toastify__toast {
+/*
+ * Dark brand surface for EVERY toast variant (success/error/info/warning) on
+ * EVERY vendor theme class. react-toastify's own stylesheet paints
+ * `.Toastify__toast-theme--light` white (#fff surface, #757575 ink) at the SAME
+ * specificity as a bare `.Toastify__toast` override — a cascade tie the old
+ * override only won by stylesheet order. Naming the vendor theme classes here
+ * (plus the container `theme="dark"` prop in root.tsx and the `--toastify-*`
+ * token remaps in variables.scss) makes the dark brand surface
+ * order-independent. Ink #f4f4ff on #0e0e28 ≈ 16.9:1 — WCAG AA. (fire-54)
+ */
+.Toastify__toast,
+.Toastify__toast-theme--light,
+.Toastify__toast-theme--dark,
+.Toastify__toast-theme--colored.Toastify__toast--default {
   --at-apply: shadow-md;
 
   background-color: var(--bolt-elements-bg-depth-2);

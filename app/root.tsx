@@ -100,6 +100,7 @@ export function Layout({ children }: { children: React.ReactNode }) {
       <EditorLoadingScreen />
       <ClientOnly>{() => <DndProvider backend={HTML5Backend}>{children}</DndProvider>}</ClientOnly>
       <ToastContainer
+        theme="dark"
         closeButton={({ closeToast }) => {
           return (
             <button className="Toastify__close-button" onClick={closeToast}>

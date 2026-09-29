@@ -235,9 +235,16 @@
   --workbench-width: calc(100% - var(--workbench-split) - 1px);
   --workbench-inner-width: var(--workbench-width);
 
-  /* Toasts */
+  /* Toasts — dark brand surface/ink for BOTH vendor theme classes, so even an
+     explicit `theme: 'light'` call site resolves to the brand-dark toast
+     instead of react-toastify's #fff / #757575 defaults. (fire-54) */
+  --toastify-color-light: var(--bolt-elements-bg-depth-2);
+  --toastify-text-color-light: var(--bolt-elements-textPrimary);
+  --toastify-color-dark: var(--bolt-elements-bg-depth-2);
+  --toastify-text-color-dark: var(--bolt-elements-textPrimary);
   --toastify-color-progress-success: var(--bolt-elements-icon-success);
   --toastify-color-progress-error: var(--bolt-elements-icon-error);
+  --toastify-color-progress-info: var(--ps-accent, #00e5ff);
 
   /* Terminal */
   --bolt-elements-terminal-backgroundColor: var(--bolt-terminal-background);

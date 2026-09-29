@@ -1600,6 +1600,23 @@ button:not(:disabled):not([class*='ResizeHandle']):not([data-panel-resize-handle
 
    Opt out with `.ps-allow-surface` on any control that legitimately needs a
    non-brand fill (e.g. a vendor-branded CTA that carries its own color). */
+
+/* UA ButtonFace neutralizer — restore the Tailwind-preflight rule that
+   `@unocss/reset/tailwind-compat.css` deliberately drops (unocss#2127). The
+   compat reset keeps `-webkit-appearance: button` but NOT
+   `background-color: transparent`, so any <button> WITHOUT an explicit bg
+   utility paints the browser's WHITE default face over the dark canvas —
+   the fire-54 DUX defect: SiteImportStatus's full-width header button
+   rendered "Loaded 49 files" as #f4f4ff ink on a white UA pill (WCAG 1.4.3
+   fail). Element-level specificity (0,0,1): every `bg-*` utility, component
+   rule, and the class-based defensive net below still win. */
+button,
+[type='button'],
+[type='reset'],
+[type='submit'] {
+  background-color: transparent;
+}
+
 [data-theme] button:not(.ps-allow-surface),
 [data-theme] [role='button']:not(.ps-allow-surface),
 [data-theme] input[type='button']:not(.ps-allow-surface),
