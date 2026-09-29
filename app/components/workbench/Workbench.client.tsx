@@ -60,9 +60,10 @@ const CHAT_TAB: TopTab = { value: 'chat', text: 'Chat', icon: 'i-ph:chat-circle-
  * The **Git** tab was RETIRED (Promote release workflow): the platform presents a single `main`
  * line — no branch selector, staging, or PR — so a standalone Git browser tab no longer earns a
  * top-level slot. Git history + the GitHub link now live in the Code-view Project hub
- * (`ProjectHub.tsx`, `PS_CODE_HISTORY` bridge), and the file-browser logic (`GitPanel`,
- * `git-browser-logic`) is preserved for the future Source-Control view beside the file explorer.
- * A stale persisted `git` view normalizes to `code` below (the `data`→`database` precedent).
+ * (`ProjectHub.tsx`, `PS_CODE_HISTORY` bridge); the Preview-diff / release-history / restore /
+ * Promote surface is `SourceControlPanel` (a tab beside Files/Search/Locks in `EditorPanel`), and
+ * the shared branchy logic lives in `git-browser-logic`. A stale persisted `git` view normalizes
+ * to `code` below (the `data`→`database` precedent).
  */
 const TOP_TABS: TopTab[] = [
   { value: 'code', text: 'Code', icon: 'i-ph:code-duotone' },
@@ -558,10 +559,11 @@ export const Workbench = memo(
                     </PanelLayer>
                     {/* The Git panel's top-level TAB was retired (Promote release workflow) — the platform
                         presents one `main` line, so a standalone Git browser tab no longer earns a slot.
-                        `GitPanel` + `git-browser-logic` are PRESERVED (not deleted): git history is reachable
-                        from the Code-view Project hub (`ProjectHub.tsx`, `PS_CODE_HISTORY` bridge), and the
-                        published-file browser will be re-mounted as the Source-Control view beside the file
-                        explorer in a later slice. A stale persisted `git` view normalizes to `code` above. */}
+                        The Source-Control view shipped: `SourceControlPanel` (Preview diff + release history +
+                        restore + Promote) is a tab beside Files/Search/Locks in `EditorPanel`, and git history
+                        is reachable from the Code-view Project hub (`ProjectHub.tsx`, `PS_CODE_HISTORY` bridge).
+                        The shared branchy logic lives in `git-browser-logic`. A stale persisted `git` view
+                        normalizes to `code` above. */}
                     {/* Chat panel — a first-class tab panel, tablet/mobile only.
                         It cross-fades via the SAME PanelLayer mechanism as Code /
                         Preview / Data, driven by selectedView === 'chat'.

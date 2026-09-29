@@ -30,7 +30,7 @@
  *
  * REUSE (per the DatabasePanel precedent): all branchy logic is the preserved {@link ./git-browser-logic}
  * (diff, counts, badges, sync summary, `shortSha`, `formatCommitDate`, `formatBytes`); the branded
- * button/state primitives + bridge request pattern mirror {@link ./GitPanel}. Zero new hardcoded colors —
+ * button/state primitives + bridge request pattern are the panel's own (color-complete, zero white). Zero new hardcoded colors —
  * cyan `--bolt-elements-item-contentAccent` is the accent, purple `--ps-accent-secondary` the structural one.
  */
 import { useStore } from '@nanostores/react';
@@ -73,10 +73,10 @@ import { usePromote, type PromoteState, type PromoteLastResult } from './use-pro
 
 // ── Constants ────────────────────────────────────────────────────────────────
 
-/** Purple structural accent (never a hardcoded hex) — mirrors GitPanel; tracks `--ps-accent-secondary`. */
+/** Purple structural accent (never a hardcoded hex) — tracks `--ps-accent-secondary`. */
 const PURPLE = 'var(--ps-accent-secondary)';
 
-/** How long to wait for a bridge reply before rejecting (mirrors GitPanel). */
+/** How long to wait for a bridge reply before rejecting. */
 const REQUEST_TIMEOUT_MS = 20_000;
 
 /** Monotonic fallback correlationId counter (crypto.randomUUID preferred). */
@@ -144,7 +144,7 @@ interface Pending {
   timer: ReturnType<typeof setTimeout>;
 }
 
-// ── Shared branded button primitives (mirrors GitPanel — color-complete, zero white) ──────────────
+// ── Shared branded button primitives (color-complete, zero white) ──────────────
 
 type ButtonVariant = 'primary' | 'secondary' | 'ghost' | 'destructive';
 
@@ -300,7 +300,7 @@ export const SourceControlPanel = memo(() => {
   }, []);
 
   /*
-   * ONE parent-message listener + a live pending map (mirrors GitPanel — avoids the repo's known
+   * ONE parent-message listener + a live pending map (avoids the repo's known
    * empty-deps stale-ref bug). Each request awaits the reply whose `type` matches the request's expected
    * response AND whose `correlationId` matches.
    */
@@ -1078,7 +1078,7 @@ const SyncIndicator = memo(({ sync }: { sync: SyncSummary | null }) => {
 
 SyncIndicator.displayName = 'SourceControl.SyncIndicator';
 
-// ── Shared spinner + error + empty scaffold (mirrors GitPanel) ────────────────
+// ── Shared spinner + error + empty scaffold ────────────────
 
 const Spinner = memo(({ label, testId }: { label: string; testId?: string }) => (
   <div

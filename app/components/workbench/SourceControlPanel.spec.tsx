@@ -3,7 +3,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { render, screen, cleanup, waitFor, fireEvent } from '@testing-library/react';
 
 /*
- * Drive the Source Control panel through the embedded bridge exactly like GitPanel.spec: mock
+ * Drive the Source Control panel through the embedded bridge: mock
  * `~/lib/embed/embedded-mode` so `isEmbedded` is true and each `postToParent` is answered by the
  * registered `onParentMessage` handler with a canned reply keyed by request type + correlationId.
  * `sent` records every outbound message so we can assert restore targets Preview only (never a

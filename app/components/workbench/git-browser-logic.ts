@@ -2,7 +2,8 @@
  * @file Pure, testable logic for the per-site Code / Git browser (FIRE 7).
  *
  * @remarks
- * The {@link GitPanel} React surface stays thin — all the branchy logic that's worth a unit test
+ * The React surfaces that consume this ({@link SourceControlPanel} + the Code-view Project hub) stay
+ * thin — all the branchy logic that's worth a unit test
  * lives here: turning a FLAT list of R2 keys into a nested tree, mapping a filename to a CodeMirror
  * language + a display label, deciding whether a path is binary (so the viewer never dumps garbled
  * bytes), and formatting the git commit timeline. Zero React / DOM / bridge imports so it runs in a

@@ -3,7 +3,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { render, screen, cleanup, waitFor, fireEvent } from '@testing-library/react';
 
 /*
- * Drive the header Promote control through the embedded bridge, exactly like GitPanel.spec: we mock
+ * Drive the header Promote control through the embedded bridge, exactly like SourceControlPanel.spec: we mock
  * `~/lib/embed/embedded-mode` so `isEmbedded` is true and each `postToParent` is answered synchronously
  * by the registered `onParentMessage` handler with a canned reply keyed by correlationId — the same way
  * the real admin answers. This proves the header control reuses the SHARED promote flow (usePromote):

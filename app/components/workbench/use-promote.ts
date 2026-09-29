@@ -44,7 +44,7 @@ import {
   type SyncSummary,
 } from './git-browser-logic';
 
-/** How long to wait for a bridge reply before rejecting (mirrors SourceControlPanel/GitPanel). */
+/** How long to wait for a bridge reply before rejecting (mirrors SourceControlPanel). */
 const REQUEST_TIMEOUT_MS = 20_000;
 
 /** Monotonic fallback correlationId counter (crypto.randomUUID preferred). */
@@ -166,7 +166,7 @@ export function usePromote(): UsePromote {
   }, []);
 
   /*
-   * ONE parent-message listener + a live pending map (mirrors SourceControlPanel/GitPanel — avoids the
+   * ONE parent-message listener + a live pending map (mirrors SourceControlPanel — avoids the
    * repo's known empty-deps stale-ref bug). Each request awaits the reply whose `type` matches the
    * request's expected response AND whose `correlationId` matches.
    */
