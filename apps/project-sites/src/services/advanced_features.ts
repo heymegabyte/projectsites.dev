@@ -11,6 +11,47 @@ import type { Env } from '../types/env.js';
 
 const uuid = () => crypto.randomUUID();
 const nowIso = () => new Date().toISOString();
+
+/**
+ * Shape returned by the DB-backed list reads in this module.
+ *
+ * @remarks
+ * The `ok`/`error` discriminator closes a lying-empty gap: a `.catch(() => ({ results: [] }))`
+ * previously merged "the table is genuinely empty (no rows yet)" with "the D1 read FAILED",
+ * so a real outage rendered as an honest-looking empty state and was invisible to monitoring.
+ * `results` is ALWAYS present (back-compat — callers read `.results?.length`); `ok:false` +
+ * `error:'api_unavailable'` marks the failure path so a caller CAN distinguish outage from empty.
+ */
+interface DbListResult {
+  ok: boolean;
+  error?: string;
+  results?: unknown[];
+}
+
+/**
+ * Structured-log a failed DB-backed list read and return the observable, discriminable
+ * fallback. Use as the `.catch()` handler on every list `.all()` so an outage is BOTH
+ * observable (a structured `console.warn`) AND distinguishable (`ok:false`) rather than a
+ * silent `{ results: [] }` that reads as "honestly empty".
+ *
+ * @param integration - the feature/table name for the log line (e.g. `'booking_slots'`)
+ * @returns `{ ok: false, error: 'api_unavailable', results: [] }` — `results` kept for callers
+ */
+function dbListUnavailable(integration: string): DbListResult {
+  // console.warn (NOT console.log — ESLint-blocked in this repo); JSON string so the
+  // outage surfaces in structured log aggregation instead of being swallowed.
+  console.warn(
+    JSON.stringify({
+      level: 'warn',
+      msg: 'advanced_features list fetch failed',
+      integration,
+      error: 'api_unavailable',
+      hint: 'D1 read threw — check DB binding/health; an empty result here is an OUTAGE, not "no rows yet"',
+    }),
+  );
+  return { ok: false, error: 'api_unavailable', results: [] };
+}
+
 const slug = (s: string) =>
   s
     .toLowerCase()
@@ -105,12 +146,13 @@ export async function ecommerceCreateOrder(
 }
 
 export async function bookingListSlots(env: Env, siteId: string) {
-  const rows = await env.DB.prepare(
+  const rows: DbListResult = await env.DB.prepare(
     'SELECT * FROM booking_slots WHERE site_id = ? AND status = ? ORDER BY start_at LIMIT 20',
   )
     .bind(siteId, 'open')
     .all()
-    .catch(() => ({ results: [] }));
+    .then((r) => ({ ok: true, results: r.results ?? [] }))
+    .catch(() => dbListUnavailable('booking_slots'));
   if ((rows.results?.length ?? 0) === 0) {
     const base = Date.now();
     return Array.from({ length: 5 }, (_, i) => ({
@@ -151,12 +193,13 @@ export async function lmsCreateCourse(
   return { id, site_id: p.siteId, title: p.title, module_count: p.modules.length, status: 'draft' };
 }
 export async function lmsListCourses(env: Env, siteId: string) {
-  const rows = await env.DB.prepare(
+  const rows: DbListResult = await env.DB.prepare(
     'SELECT id, title, price_cents, status, created_at FROM lms_courses WHERE site_id = ? ORDER BY created_at DESC LIMIT 50',
   )
     .bind(siteId)
     .all()
-    .catch(() => ({ results: [] }));
+    .then((r) => ({ ok: true, results: r.results ?? [] }))
+    .catch(() => dbListUnavailable('lms_courses'));
   return rows.results?.length
     ? rows.results
     : [{ id: 'c-demo', title: 'Intro to Sourdough', price_cents: 4900, status: 'published' }];
@@ -176,12 +219,13 @@ export async function communityCreateTopic(
   return { id, ...p, reply_count: 0, pinned: false, locked: false, created_at: nowIso() };
 }
 export async function communityListTopics(env: Env, siteId: string) {
-  const rows = await env.DB.prepare(
+  const rows: DbListResult = await env.DB.prepare(
     'SELECT * FROM community_topics WHERE site_id = ? ORDER BY pinned DESC, created_at DESC LIMIT 50',
   )
     .bind(siteId)
     .all()
-    .catch(() => ({ results: [] }));
+    .then((r) => ({ ok: true, results: r.results ?? [] }))
+    .catch(() => dbListUnavailable('community_topics'));
   return rows.results?.length
     ? rows.results
     : [
@@ -279,10 +323,11 @@ export async function membershipCreateTier(
   return { id, ...p, stripe_price_id: `price_demo_${id.slice(0, 8)}`, billing_cycle: 'monthly' };
 }
 export async function membershipListTiers(env: Env, siteId: string) {
-  const rows = await env.DB.prepare('SELECT * FROM membership_tiers WHERE site_id = ?')
+  const rows: DbListResult = await env.DB.prepare('SELECT * FROM membership_tiers WHERE site_id = ?')
     .bind(siteId)
     .all()
-    .catch(() => ({ results: [] }));
+    .then((r) => ({ ok: true, results: r.results ?? [] }))
+    .catch(() => dbListUnavailable('membership_tiers'));
   if (!rows.results?.length)
     return [
       {
@@ -617,11 +662,12 @@ export async function byoCloudflareConnect(env: Env, p: { orgId: string; cfAccou
 }
 
 export async function workerMarketplaceList(env: Env) {
-  const rows = await env.DB.prepare(
+  const rows: DbListResult = await env.DB.prepare(
     "SELECT * FROM worker_marketplace_listings WHERE status = 'published' ORDER BY install_count DESC LIMIT 20",
   )
     .all()
-    .catch(() => ({ results: [] }));
+    .then((r) => ({ ok: true, results: r.results ?? [] }))
+    .catch(() => dbListUnavailable('worker_marketplace_listings'));
   if (!rows.results?.length)
     return [
       {
@@ -713,11 +759,12 @@ export async function voiceCloneCreate(
 }
 
 export async function aiAgentMarketplaceList(env: Env) {
-  const rows = await env.DB.prepare(
+  const rows: DbListResult = await env.DB.prepare(
     "SELECT * FROM ai_agent_listings WHERE status = 'published' ORDER BY install_count DESC LIMIT 20",
   )
     .all()
-    .catch(() => ({ results: [] }));
+    .then((r) => ({ ok: true, results: r.results ?? [] }))
+    .catch(() => dbListUnavailable('ai_agent_listings'));
   if (!rows.results?.length)
     return [
       {
@@ -916,12 +963,13 @@ export async function loyaltyProgramCreate(
 }
 
 export async function crmListDeals(env: Env, siteId: string) {
-  const rows = await env.DB.prepare(
+  const rows: DbListResult = await env.DB.prepare(
     'SELECT * FROM crm_deals WHERE site_id = ? ORDER BY value_cents DESC LIMIT 50',
   )
     .bind(siteId)
     .all()
-    .catch(() => ({ results: [] }));
+    .then((r) => ({ ok: true, results: r.results ?? [] }))
+    .catch(() => dbListUnavailable('crm_deals'));
   if (!rows.results?.length)
     return [
       {

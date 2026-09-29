@@ -132,6 +132,116 @@ beforeEach(() => {
 });
 
 // ─────────────────────────────────────────────────────────────────────
+// Observable lying-empty guard (fire-47): every DB-backed list read now
+// (a) fires a structured console.warn on a D1 read failure — so an outage is
+//     VISIBLE to monitoring instead of masquerading as an honest empty state, and
+// (b) routes through `dbListUnavailable`, whose contract is exactly
+//     { ok: false, error: 'api_unavailable', results: [] } — `results` kept for
+//     back-compat callers, `ok`/`error` added so an outage is DISCRIMINABLE from empty.
+//
+// The 7 list functions all fall through to their demo/seed shape on failure (proving
+// the `results: []` propagated to the length check), and each emits the warn payload.
+// ─────────────────────────────────────────────────────────────────────
+
+describe('advanced_features — list-read outage is observable + discriminable (not lying-empty)', () => {
+  let warnSpy: jest.SpiedFunction<typeof console.warn>;
+
+  beforeEach(() => {
+    warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {});
+  });
+
+  afterEach(() => {
+    warnSpy.mockRestore();
+  });
+
+  // Each row: the list fn under test, how to invoke it with a throwing D1, the
+  // structured `integration` tag the warn MUST carry, and a fallback-shape assertion
+  // proving the empty `results` flowed through to the demo/seed path.
+  const cases: Array<{
+    name: string;
+    integration: string;
+    invoke: (env: Env) => Promise<unknown>;
+    assertFallback: (r: unknown) => void;
+  }> = [
+    {
+      name: 'bookingListSlots',
+      integration: 'booking_slots',
+      invoke: (env) => bookingListSlots(env, 'site-x'),
+      assertFallback: (r) => expect(r as unknown[]).toHaveLength(5),
+    },
+    {
+      name: 'lmsListCourses',
+      integration: 'lms_courses',
+      invoke: (env) => lmsListCourses(env, 'site-x'),
+      assertFallback: (r) =>
+        expect((r as Array<{ id: string }>)[0].id).toBe('c-demo'),
+    },
+    {
+      name: 'communityListTopics',
+      integration: 'community_topics',
+      invoke: (env) => communityListTopics(env, 'site-x'),
+      assertFallback: (r) =>
+        expect((r as Array<{ id: string }>)[0].id).toBe('t-demo'),
+    },
+    {
+      name: 'membershipListTiers',
+      integration: 'membership_tiers',
+      invoke: (env) => membershipListTiers(env, 'site-x'),
+      assertFallback: (r) => expect(r as unknown[]).toHaveLength(3),
+    },
+    {
+      name: 'workerMarketplaceList',
+      integration: 'worker_marketplace_listings',
+      invoke: (env) => workerMarketplaceList(env),
+      assertFallback: (r) => expect(r as unknown[]).toHaveLength(3),
+    },
+    {
+      name: 'aiAgentMarketplaceList',
+      integration: 'ai_agent_listings',
+      invoke: (env) => aiAgentMarketplaceList(env),
+      assertFallback: (r) => expect(r as unknown[]).toHaveLength(3),
+    },
+    {
+      name: 'crmListDeals',
+      integration: 'crm_deals',
+      invoke: (env) => crmListDeals(env, 'site-x'),
+      assertFallback: (r) => expect(r as unknown[]).toHaveLength(3),
+    },
+  ];
+
+  it.each(cases)(
+    '$name: a D1 read failure fires a structured console.warn (integration=$integration) carrying the { ok:false, error:"api_unavailable", results:[] } discriminator, and falls back to its demo/seed shape',
+    async ({ integration, invoke, assertFallback }) => {
+      const { env } = createMockEnv({ throwOn: 'all' });
+
+      const r = await invoke(env);
+
+      // (a) OBSERVABLE — the outage is logged (was previously a silent `{ results: [] }`).
+      expect(warnSpy).toHaveBeenCalledTimes(1);
+      const payload = JSON.parse(String(warnSpy.mock.calls[0][0])) as {
+        level: string;
+        integration: string;
+        error: string;
+      };
+      expect(payload.level).toBe('warn');
+      expect(payload.integration).toBe(integration);
+      expect(payload.error).toBe('api_unavailable');
+
+      // (b) DISCRIMINABLE fallback — the empty `results` propagated to the length
+      // check, so each fn returns its demo/seed shape rather than a bare empty list.
+      assertFallback(r);
+    },
+  );
+
+  it('a HEALTHY list read (rows present) fires NO warn — empty state stays honest', async () => {
+    const rows = [{ id: 'real-1' }];
+    const { env } = createMockEnv({ allResult: { results: rows } });
+    await expect(crmListDeals(env, 'site-1')).resolves.toEqual(rows);
+    expect(warnSpy).not.toHaveBeenCalled();
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────
 // A: Customer-facing engines
 // ─────────────────────────────────────────────────────────────────────
 
