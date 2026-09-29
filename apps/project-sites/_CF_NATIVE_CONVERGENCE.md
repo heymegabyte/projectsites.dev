@@ -339,18 +339,38 @@ any real number purchase / message send.
 
 ## 14 · Fire-2 next-wave (discovery + browser findings — replenish the queue)
 
-- **NOTIF-404 🔴 (browser agent, PROD):** `/api/notifications` returns **404 for UNAUTHENTICATED
-  visitors** → a red console error on EVERY public page (`/pricing` repro, signed-out). The
-  notification bell/poller must gate on auth + the `psnotify` flag BEFORE calling (client-read-flag
-  must match the worker 404, per `flag-off-frontend-must-match-worker-404`). RED: load `/pricing`
-  signed-out → 0 console errors. (All other PROD golden-path checks PASSED: homepage + search 200s,
-  `/api/health` ok + HSTS/CSP, bogus `/api/*` → clean JSON 404.)
+- **NOTIF-404 ✅ FIXED (`7e07ec693`) — root cause was NOT the bell gate.** `/api/notifications` 404'd
+  because `psnotifyInbox` (mounted first, flag DARK) returned a hard 404 that SHADOWED the legacy
+  `notifications` inbox mounted right after it on the same path (`[[rtsha]]`/`[[dup-r]]`) — so the bell
+  console-errored a 404 on every 60s poll. Fix: `guard()` falls through (`next()`) when the flag is dark
+  instead of 404ing; the legacy inbox serves. RED-first shadow-regression test; psnotify 20/20 green,
+  tsc clean. Browser-verified the 404 pre-fix; prod-verify post-deploy = authed `/api/notifications`
+  200 (not 404) with psnotify dark. Follow-on: the signed-out `/pricing` trigger — the bell IS
+  auth-gated (`isLoggedIn()` early-return since 2026-04), so if a poll still fires signed-out it now
+  401s (legacy authed) not 404s; a stale-session edge to confirm separately.
 - **Stream C (discovery agent, `audit-C-sandbox.md`):** C1 delete-or-repurpose orphan `ide_sandbox.ts`
   + test + migration `0504` (routes removed `features.ts:630`, flags absent) · C3 `POST
   /api/sites/:id/workspace` → **501 when Sandbox SDK unbound** (mirror `isWfpConfigured()`→503) · C5
   shared streaming AI-chat route (A2+C dependency — one canonical path + AbortSignal) · C4 wire-or-drop
   `cli_sandbox_config.ts` (only its test imports it) · confirm `@cloudflare/sandbox`+`@cloudflare/agents`
   ABSENT before promising a workspace.
-- **Loop improvement (this fire):** codified the concurrent-shared-tree protocol — when a concurrent
+- **Loop improvement (fire-1):** codified the concurrent-shared-tree protocol — when a concurrent
   fire owns the target file, verify GREEN then commit the coherent bundle (don't leave a RED test in
-  the shared tree; don't race a second commit of the same paths). See report + `[[concu]]`/`[[chkog]]`.
+  the shared tree; don't race a second commit of the same paths). See `[[concu]]`/`[[chkog]]`.
+
+## 15 · Fire-3 next-wave (discovery — replenish the queue)
+
+- **Inspector removal — REFRESHED inventory (grew 26 → 41 touches).** DELETE — frontend (18):
+  `{kv,r2,vectorize,queues}-inspector.component.{ts,spec}` (8) + `system-services.component.{ts,spec}` (2)
+  + edits to `app.routes.ts` (5 route blocks @252-590), `admin-nav.model.ts`(+`.spec`),
+  `admin-section-labels.ts`(+`.spec`), `command-palette-actions.service.ts:169`. Worker (22):
+  `libs/features/{kv,r2,vectorize,queues}_inspector/*` (16) + `libs/features/system_status/*` (5) +
+  `src/index.ts:145-149,1034-1038` + `registry.ts` 5 flags (`kv_inspector`/`r2_inspector`/
+  `vectorize_inspector`/`queues_inspector`/`system_status`). PRESERVE site-scoped
+  `{r2_buckets,r2_bucket_manager,d1_manager}` + `site_data_db` + editor `Buckets/Database/ResourcesPanel`.
+  Smallest RED slice: `admin-nav.model.spec.ts` asserts no inspector nav items + `/admin/kv-inspector`
+  route absent. Evidence: fire-2 discovery re-audit.
+- **Loop improvement (fire-2):** root-caused a "confirmed-on-prod" defect the obvious suspect (the
+  auth-gated bell) couldn't explain → traced it to a Hono same-path route-shadow, not the reported
+  cause. Lesson: when the named suspect is provably innocent (gated + tested + long-deployed), check
+  same-path mount order / handler shadowing BEFORE writing a fix. (`[[rtsha]]`/`[[REDst]]`.)
