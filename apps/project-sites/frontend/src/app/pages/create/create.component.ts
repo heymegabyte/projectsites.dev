@@ -254,6 +254,12 @@ export class CreateComponent implements OnInit, OnDestroy {
    * honest "address lookup unavailable, type it manually" nudge instead of a
    * silently-empty dropdown (parity with {@link searchUnavailable} for business). */
   addressUnavailable = signal(false);
+  /** True once an address search of a valid-length query has RESOLVED (loading is
+   * done). Distinguishes "searched, 0 matches" (show the quiet no-matches row) from
+   * "still loading" and "empty/short query" (both must show nothing). Reset to false
+   * when the query drops below the 3-char minimum. Driven off the EXISTING search
+   * subscription — no extra fetch. */
+  addressSearched = signal(false);
   private addressSubject = new Subject<string>();
 
   businessSuggestions = signal<BusinessSuggestion[]>([]);
@@ -261,6 +267,12 @@ export class CreateComponent implements OnInit, OnDestroy {
   /** True when the business-search proxy is down (provider `_error`) — the UI
    * nudges the guest to enter details manually instead of showing "no results". */
   searchUnavailable = signal(false);
+  /** True once a business search of a valid-length query has RESOLVED (loading is
+   * done). Distinguishes "searched, 0 matches" (show the quiet no-matches row) from
+   * "still loading" and "empty/short query" (both must show nothing). Reset to false
+   * when the query drops below the 2-char minimum. Driven off the EXISTING search
+   * subscription — no extra fetch. */
+  businessSearched = signal(false);
   private businessSubject = new Subject<string>();
 
   autoPopulating = signal(false);
@@ -494,6 +506,8 @@ export class CreateComponent implements OnInit, OnDestroy {
             this.businessSuggestions.set([]);
             this.businessDropdownOpen.set(false);
             this.searchUnavailable.set(false);
+            // Empty/short query is NOT "searched with 0 results" — hide the no-matches row.
+            this.businessSearched.set(false);
             return of(null);
           }
           const lat = this.geo.lat() ?? undefined;
@@ -509,12 +523,18 @@ export class CreateComponent implements OnInit, OnDestroy {
           this.searchUnavailable.set(res._error != null);
           this.businessSuggestions.set(res.data || []);
           this.businessDropdownOpen.set((res.data || []).length > 0);
+          // The search RESOLVED (loading done) — flip on so a 0-result set shows the
+          // quiet no-matches row instead of a blank panel. Reuses this fetch.
+          this.businessSearched.set(true);
         },
         error: () => {
           // A hard failure (network / 5xx) is equally "search is unavailable".
           this.searchUnavailable.set(true);
           this.businessSuggestions.set([]);
           this.businessDropdownOpen.set(false);
+          // Resolved (with an error) — the searchUnavailable nudge owns this state,
+          // so keep the no-matches row suppressed.
+          this.businessSearched.set(false);
         },
       });
 
@@ -527,6 +547,8 @@ export class CreateComponent implements OnInit, OnDestroy {
             this.addressSuggestions.set([]);
             this.addressUnavailable.set(false);
             this.addressDropdownOpen.set(false);
+            // Empty/short query is NOT "searched with 0 results" — hide the no-matches row.
+            this.addressSearched.set(false);
             return of(null);
           }
           const lat = this.geo.lat() ?? undefined;
@@ -543,11 +565,17 @@ export class CreateComponent implements OnInit, OnDestroy {
           this.addressUnavailable.set(res._error != null);
           this.addressSuggestions.set(res.data || []);
           this.addressDropdownOpen.set((res.data || []).length > 0);
+          // The search RESOLVED (loading done) — flip on so a 0-result set shows the
+          // quiet no-matches row instead of a blank panel. Reuses this fetch.
+          this.addressSearched.set(true);
         },
         error: () => {
           this.addressUnavailable.set(true);
           this.addressSuggestions.set([]);
           this.addressDropdownOpen.set(false);
+          // Resolved (with an error) — the addressUnavailable nudge owns this state,
+          // so keep the no-matches row suppressed.
+          this.addressSearched.set(false);
         },
       });
   }

@@ -313,6 +313,7 @@
                   class="py-2.5 px-4 text-[0.85rem] text-text-secondary cursor-pointer flex items-center gap-2.5 transition-colors border-b border-white/[0.03] last:border-b-0 hover:bg-[#12123a] hover:text-light"
                   role="button"
                   tabindex="0"
+                  [attr.aria-label]="b.name + ', ' + b.address"
                   (mousedown)="selectBusiness(b)"
                   (keydown.enter)="selectBusiness(b)"
                   (keydown.space)="$event.preventDefault(); selectBusiness(b)"
@@ -335,6 +336,21 @@
                   </div>
                 </div>
               }
+            </div>
+          } @else if (businessSearched() && businessSuggestions().length === 0 && !searchUnavailable()) {
+            <!-- Search RESOLVED with 0 matches (not loading, not an empty query, not a provider
+                 outage) — a quiet nudge instead of a blank panel. Owner still types manually. -->
+            <div
+              class="absolute top-[calc(100%-15px)] left-0 right-0 pt-[15px] bg-dark-card border border-primary/25 border-t-0 rounded-b-xl z-[999] shadow-[0_8px_24px_rgba(0,0,0,0.4)]"
+              role="status"
+              aria-live="polite"
+            >
+              <div
+                data-testid="business-no-matches"
+                class="py-2.5 px-4 text-[0.85rem] text-gray-400"
+              >
+                No matches — try a different term.
+              </div>
             </div>
           }
         </div>
@@ -407,6 +423,7 @@
                   class="py-2.5 px-4 text-[0.85rem] text-text-secondary cursor-pointer flex items-center gap-2.5 transition-colors border-b border-white/[0.03] last:border-b-0 hover:bg-[#12123a] hover:text-light"
                   role="button"
                   tabindex="0"
+                  [attr.aria-label]="'Use address: ' + s.description"
                   (mousedown)="selectAddress(s)"
                   (keydown.enter)="selectAddress(s)"
                   (keydown.space)="$event.preventDefault(); selectAddress(s)"
@@ -426,6 +443,21 @@
                   {{ s.description }}
                 </div>
               }
+            </div>
+          } @else if (addressSearched() && addressSuggestions().length === 0 && !addressUnavailable()) {
+            <!-- Address search RESOLVED with 0 matches (not loading, not an empty query, not a
+                 provider outage) — a quiet nudge instead of a blank panel. Address stays typeable. -->
+            <div
+              class="absolute top-[calc(100%-15px)] left-0 right-0 pt-[15px] bg-dark-card border border-primary/25 border-t-0 rounded-b-xl z-[999] shadow-[0_8px_24px_rgba(0,0,0,0.4)]"
+              role="status"
+              aria-live="polite"
+            >
+              <div
+                data-testid="address-no-matches"
+                class="py-2.5 px-4 text-[0.85rem] text-gray-400"
+              >
+                No matches — try a different term.
+              </div>
             </div>
           }
         </div>
@@ -615,7 +647,14 @@
             @if (logoPreview || aiLogoUrl) {
               <div
                 class="relative mt-2 inline-block img-clickable"
+                role="button"
+                tabindex="0"
+                [attr.aria-label]="
+                  (aiLogoUrl && !logoPreview ? 'View AI-generated logo preview' : 'View logo preview')
+                "
                 (click)="openImageModal(logoPreview || aiLogoUrl!, 'Logo')"
+                (keydown.enter)="openImageModal(logoPreview || aiLogoUrl!, 'Logo')"
+                (keydown.space)="$event.preventDefault(); openImageModal(logoPreview || aiLogoUrl!, 'Logo')"
               >
                 <img
                   class="h-16 w-auto max-w-[200px] object-contain rounded-lg border border-white/[0.08] bg-[#1a1a2e]"
@@ -677,7 +716,14 @@
             @if (faviconPreview || aiFaviconUrl) {
               <div
                 class="relative mt-2 inline-block img-clickable"
+                role="button"
+                tabindex="0"
+                [attr.aria-label]="
+                  (aiFaviconUrl && !faviconPreview ? 'View AI-generated app icon preview' : 'View app icon preview')
+                "
                 (click)="openImageModal(faviconPreview || aiFaviconUrl!, 'App Icon')"
+                (keydown.enter)="openImageModal(faviconPreview || aiFaviconUrl!, 'App Icon')"
+                (keydown.space)="$event.preventDefault(); openImageModal(faviconPreview || aiFaviconUrl!, 'App Icon')"
               >
                 <img
                   class="h-16 w-auto max-w-[200px] object-contain rounded-lg border border-white/[0.08] bg-[#1a1a2e]"
@@ -744,7 +790,12 @@
               @for (preview of imagePreviews; track preview.name) {
                 <div
                   class="relative inline-block align-top mx-1.5 my-1 mb-2.5 img-clickable"
+                  role="button"
+                  tabindex="0"
+                  [attr.aria-label]="'View ' + preview.name + ' preview'"
                   (click)="openImageModal(preview.url, preview.name)"
+                  (keydown.enter)="openImageModal(preview.url, preview.name)"
+                  (keydown.space)="$event.preventDefault(); openImageModal(preview.url, preview.name)"
                 >
                   <img
                     class="h-16 w-auto block rounded-lg border border-white/[0.08] bg-[#1a1a2e]"
@@ -762,8 +813,13 @@
               @for (aiImg of aiImageUrls; track aiImg.url) {
                 <div
                   class="relative inline-block align-top mx-1.5 my-1 mb-2.5 img-clickable"
+                  role="button"
+                  tabindex="0"
+                  [attr.aria-label]="'View AI-generated image ' + aiImg.name + ' preview'"
                   [title]="aiImg.quality?.description || aiImg.name"
                   (click)="openImageModal(aiImg.url, aiImg.name)"
+                  (keydown.enter)="openImageModal(aiImg.url, aiImg.name)"
+                  (keydown.space)="$event.preventDefault(); openImageModal(aiImg.url, aiImg.name)"
                 >
                   <img
                     class="h-16 w-auto block rounded-lg border border-white/[0.08] bg-[#1a1a2e]"
