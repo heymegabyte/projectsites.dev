@@ -46,15 +46,20 @@ import {
   type SiteDbRowsResponseMessage,
 } from '~/lib/embed/embedded-mode';
 import {
-  addToSqlHistory,
   addSavedQuery,
   removeSavedQuery,
+  recordHistoryEntry,
+  previewQuery,
+  relativeTime,
+  nextRailIndex,
+  siteSqlKey,
   explainQuery,
   explainPlanHint,
   analyzeRowLimit,
   isExpensiveScan,
   DEFAULT_ROW_LIMIT,
   type SavedQuery,
+  type HistoryEntry,
   type ExplainHint,
 } from './data-panel-logic';
 import { DataGrid } from './DataGrid';
@@ -74,9 +79,12 @@ import {
 const REQUEST_TIMEOUT_MS = 30_000;
 const DISABLED_404 = 'not enabled';
 
-/** localStorage keys — per-browser, best-effort; scoped to the per-site navigator (distinct from the shared console). */
-const SQL_HISTORY_KEY = 'ps-sitedb-sql-history';
-const SQL_SAVED_KEY = 'ps-sitedb-sql-saved';
+/**
+ * localStorage keys are computed per-site via {@link siteSqlKey} (scoped by the site's OWN D1
+ * `databaseId` so one browser's history/saved never bleed across sites). Until the tables response
+ * yields a `databaseId`, reads/writes use the `__shared` fallback bucket; the rail re-hydrates from the
+ * site-scoped bucket once the id arrives.
+ */
 
 /** One-click starters that assume nothing about the schema (blank DB is the first-run reality). */
 const STARTERS: readonly { label: string; query: string }[] = [
@@ -173,30 +181,48 @@ type SqlState =
 
 // ── Persistence helpers (best-effort localStorage — never breaks a run) ──────
 
-function readHistory(): string[] {
+/** Read the timestamped history list from the site-scoped bucket; tolerates legacy string[] entries. */
+function readHistory(databaseId: string | undefined): HistoryEntry[] {
   try {
-    const raw = typeof localStorage !== 'undefined' ? localStorage.getItem(SQL_HISTORY_KEY) : null;
+    const raw = typeof localStorage !== 'undefined' ? localStorage.getItem(siteSqlKey('history', databaseId)) : null;
     const parsed = raw ? JSON.parse(raw) : [];
 
-    return Array.isArray(parsed) ? parsed.filter((s): s is string => typeof s === 'string') : [];
+    if (!Array.isArray(parsed)) {
+      return [];
+    }
+
+    // Accept the timestamped shape; migrate a legacy string entry to a zero-time entry (still reloadable).
+    return parsed
+      .map((e): HistoryEntry | null => {
+        if (typeof e === 'string') {
+          return { query: e, ranAt: 0 };
+        }
+
+        if (e && typeof e.query === 'string') {
+          return { query: e.query, ranAt: typeof e.ranAt === 'number' ? e.ranAt : 0 };
+        }
+
+        return null;
+      })
+      .filter((e): e is HistoryEntry => e !== null);
   } catch {
     return [];
   }
 }
 
-function persistHistory(next: readonly string[]): void {
+function persistHistory(databaseId: string | undefined, next: readonly HistoryEntry[]): void {
   try {
     if (typeof localStorage !== 'undefined') {
-      localStorage.setItem(SQL_HISTORY_KEY, JSON.stringify(next));
+      localStorage.setItem(siteSqlKey('history', databaseId), JSON.stringify(next));
     }
   } catch {
     /* quota / SSR / private-mode never breaks a run */
   }
 }
 
-function readSaved(): SavedQuery[] {
+function readSaved(databaseId: string | undefined): SavedQuery[] {
   try {
-    const raw = typeof localStorage !== 'undefined' ? localStorage.getItem(SQL_SAVED_KEY) : null;
+    const raw = typeof localStorage !== 'undefined' ? localStorage.getItem(siteSqlKey('saved', databaseId)) : null;
     const parsed = raw ? JSON.parse(raw) : [];
 
     return Array.isArray(parsed)
@@ -207,10 +233,10 @@ function readSaved(): SavedQuery[] {
   }
 }
 
-function persistSaved(next: readonly SavedQuery[]): void {
+function persistSaved(databaseId: string | undefined, next: readonly SavedQuery[]): void {
   try {
     if (typeof localStorage !== 'undefined') {
-      localStorage.setItem(SQL_SAVED_KEY, JSON.stringify(next));
+      localStorage.setItem(siteSqlKey('saved', databaseId), JSON.stringify(next));
     }
   } catch {
     /* best-effort */
@@ -229,11 +255,13 @@ export const SqlNavigator = memo(() => {
   const [sql, setSql] = useState('');
   const [state, setState] = useState<SqlState>({ status: 'idle' });
 
-  // Query history + named saved queries (recycled from the proven console).
-  const [history, setHistory] = useState<string[]>(() => readHistory());
-  const [saved, setSaved] = useState<SavedQuery[]>(() => readSaved());
-  const [historyOpen, setHistoryOpen] = useState(false);
-  const [savedOpen, setSavedOpen] = useState(false);
+  // The site's OWN D1 database id — scopes the history/saved localStorage buckets (never cross-site).
+  const [databaseId, setDatabaseId] = useState<string | undefined>(undefined);
+
+  // Timestamped query history + named saved queries — the Rev 6 persistent rail (recycled logic).
+  const [history, setHistory] = useState<HistoryEntry[]>(() => readHistory(undefined));
+  const [saved, setSaved] = useState<SavedQuery[]>(() => readSaved(undefined));
+  const [railOpen, setRailOpen] = useState(true);
   const [saveName, setSaveName] = useState('');
 
   // The completion schema — the site's OWN tables (never shared-platform tables).
@@ -322,6 +350,15 @@ export const SqlNavigator = memo(() => {
           return;
         }
 
+        // The site's OWN D1 id scopes the rail's localStorage buckets — re-hydrate from the site bucket.
+        const id = (reply.databaseId ?? '').trim();
+
+        if (id) {
+          setDatabaseId(id);
+          setHistory(readHistory(id));
+          setSaved(readSaved(id));
+        }
+
         const tables = (reply.tables ?? []).map((t) => t.name);
 
         // Column completion is populated on demand from each result set (see `run`). Seed with tables.
@@ -336,14 +373,17 @@ export const SqlNavigator = memo(() => {
     };
   }, [request]);
 
-  const recordHistory = useCallback((query: string) => {
-    setHistory((h) => {
-      const next = addToSqlHistory(h, query);
-      persistHistory(next);
+  const recordHistory = useCallback(
+    (query: string) => {
+      setHistory((h) => {
+        const next = recordHistoryEntry(h, query);
+        persistHistory(databaseId, next);
 
-      return next;
-    });
-  }, []);
+        return next;
+      });
+    },
+    [databaseId],
+  );
 
   // ── Ask (AI SQL assistant): gather the site's OWN schema → platform AI → drop SQL into the editor ──
 
@@ -591,10 +631,10 @@ export const SqlNavigator = memo(() => {
   const confirmRun = useCallback(() => void runQuery(lastConfirmSqlRef.current, true, false), [runQuery]);
 
   // ── History + saved-query actions ──────────────────────────────────────────
+  /** Recall a history entry: drop it into the editor AND re-run it (a one-click "run this again"). */
   const recallHistory = useCallback(
     (query: string) => {
       setSql(query);
-      setHistoryOpen(false);
       void runQuery(query, false, false);
     },
     [runQuery],
@@ -609,29 +649,35 @@ export const SqlNavigator = memo(() => {
 
     setSaved((prev) => {
       const next = addSavedQuery(prev, name, sql);
-      persistSaved(next);
+      persistSaved(databaseId, next);
 
       return next;
     });
     setSaveName('');
-  }, [saveName, sql]);
+  }, [saveName, sql, databaseId]);
 
+  /** Load a saved query into the editor (does NOT auto-run — the user reviews, then Runs). */
   const loadSaved = useCallback((query: string) => {
     setSql(query);
-    setSavedOpen(false);
   }, []);
 
-  const deleteSaved = useCallback((name: string) => {
-    setSaved((prev) => {
-      const next = removeSavedQuery(prev, name);
-      persistSaved(next);
+  const deleteSaved = useCallback(
+    (name: string) => {
+      setSaved((prev) => {
+        const next = removeSavedQuery(prev, name);
+        persistSaved(databaseId, next);
 
-      return next;
-    });
-  }, []);
+        return next;
+      });
+    },
+    [databaseId],
+  );
 
   return (
-    <div className="h-full flex flex-col bg-bolt-elements-background-depth-1 [color-scheme:dark] accent-[color:var(--ps-accent,#00e5ff)]" data-testid="database-sql">
+    <div
+      className="h-full flex flex-col bg-bolt-elements-background-depth-1 [color-scheme:dark] accent-[color:var(--ps-accent,#00e5ff)]"
+      data-testid="database-sql"
+    >
       {/* ── Toolbar: starters · templates · history · saved · save-as ── */}
       <div className="p-3 border-b border-bolt-elements-borderColor/60 space-y-2 shrink-0 bg-bolt-elements-background-depth-2/40 backdrop-blur-sm">
         <div className="flex items-center gap-2">
@@ -690,30 +736,25 @@ export const SqlNavigator = memo(() => {
           >
             <div className="i-ph:sparkle" /> Ask AI
           </button>
-          {history.length > 0 && (
-            <button
-              type="button"
-              onClick={() => setHistoryOpen((v) => !v)}
-              data-testid="database-sql-history-toggle"
-              aria-expanded={historyOpen}
-              title="Recent queries you have run (this browser)"
-              className="min-h-[24px] text-[10px] rounded-full px-2.5 py-0.5 border border-bolt-elements-borderColor text-bolt-elements-textSecondary hover:border-[#00e5ff66] hover:text-bolt-elements-textPrimary transition-colors flex items-center gap-1 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-bolt-elements-item-contentAccent cursor-pointer"
-            >
-              <div className="i-ph:clock-counter-clockwise" /> History ({history.length})
-            </button>
-          )}
-          {saved.length > 0 && (
-            <button
-              type="button"
-              onClick={() => setSavedOpen((v) => !v)}
-              data-testid="database-sql-saved-toggle"
-              aria-expanded={savedOpen}
-              title="Your saved queries (this browser) — click to recall into the editor"
-              className="min-h-[24px] text-[10px] rounded-full px-2.5 py-0.5 border border-bolt-elements-borderColor text-bolt-elements-textSecondary hover:border-[#00e5ff66] hover:text-bolt-elements-textPrimary transition-colors flex items-center gap-1 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-bolt-elements-item-contentAccent cursor-pointer"
-            >
-              <div className="i-ph:bookmark-simple" /> Saved ({saved.length})
-            </button>
-          )}
+          <button
+            type="button"
+            onClick={() => setRailOpen((v) => !v)}
+            data-testid="database-sql-rail-toggle"
+            aria-expanded={railOpen}
+            aria-controls="database-sql-rail"
+            title="Show or hide the saved queries + run-history rail (this browser)"
+            className={classNames(
+              'min-h-[24px] text-[10px] rounded-full px-2.5 py-0.5 border flex items-center gap-1 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-bolt-elements-item-contentAccent cursor-pointer',
+              railOpen
+                ? 'border-[#00e5ff66] text-bolt-elements-item-contentAccent bg-[#00e5ff14]'
+                : 'border-bolt-elements-borderColor text-bolt-elements-textSecondary hover:border-[#00e5ff66] hover:text-bolt-elements-textPrimary',
+            )}
+          >
+            <div className="i-ph:clock-counter-clockwise" /> Saved &amp; history
+            {saved.length + history.length > 0 && (
+              <span className="tabular-nums opacity-80">({saved.length + history.length})</span>
+            )}
+          </button>
           <span className="inline-flex items-center gap-1">
             <input
               type="text"
@@ -747,60 +788,6 @@ export const SqlNavigator = memo(() => {
             </button>
           </span>
         </div>
-
-        {/* History dropdown */}
-        {historyOpen && history.length > 0 && (
-          <div
-            data-testid="database-sql-history"
-            className="rounded-md border border-bolt-elements-borderColor bg-bolt-elements-background-depth-2 max-h-40 overflow-auto modern-scrollbar"
-          >
-            {history.map((h, i) => (
-              <button
-                key={i}
-                type="button"
-                onClick={() => recallHistory(h)}
-                title={h}
-                data-testid="database-sql-history-item"
-                className="w-full text-left px-3 py-1.5 text-[11px] font-mono text-bolt-elements-textSecondary hover:bg-bolt-elements-item-backgroundActive hover:text-bolt-elements-textPrimary truncate border-b border-bolt-elements-borderColor/30 last:border-b-0 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-bolt-elements-item-contentAccent cursor-pointer"
-              >
-                {h}
-              </button>
-            ))}
-          </div>
-        )}
-
-        {/* Saved-queries dropdown */}
-        {savedOpen && saved.length > 0 && (
-          <div
-            data-testid="database-sql-saved"
-            className="rounded-md border border-bolt-elements-borderColor bg-bolt-elements-background-depth-2 max-h-40 overflow-auto modern-scrollbar divide-y divide-bolt-elements-borderColor/30"
-          >
-            {saved.map((s) => (
-              <div key={s.name} className="flex items-center gap-1 px-2 py-1">
-                <button
-                  type="button"
-                  onClick={() => loadSaved(s.query)}
-                  title={s.query}
-                  data-testid="database-sql-saved-load"
-                  className="flex-1 min-w-0 text-left px-1 py-0.5 text-[11px] text-bolt-elements-textSecondary hover:text-bolt-elements-textPrimary flex items-center gap-1.5 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-bolt-elements-item-contentAccent rounded cursor-pointer"
-                >
-                  <div className="i-ph:bookmark-simple-fill text-bolt-elements-item-contentAccent shrink-0" />
-                  <span className="truncate font-medium">{s.name}</span>
-                </button>
-                <button
-                  type="button"
-                  onClick={() => deleteSaved(s.name)}
-                  aria-label={`Delete saved query ${s.name}`}
-                  title="Delete this saved query"
-                  data-testid="database-sql-saved-delete"
-                  className="min-h-[24px] min-w-[24px] flex items-center justify-center rounded hover:bg-bolt-elements-background-depth-3 text-bolt-elements-textTertiary hover:text-red-400 shrink-0 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-bolt-elements-item-contentAccent cursor-pointer"
-                >
-                  <div className="i-ph:trash text-xs" />
-                </button>
-              </div>
-            ))}
-          </div>
-        )}
 
         {/* Ask AI — plain-English → SQL grounded on the site's OWN schema, dropped into the editor to review */}
         {askOpen && (
@@ -873,161 +860,178 @@ export const SqlNavigator = memo(() => {
         )}
       </div>
 
-      {/* ── Editor + run/explain ── */}
-      <div className="flex flex-col gap-2 p-3 border-b border-bolt-elements-borderColor/60 shrink-0">
-        <label
-          htmlFor="database-sql-input"
-          className="text-[10px] uppercase tracking-wider text-bolt-elements-textTertiary"
-        >
-          SQL — runs against your site&rsquo;s own database
-        </label>
-        <SqlEditor
-          value={sql}
-          onValueChange={setSql}
-          onRun={run}
-          schema={schema}
-          minRows={4}
-          placeholder="SELECT * FROM your_table LIMIT 25;"
-          testId="database-sql-textarea"
-        />
-        <div className="flex items-center gap-2">
-          <button
-            type="button"
-            onClick={run}
-            disabled={state.status === 'running' || !sql.trim()}
-            data-testid="database-sql-run"
-            className="min-h-[24px] text-[12px] font-semibold px-3.5 py-1.5 rounded-lg bg-bolt-elements-item-contentAccent text-bolt-elements-background-depth-1 enabled:hover:opacity-90 disabled:opacity-40 disabled:cursor-not-allowed transition-opacity flex items-center gap-1.5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-offset-bolt-elements-background-depth-1 focus-visible:ring-bolt-elements-item-contentAccent cursor-pointer"
-          >
-            {state.status === 'running' ? (
-              <div className="i-ph:circle-notch animate-spin" />
-            ) : (
-              <div className="i-ph:play" />
-            )}
-            <span className="min-w-[7ch] text-center">{state.status === 'running' ? 'Running…' : 'Run'}</span>
-          </button>
-          <button
-            type="button"
-            onClick={runWithLimit}
-            disabled={state.status === 'running' || !sql.trim()}
-            data-testid="database-sql-limit"
-            title={`Preview safely — run the current query capped at the first ${DEFAULT_ROW_LIMIT} rows (a bare SELECT gets LIMIT ${DEFAULT_ROW_LIMIT}; an already-bounded query runs unchanged)`}
-            className="min-h-[24px] text-[11px] font-medium px-3 py-1.5 rounded-lg border border-[#00e5ff66] bg-[#00e5ff1a] text-bolt-elements-item-contentAccent enabled:hover:bg-[#00e5ff33] disabled:opacity-40 disabled:cursor-not-allowed transition-colors flex items-center gap-1.5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-bolt-elements-item-contentAccent cursor-pointer"
-          >
-            <div className="i-ph:rows" />
-            {/* Reserve the widest label so the button never jitters (buttons-accommodate-largest-text). */}
-            <span className="min-w-[9ch] text-center whitespace-nowrap">Run · LIMIT {DEFAULT_ROW_LIMIT}</span>
-          </button>
-          <button
-            type="button"
-            onClick={explain}
-            disabled={state.status === 'running' || !sql.trim()}
-            data-testid="database-sql-explain"
-            title="EXPLAIN QUERY PLAN — see which indexes your query uses (a read, never a change)"
-            className="min-h-[24px] text-[11px] font-medium px-3 py-1.5 rounded-lg border border-bolt-elements-borderColor bg-bolt-elements-background-depth-2 text-bolt-elements-textSecondary enabled:hover:bg-bolt-elements-background-depth-3 enabled:hover:text-bolt-elements-textPrimary disabled:opacity-40 disabled:cursor-not-allowed transition-colors flex items-center gap-1.5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-bolt-elements-item-contentAccent cursor-pointer"
-          >
-            <div className="i-ph:strategy" /> Explain
-          </button>
-          {rowLimitAdvice.needsLimit && state.status !== 'running' && (
-            <button
-              type="button"
-              onClick={runWithLimit}
-              data-testid="database-sql-add-limit"
-              title={`This SELECT has no LIMIT — it can return every row and scan the whole table. Run a bounded first ${rowLimitAdvice.limit} rows instead (you can still Run the full query).`}
-              className="min-h-[24px] text-[10px] font-medium text-amber-300 rounded-lg px-2.5 py-1.5 flex items-center gap-1 border border-amber-300/30 hover:bg-amber-300/10 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-300 cursor-pointer"
+      {/* ── Body: editor + results (left) · saved & history rail (right) ── */}
+      <div className="flex flex-1 min-h-0">
+        <div className="flex flex-col flex-1 min-w-0">
+          {/* ── Editor + run/explain ── */}
+          <div className="flex flex-col gap-2 p-3 border-b border-bolt-elements-borderColor/60 shrink-0">
+            <label
+              htmlFor="database-sql-input"
+              className="text-[10px] uppercase tracking-wider text-bolt-elements-textTertiary"
             >
-              <div className="i-ph:warning" /> Add LIMIT {rowLimitAdvice.limit}
-            </button>
-          )}
-          <span className="text-[10px] text-bolt-elements-textTertiary ml-auto">⌘/Ctrl + Enter to run</span>
-        </div>
-      </div>
-
-      {/* ── Result ── */}
-      <div className="flex-1 overflow-auto modern-scrollbar min-h-0">
-        {state.status === 'idle' && (
-          <div
-            className="flex flex-col items-center justify-center gap-3 p-8 text-center h-full"
-            data-testid="database-sql-idle"
-          >
-            <div className="flex items-center justify-center h-14 w-14 rounded-2xl border border-[#00e5ff40] bg-[#00e5ff0f]">
-              <div
-                className="i-ph:terminal-window-duotone text-2xl text-bolt-elements-item-contentAccent"
-                aria-hidden
-              />
-            </div>
-            <p className="text-xs text-bolt-elements-textSecondary max-w-[300px]">
-              Write a query and press Run. Reads return rows; writes ask you to confirm before they change data.
-              Autocomplete suggests your real tables + columns as you type.
-            </p>
-          </div>
-        )}
-
-        {state.status === 'disabled' && (
-          <div
-            className="flex flex-col items-center justify-center gap-3 p-8 text-center h-full"
-            data-testid="database-sql-disabled"
-          >
-            <div className="i-ph:lock-key text-3xl text-bolt-elements-textTertiary" />
-            <p className="text-sm font-medium text-bolt-elements-textSecondary">
-              The SQL navigator isn&rsquo;t enabled yet
-            </p>
-            <p className="text-[11px] text-bolt-elements-textTertiary max-w-[260px]">
-              Your site&rsquo;s own database is on the way. Once it&rsquo;s turned on, you can run SQL here — nothing to
-              set up.
-            </p>
-          </div>
-        )}
-
-        {state.status === 'error' && (
-          <div
-            className="flex flex-col items-center justify-center gap-3 p-8 text-center h-full"
-            data-testid="database-sql-error"
-            role="alert"
-          >
-            <div className="i-ph:warning-circle text-3xl text-red-400" />
-            <p className="text-xs text-bolt-elements-textSecondary max-w-[320px] break-words">{state.message}</p>
-            <button
-              type="button"
-              onClick={run}
-              className="min-h-[24px] mt-1 text-[11px] font-medium px-3 py-1.5 rounded border border-bolt-elements-borderColor bg-bolt-elements-background-depth-2 text-bolt-elements-item-contentAccent hover:bg-bolt-elements-background-depth-3 transition-colors flex items-center gap-1.5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-bolt-elements-item-contentAccent cursor-pointer"
-            >
-              <div className="i-ph:arrow-clockwise" /> Retry
-            </button>
-          </div>
-        )}
-
-        {state.status === 'confirm' && (
-          <div
-            className="flex flex-col items-center justify-center gap-3 p-8 text-center h-full"
-            data-testid="database-sql-confirm"
-            role="alertdialog"
-            aria-label="Confirm a data-changing statement"
-          >
-            <div className="i-ph:seal-warning text-3xl text-amber-400" />
-            <p className="text-sm font-semibold text-bolt-elements-textPrimary">This statement changes data</p>
-            <p className="text-[11px] text-bolt-elements-textSecondary max-w-[320px] break-words">{state.message}</p>
+              SQL — runs against your site&rsquo;s own database
+            </label>
+            <SqlEditor
+              value={sql}
+              onValueChange={setSql}
+              onRun={run}
+              schema={schema}
+              minRows={4}
+              placeholder="SELECT * FROM your_table LIMIT 25;"
+              testId="database-sql-textarea"
+            />
             <div className="flex items-center gap-2">
               <button
                 type="button"
-                onClick={confirmRun}
-                data-testid="database-sql-confirm-run"
-                className="min-h-[24px] text-[12px] font-semibold px-3.5 py-2 rounded-lg bg-amber-500 text-bolt-elements-background-depth-1 hover:opacity-90 transition-opacity flex items-center gap-1.5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-offset-bolt-elements-background-depth-1 focus-visible:ring-amber-400 cursor-pointer"
+                onClick={run}
+                disabled={state.status === 'running' || !sql.trim()}
+                data-testid="database-sql-run"
+                className="min-h-[24px] text-[12px] font-semibold px-3.5 py-1.5 rounded-lg bg-bolt-elements-item-contentAccent text-bolt-elements-background-depth-1 enabled:hover:opacity-90 disabled:opacity-40 disabled:cursor-not-allowed transition-opacity flex items-center gap-1.5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-offset-bolt-elements-background-depth-1 focus-visible:ring-bolt-elements-item-contentAccent cursor-pointer"
               >
-                <div className="i-ph:check" /> Run it anyway
+                {state.status === 'running' ? (
+                  <div className="i-ph:circle-notch animate-spin" />
+                ) : (
+                  <div className="i-ph:play" />
+                )}
+                <span className="min-w-[7ch] text-center">{state.status === 'running' ? 'Running…' : 'Run'}</span>
               </button>
               <button
                 type="button"
-                onClick={() => setState({ status: 'idle' })}
-                className="min-h-[24px] text-[12px] font-medium px-3.5 py-2 rounded-lg border border-bolt-elements-borderColor bg-bolt-elements-background-depth-2 text-bolt-elements-textSecondary hover:bg-bolt-elements-background-depth-3 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-bolt-elements-item-contentAccent cursor-pointer"
+                onClick={runWithLimit}
+                disabled={state.status === 'running' || !sql.trim()}
+                data-testid="database-sql-limit"
+                title={`Preview safely — run the current query capped at the first ${DEFAULT_ROW_LIMIT} rows (a bare SELECT gets LIMIT ${DEFAULT_ROW_LIMIT}; an already-bounded query runs unchanged)`}
+                className="min-h-[24px] text-[11px] font-medium px-3 py-1.5 rounded-lg border border-[#00e5ff66] bg-[#00e5ff1a] text-bolt-elements-item-contentAccent enabled:hover:bg-[#00e5ff33] disabled:opacity-40 disabled:cursor-not-allowed transition-colors flex items-center gap-1.5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-bolt-elements-item-contentAccent cursor-pointer"
               >
-                Cancel
+                <div className="i-ph:rows" />
+                {/* Reserve the widest label so the button never jitters (buttons-accommodate-largest-text). */}
+                <span className="min-w-[9ch] text-center whitespace-nowrap">Run · LIMIT {DEFAULT_ROW_LIMIT}</span>
               </button>
+              <button
+                type="button"
+                onClick={explain}
+                disabled={state.status === 'running' || !sql.trim()}
+                data-testid="database-sql-explain"
+                title="EXPLAIN QUERY PLAN — see which indexes your query uses (a read, never a change)"
+                className="min-h-[24px] text-[11px] font-medium px-3 py-1.5 rounded-lg border border-bolt-elements-borderColor bg-bolt-elements-background-depth-2 text-bolt-elements-textSecondary enabled:hover:bg-bolt-elements-background-depth-3 enabled:hover:text-bolt-elements-textPrimary disabled:opacity-40 disabled:cursor-not-allowed transition-colors flex items-center gap-1.5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-bolt-elements-item-contentAccent cursor-pointer"
+              >
+                <div className="i-ph:strategy" /> Explain
+              </button>
+              {rowLimitAdvice.needsLimit && state.status !== 'running' && (
+                <button
+                  type="button"
+                  onClick={runWithLimit}
+                  data-testid="database-sql-add-limit"
+                  title={`This SELECT has no LIMIT — it can return every row and scan the whole table. Run a bounded first ${rowLimitAdvice.limit} rows instead (you can still Run the full query).`}
+                  className="min-h-[24px] text-[10px] font-medium text-amber-300 rounded-lg px-2.5 py-1.5 flex items-center gap-1 border border-amber-300/30 hover:bg-amber-300/10 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-300 cursor-pointer"
+                >
+                  <div className="i-ph:warning" /> Add LIMIT {rowLimitAdvice.limit}
+                </button>
+              )}
+              <span className="text-[10px] text-bolt-elements-textTertiary ml-auto">⌘/Ctrl + Enter to run</span>
             </div>
           </div>
-        )}
 
-        {state.status === 'ready' && (
-          <SqlResult data={state.data} wasExplain={state.wasExplain} onOpenValue={openTableFromResult} />
+          {/* ── Result ── */}
+          <div className="flex-1 overflow-auto modern-scrollbar min-h-0">
+            {state.status === 'idle' && (
+              <div
+                className="flex flex-col items-center justify-center gap-3 p-8 text-center h-full"
+                data-testid="database-sql-idle"
+              >
+                <div className="flex items-center justify-center h-14 w-14 rounded-2xl border border-[#00e5ff40] bg-[#00e5ff0f]">
+                  <div
+                    className="i-ph:terminal-window-duotone text-2xl text-bolt-elements-item-contentAccent"
+                    aria-hidden
+                  />
+                </div>
+                <p className="text-xs text-bolt-elements-textSecondary max-w-[300px]">
+                  Write a query and press Run. Reads return rows; writes ask you to confirm before they change data.
+                  Autocomplete suggests your real tables + columns as you type.
+                </p>
+              </div>
+            )}
+
+            {state.status === 'disabled' && (
+              <div
+                className="flex flex-col items-center justify-center gap-3 p-8 text-center h-full"
+                data-testid="database-sql-disabled"
+              >
+                <div className="i-ph:lock-key text-3xl text-bolt-elements-textTertiary" />
+                <p className="text-sm font-medium text-bolt-elements-textSecondary">
+                  The SQL navigator isn&rsquo;t enabled yet
+                </p>
+                <p className="text-[11px] text-bolt-elements-textTertiary max-w-[260px]">
+                  Your site&rsquo;s own database is on the way. Once it&rsquo;s turned on, you can run SQL here —
+                  nothing to set up.
+                </p>
+              </div>
+            )}
+
+            {state.status === 'error' && (
+              <div
+                className="flex flex-col items-center justify-center gap-3 p-8 text-center h-full"
+                data-testid="database-sql-error"
+                role="alert"
+              >
+                <div className="i-ph:warning-circle text-3xl text-red-400" />
+                <p className="text-xs text-bolt-elements-textSecondary max-w-[320px] break-words">{state.message}</p>
+                <button
+                  type="button"
+                  onClick={run}
+                  className="min-h-[24px] mt-1 text-[11px] font-medium px-3 py-1.5 rounded border border-bolt-elements-borderColor bg-bolt-elements-background-depth-2 text-bolt-elements-item-contentAccent hover:bg-bolt-elements-background-depth-3 transition-colors flex items-center gap-1.5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-bolt-elements-item-contentAccent cursor-pointer"
+                >
+                  <div className="i-ph:arrow-clockwise" /> Retry
+                </button>
+              </div>
+            )}
+
+            {state.status === 'confirm' && (
+              <div
+                className="flex flex-col items-center justify-center gap-3 p-8 text-center h-full"
+                data-testid="database-sql-confirm"
+                role="alertdialog"
+                aria-label="Confirm a data-changing statement"
+              >
+                <div className="i-ph:seal-warning text-3xl text-amber-400" />
+                <p className="text-sm font-semibold text-bolt-elements-textPrimary">This statement changes data</p>
+                <p className="text-[11px] text-bolt-elements-textSecondary max-w-[320px] break-words">
+                  {state.message}
+                </p>
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={confirmRun}
+                    data-testid="database-sql-confirm-run"
+                    className="min-h-[24px] text-[12px] font-semibold px-3.5 py-2 rounded-lg bg-amber-500 text-bolt-elements-background-depth-1 hover:opacity-90 transition-opacity flex items-center gap-1.5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-offset-bolt-elements-background-depth-1 focus-visible:ring-amber-400 cursor-pointer"
+                  >
+                    <div className="i-ph:check" /> Run it anyway
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setState({ status: 'idle' })}
+                    className="min-h-[24px] text-[12px] font-medium px-3.5 py-2 rounded-lg border border-bolt-elements-borderColor bg-bolt-elements-background-depth-2 text-bolt-elements-textSecondary hover:bg-bolt-elements-background-depth-3 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-bolt-elements-item-contentAccent cursor-pointer"
+                  >
+                    Cancel
+                  </button>
+                </div>
+              </div>
+            )}
+
+            {state.status === 'ready' && (
+              <SqlResult data={state.data} wasExplain={state.wasExplain} onOpenValue={openTableFromResult} />
+            )}
+          </div>
+        </div>
+
+        {railOpen && (
+          <QueryHistoryRail
+            history={history}
+            saved={saved}
+            onRun={recallHistory}
+            onLoadSaved={loadSaved}
+            onDeleteSaved={deleteSaved}
+          />
         )}
       </div>
     </div>
@@ -1035,6 +1039,161 @@ export const SqlNavigator = memo(() => {
 });
 
 SqlNavigator.displayName = 'SqlNavigator';
+
+// ── Saved-queries + run-history rail (Rev 6) ─────────────────────────────────
+
+/**
+ * The persistent side rail beside the SQL console: your NAMED saved queries (click-to-load, delete) on
+ * top, then the recent RUN history (click to reload + re-run, truncated preview + relative time). Both
+ * lists are keyboard-navigable (↑/↓ move focus with wrap, Enter activates the focused row). Empty state
+ * is a quiet note ("Run a query to start your history"), never a dead/broken panel. Client-side only —
+ * the data comes from localStorage via {@link SqlNavigator}; there is NO endpoint.
+ */
+const QueryHistoryRail = memo(
+  ({
+    history,
+    saved,
+    onRun,
+    onLoadSaved,
+    onDeleteSaved,
+  }: {
+    history: readonly HistoryEntry[];
+    saved: readonly SavedQuery[];
+    onRun: (query: string) => void;
+    onLoadSaved: (query: string) => void;
+    onDeleteSaved: (name: string) => void;
+  }) => {
+    // A `now` captured once per render keeps the relative-time labels stable within a paint.
+    const now = Date.now();
+
+    // ↑/↓ keyboard nav within EACH list (indices are per-list; Enter activates the focused row).
+    const historyRefs = useRef<(HTMLButtonElement | null)[]>([]);
+    const savedRefs = useRef<(HTMLButtonElement | null)[]>([]);
+
+    const onListKeyDown = useCallback(
+      (
+        e: React.KeyboardEvent,
+        index: number,
+        count: number,
+        refs: React.MutableRefObject<(HTMLButtonElement | null)[]>,
+      ) => {
+        if (e.key !== 'ArrowDown' && e.key !== 'ArrowUp') {
+          return;
+        }
+
+        e.preventDefault();
+
+        const next = nextRailIndex(e.key, index, count);
+        refs.current[next]?.focus();
+      },
+      [],
+    );
+
+    return (
+      <aside
+        id="database-sql-rail"
+        data-testid="database-sql-rail"
+        aria-label="Saved queries and run history"
+        className="w-60 shrink-0 border-l border-bolt-elements-borderColor/60 bg-bolt-elements-background-depth-2/30 overflow-auto modern-scrollbar flex flex-col"
+      >
+        {/* Saved queries */}
+        <div className="p-2.5 border-b border-bolt-elements-borderColor/40">
+          <div className="flex items-center gap-1.5 mb-1.5 text-[10px] uppercase tracking-wider text-bolt-elements-textTertiary">
+            <div className="i-ph:bookmark-simple text-bolt-elements-item-contentAccent" aria-hidden /> Saved queries
+            {saved.length > 0 && <span className="tabular-nums">({saved.length})</span>}
+          </div>
+
+          {saved.length === 0 ? (
+            <p
+              className="text-[10px] text-bolt-elements-textTertiary italic px-0.5"
+              data-testid="database-sql-saved-empty"
+            >
+              Name a query and press Save to keep it here.
+            </p>
+          ) : (
+            <ul className="space-y-0.5" data-testid="database-sql-saved-list">
+              {saved.map((s, i) => (
+                <li
+                  key={s.name}
+                  className="group flex items-center gap-1 rounded hover:bg-bolt-elements-item-backgroundActive"
+                >
+                  <button
+                    ref={(el) => (savedRefs.current[i] = el)}
+                    type="button"
+                    onClick={() => onLoadSaved(s.query)}
+                    onKeyDown={(e) => onListKeyDown(e, i, saved.length, savedRefs)}
+                    title={s.query}
+                    data-testid="database-sql-saved-load"
+                    className="flex-1 min-w-0 text-left px-1.5 py-1 text-[11px] text-bolt-elements-textSecondary hover:text-bolt-elements-textPrimary flex items-center gap-1.5 rounded focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-bolt-elements-item-contentAccent cursor-pointer"
+                  >
+                    <div
+                      className="i-ph:bookmark-simple-fill text-bolt-elements-item-contentAccent shrink-0 text-xs"
+                      aria-hidden
+                    />
+                    <span className="truncate font-medium">{s.name}</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => onDeleteSaved(s.name)}
+                    aria-label={`Delete saved query ${s.name}`}
+                    title="Delete this saved query"
+                    data-testid="database-sql-saved-delete"
+                    className="min-h-[24px] min-w-[24px] flex items-center justify-center rounded text-bolt-elements-textTertiary hover:text-red-400 shrink-0 opacity-0 group-hover:opacity-100 focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-bolt-elements-item-contentAccent cursor-pointer transition-opacity"
+                  >
+                    <div className="i-ph:trash text-xs" aria-hidden />
+                  </button>
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
+
+        {/* Run history */}
+        <div className="p-2.5 flex-1">
+          <div className="flex items-center gap-1.5 mb-1.5 text-[10px] uppercase tracking-wider text-bolt-elements-textTertiary">
+            <div className="i-ph:clock-counter-clockwise text-bolt-elements-item-contentAccent" aria-hidden /> Recent
+            runs
+            {history.length > 0 && <span className="tabular-nums">({history.length})</span>}
+          </div>
+
+          {history.length === 0 ? (
+            <p
+              className="text-[10px] text-bolt-elements-textTertiary italic px-0.5"
+              data-testid="database-sql-history-empty"
+            >
+              Run a query to start your history.
+            </p>
+          ) : (
+            <ul className="space-y-0.5" data-testid="database-sql-history-list">
+              {history.map((h, i) => (
+                <li key={`${h.ranAt}-${i}`}>
+                  <button
+                    ref={(el) => (historyRefs.current[i] = el)}
+                    type="button"
+                    onClick={() => onRun(h.query)}
+                    onKeyDown={(e) => onListKeyDown(e, i, history.length, historyRefs)}
+                    title={`${h.query}\n\nClick to reload and run again`}
+                    data-testid="database-sql-history-item"
+                    className="w-full text-left px-1.5 py-1 rounded hover:bg-bolt-elements-item-backgroundActive focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-bolt-elements-item-contentAccent cursor-pointer group"
+                  >
+                    <span className="block truncate font-mono text-[11px] text-bolt-elements-textSecondary group-hover:text-bolt-elements-textPrimary">
+                      {previewQuery(h.query)}
+                    </span>
+                    <span className="block text-[9px] text-bolt-elements-textTertiary tabular-nums">
+                      {relativeTime(h.ranAt, now)}
+                    </span>
+                  </button>
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
+      </aside>
+    );
+  },
+);
+
+QueryHistoryRail.displayName = 'SqlNavigator.QueryHistoryRail';
 
 // ── Result grid (typed cells + ground-truth cost meta) ───────────────────────
 
@@ -1167,6 +1326,7 @@ const SqlResult = memo(
             </p>
           </div>
         ) : (
+
           /*
            * The SAME grid form the Table-view uses — typed cells, sortable headers, search, pagination,
            * and honest whole-result export — so a SQL result reads exactly like a browsed table.

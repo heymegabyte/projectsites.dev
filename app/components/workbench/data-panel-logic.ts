@@ -316,6 +316,154 @@ export function removeSavedQuery(saved: readonly SavedQuery[], name: string): Sa
   return saved.filter((s) => s.name !== name);
 }
 
+// ── Query-history + saved-query RAIL (Rev 6) — timestamped history + per-site key scoping ──────────
+
+/** One entry in the timestamped query-history rail — the SQL that ran + when it ran (epoch ms). */
+export interface HistoryEntry {
+  query: string;
+  ranAt: number;
+}
+
+/** How many history entries the rail retains (a real-editor "recent queries" depth). */
+export const SQL_HISTORY_MAX = 20;
+
+/**
+ * Prepend a just-run query to the TIMESTAMPED history rail: trimmed, de-duplicated so a consecutive
+ * re-run of the SAME query refreshes its timestamp + jumps to the top (never piles up), most-recent
+ * first, capped at {@link SQL_HISTORY_MAX}. A blank query is a no-op. Pure — never mutates input; the
+ * component owns the localStorage read/write (this stays DOM-free + testable). The timestamped sibling
+ * of {@link addToSqlHistory} (which the rail supersedes with a click-to-reload + relative-time UI).
+ *
+ * @param history - existing entries, most-recent first
+ * @param query - the query just run
+ * @param ranAt - the run time in epoch ms (default `Date.now()`; explicit in tests)
+ * @param max - cap on retained entries (default {@link SQL_HISTORY_MAX})
+ * @returns the new history list
+ * @example recordHistoryEntry([], 'SELECT 1', 1000) // [{ query: 'SELECT 1', ranAt: 1000 }]
+ * @example recordHistoryEntry([{query:'a',ranAt:1}], 'a', 9) // [{ query:'a', ranAt:9 }]  (re-run → top, fresh time)
+ */
+export function recordHistoryEntry(
+  history: readonly HistoryEntry[],
+  query: string,
+  ranAt: number = Date.now(),
+  max: number = SQL_HISTORY_MAX,
+): HistoryEntry[] {
+  const q = (query ?? '').trim();
+
+  if (!q) {
+    return history.slice();
+  }
+
+  return [{ query: q, ranAt }, ...history.filter((h) => h.query !== q)].slice(0, Math.max(1, max));
+}
+
+/**
+ * A compact, single-line preview of a (possibly multi-line, long) SQL query for a rail row: collapses
+ * all runs of whitespace to one space, trims, and truncates to `max` chars with a trailing ellipsis. A
+ * blank query returns an empty string. Pure — the full query stays available (rail rows carry the raw
+ * text in a `title`).
+ *
+ * @param query - the raw SQL
+ * @param max - the character budget before truncating (default 48)
+ * @returns a one-line, length-bounded preview
+ * @example previewQuery('SELECT *\n  FROM t') // 'SELECT * FROM t'
+ * @example previewQuery('SELECT ' + 'x'.repeat(80), 12) // 'SELECT xxxxx…'
+ */
+export function previewQuery(query: string, max = 48): string {
+  const flat = String(query ?? '')
+    .replace(/\s+/g, ' ')
+    .trim();
+  const cap = Math.max(1, max);
+
+  return flat.length > cap ? `${flat.slice(0, cap - 1).trimEnd()}…` : flat;
+}
+
+/**
+ * A short, human relative-time label ("just now", "3m ago", "2h ago", "5d ago") for a rail row's run
+ * time. Anything under a minute → "just now"; a future or invalid timestamp is clamped to "just now"
+ * (never a negative "-2m"). Coarse by design (a rail is glanceable, not a precise clock). Pure.
+ *
+ * @param ranAt - the entry's run time in epoch ms
+ * @param now - the current time in epoch ms (default `Date.now()`; explicit in tests)
+ * @returns a short relative-time string
+ * @example relativeTime(1000, 1000) // 'just now'
+ * @example relativeTime(0, 3 * 60_000) // '3m ago'
+ * @example relativeTime(0, 5 * 86_400_000) // '5d ago'
+ */
+export function relativeTime(ranAt: number, now: number = Date.now()): string {
+  const deltaSec = Math.floor((Number(now) - Number(ranAt)) / 1000);
+
+  if (!Number.isFinite(deltaSec) || deltaSec < 60) {
+    return 'just now';
+  }
+
+  const min = Math.floor(deltaSec / 60);
+
+  if (min < 60) {
+    return `${min}m ago`;
+  }
+
+  const hr = Math.floor(min / 60);
+
+  if (hr < 24) {
+    return `${hr}h ago`;
+  }
+
+  return `${Math.floor(hr / 24)}d ago`;
+}
+
+/**
+ * Compute the next focused index for a up/down keyboard-navigable rail of `count` items. Down (`+1`)
+ * and Up (`-1`) WRAP (last to first, first to last) so the list is fully keyboard-traversable; any
+ * other key returns the current index unchanged. An empty list returns `-1` (nothing focusable). Pure
+ * — the component owns the actual focus/`ref` side effect; this is the index math the tests pin.
+ * WCAG 2.1.1 (keyboard).
+ *
+ * @param key - the `KeyboardEvent.key`
+ * @param current - the currently-focused index (or -1 when none)
+ * @param count - the number of rail items
+ * @returns the next index to focus (wraps; -1 when the list is empty)
+ * @example nextRailIndex('ArrowDown', 0, 3) // 1
+ * @example nextRailIndex('ArrowDown', 2, 3) // 0  (wraps)
+ * @example nextRailIndex('ArrowUp', 0, 3)  // 2  (wraps)
+ * @example nextRailIndex('Home', 1, 3)     // 1  (no-op)
+ */
+export function nextRailIndex(key: string, current: number, count: number): number {
+  if (count <= 0) {
+    return -1;
+  }
+
+  const cur = Number.isInteger(current) && current >= 0 && current < count ? current : 0;
+
+  if (key === 'ArrowDown') {
+    return (cur + 1) % count;
+  }
+
+  if (key === 'ArrowUp') {
+    return (cur - 1 + count) % count;
+  }
+
+  return current;
+}
+
+/**
+ * The localStorage key for a per-site SQL rail store (history OR saved), scoped by the site's OWN D1
+ * `databaseId` so one browser's history/saved-queries never bleed across sites. A blank/missing id
+ * (a site whose D1 isn't provisioned yet) falls back to a `__shared` bucket rather than an empty-key
+ * collision. Pure.
+ *
+ * @param kind - `'history'` or `'saved'`
+ * @param databaseId - the site's dedicated D1 database id (from the tables response; may be blank)
+ * @returns the scoped localStorage key
+ * @example siteSqlKey('history', 'db_abc') // 'ps-sitedb-sql-history:db_abc'
+ * @example siteSqlKey('saved', '')         // 'ps-sitedb-sql-saved:__shared'
+ */
+export function siteSqlKey(kind: 'history' | 'saved', databaseId: string | null | undefined): string {
+  const id = String(databaseId ?? '').trim() || '__shared';
+
+  return `ps-sitedb-sql-${kind}:${id}`;
+}
+
 /**
  * Thrown when CSV-import input is malformed (no header + data row, bad identifier, or a row
  *  whose column count mismatches the header). Lets the panel show a precise, safe message.

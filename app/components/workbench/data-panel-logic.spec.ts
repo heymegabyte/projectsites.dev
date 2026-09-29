@@ -18,6 +18,12 @@ import {
   addToSqlHistory,
   addSavedQuery,
   removeSavedQuery,
+  recordHistoryEntry,
+  previewQuery,
+  relativeTime,
+  nextRailIndex,
+  siteSqlKey,
+  SQL_HISTORY_MAX,
   parseCsv,
   buildCsvImportPlan,
   buildJsonImportPlan,
@@ -26,6 +32,7 @@ import {
   CsvImportError,
   pkFromTableInfo,
   generatedFromTableXinfo,
+
   // ── Revision 3 — bulk edit + fill-down (Airtable-style multi-cell) ──
   extendCellSelection,
   fillDownWrites,
@@ -2368,8 +2375,10 @@ describe('per-type editor round-trip (Rev 4 — the editor a column opens can re
   });
 
   it('a boolean cell binds a value SQLite stores as 0/1 (true→1, false→0) through buildUpdateByPk', () => {
-    // editorKindForColumn opens the boolean editor; coerceCellInput yields a JS boolean; the D1 /query
-    // boundary stores a bound boolean as INTEGER 1/0 — assert the bound param is the boolean, positionally.
+    /*
+     * editorKindForColumn opens the boolean editor; coerceCellInput yields a JS boolean; the D1 /query
+     * boundary stores a bound boolean as INTEGER 1/0 — assert the bound param is the boolean, positionally.
+     */
     const on = coerceCellInput('boolean', editorKindForColumn('BOOLEAN', 1).value); // 'true' → true
     const off = coerceCellInput('boolean', editorKindForColumn('BOOL', '0').value); // 'false' → false
     expect(on).toBe(true);
@@ -2403,6 +2412,7 @@ describe('per-type editor round-trip (Rev 4 — the editor a column opens can re
   it('an ambiguous date string is REJECTED, never new Date()-coerced (strict ISO discipline)', () => {
     // "01/31/2024" would parse under new Date() but is NOT YYYY-MM-DD — the editor must reject it.
     expect(() => coerceCellInput('date', '01/31/2024')).toThrow(RowMutationError);
+
     // A time-bearing value in the DATE editor is rejected too (no silent truncation to date-only).
     expect(() => coerceCellInput('date', '2024-01-31T12:00')).toThrow(RowMutationError);
   });
@@ -2957,6 +2967,7 @@ describe('fillDownWrites (top selected value → every other selected row = N-1 
     // Source = top selected row (id 1, "Austin"); targets = id 2 + id 3.
     expect(writes.map((w) => w.row.id)).toEqual([2, 3]);
     expect(writes.every((w) => w.value === 'Austin')).toBe(true);
+
     // N selected → N-1 writes.
     expect(writes).toHaveLength(2);
   });
@@ -3002,5 +3013,113 @@ describe('fillDownWrites (top selected value → every other selected row = N-1 
     expect(writes).toHaveLength(1);
     expect(writes[0].row._rowid).toBe(12);
     expect(writes[0].value).toBe('x');
+  });
+});
+
+// ── Rev 6 — query-history + saved-query rail helpers ──────────────────────────
+
+describe('recordHistoryEntry (timestamped history rail)', () => {
+  it('prepends a trimmed entry with its run time', () => {
+    expect(recordHistoryEntry([], '  SELECT 1  ', 1000)).toEqual([{ query: 'SELECT 1', ranAt: 1000 }]);
+  });
+
+  it('de-dupes a re-run — same query jumps to top with a fresh timestamp, no pile-up', () => {
+    const start = [
+      { query: 'a', ranAt: 1 },
+      { query: 'b', ranAt: 2 },
+    ];
+    const next = recordHistoryEntry(start, 'b', 9);
+    expect(next).toEqual([
+      { query: 'b', ranAt: 9 },
+      { query: 'a', ranAt: 1 },
+    ]);
+
+    // no duplicate 'b'
+    expect(next.filter((h) => h.query === 'b')).toHaveLength(1);
+  });
+
+  it('a blank query is a no-op (copy, not mutate)', () => {
+    const start = [{ query: 'a', ranAt: 1 }];
+    const next = recordHistoryEntry(start, '   ', 5);
+    expect(next).toEqual(start);
+    expect(next).not.toBe(start);
+  });
+
+  it('caps at SQL_HISTORY_MAX, dropping the oldest', () => {
+    let hist: ReturnType<typeof recordHistoryEntry> = [];
+
+    for (let i = 0; i < SQL_HISTORY_MAX + 5; i++) {
+      hist = recordHistoryEntry(hist, `SELECT ${i}`, i);
+    }
+    expect(hist).toHaveLength(SQL_HISTORY_MAX);
+    expect(hist[0].query).toBe(`SELECT ${SQL_HISTORY_MAX + 4}`); // newest first
+    expect(hist.some((h) => h.query === 'SELECT 0')).toBe(false); // oldest dropped
+  });
+});
+
+describe('previewQuery', () => {
+  it('collapses whitespace/newlines to a single-line preview', () => {
+    expect(previewQuery('SELECT *\n  FROM t')).toBe('SELECT * FROM t');
+  });
+
+  it('truncates a long query with a trailing ellipsis', () => {
+    const out = previewQuery('SELECT ' + 'x'.repeat(80), 12);
+    expect(out.endsWith('…')).toBe(true);
+    expect(out.length).toBeLessThanOrEqual(12);
+  });
+
+  it('a blank query returns empty', () => {
+    expect(previewQuery('   ')).toBe('');
+  });
+});
+
+describe('relativeTime', () => {
+  it('under a minute → "just now"', () => {
+    expect(relativeTime(1000, 1000)).toBe('just now');
+    expect(relativeTime(0, 30_000)).toBe('just now');
+  });
+
+  it('minutes / hours / days', () => {
+    expect(relativeTime(0, 3 * 60_000)).toBe('3m ago');
+    expect(relativeTime(0, 2 * 3_600_000)).toBe('2h ago');
+    expect(relativeTime(0, 5 * 86_400_000)).toBe('5d ago');
+  });
+
+  it('a future timestamp is clamped to "just now" (never negative)', () => {
+    expect(relativeTime(9_000, 1_000)).toBe('just now');
+  });
+});
+
+describe('nextRailIndex (up/down keyboard nav)', () => {
+  it('down/up move within bounds', () => {
+    expect(nextRailIndex('ArrowDown', 0, 3)).toBe(1);
+    expect(nextRailIndex('ArrowUp', 2, 3)).toBe(1);
+  });
+
+  it('wraps at the ends', () => {
+    expect(nextRailIndex('ArrowDown', 2, 3)).toBe(0);
+    expect(nextRailIndex('ArrowUp', 0, 3)).toBe(2);
+  });
+
+  it('a non-arrow key is a no-op; empty list returns -1', () => {
+    expect(nextRailIndex('Home', 1, 3)).toBe(1);
+    expect(nextRailIndex('ArrowDown', 0, 0)).toBe(-1);
+  });
+});
+
+describe('siteSqlKey (per-site localStorage scoping)', () => {
+  it('scopes history + saved by the site database id', () => {
+    expect(siteSqlKey('history', 'db_abc')).toBe('ps-sitedb-sql-history:db_abc');
+    expect(siteSqlKey('saved', 'db_abc')).toBe('ps-sitedb-sql-saved:db_abc');
+  });
+
+  it('distinct sites never collide', () => {
+    expect(siteSqlKey('history', 'db_one')).not.toBe(siteSqlKey('history', 'db_two'));
+  });
+
+  it('a blank/missing id falls back to a shared bucket (no empty-key collision)', () => {
+    expect(siteSqlKey('saved', '')).toBe('ps-sitedb-sql-saved:__shared');
+    expect(siteSqlKey('saved', null)).toBe('ps-sitedb-sql-saved:__shared');
+    expect(siteSqlKey('saved', undefined)).toBe('ps-sitedb-sql-saved:__shared');
   });
 });
