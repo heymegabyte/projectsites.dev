@@ -30,9 +30,16 @@
  * FormBuilder is intentionally NOT wired as a nav entry or an action here (Brian 2026-09-27) but stays
  * IMPORTED so it remains reachable/interconnected for a future surface.
  */
-import React, { memo, useCallback, useEffect, useMemo, useState } from 'react';
+import React, { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { classNames } from '~/utils/classNames';
-import { postToParent } from '~/lib/embed/embedded-mode';
+import {
+  isEmbedded,
+  postToParent,
+  onParentMessage,
+  type ParentToChildMessage,
+  type ResDetailResponseMessage,
+} from '~/lib/embed/embedded-mode';
+import { formatKvExpiration } from './kv-browser-logic';
 import { SiteTablesPanel } from './SiteTablesPanel';
 import { SchemaBuilder } from './SchemaBuilder';
 import { TimeTravelPanel } from './TimeTravelPanel';
@@ -327,10 +334,13 @@ function writeKvUnlocked(on: boolean): void {
 
 /**
  * The KV manager gate. The site's OWN Cloudflare KV is a **$10/mo Stripe add-on** (per the resource
- * model). Until unlocked this renders an HONEST locked-upsell card — never a dead/mock control. Once
- * unlocked it mounts the REAL {@link KvBrowser}, which manages the site's OWN server-resolved KV namespace
- * (`PS_RES_DETAIL/MUTATE { kind:'kv' }`) and itself renders an honest "not enabled yet" state while
- * `per_site_kv` is dark.
+ * model). Until unlocked this renders an HONEST locked-upsell card — never a dead/mock control. The card
+ * carries a **read-only free preview** ({@link KvLockedPreview}) that lists the site's REAL KV keys via the
+ * SAME per-site bridge the browser uses (`PS_RES_DETAIL { kind:'kv', action:'list' }` — no new endpoint,
+ * list-only, zero value reads, zero write controls), so the paywall shows genuine value instead of a wall.
+ * Once unlocked it mounts the REAL {@link KvBrowser}, which manages the site's OWN server-resolved KV
+ * namespace (`PS_RES_DETAIL/MUTATE { kind:'kv' }`) and itself renders an honest "not enabled yet" state
+ * while `per_site_kv` is dark.
  */
 const KvManager = memo(() => {
   const [unlocked, setUnlocked] = useState<boolean>(() => readKvUnlocked());
@@ -387,6 +397,9 @@ const KvManager = memo(() => {
         </li>
       </ul>
 
+      {/* Read-only free preview of the site's REAL KV keys — makes the paywall never a dead wall. */}
+      <KvLockedPreview />
+
       <div
         className="mt-1 border border-bolt-elements-borderColor rounded-md bg-bolt-elements-background-depth-2 px-3 py-2 text-[11px] text-bolt-elements-textSecondary flex items-center gap-2"
         data-testid="database-kv-note"
@@ -400,3 +413,218 @@ const KvManager = memo(() => {
 });
 
 KvManager.displayName = 'DatabasePanel.KvManager';
+
+// ── Read-only free KV preview (inside the locked-upsell — never a dead paywall) ──
+
+/** How many real keys to preview inside the locked card (list-only, bounded). */
+const KV_PREVIEW_LIMIT = 8;
+/** A dark-flag 404 reply carries this in its message → the preview hides (the upsell stays clean). */
+const KV_PREVIEW_DISABLED = 'not enabled';
+const KV_PREVIEW_TIMEOUT_MS = 30_000;
+
+/** One KV key descriptor as the per-site `kv` adapter's `list` returns it (name + optional expiration). */
+interface KvPreviewKey {
+  name: string;
+  expiration?: number;
+}
+
+function nextPreviewCorrelationId(): string {
+  if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
+    return crypto.randomUUID();
+  }
+
+  return `kvpv_${Date.now()}_${Math.random().toString(36).slice(2)}`;
+}
+
+type PreviewState =
+  | { status: 'loading' }
+  | { status: 'ready'; keys: KvPreviewKey[] }
+  | { status: 'empty' }
+  | { status: 'hidden' }; // dark flag / not-embedded / transport error → render nothing (upsell only)
+
+/**
+ * The locked KV card's READ-ONLY free preview. On mount it asks the SAME per-site bridge the real browser
+ * uses — `PS_RES_DETAIL { kind:'kv', action:'list' }` (no new endpoint) — and lists the site's REAL key
+ * names. It is strictly list-only: it never reads a value (no `get`) and renders no write controls. Honest
+ * states only: real keys → a read-only list; none → "empty so far"; the `per_site_kv` flag dark (or any
+ * transport failure / non-embedded) → nothing, so the surrounding upsell stays a clean, non-broken card.
+ *
+ * Bridge plumbing mirrors {@link KvBrowser}: ONE {@link onParentMessage} listener resolves replies by
+ * correlationId through a live ref (empty-deps stale-ref safe). Expiration is formatted with the shared
+ * integer-seconds {@link formatKvExpiration} helper — never `new Date()` coercion.
+ */
+const KvLockedPreview = memo(() => {
+  const [state, setState] = useState<PreviewState>({ status: 'loading' });
+  const nowSeconds = useMemo(() => Math.floor(Date.now() / 1000), []);
+
+  const pendingRef = useRef<Map<string, (msg: ParentToChildMessage) => void>>(new Map());
+
+  useEffect(() => {
+    const pending = pendingRef.current;
+    const unsubscribe = onParentMessage((msg) => {
+      if (msg.type !== 'PS_RES_DETAIL_RESPONSE') {
+        return;
+      }
+
+      const correlationId = msg.correlationId;
+
+      if (!correlationId) {
+        return;
+      }
+
+      const resolve = pending.get(correlationId);
+
+      if (!resolve) {
+        return;
+      }
+
+      pending.delete(correlationId);
+      resolve(msg);
+    });
+
+    return () => {
+      unsubscribe();
+      pending.clear();
+    };
+  }, []);
+
+  useEffect(() => {
+    // Not embedded → no admin bridge to answer; keep the upsell clean (no broken preview).
+    if (!isEmbedded) {
+      setState({ status: 'hidden' });
+
+      return;
+    }
+
+    let cancelled = false;
+    const correlationId = nextPreviewCorrelationId();
+
+    const reply = new Promise<ParentToChildMessage>((resolve, reject) => {
+      const timer = setTimeout(() => {
+        pendingRef.current.delete(correlationId);
+        reject(new Error('timeout'));
+      }, KV_PREVIEW_TIMEOUT_MS);
+
+      pendingRef.current.set(correlationId, (msg) => {
+        clearTimeout(timer);
+        resolve(msg);
+      });
+    });
+
+    postToParent({
+      type: 'PS_RES_DETAIL_REQUEST',
+      correlationId,
+      kind: 'kv',
+      action: 'list',
+      params: { limit: KV_PREVIEW_LIMIT },
+    });
+
+    reply
+      .then((msg) => {
+        if (cancelled) {
+          return;
+        }
+
+        const detail = msg as ResDetailResponseMessage;
+
+        // Dark flag (enabled:false OR a "not enabled" 404) → hide the preview; the upsell carries the message.
+        if (detail.enabled === false || (!!detail.error && detail.error.includes(KV_PREVIEW_DISABLED))) {
+          setState({ status: 'hidden' });
+
+          return;
+        }
+
+        // Any other transport error → hide silently (never a broken/doomed preview beside a paywall).
+        if (detail.error) {
+          setState({ status: 'hidden' });
+
+          return;
+        }
+
+        const result = detail.result;
+
+        if (!result || !result.ok) {
+          setState({ status: 'hidden' });
+
+          return;
+        }
+
+        const keys = ((result.data ?? {}) as { keys?: KvPreviewKey[] }).keys ?? [];
+
+        setState(keys.length === 0 ? { status: 'empty' } : { status: 'ready', keys: keys.slice(0, KV_PREVIEW_LIMIT) });
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setState({ status: 'hidden' });
+        }
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  // Dark / error / not-embedded → render nothing so the surrounding upsell stays a clean card.
+  if (state.status === 'hidden') {
+    return null;
+  }
+
+  if (state.status === 'loading') {
+    return (
+      <div
+        className="w-full max-w-[340px] rounded-md border border-bolt-elements-borderColor/50 bg-bolt-elements-background-depth-2 px-3 py-2 text-[11px] text-bolt-elements-textTertiary flex items-center gap-2"
+        data-testid="database-kv-preview-loading"
+        role="status"
+      >
+        <div className="i-ph:circle-notch animate-spin" aria-hidden /> Loading a preview of your keys…
+      </div>
+    );
+  }
+
+  if (state.status === 'empty') {
+    return (
+      <div
+        className="w-full max-w-[340px] rounded-md border border-bolt-elements-borderColor/50 bg-bolt-elements-background-depth-2 px-3 py-2.5 text-[11px] text-bolt-elements-textTertiary flex items-center gap-2"
+        data-testid="database-kv-preview-empty"
+      >
+        <div className="i-ph:eye text-bolt-elements-item-contentAccent" aria-hidden />
+        <span>Your KV is empty so far — unlock it to add your first key.</span>
+      </div>
+    );
+  }
+
+  // Real keys → a compact, READ-ONLY list (no value reads, no write controls) proving the paywall isn't dead.
+  return (
+    <div
+      className="w-full max-w-[340px] rounded-md border border-bolt-elements-borderColor/60 bg-bolt-elements-background-depth-2 overflow-hidden"
+      data-testid="database-kv-preview"
+    >
+      <div className="flex items-center gap-1.5 border-b border-bolt-elements-borderColor/50 px-3 py-1.5 text-[10px] uppercase tracking-wider text-bolt-elements-textTertiary">
+        <div className="i-ph:eye text-bolt-elements-item-contentAccent" aria-hidden />
+        <span>Preview · your keys (read-only)</span>
+      </div>
+      <ul className="max-h-40 overflow-auto modern-scrollbar text-left">
+        {state.keys.map((k) => (
+          <li
+            key={k.name}
+            data-testid="database-kv-preview-key"
+            className="flex items-center justify-between gap-2 border-b border-bolt-elements-borderColor/20 px-3 py-1 text-[11px] font-mono last:border-b-0"
+          >
+            <span className="truncate text-bolt-elements-textSecondary" title={k.name}>
+              {k.name}
+            </span>
+            <span className="shrink-0 text-[9px] text-bolt-elements-textTertiary">
+              {formatKvExpiration(k.expiration, nowSeconds)}
+            </span>
+          </li>
+        ))}
+      </ul>
+      <div className="px-3 py-1.5 text-[10px] text-bolt-elements-textTertiary border-t border-bolt-elements-borderColor/40 flex items-center gap-1.5">
+        <div className="i-ph:lock-simple shrink-0" aria-hidden />
+        <span>Unlock to view values and add, edit, or delete keys.</span>
+      </div>
+    </div>
+  );
+});
+
+KvLockedPreview.displayName = 'DatabasePanel.KvLockedPreview';

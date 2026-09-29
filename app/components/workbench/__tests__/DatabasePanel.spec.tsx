@@ -19,6 +19,10 @@
  *  4. SQL is a first-class entry — selecting it mounts the SQL navigator (textarea + run + Ask toggle).
  *  5. KV manager — shows the $10/mo locked-upsell with an Unlock control (never a dead control).
  *  6. KV manager — clicking Unlock swaps the upsell for the REAL per-site KV browser.
+ *  7. KV locked-upsell — a READ-ONLY free preview lists the site's REAL KV keys (never a dead paywall):
+ *     it asks the EXISTING per-site bridge (PS_RES_DETAIL kind:'kv', action:'list'), renders real key
+ *     names read-only, shows an honest "empty so far" when there are none, and stays a clean upsell (no
+ *     broken preview) when the flag is dark. No value reads, no writes from the locked card.
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { render, screen, cleanup, fireEvent, within, act, waitFor } from '@testing-library/react';
@@ -222,5 +226,91 @@ describe('DatabasePanel — consolidated per-site data surface (concise nav)', (
     expect((listCall?.[0] as { kind?: string })?.kind).toBe('kv');
     // The unlock persists.
     expect(store.ps_database_kv_unlocked).toBe('1');
+  });
+});
+
+// ─── KV locked-upsell — read-only free preview (never a dead paywall) ───────────
+
+/** Find the most recent `PS_RES_DETAIL_REQUEST` of a given kv action; returns its correlationId. */
+function lastKvDetail(action: 'list' | 'get'): string | undefined {
+  const msg = postToParentSpy.mock.calls
+    .map((c) => c[0] as { type?: string; kind?: string; action?: string; correlationId?: string })
+    .reverse()
+    .find((m) => m?.type === 'PS_RES_DETAIL_REQUEST' && m?.kind === 'kv' && m?.action === action);
+
+  return msg?.correlationId;
+}
+
+/** Replay a per-site KV `list` reply through every registered parent-message handler. */
+async function replyKvList(
+  correlationId: string | undefined,
+  payload: { enabled?: boolean; error?: string; keys?: { name: string; expiration?: number }[] },
+): Promise<void> {
+  await act(async () => {
+    for (const handler of parentHandlers) {
+      handler({
+        type: 'PS_RES_DETAIL_RESPONSE',
+        correlationId,
+        ok: !payload.error,
+        kind: 'kv',
+        action: 'list',
+        ...(payload.enabled === undefined ? {} : { enabled: payload.enabled }),
+        ...(payload.error ? { error: payload.error } : {}),
+        ...(payload.error
+          ? {}
+          : { result: { ok: true, data: { keys: payload.keys ?? [], listComplete: true } } }),
+      });
+    }
+  });
+}
+
+describe('DatabasePanel — KV locked-upsell read-only preview (never a dead paywall)', () => {
+  it('lists the site REAL KV keys read-only via the existing PS_RES_DETAIL kv:list bridge', async () => {
+    render(<DatabasePanel />);
+    fireEvent.click(screen.getByTestId('database-subnav-kv'));
+
+    // The locked card must ASK the same per-site bridge KvBrowser uses — no new endpoint, read-only list.
+    await waitFor(() => expect(lastKvDetail('list')).toBeTruthy());
+
+    await replyKvList(lastKvDetail('list'), {
+      keys: [{ name: 'feature:new-hero' }, { name: 'session:abc123', expiration: 4102444800 }],
+    });
+
+    // Real key names render inside the read-only preview; the upsell + Unlock still stand beside them.
+    const preview = screen.getByTestId('database-kv-preview');
+    expect(within(preview).getByText('feature:new-hero')).toBeTruthy();
+    expect(within(preview).getByText('session:abc123')).toBeTruthy();
+    expect(screen.getByTestId('database-kv-unlock')).toBeTruthy();
+
+    // Read-only: the preview must NOT read a value (no kv:get) and must NOT expose write controls.
+    expect(lastKvDetail('get')).toBeUndefined();
+    expect(within(preview).queryByTestId('database-kv-preview-add')).toBeNull();
+    expect(within(preview).queryByTestId('database-kv-preview-delete')).toBeNull();
+  });
+
+  it('shows an honest empty preview when the KV store has no keys yet (not a dead control)', async () => {
+    render(<DatabasePanel />);
+    fireEvent.click(screen.getByTestId('database-subnav-kv'));
+
+    await waitFor(() => expect(lastKvDetail('list')).toBeTruthy());
+    await replyKvList(lastKvDetail('list'), { keys: [] });
+
+    expect(screen.getByTestId('database-kv-preview-empty')).toBeTruthy();
+    // Still a live upsell beneath the honest empty state.
+    expect(screen.getByTestId('database-kv-unlock')).toBeTruthy();
+  });
+
+  it('stays a clean upsell (no broken preview) when per_site_kv is dark', async () => {
+    render(<DatabasePanel />);
+    fireEvent.click(screen.getByTestId('database-subnav-kv'));
+
+    await waitFor(() => expect(lastKvDetail('list')).toBeTruthy());
+    // Dark flag → enabled:false. The preview hides entirely; the upsell + honest note remain.
+    await replyKvList(lastKvDetail('list'), { enabled: false });
+
+    expect(screen.queryByTestId('database-kv-preview')).toBeNull();
+    expect(screen.queryByTestId('database-kv-preview-empty')).toBeNull();
+    expect(screen.getByTestId('database-kv-unlock')).toBeTruthy();
+    expect(screen.getByTestId('database-kv-note')).toBeTruthy();
   });
 });
