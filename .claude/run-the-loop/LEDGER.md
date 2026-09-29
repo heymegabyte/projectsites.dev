@@ -95,3 +95,34 @@
 _Predecessor cron system: 5 recurring loop crons removed 2026-09-28; "run the loop" is now a deliberate
 on-demand fire (single 15-min cron `5b233086`). Full pre-migration cycle detail: `_LOOP.md` ⟐ Cycle log +
 git history._
+
+## Fire 53 (2026-09-29) — Deep UI Explorer / Visual Intelligence born (role 17) + fire mutex
+
+- ⭐ Loop upgraded per Brian's consolidation directive (`24ececf01`): roster now 15 rotating +
+  2 STANDING (16 Long-Trail · 17 Deep UI Explorer) + Template Evolution lane (18, every-2-fires)
+  + CF Release Scout duty on role 14 (`CF-RELEASES.md` seeded); fires serialized by
+  `scripts/loop-fire-lock.mjs` lease (claim §0 / release §10, 20-min stale reclaim).
+- Deep UI Explorer LIVE slice: **provider `cloudflare-browser-run`** (CDP
+  `…/browser-run/devtools/browser`, session recorded in manifest) — homepage → REAL test-login
+  (identity oracle: `brian@megabyte.space`, super-admin, org present) → /admin → Editor →
+  Database → Tables → **Actions menu** → **History overlay** → close = 12 states, screenshot +
+  console/network + state-key each. Run `dux-2026-09-29T20-01-44-425Z`; resumable
+  `coverage-ledger.json`. First attempt honestly landed `FALLBACK:browserbase` → minted a
+  Browser-Run-scoped token (rolled the never-used `workers-unite` token; persisted as
+  `CF_BROWSER_RUN_TOKEN` via chezmoi) → re-ran PASS_CLOUDFLARE.
+- Vision review: all 12 states through AI Gateway; OpenAI 429-quota + Anthropic zero-credit
+  recorded BLOCKED (🔑 backlog) → labeled fallback Workers AI **Llama 4 Scout** (the product's
+  own VISION_MODEL) delivered 11/12 schema-validated verdicts (1 honest reviewer-failure).
+- RED→GREEN on a consequential finding: active FILLED-pill tab labels INVISIBLE (live computed
+  contrast **1:1** — brand override `[aria-selected][role=tab]{color:accent!important}`
+  clobbering Database/Resources/SourceControl segmented pills + Promote ink class).
+  Fix: `data-filled-pill` opt-out + `:not()` in `index.scss` + literal `text-[#061018]` ink;
+  editor Vitest 1260 green incl. new `accent-pill-ink-contrast.spec`; Pages deploy
+  (`a77daf8b.bolt-diy-8jf.pages.dev` → editor.projectsites.dev); breadcrumb REPLAYED on prod
+  in a fresh CF Browser Run session → **12.47:1**, label legible. First wrong-fix (token
+  relabel) caught by the replay probe itself — the loop's verify-not-assume working as built.
+- Replenish: `visual-intelligence` (+6: kill Tables-Actions Refresh per
+  real-time-data-no-manual-refresh · toast contrast · dual TABLES panes · breadth rotation ·
+  viewports · 🔑 vision credits) + `template-evolution` (+5) + `cf-releases` (+2) lanes;
+  DISCOVERIES § fire-53 documents real-UI-vs-docs deltas (History = overlay via header-level
+  Actions, editor boot ~35-60s, Scout severity advisory-only).
