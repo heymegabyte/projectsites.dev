@@ -73,6 +73,7 @@ import {
   type AskColumn,
   type AskTableSchema,
 } from './sql-ask-logic';
+import { buildExplainDispatch, explainDisabledReason } from './sql-explain-logic';
 
 // ── Constants ──────────────────────────────────────────────────────────────
 
@@ -273,6 +274,9 @@ export const SqlNavigator = memo(() => {
   const [askBusy, setAskBusy] = useState(false);
   const [askError, setAskError] = useState<string | null>(null);
   const [askNote, setAskNote] = useState<string | null>(null);
+
+  // Rev 7: a transient "sent to the chat" confirmation after AI "Explain this" (reuses the editor chat).
+  const [explainSent, setExplainSent] = useState(false);
 
   const pendingRef = useRef<Map<string, Pending>>(new Map());
   const lastConfirmSqlRef = useRef('');
@@ -630,6 +634,39 @@ export const SqlNavigator = memo(() => {
 
   const confirmRun = useCallback(() => void runQuery(lastConfirmSqlRef.current, true, false), [runQuery]);
 
+  /*
+   * AI "Explain this" (Rev 7): hand the current query + a sample of its result rows to the EXISTING editor
+   * AI chat for a plain-English explanation. REUSES the chat via a `PS_SUBMIT_PROMPT` bridge message (the
+   * same one the admin uses to auto-submit a prompt) — the SqlNavigator + the chat share this editor iframe,
+   * so the message flows child to parent and the admin relays it straight back into the chat conversation.
+   * No new worker endpoint, no direct model call. Disabled-with-reason when there's no query (never a dead
+   * control). `sql` is what's in the editor; the sampled rows come from a ready result.
+   */
+  const explainDisabled = explainDisabledReason({ sql });
+  const explainResult = useCallback(() => {
+    const rows = state.status === 'ready' ? (state.data.rows ?? []) : [];
+
+    // `siteId`/`slug` default to '' — the chat's PS_SUBMIT_PROMPT handler reads only `prompt`.
+    const dispatch = buildExplainDispatch({ sql, rows });
+
+    if (!dispatch) {
+      return;
+    }
+
+    /*
+     * Reuse the editor AI chat: `PS_SUBMIT_PROMPT` is the message the parent admin relays straight into
+     * `Chat.client.tsx`'s handler (`append({ role:'user', ... })`). We raw-post it to the parent the same
+     * way Preview.tsx asks the admin to open the domain menu — the admin's BoltEmbedService validates
+     * event.origin, so '*' is safe. Standalone editor (no parent) → no-op. No new endpoint, no direct AI call.
+     */
+    try {
+      window.parent?.postMessage({ ...dispatch, correlationId: nextCorrelationId() }, '*');
+      setExplainSent(true);
+    } catch {
+      /* no admin parent — nothing to relay */
+    }
+  }, [sql, state]);
+
   // ── History + saved-query actions ──────────────────────────────────────────
   /** Recall a history entry: drop it into the editor AND re-run it (a one-click "run this again"). */
   const recallHistory = useCallback(
@@ -873,7 +910,10 @@ export const SqlNavigator = memo(() => {
             </label>
             <SqlEditor
               value={sql}
-              onValueChange={setSql}
+              onValueChange={(next) => {
+                setSql(next);
+                setExplainSent(false); // a new edit invalidates the "sent to chat" confirmation
+              }}
               onRun={run}
               schema={schema}
               minRows={4}
@@ -917,6 +957,26 @@ export const SqlNavigator = memo(() => {
               >
                 <div className="i-ph:strategy" /> Explain
               </button>
+              <button
+                type="button"
+                onClick={explainResult}
+                disabled={!!explainDisabled}
+                data-testid="database-sql-ai-explain"
+                aria-label="Explain this query and its results in plain English using the editor AI chat"
+                title={explainDisabled ?? 'Ask the AI to explain this query and its results in plain English (opens in chat)'}
+                className="min-h-[24px] text-[11px] font-medium px-3 py-1.5 rounded-lg border border-[#00e5ff66] bg-[#00e5ff14] text-bolt-elements-item-contentAccent enabled:hover:bg-[#00e5ff26] disabled:opacity-40 disabled:cursor-not-allowed transition-colors flex items-center gap-1.5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-bolt-elements-item-contentAccent cursor-pointer"
+              >
+                <div className="i-ph:sparkle" /> Explain with AI
+              </button>
+              {explainSent && (
+                <span
+                  className="flex items-center gap-1 text-[10px] text-bolt-elements-item-contentAccent motion-safe:animate-[fadeIn_160ms_ease-out]"
+                  data-testid="database-sql-ai-explain-sent"
+                  role="status"
+                >
+                  <div className="i-ph:chat-circle-dots-duotone shrink-0" aria-hidden /> Sent to chat
+                </span>
+              )}
               {rowLimitAdvice.needsLimit && state.status !== 'running' && (
                 <button
                   type="button"

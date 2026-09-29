@@ -375,4 +375,59 @@ describe('SqlNavigator — rich per-site SQL workspace', () => {
     await waitFor(() => expect(screen.getByTestId('database-sql-row-count')).toBeTruthy());
     expect(within(screen.getByTestId('database-sql-row-count')).getByText(/3 rows/)).toBeTruthy();
   });
+
+  // ── Rev 7 — AI "Explain this" (REUSES the existing editor chat via PS_SUBMIT_PROMPT) ──
+
+  it('Explain is disabled-with-reason until a query exists (never a dead control)', () => {
+    render(<SqlNavigator />);
+
+    const explain = screen.getByTestId('database-sql-ai-explain') as HTMLButtonElement;
+    expect(explain).toBeTruthy();
+    expect(explain.disabled).toBe(true);
+    // The reason is surfaced (title/tooltip), not silent.
+    expect(explain.getAttribute('title') ?? '').toMatch(/run a query first/i);
+
+    fireEvent.change(screen.getByTestId('database-sql-textarea'), { target: { value: 'SELECT 1;' } });
+    expect((screen.getByTestId('database-sql-ai-explain') as HTMLButtonElement).disabled).toBe(false);
+  });
+
+  it('Explain composes the query + rows and posts PS_SUBMIT_PROMPT to the existing chat', async () => {
+    render(<SqlNavigator />);
+
+    fireEvent.change(screen.getByTestId('database-sql-textarea'), { target: { value: 'SELECT id, name FROM users;' } });
+    fireEvent.click(screen.getByTestId('database-sql-run'));
+    replyToLastQuery({
+      ok: true,
+      columns: [
+        { name: 'id', type: 'INTEGER' },
+        { name: 'name', type: 'TEXT' },
+      ],
+      rows: [{ id: 1, name: 'Alice' }],
+      rowCount: 1,
+      meta: { duration: 2 },
+    });
+
+    await waitFor(() => expect(screen.getByTestId('database-sql-result')).toBeTruthy());
+
+    /*
+     * Clicking Explain hands the prompt to the EDITOR AI CHAT by raw-posting PS_SUBMIT_PROMPT to the parent
+     * (the same admin-relay pattern Preview uses) — the admin forwards it into Chat.client.tsx. No new
+     * endpoint. Spy on window.parent.postMessage to observe the relay.
+     */
+    const postSpy = vi.spyOn(window.parent, 'postMessage');
+    fireEvent.click(screen.getByTestId('database-sql-ai-explain'));
+
+    const submit = [...postSpy.mock.calls].reverse().find((c) => (c[0] as { type?: string })?.type === 'PS_SUBMIT_PROMPT')?.[0] as
+      | { type: string; prompt: string }
+      | undefined;
+    expect(submit).toBeTruthy();
+    expect(submit!.type).toBe('PS_SUBMIT_PROMPT'); // the chat's existing auto-submit message
+    expect(submit!.prompt).toContain('Explain this SQL query and what its results mean, in plain English:');
+    expect(submit!.prompt).toContain('SELECT id, name FROM users;');
+    expect(submit!.prompt).toContain('"name": "Alice"'); // the sampled rows are embedded
+
+    // The user gets a "Sent to chat" confirmation.
+    await waitFor(() => expect(screen.getByTestId('database-sql-ai-explain-sent')).toBeTruthy());
+    postSpy.mockRestore();
+  });
 });
