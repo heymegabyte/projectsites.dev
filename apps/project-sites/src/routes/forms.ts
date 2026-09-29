@@ -1049,7 +1049,12 @@ forms.post('/api/sites/:siteId/form-router/improve', async (c) => {
           code: 'VALIDATION_ERROR',
           message: 'Invalid form-router improve request',
           request_id: c.get('requestId'),
-          details: { issues: parsed.error.issues.map((i) => ({ path: i.path.join('.'), message: i.message })) },
+          details: {
+            issues: parsed.error.issues.map((i) => ({
+              path: i.path.join('.'),
+              message: i.message,
+            })),
+          },
         },
       },
       400,
