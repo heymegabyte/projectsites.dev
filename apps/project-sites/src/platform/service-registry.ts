@@ -554,4 +554,3 @@ export const EXCLUDED_VENDORS: readonly string[] = [
   // intentionally NOT gated here — gating a working integration would be a
   // false positive. Migrate the lead engine off it before adding a hard rule.
 ] as const;
-
