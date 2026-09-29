@@ -2256,6 +2256,63 @@ export function groupPageRows(
 }
 
 /**
+ * Auto-pick the best kanban GROUP-BY column from the current page: the first NON-id, NON-numeric column
+ * whose values look LOW-cardinality (a text/enum "status"-like column — distinct values ≤ half the rows,
+ * capped at {@link KANBAN_MAX_GROUPS}), so the default board has a handful of meaningful lanes rather than
+ * one lane per row. Falls back to the first non-id column when nothing is clearly enum-like, and null only
+ * when there's no usable column at all. Pure; mirrors {@link galleryTitleField}'s id-skipping discipline.
+ *
+ * @example defaultKanbanGroupField(['id','title','status'], rows) // 'status' (title all-distinct → skipped)
+ * @example defaultKanbanGroupField(['id'], [{id:1}])               // null (only an id column)
+ */
+export function defaultKanbanGroupField(
+  columns: readonly string[],
+  rows: readonly Record<string, unknown>[],
+): string | null {
+  const candidates = columns.filter((c) => !/^id$|_id$/i.test(c));
+
+  if (candidates.length === 0) {
+    return null;
+  }
+
+  const isNumericCol = (c: string): boolean => {
+    const vals = rows.map((r) => r[c]).filter((v) => v !== null && v !== undefined && v !== '');
+
+    return (
+      vals.length > 0 &&
+      vals.every((v) =>
+        typeof v === 'number'
+          ? Number.isFinite(v)
+          : typeof v === 'string' && v.trim() !== '' && Number.isFinite(Number(v)),
+      )
+    );
+  };
+
+  const distinctCount = (c: string): number => new Set(rows.map((r) => kanbanGroupKey(r[c]))).size;
+
+  // Prefer a low-cardinality text/enum column (≤ half the rows distinct, ≤ the lane cap, ≥1 repeat).
+  const enumLike = candidates.find((c) => {
+    if (isNumericCol(c)) {
+      return false;
+    }
+
+    const distinct = distinctCount(c);
+
+    return distinct >= 1 && distinct <= KANBAN_MAX_GROUPS && (rows.length === 0 || distinct <= Math.ceil(rows.length / 2));
+  });
+
+  if (enumLike) {
+    return enumLike;
+  }
+
+  // Fallback: the first non-id, non-numeric column, else the first non-id column.
+  return candidates.find((c) => !isNumericCol(c)) ?? candidates[0];
+}
+
+/** Max kanban lanes rendered before extras collapse into an "＋N more" note (keeps the board scannable). */
+export const KANBAN_MAX_GROUPS = 12;
+
+/**
  * The date column driving the calendar view: the configured field when it's a real column (the owner's
  * explicit pick wins, even if some values aren't dates → those rows just don't place), else AUTO-DETECT
  * the first column whose page has ≥1 UNAMBIGUOUS ISO date/datetime value (via {@link isoDayKey}, so a

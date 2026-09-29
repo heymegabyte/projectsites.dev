@@ -60,6 +60,7 @@ import {
   normalizeViewMode,
   kanbanGroupKey,
   groupPageRows,
+  defaultKanbanGroupField,
   buildChartBars,
   numericColumns,
   galleryTitleField,
@@ -1405,6 +1406,48 @@ describe('kanbanGroupKey + groupPageRows (bucket page rows for a kanban board)',
     expect(g.get('done')).toHaveLength(1);
     expect(g.get(kanbanGroupKey(null))).toHaveLength(1);
     expect(g.get('new')!.map((r) => r.id)).toEqual([1, 2]); // preserves order
+  });
+});
+
+describe('defaultKanbanGroupField (auto-pick the kanban group-by column)', () => {
+  it('picks the first LOW-cardinality non-id text/enum column on the page', () => {
+    const rows = [
+      { id: 1, title: 'A', status: 'new' },
+      { id: 2, title: 'B', status: 'done' },
+      { id: 3, title: 'C', status: 'new' },
+    ];
+    // `title` is high-cardinality (all distinct) → skipped; `status` repeats → the group column.
+    expect(defaultKanbanGroupField(['id', 'title', 'status'], rows)).toBe('status');
+  });
+
+  it('skips id / *_id columns even when low-cardinality', () => {
+    const rows = [
+      { site_id: 7, kind: 'a' },
+      { site_id: 7, kind: 'b' },
+    ];
+    expect(defaultKanbanGroupField(['site_id', 'kind'], rows)).toBe('kind');
+  });
+
+  it('ignores numeric columns (a kanban lane per number is meaningless)', () => {
+    const rows = [
+      { amount: 10, tier: 'gold' },
+      { amount: 20, tier: 'gold' },
+    ];
+    expect(defaultKanbanGroupField(['amount', 'tier'], rows)).toBe('tier');
+  });
+
+  it('falls back to the first non-id column when nothing is clearly low-cardinality', () => {
+    const rows = [
+      { id: 1, name: 'x' },
+      { id: 2, name: 'y' },
+    ];
+    // every value distinct → no obvious enum; still returns a usable non-id column, never null here.
+    expect(defaultKanbanGroupField(['id', 'name'], rows)).toBe('name');
+  });
+
+  it('returns null only when there is no usable column', () => {
+    expect(defaultKanbanGroupField([], [])).toBeNull();
+    expect(defaultKanbanGroupField(['id'], [{ id: 1 }])).toBeNull();
   });
 });
 

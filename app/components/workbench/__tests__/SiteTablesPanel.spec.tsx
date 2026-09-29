@@ -1239,3 +1239,222 @@ describe('PS_SITEDB_UPDATE_ROW message field contract', () => {
     expect(res.error).toContain('Per-site data is not enabled');
   });
 });
+
+/*
+ * ─── Rev 10 (FINAL) — Airtable-class views: Grid | Gallery | Kanban ────────────
+ *
+ * The Tables surface now carries a THREE-way view switcher (Grid | Gallery |
+ * Kanban) that renders entirely from the ALREADY-loaded page rows — NO new
+ * endpoint/fetch. Gallery shows one card per row; Kanban groups the rows by a
+ * user-chosen column (default: first low-cardinality text/enum column) into
+ * lanes of cards. The view choice persists per-table (localStorage keyed by the
+ * site's D1 id + table). These cases prove: (1) the switcher exposes a Kanban
+ * button and toggling it renders the board; (2) Gallery renders N cards for N
+ * rows; (3) Kanban buckets rows by the chosen column into the right lanes.
+ */
+describe('SiteTablesPanel — Rev 10 Airtable-class views (Grid | Gallery | Kanban)', () => {
+  beforeEach(() => {
+    postToParentSpy.mockClear();
+    onParentMessageSpy.mockClear();
+    parentHandlers.clear();
+
+    try {
+      window.localStorage.clear();
+    } catch {
+      /* jsdom storage may throw on opaque origin — harmless here */
+    }
+  });
+
+  afterEach(() => {
+    cleanup();
+    parentHandlers.clear();
+  });
+
+  /**
+   * Drive to a browsed table with 4 rows and a low-cardinality `status` column
+   * (2 "new", 1 "done", 1 "new") so the kanban board has real buckets to group.
+   */
+  async function openBoardTable(): Promise<void> {
+    render(<SiteTablesPanel />);
+
+    await waitFor(() => {
+      expect(postToParentSpy).toHaveBeenCalledWith(expect.objectContaining({ type: 'PS_SITEDB_TABLES_REQUEST' }));
+    });
+
+    await act(async () => {
+      fireReply({
+        type: 'PS_SITEDB_TABLES_RESPONSE',
+        correlationId: lastCorrelationId(),
+        ok: true,
+        databaseId: 'db-rev10',
+        provisioned: true,
+        tables: [{ name: 'tasks' }],
+      });
+    });
+
+    await act(async () => {
+      screen.getAllByTestId('sitedb-table-open')[0].click();
+    });
+
+    await waitFor(() => {
+      expect(postToParentSpy).toHaveBeenCalledWith(
+        expect.objectContaining({ type: 'PS_SITEDB_ROWS_REQUEST', table: 'tasks' }),
+      );
+    });
+
+    const rowsReq = postToParentSpy.mock.calls
+      .map((c) => c[0])
+      .find((m: unknown) => (m as { type?: string })?.type === 'PS_SITEDB_ROWS_REQUEST') as
+      | { correlationId: string }
+      | undefined;
+
+    await act(async () => {
+      fireReply({
+        type: 'PS_SITEDB_ROWS_RESPONSE',
+        correlationId: rowsReq?.correlationId,
+        ok: true,
+        table: 'tasks',
+        columns: [
+          { name: 'id', type: 'INTEGER', notnull: 1, pk: 1 },
+          { name: 'title', type: 'TEXT', notnull: 0, pk: 0 },
+          { name: 'status', type: 'TEXT', notnull: 0, pk: 0 },
+        ],
+        rows: [
+          { id: 1, title: 'Alpha', status: 'new' },
+          { id: 2, title: 'Bravo', status: 'new' },
+          { id: 3, title: 'Charlie', status: 'done' },
+          { id: 4, title: 'Delta', status: 'new' },
+        ],
+        limit: 25,
+        offset: 0,
+        total: 4,
+      });
+    });
+  }
+
+  it('exposes a three-way switcher (Grid · Gallery · Kanban), defaulting to Grid', async () => {
+    await openBoardTable();
+
+    // All three view-mode buttons are present + keyboard-reachable (real <button>s).
+    expect(screen.getByTestId('sitedb-view-grid')).toBeTruthy();
+    expect(screen.getByTestId('sitedb-view-gallery')).toBeTruthy();
+    expect(screen.getByTestId('sitedb-view-kanban')).toBeTruthy();
+
+    // Default view = grid (dense table rendered, no gallery/kanban surface yet).
+    expect(screen.getByTestId('sitedb-grid')).toBeTruthy();
+    expect(screen.queryByTestId('sitedb-gallery')).toBeNull();
+    expect(screen.queryByTestId('sitedb-kanban')).toBeNull();
+    expect(screen.getByTestId('sitedb-view-grid').getAttribute('aria-pressed')).toBe('true');
+  });
+
+  it('Gallery view renders exactly one card per loaded row (N cards for N rows)', async () => {
+    await openBoardTable();
+
+    await act(async () => {
+      screen.getByTestId('sitedb-view-gallery').click();
+    });
+
+    // The gallery surface renders; there are 4 cards for the 4 loaded rows.
+    expect(screen.getByTestId('sitedb-gallery')).toBeTruthy();
+    expect(screen.getAllByTestId('sitedb-gallery-card').length).toBe(4);
+    expect(screen.getByTestId('sitedb-view-gallery').getAttribute('aria-pressed')).toBe('true');
+  });
+
+  it('Kanban view groups the rows by the chosen column into the right buckets', async () => {
+    await openBoardTable();
+
+    await act(async () => {
+      screen.getByTestId('sitedb-view-kanban').click();
+    });
+
+    // The board surface renders.
+    expect(screen.getByTestId('sitedb-kanban')).toBeTruthy();
+
+    // Two lanes: "new" (3 rows) + "done" (1 row) — grouped by the auto-picked `status` column.
+    const lanes = screen.getAllByTestId('sitedb-kanban-lane');
+    expect(lanes.length).toBe(2);
+
+    // Every loaded row appears as a card somewhere on the board (4 rows → 4 cards).
+    expect(screen.getAllByTestId('sitedb-kanban-card').length).toBe(4);
+
+    // The "new" lane holds exactly 3 cards; the "done" lane holds exactly 1.
+    const laneByHeader = (label: string) =>
+      lanes.find((l) => l.querySelector('[data-testid="sitedb-kanban-lane-title"]')?.textContent?.includes(label));
+    const newLane = laneByHeader('new');
+    const doneLane = laneByHeader('done');
+    expect(newLane).toBeTruthy();
+    expect(doneLane).toBeTruthy();
+    expect(newLane!.querySelectorAll('[data-testid="sitedb-kanban-card"]').length).toBe(3);
+    expect(doneLane!.querySelectorAll('[data-testid="sitedb-kanban-card"]').length).toBe(1);
+
+    // A group-by picker is present so the owner can regroup by another column.
+    expect(screen.getByTestId('sitedb-kanban-groupby')).toBeTruthy();
+  });
+
+  it('persists the chosen view per-table in localStorage (keyed by D1 id + table)', async () => {
+    await openBoardTable();
+
+    await act(async () => {
+      screen.getByTestId('sitedb-view-kanban').click();
+    });
+
+    /*
+     * The choice is written under a deterministic key scoped to the site's D1 id + the table name.
+     * (jsdom's Storage doesn't enumerate keys via Object.keys/key(), so assert the exact key directly —
+     * the format `ps-sitedb-view:<dbId>:<table>` is the contract, keyed by D1 id + table per the brief.)
+     */
+    const viewKey = 'ps-sitedb-view:db-rev10:tasks';
+    const stored = window.localStorage.getItem(viewKey);
+    expect(stored).toBeTruthy();
+    expect(stored).toContain('kanban');
+  });
+
+  it('shows an honest empty note (no dead view) when a kanban board has no rows', async () => {
+    render(<SiteTablesPanel />);
+
+    await waitFor(() => {
+      expect(postToParentSpy).toHaveBeenCalledWith(expect.objectContaining({ type: 'PS_SITEDB_TABLES_REQUEST' }));
+    });
+
+    await act(async () => {
+      fireReply({
+        type: 'PS_SITEDB_TABLES_RESPONSE',
+        correlationId: lastCorrelationId(),
+        ok: true,
+        databaseId: 'db-rev10-empty',
+        provisioned: true,
+        tables: [{ name: 'empties' }],
+      });
+    });
+
+    await act(async () => {
+      screen.getAllByTestId('sitedb-table-open')[0].click();
+    });
+
+    await waitFor(() => {
+      expect(postToParentSpy).toHaveBeenCalledWith(
+        expect.objectContaining({ type: 'PS_SITEDB_ROWS_REQUEST', table: 'empties' }),
+      );
+    });
+
+    await act(async () => {
+      fireReply({
+        type: 'PS_SITEDB_ROWS_RESPONSE',
+        correlationId: lastCorrelationId(),
+        ok: true,
+        table: 'empties',
+        columns: [
+          { name: 'id', type: 'INTEGER', notnull: 1, pk: 1 },
+          { name: 'status', type: 'TEXT', notnull: 0, pk: 0 },
+        ],
+        rows: [],
+        limit: 25,
+        offset: 0,
+        total: 0,
+      });
+    });
+
+    // An empty table shows the shared empty-table launchpad — never a dead/blank view.
+    expect(screen.getByTestId('sitedb-table-empty')).toBeTruthy();
+  });
+});

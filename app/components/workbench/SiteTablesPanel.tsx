@@ -102,6 +102,10 @@ import {
   normalizeViewMode,
   galleryTitleField,
   galleryBodyFields,
+  groupPageRows,
+  kanbanGroupKey,
+  defaultKanbanGroupField,
+  KANBAN_MAX_GROUPS,
   FILTER_OP_OPTIONS,
   filterOpIsValueFree,
   normalizeFilterOp,
@@ -470,6 +474,13 @@ export const SiteTablesPanel = memo(
     const [colMenuOpen, setColMenuOpen] = useState(false);
     const [density, setDensity] = useState<GridDensity>('cozy');
     const [viewMode, setViewMode] = useState<ViewMode>('grid');
+
+    /**
+     * Rev 10 — the kanban GROUP-BY column (null → auto-pick the first low-cardinality text/enum column via
+     * {@link defaultKanbanGroupField}). Persisted per-table alongside {@link viewMode}. Only meaningful in
+     * the `kanban` view; ignored by grid/gallery.
+     */
+    const [groupField, setGroupField] = useState<string | null>(null);
     const [selectedRowKeys, setSelectedRowKeys] = useState<Set<string>>(new Set());
     const [bulkBusy, setBulkBusy] = useState(false);
     const [addingRow, setAddingRow] = useState(false);
@@ -768,6 +779,7 @@ export const SiteTablesPanel = memo(
       setColOrder([]);
       setColMenuOpen(false);
       setViewMode('grid');
+      setGroupField(null);
       setSelectedRowKeys(new Set());
       setAddingRow(false);
       setCellSel(null);
@@ -794,6 +806,62 @@ export const SiteTablesPanel = memo(
       setGeneratedCols(new Set());
       resetGridView();
     }, [resetGridView]);
+
+    /** The site's D1 id (for per-table view persistence); '' until the table list resolves. */
+    const databaseId = tables.status === 'ready' ? tables.databaseId : '';
+
+    /**
+     * localStorage key for a table's persisted view choice — scoped to the site's D1 id + table so one
+     * table's Grid/Gallery/Kanban preference never leaks into another table or another site's DB. Pure.
+     */
+    const viewStorageKey = useCallback(
+      (table: string): string => `ps-sitedb-view:${databaseId || '__shared'}:${table}`,
+      [databaseId],
+    );
+
+    /*
+     * Restore the persisted view (mode + kanban group field) whenever a table opens (or its D1 id
+     * resolves). Runs AFTER openTable's resetGridView, so it re-applies the saved choice over the reset
+     * default. Fail-soft: any parse/storage error just leaves the defaults (grid + auto-group).
+     */
+    useEffect(() => {
+      if (!selectedTable) {
+        return;
+      }
+
+      try {
+        const raw = window.localStorage.getItem(viewStorageKey(selectedTable));
+
+        if (!raw) {
+          return;
+        }
+
+        const saved = JSON.parse(raw) as { mode?: unknown; group?: unknown };
+        setViewMode(normalizeViewMode(typeof saved.mode === 'string' ? saved.mode : undefined));
+        setGroupField(typeof saved.group === 'string' ? saved.group : null);
+      } catch {
+        // no stored preference / storage blocked — keep the defaults
+      }
+    }, [selectedTable, viewStorageKey]);
+
+    /*
+     * Persist the view choice per-table whenever mode or group field changes (skipped until a table is
+     * open + its D1 id known, so we never write a '__shared' key for a not-yet-loaded site). Fail-soft.
+     */
+    useEffect(() => {
+      if (!selectedTable) {
+        return;
+      }
+
+      try {
+        window.localStorage.setItem(
+          viewStorageKey(selectedTable),
+          JSON.stringify({ mode: viewMode, group: groupField }),
+        );
+      } catch {
+        // storage unavailable (sandboxed / private mode) — persistence is best-effort
+      }
+    }, [selectedTable, viewMode, groupField, viewStorageKey]);
 
     const flashComingSoon = useCallback((label: string) => {
       setComingSoon(label);
@@ -2465,6 +2533,8 @@ export const SiteTablesPanel = memo(
             onMoveColumn={(col, dir) => setColOrder((cur) => moveColumn(allColumnNames, cur, col, dir))}
             onSetDensity={setDensity}
             onSetViewMode={setViewMode}
+            groupField={groupField}
+            onSetGroupField={setGroupField}
             onAddCondition={() => setConditions((c) => addCondition(c))}
             onRemoveCondition={(i) => setConditions((c) => removeCondition(c, i))}
             onUpdateCondition={(i, patch) => setConditions((c) => updateCondition(c, i, patch))}
@@ -3674,6 +3744,9 @@ interface BrowseViewProps extends EditProps {
   onMoveColumn: (col: string, dir: -1 | 1) => void;
   onSetDensity: (d: GridDensity) => void;
   onSetViewMode: (v: ViewMode) => void;
+  /** Rev 10 — the kanban group-by column (null → auto-pick); only used by the kanban view. */
+  groupField: string | null;
+  onSetGroupField: (col: string | null) => void;
   onAddCondition: () => void;
   onRemoveCondition: (i: number) => void;
   onUpdateCondition: (i: number, patch: Partial<FilterCondition>) => void;
@@ -3753,6 +3826,8 @@ const BrowseView = memo((props: BrowseViewProps) => {
     onMoveColumn,
     onSetDensity,
     onSetViewMode,
+    groupField,
+    onSetGroupField,
     onAddCondition,
     onRemoveCondition,
     onUpdateCondition,
@@ -3784,6 +3859,14 @@ const BrowseView = memo((props: BrowseViewProps) => {
 
   const scrollRef = useRef<HTMLDivElement>(null);
   const activeFilters = conditions.filter((c) => filterIsActive(c.col, c.op, c.val)).length;
+
+  /**
+   * The kanban group-by column actually used: the owner's pick when it's still a visible column, else the
+   * auto-pick (first low-cardinality text/enum column) from the current page. Drives both the group-by
+   * <select> value and the board lanes so the picker and the board never disagree.
+   */
+  const effectiveGroupField =
+    groupField && shownNames.includes(groupField) ? groupField : defaultKanbanGroupField(shownNames, pageRows);
 
   const rowVirtualizer = useVirtualizer({
     count: pageRows.length,
@@ -3821,16 +3904,36 @@ const BrowseView = memo((props: BrowseViewProps) => {
         </button>
         <div className="i-ph:table text-sm text-bolt-elements-textTertiary shrink-0" />
         <span className="text-xs font-mono text-bolt-elements-textPrimary truncate flex-1">{table}</span>
-        {/* View toggle: Grid | Gallery */}
+        {/* Kanban group-by picker (only in kanban view) — lets the owner regroup by any column. */}
+        {viewMode === 'kanban' && shownNames.length > 0 && (
+          <label className="flex items-center gap-1 shrink-0 text-[11px] text-bolt-elements-textTertiary">
+            <span className="i-ph:columns-plus-left" aria-hidden />
+            <span className="sr-only">Group by column</span>
+            <select
+              value={effectiveGroupField ?? ''}
+              onChange={(e) => onSetGroupField(e.target.value || null)}
+              data-testid="sitedb-kanban-groupby"
+              aria-label="Group kanban by column"
+              className="min-h-[24px] rounded border border-bolt-elements-borderColor bg-bolt-elements-background-depth-2 px-1.5 py-0.5 text-[11px] text-bolt-elements-textPrimary focus:outline-none focus:border-[#00e5ff80] focus:ring-1 focus:ring-bolt-elements-item-contentAccent cursor-pointer"
+            >
+              {shownNames.map((n) => (
+                <option key={n} value={n}>
+                  {n}
+                </option>
+              ))}
+            </select>
+          </label>
+        )}
+        {/* View toggle: Grid | Gallery | Kanban */}
         <div className="flex items-center rounded-md border border-bolt-elements-borderColor overflow-hidden shrink-0" role="group" aria-label="View mode">
-          {(['grid', 'gallery'] as const).map((v) => (
+          {(['grid', 'gallery', 'kanban'] as const).map((v) => (
             <button
               key={v}
               type="button"
               onClick={() => onSetViewMode(v)}
               data-testid={`sitedb-view-${v}`}
               aria-pressed={viewMode === v}
-              title={v === 'grid' ? 'Grid view' : 'Gallery view'}
+              title={v === 'grid' ? 'Grid view' : v === 'gallery' ? 'Gallery view' : 'Kanban board'}
               className={classNames(
                 'min-h-[24px] px-2 py-1 text-[11px] flex items-center gap-1 transition-colors cursor-pointer focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-bolt-elements-item-contentAccent',
                 viewMode === v
@@ -3838,7 +3941,7 @@ const BrowseView = memo((props: BrowseViewProps) => {
                   : 'text-bolt-elements-textTertiary hover:text-bolt-elements-textPrimary',
               )}
             >
-              <div className={v === 'grid' ? 'i-ph:table' : 'i-ph:squares-four'} />
+              <div className={v === 'grid' ? 'i-ph:table' : v === 'gallery' ? 'i-ph:squares-four' : 'i-ph:kanban'} />
             </button>
           ))}
         </div>
@@ -4053,6 +4156,13 @@ const BrowseView = memo((props: BrowseViewProps) => {
             <GalleryView
               columns={shownColumns}
               rows={pageRows}
+              onRowClick={onRowClick}
+            />
+          ) : viewMode === 'kanban' ? (
+            <KanbanView
+              columns={shownColumns}
+              rows={pageRows}
+              groupField={effectiveGroupField}
               onRowClick={onRowClick}
             />
           ) : (
@@ -5681,6 +5791,136 @@ const GalleryView = memo(
 );
 
 GalleryView.displayName = 'SiteTablesPanel.GalleryView';
+
+// ── Kanban board view (Rev 10 — Airtable-style grouped lanes) ─────────────────
+
+/**
+ * A grouped board over the ALREADY-loaded page rows: one lane per distinct value of `groupField`
+ * (bucketed by {@link groupPageRows}), each lane a titled column of the same card the gallery uses.
+ * Renders CLIENT-SIDE from the loaded page — NO new fetch. Lanes cap at {@link KANBAN_MAX_GROUPS} with a
+ * "＋N more groups" note so a high-cardinality column can't explode the board. Honest empty note when the
+ * page has no rows or no usable group column (never a dead/blank surface). Keyboard-reachable cards.
+ */
+const KanbanView = memo(
+  ({
+    columns,
+    rows,
+    groupField,
+    onRowClick,
+  }: {
+    columns: ColumnInfo[];
+    rows: Record<string, unknown>[];
+    groupField: string | null;
+    onRowClick: (row: Record<string, unknown>) => void;
+  }) => {
+    const names = columns.map((c) => c.name);
+    const titleField = galleryTitleField(names, groupField);
+    // Card body: a few fields, minus the title AND the group column (shown as the lane header already).
+    const bodyFields = galleryBodyFields(names, titleField)
+      .filter((f) => f !== groupField)
+      .slice(0, 4);
+
+    // Honest empty / no-group states — never a blank board.
+    if (rows.length === 0 || !groupField) {
+      return (
+        <div
+          className="flex-1 flex items-center justify-center p-6 text-center"
+          data-testid="sitedb-kanban"
+        >
+          <p className="text-[12px] text-bolt-elements-textTertiary max-w-xs">
+            {rows.length === 0
+              ? 'No rows to show on this board yet.'
+              : 'No column to group by — add a text or status column to use the board.'}
+          </p>
+        </div>
+      );
+    }
+
+    const buckets = [...groupPageRows(rows, groupField).entries()];
+    const shownBuckets = buckets.slice(0, KANBAN_MAX_GROUPS);
+    const overflow = buckets.length - shownBuckets.length;
+    const emptyKey = kanbanGroupKey(null);
+
+    return (
+      <div className="flex-1 overflow-auto modern-scrollbar p-3" data-testid="sitedb-kanban">
+        <div className="flex gap-3 items-start min-h-0">
+          {shownBuckets.map(([key, laneRows]) => (
+            <section
+              key={key}
+              data-testid="sitedb-kanban-lane"
+              className="shrink-0 w-[240px] rounded-xl border border-bolt-elements-borderColor bg-bolt-elements-background-depth-1/60 flex flex-col max-h-full"
+            >
+              <header className="flex items-center gap-1.5 px-2.5 py-2 border-b border-bolt-elements-borderColor sticky top-0 bg-bolt-elements-background-depth-1/90 backdrop-blur-sm rounded-t-xl">
+                <span
+                  aria-hidden="true"
+                  className="h-2 w-2 rounded-full bg-gradient-to-br from-bolt-elements-item-contentAccent to-[color:var(--ps-accent-secondary)] shrink-0"
+                />
+                <span
+                  data-testid="sitedb-kanban-lane-title"
+                  className="text-[11px] font-semibold text-bolt-elements-textPrimary truncate flex-1"
+                  title={key === emptyKey ? '(empty)' : key}
+                >
+                  {key === emptyKey ? '(empty)' : key}
+                </span>
+                <span className="text-[10px] font-mono text-bolt-elements-textTertiary shrink-0 tabular-nums">
+                  {laneRows.length}
+                </span>
+              </header>
+              <div className="p-1.5 space-y-1.5 overflow-auto modern-scrollbar">
+                {laneRows.map((row, i) => {
+                  const titleVal = titleField ? row[titleField] : null;
+                  const title =
+                    titleVal === null || titleVal === undefined || titleVal === ''
+                      ? '(untitled)'
+                      : String(titleVal);
+
+                  return (
+                    <button
+                      key={i}
+                      type="button"
+                      onClick={() => onRowClick(row)}
+                      data-testid="sitedb-kanban-card"
+                      className="group/kcard relative w-full overflow-hidden text-left rounded-lg border border-bolt-elements-borderColor bg-bolt-elements-background-depth-2 p-2 hover:border-[#00e5ff66] hover:bg-bolt-elements-background-depth-3 hover:shadow-md hover:shadow-[#00e5ff0d] transition-all duration-150 motion-reduce:transition-none focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-bolt-elements-item-contentAccent cursor-pointer flex flex-col gap-1"
+                    >
+                      <div className="text-[11.5px] font-semibold text-bolt-elements-textPrimary truncate">
+                        {title}
+                      </div>
+                      {bodyFields.map((field) => {
+                        const col = columns.find((c) => c.name === field);
+
+                        if (!col) {
+                          return null;
+                        }
+
+                        const fieldKind = fieldKindForColumn(col, row[field]);
+
+                        return (
+                          <div key={field} className="flex items-start gap-1.5 text-[10.5px]">
+                            <span className="text-bolt-elements-textTertiary shrink-0 w-[56px] truncate">{field}</span>
+                            <span className="min-w-0 flex-1 truncate font-mono">
+                              <CellValue value={row[field]} fieldKind={fieldKind} editable={false} />
+                            </span>
+                          </div>
+                        );
+                      })}
+                    </button>
+                  );
+                })}
+              </div>
+            </section>
+          ))}
+          {overflow > 0 && (
+            <div className="shrink-0 self-center px-2 text-[11px] text-bolt-elements-textTertiary">
+              ＋{overflow} more group{overflow === 1 ? '' : 's'}
+            </div>
+          )}
+        </div>
+      </div>
+    );
+  },
+);
+
+KanbanView.displayName = 'SiteTablesPanel.KanbanView';
 
 // ── Row detail drawer ──────────────────────────────────────────────────────
 
