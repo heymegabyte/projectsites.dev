@@ -86,25 +86,25 @@ wallet.post(
  *
  * @remarks
  * Body: `{ amount_cents? }` clamped to 100–50000. Defaults to $50 when
- * unset.
+ * unset. Zod-validated at the boundary (`zValidator`) — a non-integer,
+ * non-positive, or unknown-key body is rejected with 400 before the charge.
  *
- * Note: this handler currently does **not** Zod-validate its body (only
- * the optional `amount_cents` is shape-checked inline). Consider tightening
- * if non-numeric or extra fields become a concern.
- *
+ * @throws 400 BAD_REQUEST when the body fails Zod validation.
  * @throws 401 UNAUTHORIZED when org context is missing.
  */
-wallet.post('/api/wallet/topup', async (c) => {
-  const orgId = c.get('orgId');
-  if (!orgId) throw unauthorized();
-  // Default top-up = $50 (wallet.auto_topup_amount_cents) — caller can override.
-  const body = (await c.req.json<{ amount_cents?: number }>().catch(() => ({}))) as {
-    amount_cents?: number;
-  };
-  const amount = Math.max(100, Math.min(50000, Number(body.amount_cents) || 5000));
-  const result = await topUpWallet(c.env, orgId, amount);
-  return c.json(result);
-});
+wallet.post(
+  '/api/wallet/topup',
+  zValidator('json', z.object({ amount_cents: z.number().int().positive().optional() }).strict()),
+  async (c) => {
+    const orgId = c.get('orgId');
+    if (!orgId) throw unauthorized();
+    // Default top-up = $50 (wallet.auto_topup_amount_cents) — caller can override.
+    const { amount_cents } = c.req.valid('json');
+    const amount = Math.max(100, Math.min(50000, Number(amount_cents) || 5000));
+    const result = await topUpWallet(c.env, orgId, amount);
+    return c.json(result);
+  },
+);
 
 /**
  * `GET /api/wallet/transactions?days=` — Caller org's wallet ledger.

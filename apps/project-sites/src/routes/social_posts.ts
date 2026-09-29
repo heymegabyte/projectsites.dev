@@ -20,6 +20,7 @@ import { zValidator } from '@hono/zod-validator';
 import type { Env, Variables } from '../types/env.js';
 import { dbInsert, dbQuery } from '../services/db.js';
 import { isFlagOn } from '../modules/feature_flags/services.js';
+import { assertSiteOwned } from '../services/site_ownership.js';
 import {
   PLATFORMS,
   type Platform,
@@ -86,6 +87,15 @@ socialPostRoutes.post(
     }
 
     const body = c.req.valid('json');
+
+    // IDOR guard: `body.site_id` is persisted into pulse_posts.site_id, so a
+    // non-null value MUST belong to the caller's org — otherwise a user in
+    // org-A could tag a post to an org-B site. 404 (never 403 — don't leak
+    // existence) on missing/foreign. Null site_id = org-scoped post, no check.
+    if (body.site_id && !(await assertSiteOwned(c.env, ctx.orgId, body.site_id))) {
+      return c.json({ error: { code: 'NOT_FOUND', message: 'Not found' } }, 404);
+    }
+
     const idempotencyKey = c.req.header('Idempotency-Key') ?? crypto.randomUUID();
     const correlationId = `${idempotencyKey}::${crypto.randomUUID().slice(0, 8)}`;
 
@@ -274,6 +284,13 @@ socialPostRoutes.post(
         { error: { code: 'BAD_REQUEST', message: 'scheduled_at must be in the future' } },
         400,
       );
+    }
+
+    // IDOR guard: `body.site_id` is persisted into pulse_posts.site_id, so a
+    // non-null value MUST belong to the caller's org (404 on missing/foreign —
+    // never 403). Null site_id = org-scoped post, no check. See publish above.
+    if (body.site_id && !(await assertSiteOwned(c.env, ctx.orgId, body.site_id))) {
+      return c.json({ error: { code: 'NOT_FOUND', message: 'Not found' } }, 404);
     }
 
     // Validate accounts
