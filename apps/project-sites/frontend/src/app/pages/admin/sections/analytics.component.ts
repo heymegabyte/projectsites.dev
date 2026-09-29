@@ -785,7 +785,7 @@ function sparklinePath(
           <p class="chart-meta" aria-live="polite">
             <span class="chart-meta-src">Source: {{ dataLabel() }}</span>
             <span class="chart-meta-sep" aria-hidden="true">·</span>
-            <span>{{
+            <span [attr.aria-label]="refreshedAt() ? 'Last data refresh time' : null">{{
               refreshedAt() ? 'as of ' + (refreshedAt() | date: 'shortTime') : 'not yet loaded'
             }}</span>
             <span class="chart-meta-sep" aria-hidden="true">·</span>

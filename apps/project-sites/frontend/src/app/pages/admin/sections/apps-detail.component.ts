@@ -327,6 +327,7 @@ const INFRA_META: Readonly<Record<InfraDep, { glyph: string; label: string }>> =
                     aria-label="Subdomain"
                     [pattern]="subdomainPattern"
                     [attr.aria-invalid]="(subdomainValid() === false || subdomainAvailable() === false)"
+                    [attr.aria-describedby]="(subdomainValid() === false || subdomainAvailable() === false) ? 'subdomain-error' : null"
                     data-testid="apps-deploy-subdomain" />
                   @if (subdomainChecking()) {
                     <span class="subdomain-check-icon subdomain-check-icon--checking" aria-hidden="true"></span>
@@ -340,9 +341,9 @@ const INFRA_META: Readonly<Record<InfraDep, { glyph: string; label: string }>> =
                 @if (subdomainChecking()) {
                   <span class="form-help" role="status" aria-live="polite">Checking availability…</span>
                 } @else if (subdomainError()) {
-                  <span class="form-help form-help--err">{{ subdomainError() }}</span>
+                  <span id="subdomain-error" class="form-help form-help--err">{{ subdomainError() }}</span>
                 } @else if (subdomainCheckMessage()) {
-                  <span class="form-help form-help--err" aria-live="polite" role="status">{{ subdomainCheckMessage() }}</span>
+                  <span id="subdomain-error" class="form-help form-help--err" aria-live="polite" role="status">{{ subdomainCheckMessage() }}</span>
                 } @else if (subdomainValid() === true && subdomainAvailable() === true) {
                   <span class="form-help form-help--ok" aria-live="polite" role="status">✓ Available</span>
                 } @else {
