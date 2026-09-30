@@ -3,8 +3,9 @@
  * @description Hono route handlers for the model-registry feature.
  * Exposes an OpenAI-compatible GET /v1/models catalog (13 registry aliases +
  * the 4 virtual service models), a GET /v1/models/:id lookup, and the
- * NON-STREAMED POST /v1/chat/completions endpoint (virtual-model routing via
- * services/external_llm).
+ * POST /v1/chat/completions endpoint (virtual-model routing via
+ * services/external_llm; `stream:true` served as synthesized SSE — see
+ * {@link streamChatCompletion} for the honesty contract).
  *
  * | Method | Path                 | Auth                                          |
  * | ------ | -------------------- | --------------------------------------------- |
@@ -12,9 +13,13 @@
  * | GET    | /v1/models/:id       | Bearer psk_ API token (401 OpenAI error else) |
  * | POST   | /v1/chat/completions | Bearer psk_ API token (401 OpenAI error else) |
  *
+ * The Anthropic-compatible sibling surface (POST /v1/messages +
+ * /v1/messages/count_tokens) lives in ./anthropic_handlers.ts under the SAME
+ * `model_registry` flag.
+ *
  * Flag-gated: returns 404 (never 403) when the `model_registry` flag is off —
  * the dark gate runs BEFORE auth so an off flag never leaks auth semantics.
- * Contract: e2e/ai-api/openai-compat.e2e.ts (campaign lane-4, §7 + fire-57).
+ * Contract: e2e/ai-api/openai-compat.e2e.ts (campaign lane-4, §7 + fire-57/58).
  *
  * @packageDocumentation
  */
@@ -232,19 +237,84 @@ function foldMessages(messages: ChatMessage[]): { system: string; user: string }
 }
 
 /**
+ * Split completed text into word-ish pieces that reassemble BYTE-EXACTLY.
+ *
+ * Boundary = "whitespace followed by non-whitespace" (zero-width lookaround),
+ * so every character — including runs of spaces and newlines — survives the
+ * round trip: `pieces.join('') === text` always holds.
+ */
+function chunkWordish(text: string): string[] {
+  return text ? text.split(/(?<=\s)(?=\S)/) : [];
+}
+
+/**
+ * Synthesize an OpenAI-wire SSE response from a COMPLETED chat completion.
+ *
+ * Honesty contract: the upstream call ran NON-streamed to completion via
+ * {@link callExternalLLM}; this helper re-emits the finished text as
+ * spec-correct `chat.completion.chunk` events (correct wire format; upstream
+ * token pass-through is a follow-up). No incremental-latency claim is made —
+ * chunks flush as fast as the runtime drains the stream.
+ *
+ * Wire shape (per e2e/ai-api/openai-compat.e2e.ts §3): every chunk shares ONE
+ * `chatcmpl-` id; the first chunk carries `delta:{role:"assistant"}`; word-ish
+ * content deltas reassemble exactly; the final chunk is an empty delta with
+ * `finish_reason:"stop"`; the stream terminates with a single `data: [DONE]`.
+ */
+function streamChatCompletion(model: string, output: string): Response {
+  const id = `chatcmpl-${crypto.randomUUID()}`;
+  const created = Math.floor(Date.now() / 1000);
+  const chunk = (delta: Record<string, unknown>, finishReason: string | null) =>
+    `data: ${JSON.stringify({
+      id,
+      object: 'chat.completion.chunk',
+      created,
+      model,
+      choices: [{ index: 0, delta, finish_reason: finishReason }],
+    })}\n\n`;
+
+  const encoder = new TextEncoder();
+  const stream = new ReadableStream<Uint8Array>({
+    start(controller) {
+      controller.enqueue(encoder.encode(chunk({ role: 'assistant' }, null)));
+      for (const piece of chunkWordish(output)) {
+        controller.enqueue(encoder.encode(chunk({ content: piece }, null)));
+      }
+      controller.enqueue(encoder.encode(chunk({}, 'stop')));
+      controller.enqueue(encoder.encode('data: [DONE]\n\n'));
+      controller.close();
+    },
+  });
+
+  return new Response(stream, {
+    status: 200,
+    headers: {
+      'Content-Type': 'text/event-stream; charset=utf-8',
+      'Cache-Control': 'no-cache',
+      Connection: 'keep-alive',
+    },
+  });
+}
+
+/**
  * POST /v1/chat/completions
  *
- * OpenAI-compatible NON-STREAMED chat completions. Virtual service models
- * route through external_llm's cost tiers (auto→standard, fast→instant,
- * premium→premium ladder) and `projectsites-balanced` pins gpt-4o-mini-class;
- * registry aliases pin their first routable vendor (see resolveChatRoute).
+ * OpenAI-compatible chat completions. Virtual service models route through
+ * external_llm's cost tiers (auto→standard, fast→instant, premium→premium
+ * ladder) and `projectsites-balanced` pins gpt-4o-mini-class; registry
+ * aliases pin their first routable vendor (see resolveChatRoute).
+ *
+ * `stream:true` returns synthesized SSE (see {@link streamChatCompletion} —
+ * correct wire format from the completed result; upstream token pass-through
+ * is a follow-up). Errors never start the stream: unknown model / provider
+ * failure return the same plain-JSON envelopes as the non-streamed path.
  *
  * @returns 200 `{id:"chatcmpl-…", object:"chat.completion", created, model,
  *          choices:[{index,message,finish_reason}], usage}` — `model` echoes
  *          the REQUESTED id; usage total comes from the provider (split 0/0
- *          when the provider doesn't expose it).
- * @throws 404 dark (flag off) · 401 invalid_api_key · 400 invalid body /
- *         `stream_not_supported` (honest — never fake SSE) · 404
+ *          when the provider doesn't expose it). With `stream:true`, 200
+ *          `text/event-stream` of `chat.completion.chunk` events + `[DONE]`.
+ * @throws 404 dark (flag off) · 401 invalid_api_key · 400 invalid body · 404
  *         model_not_found (unknown OR unroutable id) · 502 provider_error
  *         (upstream exhausted; internals never leak).
  *
@@ -279,20 +349,6 @@ modelRegistry.post('/v1/chat/completions', async (c) => {
   }
   const body = parsed.data;
 
-  // Honest non-streaming: refuse stream:true outright — never fake SSE.
-  if (body.stream === true) {
-    return c.json(
-      {
-        error: {
-          message: 'Streaming is not yet supported',
-          type: 'invalid_request_error',
-          code: 'stream_not_supported',
-        },
-      },
-      400,
-    );
-  }
-
   const route = resolveChatRoute(body.model);
   if (!route) return modelNotFound(c, body.model);
 
@@ -313,6 +369,12 @@ modelRegistry.post('/v1/chat/completions', async (c) => {
         promptId: 'chat_completions_api',
       },
     });
+
+    // stream:true → synthesized SSE from the completed result. The call above
+    // already succeeded, so every error path stays plain JSON (no torn stream).
+    if (body.stream === true) {
+      return streamChatCompletion(body.model, result.output);
+    }
 
     const totalTokens = Number.isFinite(result.token_count) ? result.token_count : 0;
     const promptTokens = Number.isFinite(result.input_tokens) ? result.input_tokens : 0;

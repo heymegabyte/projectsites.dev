@@ -1,6 +1,6 @@
 # model_registry
 
-Declarative ProviderCapabilityRegistry + ModelAliasRegistry for the projectsites.dev AI router, plus the four virtual service models. Establishes the platform's OpenAI-compatible AI provider identity (campaign lane-4 §7 — acceptance: `e2e/ai-api/openai-compat.e2e.ts`).
+Declarative ProviderCapabilityRegistry + ModelAliasRegistry for the projectsites.dev AI router, plus the four virtual service models. Establishes the platform's OpenAI-compatible AND Anthropic-compatible AI provider identity (campaign lane-4 §7 — acceptance: `e2e/ai-api/openai-compat.e2e.ts` + `e2e/ai-api/anthropic-compat.e2e.ts`).
 
 ## What it does
 
@@ -8,7 +8,9 @@ Declarative ProviderCapabilityRegistry + ModelAliasRegistry for the projectsites
 - Declares 13 model aliases (edge-fast, edge-smart, deepseek-fast, deepseek-code, deepseek-claude-code, premium-quorum, claude-architect, openai-polish, gemini-grounded, grok-live-business, grok-local-seo, grok-dispute-verifier, ollama-local-dev) with provider routing lists and capability booleans.
 - Declares 4 **virtual service models** — `projectsites-auto`, `projectsites-fast`, `projectsites-balanced`, `projectsites-premium` — routing intents the platform always serves (`created` = fixed epoch `1790640000`, `_tier:"service"`, `_available:true`).
 - Surfaces everything via `GET /v1/models` (list) and `GET /v1/models/:id` (lookup) in OpenAI-compatible format.
-- Serves **NON-STREAMED** `POST /v1/chat/completions` (fire-57): virtual models route through `services/external_llm` cost tiers (auto→standard, fast→instant, premium→premium ladder; balanced pins openai `gpt-4o-mini`); registry aliases pin their first routable vendor (openai/anthropic/deepseek). Unroutable-on-this-path aliases (workers-ai/gemini/grok/litellm/ollama) 404 `model_not_found` honestly.
+- Serves `POST /v1/chat/completions` (fire-57): virtual models route through `services/external_llm` cost tiers (auto→standard, fast→instant, premium→premium ladder; balanced pins openai `gpt-4o-mini`); registry aliases pin their first routable vendor (openai/anthropic/deepseek). Unroutable-on-this-path aliases (workers-ai/gemini/grok/litellm/ollama) 404 `model_not_found` honestly.
+- Serves `stream:true` on both surfaces as **synthesized SSE** (fire-58): the upstream call runs non-streamed to completion, then the finished text is re-emitted in the spec-correct wire format (OpenAI `chat.completion.chunk` + `[DONE]`; Anthropic named events `message_start → content_block_delta×N → message_stop`). Honest by construction — correct wire format, no incremental-latency claim; upstream token pass-through is a follow-up.
+- Serves the **Anthropic-compatible surface** (`anthropic_handlers.ts`, fire-58): `POST /v1/messages` (non-streamed + streamed) and `POST /v1/messages/count_tokens` (chars/4 estimate, never burns an upstream call). Auth is the raw psk_ token in `x-api-key`; the `anthropic-version` header is required (400 without it); errors use the Anthropic envelope `{"type":"error","error":{"type":"…","message":"…"}}` (`authentication_error` 401, `invalid_request_error` 400, `not_found_error` 404, `api_error` 502). Usage split per fire-57: provider-reported input/output tokens when present, chars/4 (floor 1) estimate when omitted.
 
 ## Flag key
 
@@ -61,7 +63,9 @@ List response shape (virtual models first, then the 13 aliases — 17 entries to
 
 Alias `_available` is `true` when at least one of the alias's providers has its required env key(s) set. All aliases are always returned (discoverability); consumers filter on `_available`. Virtual models are always available.
 
-`POST /v1/chat/completions` (non-streamed) accepts the OpenAI body `{model, messages[{role,content}], temperature?, max_tokens?}` (unknown params ignored — real openai-sdk clients work unmodified) and returns the standard envelope `{id:"chatcmpl-…", object:"chat.completion", created, model:<requested>, choices:[{index:0, message:{role:"assistant",content}, finish_reason:"stop"}], usage}` (usage total from the provider; split honestly `0/0` when unexposed). `stream:true` → `400 {code:"stream_not_supported", message:"Streaming is not yet supported"}` — never fake SSE. Unknown/unroutable model → the same `model_not_found` 404. Upstream provider exhaustion → `502 {type:"api_error", code:"provider_error"}` with no internals leaked. The authed token's `org_id` threads into `traceContext` (PostHog LLM observability + Stripe token metering, `promptId: chat_completions_api`).
+`POST /v1/chat/completions` accepts the OpenAI body `{model, messages[{role,content}], temperature?, max_tokens?, stream?}` (unknown params ignored — real openai-sdk clients work unmodified) and returns the standard envelope `{id:"chatcmpl-…", object:"chat.completion", created, model:<requested>, choices:[{index:0, message:{role:"assistant",content}, finish_reason:"stop"}], usage}` (usage total from the provider; split honestly `0/0` when unexposed). `stream:true` → synthesized SSE (one shared `chatcmpl-` id, role-first delta, word-ish content deltas that reassemble byte-exactly, terminal `finish_reason:"stop"` chunk, single `data: [DONE]`); errors never start the stream. Unknown/unroutable model → the same `model_not_found` 404. Upstream provider exhaustion → `502 {type:"api_error", code:"provider_error"}` with no internals leaked. The authed token's `org_id` threads into `traceContext` (PostHog LLM observability + Stripe token metering, `promptId: chat_completions_api`; the Anthropic surface uses `promptId: anthropic_messages_api`).
+
+`POST /v1/messages` (Anthropic-compatible) requires `x-api-key: psk_…` + `anthropic-version` headers and the body `{model, max_tokens, messages[{role,content}], system?, temperature?, stream?}`; returns `{id:"msg_…", type:"message", role:"assistant", model:<requested>, content:[{type:"text",text}], stop_reason:"end_turn", stop_sequence:null, usage:{input_tokens,output_tokens}}` (both counts always > 0 — provider split or chars/4 estimate). `POST /v1/messages/count_tokens` returns `{input_tokens}` only.
 
 ## Safe disabled behavior
 
@@ -72,7 +76,9 @@ When flag is off, all routes return dark `404`. No DB reads beyond the flag chec
 ```ts
 // in src/index.ts
 import { modelRegistry } from '../libs/features/model_registry/handlers.js';
+import { anthropicCompat } from '../libs/features/model_registry/anthropic_handlers.js';
 app.route('/', modelRegistry);
+app.route('/', anthropicCompat);
 ```
 
 ## Flag registry entry

@@ -1,11 +1,12 @@
 /**
  * Tests for POST /v1/chat/completions (model_registry feature, campaign lane-4, fire-57).
- * NON-STREAMED only. Covers: flag-off dark 404, 401 missing/invalid key (OpenAI
- * envelope), 400 stream:true (honest stream_not_supported — never fake SSE),
- * 400 invalid body, 404 unknown model + unroutable alias, 200 happy path with
- * the full OpenAI chat.completion envelope, virtual-model → tier/provider
- * routing into callExternalLLM, and 502 provider failure without leaking
- * internals. Contract sibling: model_registry.test.ts (GET /v1/models).
+ * Non-streamed contract. Covers: flag-off dark 404, 401 missing/invalid key
+ * (OpenAI envelope), stream flag acceptance (full synthesized-SSE contract in
+ * chat_completions_stream.test.ts, fire-58), 400 invalid body, 404 unknown
+ * model + unroutable alias, 200 happy path with the full OpenAI
+ * chat.completion envelope, virtual-model → tier/provider routing into
+ * callExternalLLM, and 502 provider failure without leaking internals.
+ * Contract sibling: model_registry.test.ts (GET /v1/models).
  */
 import { Hono } from 'hono';
 
@@ -130,17 +131,14 @@ describe('POST /v1/chat/completions — Bearer psk_ auth', () => {
 });
 
 // ---------------------------------------------------------------------------
-// 3. stream:true → honest 400 (never fake SSE)
+// 3. stream flag — SSE synthesized since fire-58 (contract in stream test file)
 // ---------------------------------------------------------------------------
-describe('POST /v1/chat/completions — streaming rejected', () => {
-  it('400s with stream_not_supported for stream:true', async () => {
+describe('POST /v1/chat/completions — stream flag', () => {
+  it('stream:true returns a synthesized SSE 200 (full contract: chat_completions_stream.test.ts)', async () => {
     const res = await POST({ ...VALID_BODY, stream: true });
-    expect(res.status).toBe(400);
-    const body = (await res.json()) as { error: { message: string; type: string; code: string } };
-    expect(body.error.message).toBe('Streaming is not yet supported');
-    expect(body.error.type).toBe('invalid_request_error');
-    expect(body.error.code).toBe('stream_not_supported');
-    expect(mockCallExternalLLM).not.toHaveBeenCalled();
+    expect(res.status).toBe(200);
+    expect(res.headers.get('content-type') ?? '').toContain('text/event-stream');
+    expect(mockCallExternalLLM).toHaveBeenCalledTimes(1);
   });
 
   it('stream:false is accepted (explicit non-stream)', async () => {

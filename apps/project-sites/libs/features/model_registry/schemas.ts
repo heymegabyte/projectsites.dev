@@ -80,3 +80,49 @@ export const ChatCompletionRequestSchema = z.object({
   stream: z.boolean().optional(),
 });
 export type ChatCompletionRequest = z.infer<typeof ChatCompletionRequestSchema>;
+
+// ---------------------------------------------------------------------------
+// Anthropic-compatible /v1/messages + /v1/messages/count_tokens (fire-58)
+// ---------------------------------------------------------------------------
+
+/** One Anthropic `text` content block (the only block kind this path routes). */
+export const AnthropicTextBlockSchema = z.object({
+  type: z.literal('text'),
+  text: z.string(),
+});
+export type AnthropicTextBlock = z.infer<typeof AnthropicTextBlockSchema>;
+
+/**
+ * One Anthropic message. Content is a plain string or an array of `text`
+ * blocks (folded to text server-side) — image/tool blocks are rejected with
+ * a 400 until multimodal routing lands.
+ */
+export const AnthropicMessageSchema = z.object({
+  role: z.enum(['user', 'assistant']),
+  content: z.union([z.string(), z.array(AnthropicTextBlockSchema).min(1)]),
+});
+export type AnthropicMessage = z.infer<typeof AnthropicMessageSchema>;
+
+/**
+ * Anthropic-compatible POST /v1/messages request body. Deliberately NOT
+ * `.strict()` — unknown Anthropic params (metadata, stop_sequences, top_p, …)
+ * are accepted and ignored so real anthropic-sdk clients work unmodified.
+ * `max_tokens` is REQUIRED per the Anthropic protocol.
+ */
+export const AnthropicMessagesRequestSchema = z.object({
+  model: z.string().min(1),
+  max_tokens: z.number().int().positive(),
+  messages: z.array(AnthropicMessageSchema).min(1),
+  system: z.union([z.string(), z.array(AnthropicTextBlockSchema)]).optional(),
+  temperature: z.number().min(0).max(1).optional(),
+  stream: z.boolean().optional(),
+});
+export type AnthropicMessagesRequest = z.infer<typeof AnthropicMessagesRequestSchema>;
+
+/** Anthropic-compatible POST /v1/messages/count_tokens request body. */
+export const AnthropicCountTokensRequestSchema = z.object({
+  model: z.string().min(1),
+  messages: z.array(AnthropicMessageSchema).min(1),
+  system: z.union([z.string(), z.array(AnthropicTextBlockSchema)]).optional(),
+});
+export type AnthropicCountTokensRequest = z.infer<typeof AnthropicCountTokensRequestSchema>;

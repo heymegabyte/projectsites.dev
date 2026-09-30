@@ -183,6 +183,7 @@ import { prodReadinessScore } from '../libs/features/prod_readiness_score/handle
 import { onboardingCopilot } from '../libs/features/onboarding_copilot/handlers.js'; // /api/onboarding/{checklist,dismiss} — PLG activation checklist (flag: onboarding_copilot)
 import { auditTrailExport } from '../libs/features/audit_trail_export/handlers.js'; // GET /api/audit/export — filterable audit-log JSON/CSV export (flag: audit_trail_export)
 import { modelRegistry } from '../libs/features/model_registry/handlers.js'; // GET /v1/models — OpenAI-compatible model/provider alias catalog (flag: model_registry)
+import { anthropicCompat } from '../libs/features/model_registry/anthropic_handlers.js'; // POST /v1/messages{,/count_tokens} — Anthropic-compatible messages API (flag: model_registry)
 // Drift-fix (2026-08-07): 3 complete, flag-REGISTERED feature modules that were built but never mounted — their routes were unreachable (404 even with the flag on). Mounting behind their dark flags resolves the drift-detection "dead feature folder" class + makes them reachable on flag promotion. Prod-unchanged: flags are experimental → isFlagOn false → 404, exactly as now.
 // ── Feature modules ──
 import { paymentsRail } from '../libs/features/payments_rail/handlers.js'; // unified Square+Stripe seam (flag: payments_rail)
@@ -1048,6 +1049,7 @@ app.route('/', prodReadinessScore); // GET /api/sites/:siteId/readiness (flag: s
 app.route('/api/onboarding', onboardingCopilot); // /api/onboarding/{checklist,dismiss} (flag: onboarding_copilot)
 app.route('/api/audit/export', auditTrailExport); // GET /api/audit/export (flag: audit_trail_export)
 app.route('/', modelRegistry); // GET /v1/models — OpenAI-compatible alias catalog (flag: model_registry) — must precede the site-serving catch-all
+app.route('/', anthropicCompat); // POST /v1/messages{,/count_tokens} — Anthropic-compatible messages API (flag: model_registry) — must precede the site-serving catch-all
 app.route('/', browserService); // POST /v1/browser/* — product browser-automation abstraction (browser.projectsites.dev); routes CF→Stagehand→Browserbase-fallback, never Skyvern in product paths — must precede the catch-all
 // System-service status page at the bare root `/` — registered BEFORE the
 // root-landing handler so platform subdomains return the branded 200 status
