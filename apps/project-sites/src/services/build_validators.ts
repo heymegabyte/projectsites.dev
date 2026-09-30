@@ -8,6 +8,7 @@
  * `report` collects violations to the D1 audit and never throws.
  */
 
+import { z } from 'zod';
 import { commerceModeFor } from './theme_style.js';
 import { heroCtasFor, trustBadgesFor } from './hero_copy.js';
 
@@ -1313,6 +1314,199 @@ export const validateConversionFraming = (files: BuildFile[]): Violation[] => {
   return out;
 };
 
+/**
+ * Claim-provenance gate (role 18 Template Evolution, fire-58) — the evidence-gated provenance
+ * rule from the run-the-loop charter: awards / testimonials / certifications / statistics /
+ * press / client-logos / case-results render ONLY with verified facts.
+ *
+ * Evidence contract: the DELIVERED build ships `_citations.json` (bare array or
+ * `{ citations: [...] }`), each entry Zod-validated against {@link CitationEntrySchema} —
+ * `claim_type` + the claim text + a `source` naming where it was verified. A social-proof
+ * claim CLASS detected in the shipped HTML/JS is "verified" when ≥1 evidence entry of the
+ * matching type exists; otherwise it's flagged.
+ *
+ * Severity: `award` claims + review/rating STRUCTURED DATA are `error` (fabricated awards and
+ * fake AggregateRating/Review markup are the dangerous class — Google review-policy violations
+ * + plain lying; this is the backlog's "validator red on unverified award section" acceptance).
+ * Press / certification / statistic / client-logo / case-result / testimonial-heading classes
+ * warn in v1 so `report` mode surfaces them without nuking existing build health; escalate a
+ * class to `error` once the template + orchestrator reliably emit `_citations.json`.
+ *
+ * False-positive guards: worker-seeded trust badges ({@link trustBadgesFor} — "Licensed &
+ * insured", "Trusted locally", "Satisfaction guaranteed") are honest generic service claims,
+ * NOT evidence claims — every regex below is written so none of the seeded triads match.
+ * Non-content shells (404/500/offline) and demo-gallery assets are skipped.
+ */
+export const CitationEntrySchema = z.object({
+  claim_type: z.enum([
+    'award',
+    'review',
+    'testimonial',
+    'certification',
+    'statistic',
+    'press',
+    'client_logo',
+    'case_result',
+  ]),
+  claim: z.string().min(1),
+  source: z.string().min(1),
+  url: z.string().optional(),
+  verified_at: z.string().optional(),
+});
+
+export type CitationEntry = z.infer<typeof CitationEntrySchema>;
+
+/** `_citations.json` accepts a bare entry array or a `{ citations: [...] }` wrapper. */
+export const CitationsFileSchema = z.union([
+  z.array(CitationEntrySchema),
+  z.object({ citations: z.array(CitationEntrySchema) }),
+]);
+
+interface ProvenanceClaimClass {
+  /** Evidence claim_type that verifies this class (review markup also accepts testimonial). */
+  type: CitationEntry['claim_type'];
+  code: string;
+  severity: Severity;
+  re: RegExp;
+  message: string;
+}
+
+const PROVENANCE_CLAIM_CLASSES: readonly ProvenanceClaimClass[] = [
+  {
+    type: 'award',
+    code: 'provenance.award_unverified',
+    severity: 'error',
+    // `#1 rated` lives OUTSIDE the \b group — a word boundary can never sit between a space and `#`.
+    re: /\b(?:award[- ]winning|voted\s+(?:the\s+)?best|winner\s+of\s+the\b|best\s+of\s+20\d\d|top[- ]rated)\b|#\s?1\s+(?:rated|choice|ranked)\b/i,
+    message:
+      'Award claim shipped without verified evidence — awards render ONLY with a matching `award` entry in _citations.json (what was won, from whom, source URL). Remove the claim or add the verified citation.',
+  },
+  {
+    type: 'press',
+    code: 'provenance.press_unverified',
+    severity: 'warn',
+    re: /\bas\s+(?:seen|featured)\s+(?:in|on)\b/i,
+    message:
+      'Press claim ("as seen in/on …") shipped without verified evidence — add a `press` entry to _citations.json naming the outlet + link, or remove the claim.',
+  },
+  {
+    type: 'certification',
+    code: 'provenance.certification_unverified',
+    severity: 'warn',
+    re: /\b(?:certified\s+by|accredited\s+by|BBB[- ]accredited|A\+\s+rat(?:ed|ing))\b/i,
+    message:
+      'Certification claim ("certified/accredited by …") shipped without verified evidence — add a `certification` entry to _citations.json (issuer + verify link), or remove the claim.',
+  },
+  {
+    type: 'statistic',
+    code: 'provenance.statistic_unverified',
+    severity: 'warn',
+    re: /\b\d[\d,]{2,}\+?\s+(?:happy\s+|satisfied\s+)?(?:client|customer|patient|member|student|project|install|review)s?\b|\b(?:over|more\s+than)\s+\d[\d,]+\s+(?:happy\s+|satisfied\s+)?(?:client|customer|patient|member|student|project)s\b|\b\d{2,3}%\s+(?:client\s+|customer\s+)?satisfaction\b/i,
+    message:
+      'Big-round-number statistic (customer/project counts, % satisfaction) shipped without verified evidence — add a `statistic` entry to _citations.json (where the number comes from), or drop the number.',
+  },
+  {
+    type: 'client_logo',
+    code: 'provenance.client_logo_unverified',
+    severity: 'warn',
+    // No `i` flag on the FINAL alternative on purpose: a bare `[A-Z]` after "trusted by" means a
+    // capitalized client/brand roster ("Trusted by Acme") — "trusted by our neighbors" stays clean.
+    re: /\b[Tt]rusted\s+[Bb]y\s+(?:\d|[Oo]ver\b|[Ll]eading\b|[Tt]op\b|[Tt]he\b|[A-Z])/,
+    message:
+      '"Trusted by …" client-roster framing shipped without verified evidence — add a `client_logo` entry to _citations.json (which clients consented), or rewrite to honest local framing.',
+  },
+  {
+    type: 'case_result',
+    code: 'provenance.case_result_unverified',
+    severity: 'warn',
+    re: /\$\d[\d,.]*\s*(?:million|billion|thousand|[MKB]\b)?\+?\s+(?:recovered|won|saved|in\s+(?:settlements|verdicts|results))\b/i,
+    message:
+      'Monetary case-result claim ($N recovered/won/in settlements) shipped without verified evidence — add a `case_result` entry to _citations.json, or remove the figure.',
+  },
+  {
+    type: 'testimonial',
+    code: 'provenance.testimonial_unverified',
+    severity: 'warn',
+    re: /\bwhat\s+our\s+(?:clients|customers|patients|guests|neighbors)\s+say\b/i,
+    message:
+      'Testimonial section heading shipped without verified evidence — testimonials render ONLY from real quotes; add `testimonial` entries to _citations.json (who said it, where), or remove the section.',
+  },
+];
+
+/** Fake review/rating STRUCTURED DATA — the most dangerous fabrication class (own detector
+ *  because it scans JSON-LD/JS markup, not prose). Verified by `review` OR `testimonial` evidence. */
+const REVIEW_SCHEMA_RE =
+  /"@type"\s*:\s*"(?:AggregateRating|Review)"|"aggregateRating"\s*:|"ratingValue"\s*:/;
+
+/** Parse `_citations.json` out of the build. Returns the verified claim_type set +
+ *  whether the file was present-but-invalid (malformed JSON or schema-rejected). */
+const readCitations = (
+  files: BuildFile[],
+): { verified: Set<CitationEntry['claim_type']>; invalid: boolean; present: boolean } => {
+  const f = files.find((x) => x.path === '_citations.json');
+  const verified = new Set<CitationEntry['claim_type']>();
+  if (!f || typeof f.text !== 'string') return { verified, invalid: false, present: false };
+  let raw: unknown;
+  try {
+    raw = JSON.parse(f.text);
+  } catch {
+    return { verified, invalid: true, present: true };
+  }
+  const parsed = CitationsFileSchema.safeParse(raw);
+  if (!parsed.success) return { verified, invalid: true, present: true };
+  const entries = Array.isArray(parsed.data) ? parsed.data : parsed.data.citations;
+  for (const e of entries) verified.add(e.claim_type);
+  return { verified, invalid: false, present: true };
+};
+
+export const validateClaimProvenance = (files: BuildFile[]): Violation[] => {
+  const out: Violation[] = [];
+  const { verified, invalid } = readCitations(files);
+  if (invalid) {
+    out.push({
+      code: 'provenance.citations_invalid',
+      severity: 'warn',
+      message:
+        '_citations.json is present but malformed (bad JSON or schema-invalid entries) — claims cannot be verified against it. Each entry needs { claim_type, claim, source }.',
+      file: '_citations.json',
+    });
+  }
+  const reviewVerified = verified.has('review') || verified.has('testimonial');
+  for (const f of files) {
+    if (!f.text || !/\.(html|js|mjs)$/i.test(f.path)) continue;
+    if (isHtml(f.path) && !isContentHtml(f.path)) continue; // 404/500/offline shells
+    if (isDemoGalleryAsset(f.path)) continue;
+    for (const cls of PROVENANCE_CLAIM_CLASSES) {
+      if (verified.has(cls.type)) continue;
+      if (out.some((v) => v.code === cls.code)) continue; // one violation per class
+      const m = f.text.match(cls.re);
+      if (m) {
+        out.push({
+          code: cls.code,
+          severity: cls.severity,
+          message: cls.message,
+          file: f.path,
+          detail: m[0],
+        });
+      }
+    }
+    if (!reviewVerified && !out.some((v) => v.code === 'provenance.review_schema_unverified')) {
+      const m = f.text.match(REVIEW_SCHEMA_RE);
+      if (m) {
+        out.push({
+          code: 'provenance.review_schema_unverified',
+          severity: 'error',
+          message:
+            'AggregateRating/Review structured data shipped without verified review evidence — fabricated rating markup violates Google review policies. Add a `review` entry to _citations.json (real platform + link) or remove the schema.',
+          file: f.path,
+          detail: m[0],
+        });
+      }
+    }
+  }
+  return out;
+};
+
 export interface CommerceScrubReport {
   /** True when the shell classifies as a genuine retail storefront → the scrub is a NO-OP. */
   isRetail: boolean;
@@ -1449,6 +1643,7 @@ export const validateBuild = (
     ...validateContactPath(files),
     ...validateImageWeightBudget(files),
     ...validateConversionFraming(files),
+    ...validateClaimProvenance(files),
     ...(typeof opts.sourceRouteCount === 'number'
       ? validateRouteCount(files, opts.sourceRouteCount)
       : []),
