@@ -364,6 +364,57 @@ try {
   await page.goto(ORIGIN + '/', { waitUntil: 'domcontentloaded', timeout: 60_000 });
   await capture(page, 'homepage loads (initial state)', { surface: 'public-home' });
 
+  // ---- Journey: create-funnel (public, read-only, stops before any submit) --
+  if ((process.env.EXPLORER_JOURNEY || '') === 'create-funnel') {
+    const search = page.getByTestId('hero-search-input');
+    await search.click();
+    await search.fill('Vito');
+    await page.waitForTimeout(700); // debounce + results settle
+    await capture(page, 'hero search "Vito" → results state', {
+      surface: 'public-home',
+      overlay: 'search-results',
+    });
+    await search.fill('Vito Mens Salon Lake Hiawatha');
+    await page.waitForTimeout(900);
+    await capture(page, 'full business query → suggestion list', {
+      surface: 'public-home',
+      overlay: 'search-results-full',
+    });
+    await page.keyboard.press('Escape');
+    // Enter the create wizard via its public CTA (renders form states; no mutation).
+    const cta = await clickFirst(page, [
+      (p) => p.getByRole('link', { name: /get started|create|build/i }),
+      (p) => p.getByRole('button', { name: /get started|create your|build/i }),
+    ]);
+    await page.waitForTimeout(1200);
+    await capture(page, cta ? 'create wizard entry state' : 'create CTA NOT FOUND', {
+      surface: 'create-wizard',
+      overlay: cta ? '' : 'missing-cta',
+    });
+    if (cta) {
+      // Walk visible wizard fields WITHOUT submitting: focus/blur the first
+      // required field to exercise the WCAG 3.3.1 error-on-blur behavior.
+      const firstField = page.locator('input:visible').first();
+      if (await firstField.isVisible().catch(() => false)) {
+        await firstField.click();
+        await page.keyboard.press('Tab');
+        await capture(page, 'required-field blur-empty → inline error state', {
+          surface: 'create-wizard',
+          overlay: 'blur-validation',
+        });
+      }
+    }
+    finish(
+      manifest.blocked.length === 0
+        ? acq.coverage === 'CLOUD_PASS_ELIGIBLE'
+          ? 'PASS_CLOUDFLARE'
+          : 'PASS_ON_FALLBACK_PROVIDER'
+        : 'PARTIAL',
+    );
+    await acq.browser.close().catch(() => {});
+    process.exit(manifest.status.startsWith('PASS') ? 0 : 2);
+  }
+
   // ---- Phase 2: real test-approved sign-in --------------------------------
   await clickFirst(page, [
     (p) => p.getByRole('button', { name: /sign in/i }),
@@ -429,6 +480,8 @@ try {
   }
   console.warn(`  ✓ identity: ${me.email} superAdmin=${me.isSuperAdmin} org=${me.orgId.slice(0, 8)}…`);
 
+  // create-funnel runs PRE-AUTH (public money-path front door) — it branches
+  // before the sign-in phases below via this early check.
   // ---- Journey switch (coverage-ledger rotation across fires) --------------
   // EXPLORER_JOURNEY=admin-breadth walks the Angular admin's nav sections
   // (no editor iframe — fast, wide); default database-history grinds the

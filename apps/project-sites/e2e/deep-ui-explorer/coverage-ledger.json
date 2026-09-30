@@ -2,11 +2,11 @@
   "states": {
     "/::public-home::::d05f796d": {
       "discovered": "2026-09-29T19:57:38.675Z",
-      "visits": 9,
+      "visits": 10,
       "status": "visited",
       "lastAction": "homepage loads (initial state)",
-      "lastVisited": "2026-09-29T23:45:14.900Z",
-      "lastRun": "dux-2026-09-29T23-45-06-615Z"
+      "lastVisited": "2026-09-30T00:11:23.767Z",
+      "lastRun": "dux-2026-09-30T00-11-13-824Z"
     },
     "/signin::signin::::576d826f": {
       "discovered": "2026-09-29T19:57:43.656Z",
@@ -311,9 +311,50 @@
       "lastAction": "KV tile drill-in (expect honest not-enabled/empty state)",
       "lastVisited": "2026-09-29T23:46:25.225Z",
       "lastRun": "dux-2026-09-29T23-45-06-615Z"
+    },
+    "/::public-home::search-results::cf800742": {
+      "discovered": "2026-09-30T00:11:28.428Z",
+      "visits": 1,
+      "status": "visited",
+      "lastAction": "hero search \"Vito\" → results state",
+      "lastVisited": "2026-09-30T00:11:28.428Z",
+      "lastRun": "dux-2026-09-30T00-11-13-824Z"
+    },
+    "/::public-home::search-results-full::b73c8225": {
+      "discovered": "2026-09-30T00:11:31.950Z",
+      "visits": 1,
+      "status": "visited",
+      "lastAction": "full business query → suggestion list",
+      "lastVisited": "2026-09-30T00:11:31.950Z",
+      "lastRun": "dux-2026-09-30T00-11-13-824Z"
+    },
+    "/::create-wizard::::df4a7450": {
+      "discovered": "2026-09-30T00:11:48.376Z",
+      "visits": 1,
+      "status": "visited",
+      "lastAction": "create wizard entry state",
+      "lastVisited": "2026-09-30T00:11:48.376Z",
+      "lastRun": "dux-2026-09-30T00-11-13-824Z"
+    },
+    "/::create-wizard::blur-validation::ab6b5f5b": {
+      "discovered": "2026-09-30T00:11:52.047Z",
+      "visits": 1,
+      "status": "visited",
+      "lastAction": "required-field blur-empty → inline error state",
+      "lastVisited": "2026-09-30T00:11:52.047Z",
+      "lastRun": "dux-2026-09-30T00-11-13-824Z"
     }
   },
   "runs": [
+    {
+      "runId": "dux-2026-09-30T00-11-13-824Z",
+      "status": "PASS_CLOUDFLARE",
+      "provider": "cloudflare-browser-run",
+      "coverage": "CLOUD_PASS_ELIGIBLE",
+      "statesVisited": 5,
+      "blockedStates": {},
+      "finishedAt": "2026-09-30T00:11:52.047Z"
+    },
     {
       "runId": "dux-2026-09-29T23-45-06-615Z",
       "status": "PASS_CLOUDFLARE",
