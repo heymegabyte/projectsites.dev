@@ -41,6 +41,8 @@ const LLM_RESULT = {
   provider: 'deepseek' as const,
   latency_ms: 42,
   token_count: 123,
+  input_tokens: 100,
+  output_tokens: 23,
   cost_estimate: 0.0001,
 };
 
@@ -236,9 +238,9 @@ describe('POST /v1/chat/completions — happy path', () => {
     expect(body.choices[0].finish_reason).toBe('stop');
     // Provider exposes only a total — split is honestly 0/0.
     expect(body.usage).toEqual({
-      prompt_tokens: 0,
-      completion_tokens: 0,
-      total_tokens: LLM_RESULT.token_count,
+      prompt_tokens: 100,
+      completion_tokens: 23,
+      total_tokens: 123,
     });
   });
 

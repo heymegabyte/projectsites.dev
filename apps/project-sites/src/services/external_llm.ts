@@ -143,6 +143,9 @@ export interface ExternalLLMResult {
   provider: 'openai' | 'anthropic' | 'deepseek';
   latency_ms: number;
   token_count: number;
+  /** Provider-reported prompt/completion split (0 when the provider omits it). */
+  input_tokens: number;
+  output_tokens: number;
   cost_estimate: number;
   /**
    * Parsed Anthropic citations (when `documents` was passed + Anthropic was the
@@ -880,6 +883,8 @@ export async function callExternalLLM(
         provider,
         latency_ms: latency,
         token_count: result.tokens,
+        input_tokens: inputTokens,
+        output_tokens: outputTokens,
         cost_estimate: costUsd,
         citations,
         cache_hit: cacheHit,
@@ -1045,6 +1050,8 @@ export async function callExternalLLMWithVision(
         provider,
         latency_ms: latency,
         token_count: result.tokens,
+        input_tokens: inputTokens,
+        output_tokens: outputTokens,
         cost_estimate: costUsd,
         citations,
         cache_hit: cacheHit,

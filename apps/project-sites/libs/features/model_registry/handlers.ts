@@ -315,6 +315,14 @@ modelRegistry.post('/v1/chat/completions', async (c) => {
     });
 
     const totalTokens = Number.isFinite(result.token_count) ? result.token_count : 0;
+    const promptTokens = Number.isFinite(result.input_tokens) ? result.input_tokens : 0;
+    const completionTokens = Number.isFinite(result.output_tokens)
+      ? result.output_tokens
+      : 0;
+    // Provider omitted the split entirely → attribute the known total to
+    // completion so `total === prompt + completion` still holds.
+    const completionTokensFinal =
+      promptTokens === 0 && completionTokens === 0 ? totalTokens : completionTokens;
 
     return c.json(
       {
@@ -331,9 +339,14 @@ modelRegistry.post('/v1/chat/completions', async (c) => {
             finish_reason: 'stop' as const,
           },
         ],
-        // external_llm surfaces only the provider's total; the split is
-        // honestly reported as 0/0 rather than fabricated.
-        usage: { prompt_tokens: 0, completion_tokens: 0, total_tokens: totalTokens },
+        // OpenAI invariant: total_tokens === prompt + completion. Use the
+        // provider-reported split; when the provider omits it, the known
+        // total is attributed to completion so the invariant still holds.
+        usage: {
+          prompt_tokens: promptTokens,
+          completion_tokens: completionTokensFinal,
+          total_tokens: promptTokens + completionTokensFinal,
+        },
       },
       200,
     );

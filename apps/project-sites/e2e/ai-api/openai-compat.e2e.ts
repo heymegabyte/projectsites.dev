@@ -10,7 +10,7 @@
 import { test, expect, type APIRequestContext } from '@playwright/test';
 
 const PROD_URL = process.env.PROD_URL ?? 'https://project-sites.manhattan.workers.dev';
-const E2E_API_KEY = process.env.E2E_API_KEY;
+const E2E_API_KEY = process.env.E2E_V1_API_KEY ?? process.env.E2E_API_KEY;
 
 // Virtual model IDs that MUST appear in /v1/models per §7 campaign spec
 const REQUIRED_MODEL_IDS = [

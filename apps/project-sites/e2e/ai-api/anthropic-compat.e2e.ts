@@ -10,7 +10,7 @@
 import { test, expect } from '@playwright/test';
 
 const PROD_URL = process.env.PROD_URL ?? 'https://project-sites.manhattan.workers.dev';
-const E2E_API_KEY = process.env.E2E_API_KEY;
+const E2E_API_KEY = process.env.E2E_V1_API_KEY ?? process.env.E2E_API_KEY;
 
 // Minimum Anthropic version header required by protocol
 const ANTHROPIC_VERSION = '2023-06-01';
