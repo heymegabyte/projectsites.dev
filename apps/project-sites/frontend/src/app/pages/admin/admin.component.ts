@@ -62,6 +62,15 @@ interface Notification {
 }
 
 /**
+ * Admin sections that are PLATFORM surfaces, not site surfaces — they render
+ * fully with ZERO sites in the org, so the "No sites yet" launchpad must never
+ * swallow them (fire-57: /admin/feature-flags lists the worker's code
+ * registry ∪ D1 union, which exists on a completely fresh install).
+ * Grow this list only with sections verified to render site-free.
+ */
+const SITE_INDEPENDENT_ADMIN_PATHS: readonly string[] = ['/admin/feature-flags'];
+
+/**
  * `g`-chord navigation targets — each MUST match the route the shortcuts-overlay
  * advertises for that letter (the overlay is the user-facing source of truth).
  * `e` → `/admin/editor` (NOT `/admin`): the editor moved off the index route, and
@@ -203,6 +212,16 @@ export class AdminComponent implements OnInit, OnDestroy {
   currentSection = signal('Editor');
   /** Full current admin URL — feeds the real-name title/announcer (P2). */
   readonly currentUrl = signal('');
+
+  /**
+   * True when the current route is a PLATFORM section that renders without any
+   * site existing (e.g. /admin/feature-flags). Keeps the shell's "No sites
+   * yet" launchpad from replacing the router-outlet on those routes (fire-57).
+   */
+  readonly siteFreeSection = computed(() => {
+    const url = this.currentUrl().split('?')[0].split('#')[0];
+    return SITE_INDEPENDENT_ADMIN_PATHS.some((p) => url === p || url.startsWith(p + '/'));
+  });
 
   /**
    * Document title with REAL site name on site-detail routes (P2 — breadcrumbs

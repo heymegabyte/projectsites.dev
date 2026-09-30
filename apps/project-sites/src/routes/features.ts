@@ -29,7 +29,7 @@ import {
   invalidateFlagCache,
   FLAG_REGISTRY,
 } from '../modules/feature_flags/services.js';
-import { listFlags } from '../modules/feature_flags/registry.js';
+import { listFlags, type FlagStage } from '../modules/feature_flags/registry.js';
 import { FLAG_DOCS, getDocs } from '../modules/feature_flags/docs.js';
 
 const features = new Hono<{ Bindings: Env; Variables: Variables }>();
@@ -382,8 +382,83 @@ features.get('/api/cli/version', (c) =>
 
 // ─── Feature-flag admin surface (always available; needed to read state) ──
 
-features.get('/api/feature-flags', (c) => {
-  const flags = listFlags().map((f) => ({ ...f, has_docs: f.key in FLAG_DOCS }));
+/** Stage values a D1 override may set — anything else is ignored (registry stands). */
+const VALID_STAGES: ReadonlySet<string> = new Set([
+  'experimental',
+  'beta',
+  'stable',
+  'deprecated',
+  'killswitch',
+]);
+
+/**
+ * Which layer produced a list entry's state. `'registry'` = code default,
+ * `'d1'` = a global `flag_overrides` row won. `'override'` is reserved for
+ * caller-scoped org/tenant resolution (`resolveFlag`) — scoped rows are
+ * per-caller and never merged into this global list.
+ */
+type FlagListSource = 'registry' | 'd1' | 'override';
+
+/**
+ * `GET /api/feature-flags` — the flags LIST is the UNION of the CODE REGISTRY
+ * (SSOT — every flag exists even on a brand-new database) and the D1 global
+ * override layer, with D1 winning for enabled/rollout/stage where a row
+ * exists (fire-57).
+ *
+ * • Fresh install (zero D1 rows) → the FULL registry, every entry
+ *   `source:'registry'` — the admin Feature Flags page is never empty.
+ * • Global `flag_overrides` row → its fields override the registry defaults
+ *   and the entry is tagged `source:'d1'` (+ `kill_switch` surfaces).
+ * • Fail-soft: a missing/broken `flag_overrides` table (install
+ *   mid-migration) serves the registry-only list, never a 500.
+ */
+features.get('/api/feature-flags', async (c) => {
+  type GlobalOverride = Partial<{
+    enabled: boolean;
+    rollout_percent: number;
+    stage: string;
+    kill_switch: boolean;
+  }>;
+  const overrides = new Map<string, GlobalOverride>();
+  try {
+    const rows = await c.env.DB.prepare(
+      `SELECT flag_key, value_json FROM flag_overrides
+         WHERE scope = 'global' AND scope_id = '*' AND deleted_at IS NULL
+           AND (expires_at IS NULL OR expires_at > datetime('now'))`,
+    ).all<{ flag_key: string; value_json: string }>();
+    for (const r of rows.results ?? []) {
+      try {
+        overrides.set(r.flag_key, JSON.parse(r.value_json) as GlobalOverride);
+      } catch {
+        /* malformed row → registry default stands */
+      }
+    }
+  } catch {
+    /* fresh install / table mid-migration → registry-only list */
+  }
+
+  const flags = listFlags().map((f) => {
+    const has_docs = f.key in FLAG_DOCS;
+    const o = overrides.get(f.key);
+    // A row that parsed to nothing usable is NOT a D1 win — stay honest.
+    const rowWins =
+      o !== undefined &&
+      (typeof o.enabled === 'boolean' ||
+        typeof o.rollout_percent === 'number' ||
+        typeof o.kill_switch === 'boolean' ||
+        (typeof o.stage === 'string' && VALID_STAGES.has(o.stage)));
+    if (!rowWins) return { ...f, has_docs, source: 'registry' as FlagListSource };
+    return {
+      ...f,
+      default_enabled: typeof o.enabled === 'boolean' ? o.enabled : f.default_enabled,
+      default_rollout_percent:
+        typeof o.rollout_percent === 'number' ? o.rollout_percent : f.default_rollout_percent,
+      stage: o.stage && VALID_STAGES.has(o.stage) ? (o.stage as FlagStage) : f.stage,
+      kill_switch: !!o.kill_switch,
+      has_docs,
+      source: 'd1' as FlagListSource,
+    };
+  });
   return c.json({ flags, count: flags.length });
 });
 

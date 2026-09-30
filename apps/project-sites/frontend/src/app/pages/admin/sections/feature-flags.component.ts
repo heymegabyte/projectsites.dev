@@ -62,6 +62,12 @@ interface FlagDefinition {
   stage: 'experimental' | 'beta' | 'stable' | 'deprecated' | 'killswitch';
   owner_email: string;
   kill_switch?: boolean;
+  /**
+   * Which layer produced this entry's state (server-computed union, fire-57):
+   * 'registry' = code default · 'd1' = a global D1 override row won ·
+   * 'override' = reserved for caller-scoped resolution.
+   */
+  source?: 'registry' | 'd1' | 'override';
 }
 
 interface ResolvedFlag {
@@ -378,7 +384,7 @@ const FLAG_CONSTRAINTS: FlagConstraint[] = [
       } @else {
         <ul class="ff-grid">
           @for (flag of filtered(); track flag.key) {
-            <li class="ff-card" [attr.data-stage]="flag.stage" [class.ff-card-killed]="flag.kill_switch" [class.ff-card-on]="resolvedOn(flag)">
+            <li class="ff-card" data-testid="flag-row" [attr.data-stage]="flag.stage" [class.ff-card-killed]="flag.kill_switch" [class.ff-card-on]="resolvedOn(flag)">
               <header class="ff-card-head">
                 <h2 class="ff-key">
                   <button type="button" class="ff-key-btn" (click)="copyKey(flag.key)"
@@ -743,6 +749,11 @@ export class AdminFeatureFlagsComponent implements OnInit, OnDestroy {
     ];
     if (flag.kill_switch) badges.push({ label: 'killswitch', title: 'Hard kill switch active', tone: 'risk' });
     if (flag.stage === 'experimental') badges.push({ label: 'high risk', title: 'Experimental — rollout-gated', tone: 'risk' });
+    // Source chip (fire-57): only when a D1 override row beat the code default —
+    // the registry-default case is the norm and needs no extra chrome.
+    if (flag.source === 'd1' || flag.source === 'override') {
+      badges.push({ label: 'D1 override', title: 'State comes from a D1 override row — the code-registry default is overridden.', tone: 'neutral' });
+    }
     return badges;
   }
 
