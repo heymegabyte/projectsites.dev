@@ -313,3 +313,15 @@ Full role contract: `.claude/commands/run-the-loop.md` §1.17. The invariants th
 coalesce this tick), heartbeat per phase, release at §10. A stale lease (heartbeat >20 min)
 is reclaimed — a dead lead never wedges the loop. One fire at a time means one browser
 fleet, one deploy stream, no conflicting commits.
+
+## Wedged-agent protocol (proven fire-57, codified fire-58)
+
+- A background agent whose output-file mtime is SILENT >20 min is presumed wedged (two cases fire-57: both stuck in reading phase). Protocol: (1) check mtime vs now; (2) SendMessage nudge ("land the smallest green slice now"); (3) bounded 90s wait — mtime unchanged → (4) TaskStop, salvage check (worktree branch tip + `git status` for its paths; a reading-phase agent has nothing to salvage), (5) respawn FRESH with an exact-file brief (name the files to read — an agent told to explore is an agent that can wedge). Never leave a wedged agent running alongside its replacement (duplicate-surface collision).
+
+## Parallel-migration numbering (collision class, fire-57)
+
+- Two parallel agents were each told "migration after 0648" → both created 0649_*. When >1 spawned agent MAY add a migration in the same fire, the LEAD pre-assigns each a distinct number in the brief (e.g. "yours is 0651"). An agent discovering it needs an unplanned migration takes `max(existing)+2` (gap absorbs a concurrent sibling) and reports it. Convergence always runs `ls migrations | tail` and renumbers dupes BEFORE any deploy (rename file + update tests referencing the filename — they execute the DDL by path).
+
+## Prod D1 migrations apply (standing)
+
+- `wrangler d1 migrations apply` on prod is BLOCKED by ancient untracked backlog (references dropped tables, e.g. ai_endpoints). Apply new migrations via targeted `wrangler d1 execute --file=migrations/<new>.sql --remote`, then verify via `SELECT name FROM sqlite_master WHERE name IN (...)`. Do NOT attempt to bulk-reconcile the historical migration ledger mid-fire.
