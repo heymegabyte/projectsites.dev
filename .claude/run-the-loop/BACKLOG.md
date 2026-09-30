@@ -768,9 +768,14 @@
 - [ ] Builder creative brief: compact brief from research + owner edits + assets + vertical +
   buyer intent + objections + conversion goal, consumed by component selection in
   `site-generation.ts` (evidence-based choice, no scenario-blind defaults). Est: L.
-- [ ] Provenance gate: awards/testimonials/certifications/statistics/press/client-logos/case
+- [x] (fire-58 `b353c888a`, 20 new tests / 374 adjacent green) Provenance gate: awards/testimonials/certifications/statistics/press/client-logos/case
   results render ONLY with verified facts — extend `build_validators.ts` fabricated-people
   class to these section types. Acceptance: validator red on unverified award section. Est: M.
+  Shipped: `validateClaimProvenance` in `validateBuild` — `_citations.json` Zod evidence contract
+  (`CitationEntrySchema`); award + fabricated AggregateRating/Review JSON-LD = ERROR, press/cert/
+  statistic/client-logo/case-result/testimonial-heading = warn (v1); seeded trust-badge triads
+  proven false-positive-safe. Escalate warn classes to error once template + orchestrator emit
+  `_citations.json` (template-repo side of this item — fold into the component-catalog slice).
 - [ ] Browser-capability registry + per-archetype visual language seeds (start: restaurant ·
   professional-services · nonprofit) with purposeful WebGL/3D + static fallback + early
   headline/CTA + reduced-motion; never permission-prompt on load. Est: L.
