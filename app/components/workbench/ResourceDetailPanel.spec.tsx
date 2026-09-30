@@ -14,6 +14,12 @@
  *   3. Destructive delete — opens the confirm dialog, then sends { action:'delete', confirm:true }.
  *   4. Honest confirmation_required — a mutate result of ok:false/confirmation_required renders the
  *      "Confirmation needed" outcome (never a fake success).
+ *   5. Flag-dark honesty (fire-57) — a dark reply (`enabled:false` OR a "not enabled" message, per
+ *      dark-route-404-distinguish-by-message-not-code) renders the honest "Not enabled yet" state:
+ *      no error card, no Retry, no write/lifecycle controls. A transient error keeps error + Retry.
+ *   6. Doomed-control gating (fire-57) — a NOT-provisioned resource disables write controls with a
+ *      reason and hides the lifecycle strip; Provision is the one CTA. A provisioned resource keeps
+ *      write + lifecycle fully active.
  *
  * `vi.mock` factories hoist above the module body, so the spies they close over are `vi.hoisted`.
  */
@@ -389,5 +395,122 @@ describe('real-time detail view — no manual refresh', () => {
     });
 
     await waitFor(() => expect(detailCount()).toBeGreaterThan(before));
+  });
+});
+
+// ── Flag-dark honesty + doomed-control gating (fire-57) ───────────────────────────
+//
+// Per dark-route-404-distinguish-by-message-not-code: a flag-dark reply (`enabled:false`, or the
+// worker's "… is not enabled" 404 wording forwarded verbatim) is a HEALTHY state, never an error —
+// no "Failed to load" card, no Retry, no doomed controls. Per the doomed-control rule: while the
+// resource is dark OR not provisioned, write/lifecycle controls are hidden or disabled-with-reason,
+// leaving Provision as the single primary action.
+
+describe('flag-dark honesty (fire-57)', () => {
+  it('renders the honest "Not enabled yet" state for an enabled:false reply — no error card, no Retry, no controls', async () => {
+    render(<ResourceDetailPanel target={{ kind: 'kv', environment: 'production' }} onBack={() => {}} />);
+
+    await waitFor(() => expect(last()?.type).toBe('PS_RES_DETAIL_REQUEST'));
+    replyToLast('PS_RES_DETAIL_RESPONSE', { ok: false, enabled: false });
+
+    await waitFor(() => expect(screen.getByTestId('resource-detail-disabled')).toBeTruthy());
+    const card = screen.getByTestId('resource-detail-disabled');
+    expect(card.textContent).toMatch(/not enabled yet/i);
+    // One-line "what it is" explainer for the kind (KV → key-value store).
+    expect(card.textContent).toMatch(/key-value/i);
+    // NOT an error card, NO Retry for the dark case.
+    expect(screen.queryByText(/failed to load/i)).toBeNull();
+    expect(screen.queryByTestId('resource-detail-error')).toBeNull();
+    expect(screen.queryByRole('button', { name: /retry/i })).toBeNull();
+    // No doomed write/lifecycle controls against a dark surface.
+    expect(screen.queryByTestId('resource-detail-write')).toBeNull();
+    expect(screen.queryByTestId('resource-lifecycle')).toBeNull();
+  });
+
+  it('treats a "… is not enabled" message as dark too (message, not code)', async () => {
+    render(<ResourceDetailPanel target={{ kind: 'workflow', environment: 'production' }} onBack={() => {}} />);
+
+    await waitFor(() => expect(last()?.type).toBe('PS_RES_DETAIL_REQUEST'));
+    replyToLast('PS_RES_DETAIL_RESPONSE', { ok: false, error: 'Per-site workflows is not enabled' });
+
+    await waitFor(() => expect(screen.getByTestId('resource-detail-disabled')).toBeTruthy());
+    expect(screen.getByTestId('resource-detail-disabled').textContent).toMatch(/not enabled yet/i);
+    expect(screen.queryByTestId('resource-detail-error')).toBeNull();
+    expect(screen.queryByRole('button', { name: /retry/i })).toBeNull();
+    expect(screen.queryByTestId('resource-detail-write')).toBeNull();
+  });
+
+  it('keeps the error card + Retry for a genuine transient failure', async () => {
+    render(<ResourceDetailPanel target={{ kind: 'kv', environment: 'production' }} onBack={() => {}} />);
+
+    await waitFor(() => expect(last()?.type).toBe('PS_RES_DETAIL_REQUEST'));
+    replyToLast('PS_RES_DETAIL_RESPONSE', { ok: false, error: 'Network hiccup' });
+
+    await waitFor(() => expect(screen.getByTestId('resource-detail-error')).toBeTruthy());
+    expect(screen.getByTestId('resource-detail-error').textContent).toContain('Network hiccup');
+    expect(screen.getByRole('button', { name: /retry/i })).toBeTruthy();
+    expect(screen.queryByTestId('resource-detail-disabled')).toBeNull();
+  });
+});
+
+describe('doomed-control gating (fire-57)', () => {
+  it('disables write controls with a reason and hides lifecycle while NOT provisioned — Provision is the one CTA', async () => {
+    render(
+      <ResourceDetailPanel
+        target={{ kind: 'kv', environment: 'production', availability: 'available' }}
+        onBack={() => {}}
+      />,
+    );
+
+    await waitFor(() => expect(last()?.type).toBe('PS_RES_DETAIL_REQUEST'));
+    replyToLast('PS_RES_DETAIL_RESPONSE', {
+      ok: true,
+      result: { ok: false, error: { code: 'not_registered', message: 'Not connected yet.' } },
+    });
+
+    await waitFor(() => expect(screen.getByTestId('resource-mutate-provision')).toBeTruthy());
+    // Provision stays the single ACTIVE primary action.
+    expect((screen.getByTestId('resource-mutate-provision') as HTMLButtonElement).disabled).toBe(false);
+
+    // KV put form: inputs are not interactable, and the reason is surfaced on the form.
+    const putForm = screen.getByTestId('resource-mutate-kv-put');
+    expect((putForm.querySelector('input') as HTMLInputElement).disabled).toBe(true);
+    expect((putForm.querySelector('textarea') as HTMLTextAreaElement).disabled).toBe(true);
+    expect((putForm.querySelector('button') as HTMLButtonElement).disabled).toBe(true);
+    expect(putForm.getAttribute('title') ?? '').toMatch(/provision/i);
+
+    // Delete form: typing a key must NOT arm the doomed Delete button.
+    const delForm = screen.getByTestId('resource-mutate-key-delete');
+    const delInput = delForm.querySelector('input') as HTMLInputElement;
+    expect(delInput.disabled).toBe(true);
+    fireEvent.change(delInput, { target: { value: 'greeting' } });
+    expect((delForm.querySelector('button') as HTMLButtonElement).disabled).toBe(true);
+
+    // Lifecycle (Promote / Clone / Teardown) is HIDDEN against a not-provisioned resource; the
+    // environments grid stays visible as honest read-only state.
+    expect(screen.queryByTestId('resource-lifecycle')).toBeNull();
+    expect(screen.getByTestId('resource-env-grid')).toBeTruthy();
+  });
+
+  it('keeps write + lifecycle controls active for a provisioned resource', async () => {
+    render(<ResourceDetailPanel target={{ kind: 'kv', environment: 'production' }} onBack={() => {}} />);
+
+    await waitFor(() => expect(last()?.type).toBe('PS_RES_DETAIL_REQUEST'));
+    replyToLast('PS_RES_DETAIL_RESPONSE', {
+      ok: true,
+      result: { ok: true, data: { keys: [{ name: 'greeting' }], listComplete: true } },
+    });
+
+    await waitFor(() => expect(screen.getByTestId('resource-mutate-kv-put')).toBeTruthy());
+
+    // Typing a key arms the Write button (controls are live).
+    const putForm = screen.getByTestId('resource-mutate-kv-put');
+    const keyInput = putForm.querySelector('input') as HTMLInputElement;
+    expect(keyInput.disabled).toBe(false);
+    fireEvent.change(keyInput, { target: { value: 'greeting' } });
+    expect((putForm.querySelector('button') as HTMLButtonElement).disabled).toBe(false);
+
+    // Lifecycle strip renders for the connected resource.
+    expect(screen.getByTestId('resource-lifecycle')).toBeTruthy();
   });
 });

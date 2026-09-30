@@ -32,8 +32,17 @@
  *   - `PS_RES_MUTATE_REQUEST { kind, action, environment, input?, confirm? }` →
  *     `POST /api/sites/:siteId/resources/:kind/mutate` → `PS_RES_MUTATE_RESPONSE { result }`.
  * The caller NEVER names a CF id — only the kind + action + bounded params/input; the worker
- * server-resolves (or PRODUCES, for `provision`) the id. Dark behind the surface's flag (a 404 "not
- * enabled" → `{ ok:false, enabled:false }`) → a friendly "not enabled" state, never a scary error.
+ * server-resolves (or PRODUCES, for `provision`) the id. Dark behind the surface's flag (a 404 whose
+ * MESSAGE says "not enabled" — per dark-route-404-distinguish-by-message-not-code the bridge forwards
+ * it as `{ ok:false, enabled:false }` or the wording verbatim) → the honest per-kind "Not enabled yet"
+ * state (what the kind is + that nothing is broken), with NO error card, NO Retry, and NO write or
+ * lifecycle controls (a dark surface gets zero doomed controls). Retry is reserved for genuine
+ * transient failures. A mutate that discovers dark collapses the whole panel to the same state.
+ *
+ * Doomed-control rule: while the resource is NOT provisioned (`not_registered` / an "available to
+ * add" card), the per-action write forms are rendered DISABLED with the reason on the form, the
+ * lifecycle strip (promote/teardown/clone) is hidden (only the read-only environments grid stays),
+ * and **Provision** is the single active primary action.
  *
  * Honest states, always: loading · disabled · a typed adapter error (`not_registered` "nothing
  * connected yet" / `not_supported` / `table_not_found` / `cf_unauthorized`) shown as a friendly card ·
@@ -248,6 +257,30 @@ function titleForKind(kind: string): string {
     .split(/\s+/)
     .map((w) => (w.length <= 3 ? w.toUpperCase() : w.charAt(0).toUpperCase() + w.slice(1)))
     .join(' ');
+}
+
+/**
+ * One-line, owner-friendly "what this is" per kind — shown on the honest flag-dark state so a
+ * business owner learns what the surface WILL do instead of reading a scary error. Matched by the
+ * same tolerant substring rules as {@link mutationsForKind} so synonym-ish kinds still explain.
+ */
+function explainerForKind(kind: string): string {
+  const k = (kind || '').toLowerCase();
+
+  if (k.includes('d1') || k.includes('database') || k.includes('sql'))
+    return 'D1 is your site’s own SQL database for structured data.';
+  if (k.includes('kv') || k.includes('key')) return 'KV is a fast key-value store your site can read at the edge.';
+  if (k.includes('r2') || k.includes('bucket') || k.includes('object'))
+    return 'R2 is object storage for your site’s files and uploads.';
+  if (k.includes('vector')) return 'Vectorize stores embeddings that power AI search for your site.';
+  if (k.includes('workflow')) return 'Workflows run multi-step background jobs for your site.';
+  if (k.includes('durable') || k === 'do') return 'Durable Objects hold live, stateful coordination for your site.';
+  if (k.includes('queue')) return 'Queues buffer background messages between parts of your site.';
+  if (k.includes('connection') || k.includes('mcp')) return 'Connections link your site to outside services.';
+  if (k.includes('analytics') || k.includes('observability'))
+    return 'Analytics Engine records high-volume metrics about your site.';
+
+  return 'This resource lights up here as soon as it’s switched on.';
 }
 
 /** Map a raw kind to a phosphor icon (mirrors ResourceOverviewPanel's mapping). */
@@ -620,8 +653,12 @@ export const ResourceDetailPanel = memo(({ target, onBack }: { target: ResourceD
         })) as ResMutateResponseMessage;
 
         if (!reply.ok) {
-          if (reply.enabled === false) {
-            return { kind: 'error', action, message: 'This surface isn’t enabled.' };
+          // Dark flag discovered mid-mutate (message-not-code, same detection as the read path):
+          // collapse the WHOLE panel to the honest "not enabled yet" state — the write strip
+          // unmounts, so no doomed controls (or scary error outcome) linger against a dark surface.
+          if (reply.enabled === false || (reply.error && reply.error.includes(DISABLED_404))) {
+            setState({ status: 'disabled' });
+            return { kind: 'not_available', action, message: 'This isn’t enabled yet.' };
           }
 
           return { kind: 'error', action, message: reply.error || 'That action didn’t go through.' };
@@ -795,15 +832,22 @@ export const ResourceDetailPanel = memo(({ target, onBack }: { target: ResourceD
       )}
 
       {/* Lifecycle strip (FIRE 5): promote / teardown / clone + the preview↔production environment grid.
-          Rendered for provisionable kinds (d1/kv/r2) once the panel has settled, below the write controls. */}
-      {showWrite && mutations.some((m) => LIFECYCLE_ACTIONS.has(m)) && (
+          Rendered for provisionable kinds (d1/kv/r2) once the panel has settled, below the write controls.
+          DOOMED-CONTROL rule (fire-57): while NOT provisioned there is nothing to promote/clone/tear down,
+          so the lifecycle buttons are HIDDEN — only the read-only environments grid stays as honest state. */}
+      {showWrite && !notRegistered && mutations.some((m) => LIFECYCLE_ACTIONS.has(m)) && (
         <LifecycleActions kind={target.kind} mutations={mutations} mutate={mutate} onMutated={refresh}>
           <EnvAssignmentGrid kind={target.kind} environment={target.environment} />
         </LifecycleActions>
       )}
+      {showWrite && notRegistered && mutations.some((m) => LIFECYCLE_ACTIONS.has(m)) && (
+        <div className="shrink-0 border-b border-bolt-elements-borderColor bg-bolt-elements-background-depth-2/40 px-4 py-3">
+          <EnvAssignmentGrid kind={target.kind} environment={target.environment} />
+        </div>
+      )}
 
       {state.status === 'loading' && <Spinner label={child ? `Loading ${child.label}…` : 'Loading…'} />}
-      {state.status === 'disabled' && <DisabledCard />}
+      {state.status === 'disabled' && <DisabledCard kind={target.kind} />}
       {state.status === 'error' && <ErrorCard message={state.message} onRetry={refresh} />}
 
       {/* R2 object browser (FIRE 5): an S3-style browser (prefix nav + upload + download + delete via
@@ -995,6 +1039,15 @@ const WriteControls = memo(
       (m) => m !== PROVISION_ACTION && !bespoke.has(m) && !LIFECYCLE_ACTIONS.has(m),
     );
 
+    /*
+     * DOOMED-CONTROL rule (fire-57): while the resource is NOT provisioned, every write control is
+     * doomed (there is nothing to write to / delete from / run SQL against), so the per-action forms
+     * render DISABLED with the reason surfaced on the form — and Provision stays the ONE active CTA.
+     */
+    const doomedReason = notRegistered
+      ? `Provision ${titleForKind(kind)} first — nothing is connected to write to yet.`
+      : undefined;
+
     return (
       <div className="shrink-0 border-b border-bolt-elements-borderColor bg-bolt-elements-background-depth-2/40 px-4 py-3 space-y-3" data-testid="resource-detail-write">
         {/* Provision — lead with it when the resource isn't connected yet. */}
@@ -1023,12 +1076,12 @@ const WriteControls = memo(
 
         {/* KV put — key + value + optional TTL. */}
         {bespoke.has('put') && k.includes('kv') && (
-          <KvPutForm busy={busyAction === 'put'} onSubmit={(input) => dispatch('put', input, String(input.key))} />
+          <KvPutForm busy={busyAction === 'put'} disabledReason={doomedReason} onSubmit={(input) => dispatch('put', input, String(input.key))} />
         )}
 
         {/* R2 put (create/overwrite an object) — key + value. */}
         {bespoke.has('put') && k.includes('r2') && (
-          <R2PutForm busy={busyAction === 'put'} onSubmit={(input) => dispatch('put', input, String(input.key))} />
+          <R2PutForm busy={busyAction === 'put'} disabledReason={doomedReason} onSubmit={(input) => dispatch('put', input, String(input.key))} />
         )}
 
         {/* Delete by key (KV / R2) — key input, destructive. */}
@@ -1036,6 +1089,7 @@ const WriteControls = memo(
           <KeyDeleteForm
             label={k.includes('r2') ? 'object key' : 'key'}
             busy={busyAction === 'delete'}
+            disabledReason={doomedReason}
             defaultKey={currentChild && typeof currentChild.params.key === 'string' ? currentChild.params.key : ''}
             onSubmit={(key) => dispatch('delete', { key }, key)}
           />
@@ -1043,13 +1097,14 @@ const WriteControls = memo(
 
         {/* Vectorize delete by ids — comma/space-separated ids, destructive. */}
         {bespoke.has('delete') && k.includes('vector') && (
-          <VectorDeleteForm busy={busyAction === 'delete'} onSubmit={(ids) => dispatch('delete', { ids }, `${ids.length} vector${ids.length === 1 ? '' : 's'}`)} />
+          <VectorDeleteForm busy={busyAction === 'delete'} disabledReason={doomedReason} onSubmit={(ids) => dispatch('delete', { ids }, `${ids.length} vector${ids.length === 1 ? '' : 's'}`)} />
         )}
 
         {/* D1 exec — SQL textarea + optional JSON params. Mutating SQL is confirm-gated server-side. */}
         {bespoke.has('exec') && k.includes('d1') && (
           <D1ExecForm
             busy={busyAction === 'exec'}
+            disabledReason={doomedReason}
             onSubmit={(input, isDestructive) =>
               isDestructive ? setConfirming({ action: 'exec', input, label: 'this SQL statement' }) : void run('exec', input, true)
             }
@@ -1058,13 +1113,13 @@ const WriteControls = memo(
 
         {/* Generic named-action buttons (workflow start/pause/…, DO status_probe/reset, queue send, …). */}
         {genericActions.length > 0 && (
-          <div className="flex flex-wrap items-center gap-1.5" data-testid="resource-mutate-actions">
+          <div className="flex flex-wrap items-center gap-1.5" data-testid="resource-mutate-actions" title={doomedReason}>
             {genericActions.map((action) => (
               <GenericActionButton
                 key={action}
                 action={action}
                 busy={busyAction === action}
-                disabled={busyAction !== null}
+                disabled={busyAction !== null || Boolean(doomedReason)}
                 onRun={(input) => dispatch(action, input, labelForAction(action))}
               />
             ))}
@@ -1092,10 +1147,21 @@ const primaryBtnClass =
 const dangerBtnClass =
   'min-h-[32px] inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-semibold border border-red-500/40 bg-red-500/10 text-red-300 hover:bg-red-500/20 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red-400 cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed';
 
-const KvPutForm = memo(({ busy, onSubmit }: { busy: boolean; onSubmit: (input: Record<string, unknown>) => void }) => {
+/**
+ * Shared shape for the doomed-control gate on every per-action form (fire-57): when `disabledReason`
+ * is set (the resource isn't provisioned), the form's inputs + submit render disabled and the reason
+ * is surfaced as the form's `title` (hover) + `aria-disabled` — never an interactable doomed control.
+ */
+interface DoomedGate {
+  /** When set, the form is disabled and this sentence explains why (e.g. "Provision KV first — …"). */
+  disabledReason?: string;
+}
+
+const KvPutForm = memo(({ busy, disabledReason, onSubmit }: { busy: boolean; onSubmit: (input: Record<string, unknown>) => void } & DoomedGate) => {
   const [key, setKey] = useState('');
   const [value, setValue] = useState('');
   const [ttl, setTtl] = useState('');
+  const doomed = Boolean(disabledReason);
 
   const submit = () => {
     if (!key.trim()) return;
@@ -1107,13 +1173,13 @@ const KvPutForm = memo(({ busy, onSubmit }: { busy: boolean; onSubmit: (input: R
   };
 
   return (
-    <div className="space-y-1.5" data-testid="resource-mutate-kv-put">
+    <div className="space-y-1.5" data-testid="resource-mutate-kv-put" title={disabledReason} aria-disabled={doomed || undefined}>
       <label className="block text-[10px] uppercase tracking-wider text-bolt-elements-textTertiary">Write a key</label>
-      <input className={inputClass} placeholder="key" aria-label="KV key to write" value={key} onChange={(e) => setKey(e.target.value)} />
-      <textarea className={classNames(inputClass, 'min-h-[52px] resize-y')} placeholder="value" aria-label="KV value" value={value} onChange={(e) => setValue(e.target.value)} />
+      <input className={inputClass} placeholder="key" aria-label="KV key to write" disabled={doomed} value={key} onChange={(e) => setKey(e.target.value)} />
+      <textarea className={classNames(inputClass, 'min-h-[52px] resize-y')} placeholder="value" aria-label="KV value" disabled={doomed} value={value} onChange={(e) => setValue(e.target.value)} />
       <div className="flex items-center gap-2">
-        <input className={classNames(inputClass, 'w-32')} placeholder="TTL secs (≥60)" aria-label="Optional TTL in seconds" inputMode="numeric" value={ttl} onChange={(e) => setTtl(e.target.value)} />
-        <button type="button" className={primaryBtnClass} disabled={busy || !key.trim()} onClick={submit}>
+        <input className={classNames(inputClass, 'w-32')} placeholder="TTL secs (≥60)" aria-label="Optional TTL in seconds" inputMode="numeric" disabled={doomed} value={ttl} onChange={(e) => setTtl(e.target.value)} />
+        <button type="button" className={primaryBtnClass} disabled={busy || doomed || !key.trim()} title={disabledReason} onClick={submit}>
           <div className={classNames(busy ? 'i-ph:circle-notch animate-spin motion-reduce:animate-none' : 'i-ph:floppy-disk-duotone', 'text-sm')} /> Write key
         </button>
       </div>
@@ -1123,9 +1189,10 @@ const KvPutForm = memo(({ busy, onSubmit }: { busy: boolean; onSubmit: (input: R
 
 KvPutForm.displayName = 'ResourceDetailPanel.KvPutForm';
 
-const R2PutForm = memo(({ busy, onSubmit }: { busy: boolean; onSubmit: (input: Record<string, unknown>) => void }) => {
+const R2PutForm = memo(({ busy, disabledReason, onSubmit }: { busy: boolean; onSubmit: (input: Record<string, unknown>) => void } & DoomedGate) => {
   const [key, setKey] = useState('');
   const [value, setValue] = useState('');
+  const doomed = Boolean(disabledReason);
 
   const submit = () => {
     if (!key.trim()) return;
@@ -1134,11 +1201,11 @@ const R2PutForm = memo(({ busy, onSubmit }: { busy: boolean; onSubmit: (input: R
   };
 
   return (
-    <div className="space-y-1.5" data-testid="resource-mutate-r2-put">
+    <div className="space-y-1.5" data-testid="resource-mutate-r2-put" title={disabledReason} aria-disabled={doomed || undefined}>
       <label className="block text-[10px] uppercase tracking-wider text-bolt-elements-textTertiary">Write an object</label>
-      <input className={inputClass} placeholder="object key" aria-label="R2 object key to write" value={key} onChange={(e) => setKey(e.target.value)} />
-      <textarea className={classNames(inputClass, 'min-h-[52px] resize-y')} placeholder="contents" aria-label="R2 object contents" value={value} onChange={(e) => setValue(e.target.value)} />
-      <button type="button" className={primaryBtnClass} disabled={busy || !key.trim()} onClick={submit}>
+      <input className={inputClass} placeholder="object key" aria-label="R2 object key to write" disabled={doomed} value={key} onChange={(e) => setKey(e.target.value)} />
+      <textarea className={classNames(inputClass, 'min-h-[52px] resize-y')} placeholder="contents" aria-label="R2 object contents" disabled={doomed} value={value} onChange={(e) => setValue(e.target.value)} />
+      <button type="button" className={primaryBtnClass} disabled={busy || doomed || !key.trim()} title={disabledReason} onClick={submit}>
         <div className={classNames(busy ? 'i-ph:circle-notch animate-spin motion-reduce:animate-none' : 'i-ph:floppy-disk-duotone', 'text-sm')} /> Write object
       </button>
     </div>
@@ -1148,8 +1215,9 @@ const R2PutForm = memo(({ busy, onSubmit }: { busy: boolean; onSubmit: (input: R
 R2PutForm.displayName = 'ResourceDetailPanel.R2PutForm';
 
 const KeyDeleteForm = memo(
-  ({ label, busy, defaultKey, onSubmit }: { label: string; busy: boolean; defaultKey: string; onSubmit: (key: string) => void }) => {
+  ({ label, busy, disabledReason, defaultKey, onSubmit }: { label: string; busy: boolean; defaultKey: string; onSubmit: (key: string) => void } & DoomedGate) => {
     const [key, setKey] = useState(defaultKey);
+    const doomed = Boolean(disabledReason);
 
     // Reflect a newly-selected child key into the delete field.
     useEffect(() => {
@@ -1157,11 +1225,11 @@ const KeyDeleteForm = memo(
     }, [defaultKey]);
 
     return (
-      <div className="space-y-1.5" data-testid="resource-mutate-key-delete">
+      <div className="space-y-1.5" data-testid="resource-mutate-key-delete" title={disabledReason} aria-disabled={doomed || undefined}>
         <label className="block text-[10px] uppercase tracking-wider text-bolt-elements-textTertiary">Delete a {label}</label>
         <div className="flex items-center gap-2">
-          <input className={inputClass} placeholder={label} aria-label={`The ${label} to delete`} value={key} onChange={(e) => setKey(e.target.value)} />
-          <button type="button" className={dangerBtnClass} disabled={busy || !key.trim()} onClick={() => key.trim() && onSubmit(key.trim())}>
+          <input className={inputClass} placeholder={label} aria-label={`The ${label} to delete`} disabled={doomed} value={key} onChange={(e) => setKey(e.target.value)} />
+          <button type="button" className={dangerBtnClass} disabled={busy || doomed || !key.trim()} title={disabledReason} onClick={() => key.trim() && onSubmit(key.trim())}>
             <div className={classNames(busy ? 'i-ph:circle-notch animate-spin motion-reduce:animate-none' : 'i-ph:trash-duotone', 'text-sm')} /> Delete
           </button>
         </div>
@@ -1172,17 +1240,18 @@ const KeyDeleteForm = memo(
 
 KeyDeleteForm.displayName = 'ResourceDetailPanel.KeyDeleteForm';
 
-const VectorDeleteForm = memo(({ busy, onSubmit }: { busy: boolean; onSubmit: (ids: string[]) => void }) => {
+const VectorDeleteForm = memo(({ busy, disabledReason, onSubmit }: { busy: boolean; onSubmit: (ids: string[]) => void } & DoomedGate) => {
   const [raw, setRaw] = useState('');
+  const doomed = Boolean(disabledReason);
 
   const ids = useMemo(() => raw.split(/[\s,]+/).map((s) => s.trim()).filter(Boolean), [raw]);
 
   return (
-    <div className="space-y-1.5" data-testid="resource-mutate-vector-delete">
+    <div className="space-y-1.5" data-testid="resource-mutate-vector-delete" title={disabledReason} aria-disabled={doomed || undefined}>
       <label className="block text-[10px] uppercase tracking-wider text-bolt-elements-textTertiary">Delete vectors by id</label>
       <div className="flex items-center gap-2">
-        <input className={inputClass} placeholder="id1, id2, id3" aria-label="Vector ids to delete (comma or space separated)" value={raw} onChange={(e) => setRaw(e.target.value)} />
-        <button type="button" className={dangerBtnClass} disabled={busy || ids.length === 0} onClick={() => ids.length > 0 && onSubmit(ids)}>
+        <input className={inputClass} placeholder="id1, id2, id3" aria-label="Vector ids to delete (comma or space separated)" disabled={doomed} value={raw} onChange={(e) => setRaw(e.target.value)} />
+        <button type="button" className={dangerBtnClass} disabled={busy || doomed || ids.length === 0} title={disabledReason} onClick={() => ids.length > 0 && onSubmit(ids)}>
           <div className={classNames(busy ? 'i-ph:circle-notch animate-spin motion-reduce:animate-none' : 'i-ph:trash-duotone', 'text-sm')} /> Delete{ids.length > 0 ? ` (${ids.length})` : ''}
         </button>
       </div>
@@ -1192,10 +1261,11 @@ const VectorDeleteForm = memo(({ busy, onSubmit }: { busy: boolean; onSubmit: (i
 
 VectorDeleteForm.displayName = 'ResourceDetailPanel.VectorDeleteForm';
 
-const D1ExecForm = memo(({ busy, onSubmit }: { busy: boolean; onSubmit: (input: Record<string, unknown>, isDestructive: boolean) => void }) => {
+const D1ExecForm = memo(({ busy, disabledReason, onSubmit }: { busy: boolean; onSubmit: (input: Record<string, unknown>, isDestructive: boolean) => void } & DoomedGate) => {
   const [sql, setSql] = useState('');
   const [paramsRaw, setParamsRaw] = useState('');
   const [paramsError, setParamsError] = useState<string | null>(null);
+  const doomed = Boolean(disabledReason);
 
   // Best-effort client hint (the WORKER classifies authoritatively): flag likely-destructive DDL/DML so the
   // confirm dialog fires up-front. The server re-classifies + gates regardless, so this is only UX.
@@ -1233,12 +1303,13 @@ const D1ExecForm = memo(({ busy, onSubmit }: { busy: boolean; onSubmit: (input: 
   };
 
   return (
-    <div className="space-y-1.5" data-testid="resource-mutate-d1-exec">
+    <div className="space-y-1.5" data-testid="resource-mutate-d1-exec" title={disabledReason} aria-disabled={doomed || undefined}>
       <label className="block text-[10px] uppercase tracking-wider text-bolt-elements-textTertiary">Run SQL</label>
       <textarea
         className={classNames(inputClass, 'min-h-[64px] resize-y')}
         placeholder="SELECT * FROM my_table LIMIT 10;"
         aria-label="SQL statement to run"
+        disabled={doomed}
         value={sql}
         onChange={(e) => setSql(e.target.value)}
       />
@@ -1246,12 +1317,13 @@ const D1ExecForm = memo(({ busy, onSubmit }: { busy: boolean; onSubmit: (input: 
         className={inputClass}
         placeholder='params (JSON array, optional) — e.g. ["a", 1]'
         aria-label="Bound SQL parameters as a JSON array"
+        disabled={doomed}
         value={paramsRaw}
         onChange={(e) => setParamsRaw(e.target.value)}
       />
       {paramsError && <p className="text-[10px] text-red-400">{paramsError}</p>}
       <div className="flex items-center gap-2">
-        <button type="button" className={likelyDestructive ? dangerBtnClass : primaryBtnClass} disabled={busy || !sql.trim()} onClick={submit}>
+        <button type="button" className={likelyDestructive ? dangerBtnClass : primaryBtnClass} disabled={busy || doomed || !sql.trim()} title={disabledReason} onClick={submit}>
           <div className={classNames(busy ? 'i-ph:circle-notch animate-spin motion-reduce:animate-none' : 'i-ph:play-duotone', 'text-sm')} /> Run
         </button>
         {likelyMutating && (
@@ -1706,11 +1778,20 @@ const EmptyResult = memo(({ inChild }: { inChild: boolean }) => (
 
 EmptyResult.displayName = 'ResourceDetailPanel.EmptyResult';
 
-const DisabledCard = memo(() => (
+/**
+ * The honest flag-dark state (per dark-route-404-distinguish-by-message-not-code): the surface is
+ * HEALTHY but not switched on, so this is a calm explainer — never an error card, never a Retry.
+ * (A Feature-Flags deep link is deliberately absent: the embedded editor has no super-admin signal
+ * in its context, so it never advertises an action the viewer may not have.)
+ */
+const DisabledCard = memo(({ kind }: { kind: string }) => (
   <div className="flex-1 flex flex-col items-center justify-center gap-3 p-8 text-center" data-testid="resource-detail-disabled">
     <div className="i-ph:lock-key text-3xl text-bolt-elements-textTertiary" />
-    <p className="text-sm font-medium text-bolt-elements-textSecondary">Resources isn’t enabled yet</p>
-    <p className="text-[11px] text-bolt-elements-textTertiary max-w-[260px]">Once it’s turned on, you can browse this resource’s contents here — nothing to set up.</p>
+    <p className="text-sm font-medium text-bolt-elements-textSecondary">{titleForKind(kind)} — not enabled yet</p>
+    <p className="text-[11px] text-bolt-elements-textTertiary max-w-[280px]">{explainerForKind(kind)}</p>
+    <p className="text-[11px] text-bolt-elements-textTertiary max-w-[280px]">
+      Nothing is broken — this surface just isn’t switched on for your site yet. It appears here automatically once it is.
+    </p>
   </div>
 ));
 
