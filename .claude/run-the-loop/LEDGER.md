@@ -224,3 +224,14 @@ git history._
 - ops: junk tokens e2e-v1-{b,c,d} revoked (3×200, only e2e-v1-acceptance remains); stale fire-55 worktree removed (salvaged, 0 ahead); 2 wedged agents killed (fire-56 mint original silent 36m; chat-completions v1 silent 45m — nudge, kill, fresh respawn landed in 7m).
 - explorer: create-funnel journey (PASS_CLOUDFLARE, 5 states, 5/5 vision) — caught the live Places-429 money-path degradation that became the search-resilience slice.
 - loop improvement: stall-detection playbook proven (silent-agent mtime check → SendMessage nudge → bounded 90s wait → kill+salvage+respawn with exact-file brief).
+
+## fire-58 (2026-09-29/30, lease fire-58-campaign-lane4-stream) — lane-4 complete + role-18 + Phase C
+- lane-4 COMPLETE: `8afc37008` SSE streaming (synthesized, honest) + Anthropic /v1/messages + count_tokens; prod-proven post-deploy (SSE chunks consistent-id + msg_ envelope live on f8bf4ddc).
+- lane-3 UI: `0bbe9b057` AI-keys grant section in mint dialog + summary chips, dark behind ai_api_keys; Karma 2398.
+- role-18 template: `b353c888a` provenance gate (validateClaimProvenance in validateBuild; _citations.json Zod contract) + backlog tick `6435e91ca`; 374 tests.
+- long-trail: `a0c92ed0a` Phase C GREEN (actions 1-37) — REAL fire-57 regression fixed: SITE_INDEPENDENT_ADMIN_PATHS listed only feature-flags; settings/editor/analytics/hosting/billing/user bounced to launchpad (was LIVE on prod; fixed in frontend main-6HCLDA3V). Vite outdated-optimize-dep 504 = shared-dev-server concurrent-edit confound (NOT a product bug). team_invites deleted_at: prod has it out-of-band; migration set didn't → `0651` alignment migration (LOCAL-ONLY apply). /api/team prod = 200 (local-only 500).
+- explorer: `f596e0a3a` settings-api-tokens journey ran (ledger 03:10Z) [salvaged — agent wedged at final commit; DISCOVERIES append lost].
+- deploys: worker f8bf4ddc + frontend main-6HCLDA3V hash-verified; no editor changes.
+- loop improvement: wedged-agent + parallel-migration-number + prod-migration-apply protocols → OPERATING-PRINCIPLES (pushed pre-fan-out).
+- INCIDENT: adversarial reviewer unspawnable (session limit, resets 12:30am ET) — fire-58 diff review DEFERRED to next fire's reviewer (scope note: anthropic x-api-key auth order, SSE escaping, mint-UI server-revalidation, SITE_INDEPENDENT expansion data-leak check, provenance-gate crash-safety).
+- CLOSED BY BRIAN: "cancel all loops" — cron 5b233086 (7,22,37,52 * * * *) DELETED; lease released; loop halted cleanly with all slices landed + deployed + verified.
