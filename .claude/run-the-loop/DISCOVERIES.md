@@ -169,3 +169,42 @@ discovery agent under-scanned → rotate area next fire.
   `psk_live_*` keystore is EXTENDED by lane 3 — one token DB, never two.
 - Removed AI-endpoints product STAYS removed — no UI-authored per-site endpoints resurrected; Site
   Functions remain code-defined WfP.
+
+---
+
+## fire-58 long-trail TDD discoveries (case-001 Phase C, 2026-09-30)
+
+### D1: shared-dev-server Vite outdated-optimize-dep confound (phantom Settings crash)
+- **Symptom**: Phase C Action 27 (Settings nav) appeared to fail — Angular navigated to `/admin`
+  instead of `/admin/settings`. No product defect in the Settings route itself.
+- **Root cause**: A concurrent agent commit (`0bbe9b057`) added `@tanstack/angular-table` and
+  changed the Vite dep-hash. The running `ng serve` had a stale pre-bundled dep cache. When
+  Angular lazy-loaded the Settings chunk, Vite returned HTTP 504 "Outdated Optimize Dep" for the
+  changed dep. Angular's GlobalErrorHandler caught the failed dynamic `import()` and called
+  `replaceState("/admin")` — visually identical to a route guard redirect.
+- **Fix**: kill `ng serve`, `rm -rf frontend/.angular/cache`, restart. The 504s resolve on first
+  boot with a fresh cache.
+- **Class**: `[[shared-dev-server-concurrent-edit-vite-cache-confound]]`. A stale Vite cache on a
+  shared live dev server produces phantom navigation failures that look exactly like product bugs.
+  Always clear `.angular/cache` when a concurrent agent has committed new deps before diagnosing
+  route failures.
+
+### D1: `team_invites.deleted_at` missing column — schema-drift 500 on every `/api/team` request
+- **File:line**: `src/routes/ai_admin.ts:73-78`
+- **Symptom**: `GET /api/team` → HTTP 500 "table team_invites has no column named deleted_at".
+  Three 500s appear in the console-error gate as "Failed to load resource: 500" (no URL in message).
+- **Root cause**: The handler at `ai_admin.ts:73-78` queries
+  `WHERE org_id = ? AND accepted_at IS NULL AND deleted_at IS NULL` but migration 0013
+  (`migrations/0013_ai_platform.sql`) creates `team_invites` WITHOUT a `deleted_at` column.
+  No other migration adds it. Classic swallowed-SQL-error / schema-drift-as-500 pattern
+  (memory: `swallowed-sql-error-masks-schema-drift-as-404`).
+- **Class**: `[[team-invites-deleted-at-never-migrated]]`. The handler was written assuming
+  a column that was never added to the migration. Fix: add a migration adding
+  `deleted_at TEXT` (nullable) to `team_invites`, OR remove the `deleted_at` filter from the
+  handler if soft-delete is not needed. Per coordinator: do NOT add the migration in this fire;
+  note as product defect; continue past it.
+- **Console-error gate note**: The 500 errors produce generic "Failed to load resource: 500"
+  console messages with no URL embedded. The response listener (`page.on('response', ...)`)
+  captures the URL. The gate in `case-001-money-path.e2e.ts` correlates by count:
+  `knownTeam500Count` (from the response listener) is subtracted from generic-500 console errors
+  before asserting the remaining unexplained ones must be 0.

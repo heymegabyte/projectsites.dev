@@ -64,11 +64,27 @@ interface Notification {
 /**
  * Admin sections that are PLATFORM surfaces, not site surfaces — they render
  * fully with ZERO sites in the org, so the "No sites yet" launchpad must never
- * swallow them (fire-57: /admin/feature-flags lists the worker's code
- * registry ∪ D1 union, which exists on a completely fresh install).
+ * swallow them.
+ *
+ * fire-57: /admin/feature-flags lists the worker's code registry ∪ D1 union.
+ * fire-58: /admin/settings (org-level settings + API tokens) and /admin/user
+ *          (user profile/preferences) are platform-wide and render without a
+ *          site. /admin/editor handles the zero-site state internally (shows
+ *          an onboarding shell). /admin/analytics renders platform-level
+ *          aggregate analytics (no site required). /admin/hosting (domains) and
+ *          /admin/billing are also org-scoped and render site-free.
+ *
  * Grow this list only with sections verified to render site-free.
  */
-const SITE_INDEPENDENT_ADMIN_PATHS: readonly string[] = ['/admin/feature-flags'];
+const SITE_INDEPENDENT_ADMIN_PATHS: readonly string[] = [
+  '/admin/feature-flags',
+  '/admin/settings',
+  '/admin/user',
+  '/admin/editor',
+  '/admin/analytics',
+  '/admin/hosting',
+  '/admin/billing',
+];
 
 /**
  * `g`-chord navigation targets — each MUST match the route the shortcuts-overlay

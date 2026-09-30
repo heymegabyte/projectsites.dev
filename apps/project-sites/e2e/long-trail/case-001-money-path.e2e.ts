@@ -251,12 +251,169 @@ test.describe('Long-Trail Case 001 :: PHASE B (cockpit tour)', () => {
 });
 
 // ───────────────────────────────────────────────────────────────────────────────
-// PHASES C–F — authored in case-001-money-path.md, driven live in later cycles.
+// PHASE C — Settings → API Tokens (mint-dialog open/cancel, NO real mint) →
+// Editor shell surface (fire-58).
+// Promoted from test.fixme in fire-58; driven live against the real local stack.
+// ───────────────────────────────────────────────────────────────────────────────
+test.describe('Long-Trail Case 001 :: PHASE C (Settings + API Tokens + Editor shell)', () => {
+  test.skip(!TEST_PASSWORD, 'E2E_TEST_PASSWORD not set — real test-login seam is unreachable.');
+
+  test(
+    'C: Settings nav → API Tokens tab → mint-dialog open/cancel → Editor shell',
+    async ({ page }) => {
+      const consoleErrors: string[] = [];
+      page.on('console', (m) => {
+        if (m.type() === 'error') consoleErrors.push(m.text());
+      });
+      // Diagnostic: capture server 5xx URLs so allowlist entries are precise.
+      // Each 5xx response fires a browser console error "Failed to load resource: the
+      // server responded with a status of 500" — the error text has no URL, only the
+      // response listener captures the URL. We correlate by counting.
+      const srv5xxUrls: string[] = [];
+      let knownTeam500Count = 0;
+      page.on('response', (r) => {
+        if (r.status() >= 500) {
+          srv5xxUrls.push(`${r.status()} ${r.url()}`);
+          if (/\/api\/team/.test(r.url())) knownTeam500Count++;
+        }
+      });
+
+      // ── Auth ──────────────────────────────────────────────────────────────
+      await page.goto(APP + '/signin?test=1');
+      await page.getByTestId('test-signin-password').fill(TEST_PASSWORD);
+      await page.getByTestId('test-signin-submit').click();
+      await expect(page).toHaveURL(/\/admin/);
+
+      // ── Action 27: Navigate to Settings via left nav ──────────────────────
+      await page.getByRole('link', { name: /^Settings$/i }).click();
+      await expect(page).toHaveURL(/\/admin\/settings/i);
+      await page.screenshot({
+        path: 'e2e/long-trail/screenshots-local/08-settings.png',
+        fullPage: false,
+      });
+
+      // ── Action 28: API Tokens tab renders ─────────────────────────────────
+      // The tab is identified by its visible label; fragment navigation activates it.
+      const apiTokensTab = page
+        .getByRole('tab', { name: /API Tokens/i })
+        .or(page.getByRole('button', { name: /API Tokens/i }))
+        .or(page.getByText(/API Tokens/i).first());
+      await apiTokensTab.click();
+      // Wait for the section to activate — the "New Token" button must be visible.
+      await expect(page.getByTestId('at-create-open')).toBeVisible({ timeout: 5000 });
+      await page.screenshot({
+        path: 'e2e/long-trail/screenshots-local/09-api-tokens.png',
+        fullPage: false,
+      });
+
+      // ── Action 29: "New Token" button is present + visible ─────────────────
+      const newTokenBtn = page.getByTestId('at-create-open');
+      await expect(newTokenBtn).toBeVisible();
+
+      // ── Action 30: Click "New Token" → mint dialog opens ──────────────────
+      await newTokenBtn.click();
+      // The dialog renders a name input (data-testid="at-name-input").
+      await expect(page.getByTestId('at-name-input')).toBeVisible({ timeout: 3000 });
+      await page.screenshot({
+        path: 'e2e/long-trail/screenshots-local/10-api-tokens-dialog.png',
+        fullPage: false,
+      });
+
+      // ── Action 31: Type into the name field (real keyboard) ───────────────
+      await page.getByTestId('at-name-input').fill('ltt-e2e-test-token');
+      await expect(page.getByTestId('at-name-input')).toHaveValue('ltt-e2e-test-token');
+
+      // ── Action 32: Cancel → dialog closes (NO mint, per safety contract) ──
+      // The dialog has a "Cancel" button (DialogShellComponent or inline).
+      const cancelBtn = page
+        .getByRole('button', { name: /Cancel/i })
+        .or(page.getByTestId('at-create-cancel'));
+      await cancelBtn.click();
+      // Dialog must close — name input goes away.
+      await expect(page.getByTestId('at-name-input')).not.toBeVisible({ timeout: 3000 });
+      await page.screenshot({
+        path: 'e2e/long-trail/screenshots-local/11-api-tokens-dialog-closed.png',
+        fullPage: false,
+      });
+
+      // ── Action 33: Hard-refresh on Settings → still authed + correct page ──
+      await page.reload();
+      await expect(page).toHaveURL(/\/admin\/settings/i);
+      const meAfterRefresh = await fetchMe(page);
+      expect(meAfterRefresh.status, 'Session must survive hard-refresh on Settings').toBe(200);
+      expect(meAfterRefresh.email).toBe(TEST_EMAIL);
+
+      // ── Action 34: Navigate to Editor via left nav ────────────────────────
+      await page.getByRole('link', { name: /^Editor$/i }).click();
+      await expect(page).toHaveURL(/\/admin\/editor/i);
+      await page.screenshot({
+        path: 'e2e/long-trail/screenshots-local/12-editor.png',
+        fullPage: false,
+      });
+
+      // ── Action 35: Editor shell H1 present (sr-only "Site editor") ────────
+      // The component always renders <h1 class="sr-only">Site editor</h1>.
+      const srH1 = page.locator('h1.sr-only');
+      await expect(srH1).toHaveText(/Site editor/i, { timeout: 5000 });
+
+      // ── Action 36: Editor empty/onboarding state visible ─────────────────
+      // With no site selected, the editor shows an onboarding / empty-state surface.
+      // Accept any of: the "Welcome" heading OR the site-not-found placeholder.
+      const editorEmptyState = page
+        .getByText(/Welcome to your admin/i)
+        .or(page.getByTestId('editor-site-not-found'))
+        .or(page.getByText(/Pick a site/i));
+      await expect(editorEmptyState.first()).toBeVisible({ timeout: 5000 });
+
+      // ── Action 37: Hard-refresh on Editor → session persists ─────────────
+      await page.reload();
+      await expect(page).toHaveURL(/\/admin\/editor/i);
+      const meEditorRefresh = await fetchMe(page);
+      expect(meEditorRefresh.status, 'Session must survive hard-refresh on Editor').toBe(200);
+      expect(meEditorRefresh.email).toBe(TEST_EMAIL);
+
+      // ── Console-error gate ────────────────────────────────────────────────
+      // Known-broken allowlist (do NOT expand without a DISCOVERIES.md entry):
+      //   /api/auth/get-session — 404 on test env (known, non-blocking)
+      //   status of 404        — generic 404 resources expected in test env
+      //   /api/team (500)      — schema-drift: team_invites.deleted_at column missing;
+      //                          no migration adds it (migration 0013 excludes it);
+      //                          real product defect at src/routes/ai_admin.ts:73-78.
+      //                          These 500s produce generic "Failed to load resource …
+      //                          500" console errors (no URL in message text). We
+      //                          correlate by counting via the response listener.
+      const genericLoadErrors = consoleErrors.filter((e) =>
+        /the server responded with a status of 500/.test(e),
+      );
+      // Allow up to knownTeam500Count generic 500 errors (attributed to /api/team).
+      const unexplainedGenericCount = Math.max(0, genericLoadErrors.length - knownTeam500Count);
+      const unexpected = consoleErrors.filter(
+        (e) =>
+          !/\/api\/auth\/get-session/.test(e) &&
+          !/status of 404/.test(e) &&
+          !/the server responded with a status of 500/.test(e),
+      );
+      // Attach diagnostic 5xx URL list to any console-error failure for easier triage.
+      const diagSuffix =
+        srv5xxUrls.length > 0 ? ` | srv-5xx-urls: [${srv5xxUrls.join(', ')}]` : '';
+      expect(
+        unexpected,
+        `unexpected console errors: ${unexpected.join(' | ')}${diagSuffix}`,
+      ).toHaveLength(0);
+      expect(
+        unexplainedGenericCount,
+        `${unexplainedGenericCount} generic-500 errors not attributed to /api/team${diagSuffix}`,
+      ).toBe(0);
+    },
+  );
+});
+
+// ───────────────────────────────────────────────────────────────────────────────
+// PHASES D–F — authored in case-001-money-path.md, driven live in later cycles.
 // `test.fixme` = honestly PENDING (never a false green). Each promotes to a real
 // test when its surface is exercised against the live local stack.
 // ───────────────────────────────────────────────────────────────────────────────
-test.describe('Long-Trail Case 001 :: PHASES C–F (pending live drive)', () => {
-  test.fixme('C: create/open a disposable ltt-e2e- site (stop before costly AI build)', async () => {});
+test.describe('Long-Trail Case 001 :: PHASES D–F (pending live drive)', () => {
   test.fixme('D: Bolt editor — Code edit + Preview live-reload + per-site D1 Data tab isolation', async () => {});
   test.fixme('E: promote → visit published → submit form → reconcile lead + pageview in stores', async () => {});
   test.fixme('F: install/remove disposable app → verify site still works → cleanup + tenant isolation', async () => {});
