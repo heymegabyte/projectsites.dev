@@ -294,6 +294,23 @@ export const FLAG_DOCS: Record<string, FlagDocs> = {
       'Pass ?cursor=<ts> to paginate',
     ],
   },
+  ai_api_keys: {
+    checklist: [
+      'Durable GrantRecords attached to psk_ tokens (ai_api_key_grants, one row per token)',
+      'POST /api/v1-tokens optional `grant` = mint-time snapshot of CONCRETE ids (never wildcards)',
+      'Shapes come from the SHARED @project-sites/shared ai-policy layer — GrantInputSchema is a .pick() derivation',
+      'Revision-tracked: every edit/revoke bumps revision so stale snapshots fail effectiveAllow live_state',
+      'List responses expose counts-only summaries — never the full snapshot, never plaintext',
+      'Off (default, DARK) → `grant` bodies reject VALIDATION_ERROR "not available"; plain token flow unchanged',
+    ],
+    explanation:
+      'AI API keys (campaign lane-3, §5): the storage + request surface for grants attached to Public API tokens — what the Settings "AI API Keys" UI and the /v1 OpenAI/Anthropic-compat executor consume. A create request may carry a `grant`: a mint-time snapshot of CONCRETE site/connection/action/model ids plus limits, approval policy and a mandatory expiry, validated by the shared ai-policy GrantInputSchema and persisted as GrantRecordSchema JSON in ai_api_key_grants (migration 0649). Grants only ever NARROW a token — a token without a grant row has NO AI allowance, so existing tokens never silently gain AI/publish/integration access. Revocation follows the token (DELETE revokes both) and every edit bumps the authoritative revision the intersection authorizer compares against.',
+    smoke_test: [
+      'Enable the flag → POST /api/v1-tokens with a valid `grant` → 201 with a counts-only grant summary; GET list shows the summary on that token',
+      'POST with an invalid grant (wildcard id / missing expiresAt) → 400 VALIDATION_ERROR with per-field issues and NO token minted',
+      'Disable the flag → POST carrying `grant` → 400 "not available"; POST without grant still mints (201)',
+    ],
+  },
   ai_gateway_guardrails: {
     checklist: [
       'Llama Guard middleware on /ai/* routes',

@@ -8,7 +8,7 @@
 ```bash
 cd packages/shared
 npm install --legacy-peer-deps
-npm test                         # 509 unit tests across 14 suites
+npm test                         # 579 unit tests across 16 suites (58 in ai-policy)
 npm run typecheck                # tsc --noEmit
 npm run lint                     # eslint
 npm run check                    # all of the above
@@ -193,7 +193,7 @@ redactObject(obj)           // Deep-redact sensitive keys in objects
 
 ## Testing
 
-14 test suites, 509 tests total:
+16 test suites, 579 tests total (+2 ai-policy suites, 58 tests: `ai-policy-schemas.test.ts` + `effective-allow.test.ts` — GrantRecord/capability schemas + the `effectiveAllow` intersection authorizer):
 - `schemas.test.ts` — Base schema validation
 - `middleware.test.ts` — RBAC + entitlements
 - `utils.test.ts` — Sanitization, errors, OTP

@@ -12,6 +12,7 @@
  * | `schemas`       | Zod schemas and inferred types for every domain entity and API envelope |
  * | `middleware`     | RBAC role/permission checks and plan entitlement guards                 |
  * | `utils`         | Sanitisation, PII redaction, typed errors, and Web Crypto helpers       |
+ * | `ai-policy`     | Capability manifests, GrantRecord schemas, `effectiveAllow` authorizer  |
  *
  * @example
  * ```ts
@@ -35,3 +36,4 @@ export * from './constants/index.js';
 export * from './schemas/index.js';
 export * from './middleware/index.js';
 export * from './utils/index.js';
+export * from './ai-policy/index.js';

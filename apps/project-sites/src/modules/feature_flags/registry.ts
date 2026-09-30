@@ -181,6 +181,15 @@ export const FLAG_REGISTRY: Record<string, FlagDefinition> = {
     owner_email: 'brian@megabyte.space',
     stage: 'experimental',
   },
+  ai_api_keys: {
+    default_enabled: false,
+    default_rollout_percent: 0,
+    description:
+      'AI API keys — durable GrantRecords attached to psk_ API tokens (campaign lane-3, CAMPAIGN-cf-native-ai §5): the storage + request surface the Settings "AI API Keys" UI and the /v1 OpenAI/Anthropic-compat executor consume.\n\n• POST /api/v1-tokens accepts an optional `grant` body — a mint-time snapshot of CONCRETE ids (sites/connections/actions/models + limits/approval policy/expiry) validated by the SHARED ai-policy GrantInputSchema and persisted to ai_api_key_grants (migration 0649, one row per token, revision-tracked for effectiveAllow\'s live_state leg). GET list responses attach counts-only grant summaries.\n• Who sees it: org admins on Settings → API Tokens minting AI-scoped keys; later slices add the UI selector + the /v1 executor that authorizes via effectiveAllow.\n• Failure mode when off (default, DARK): a create request carrying `grant` is rejected VALIDATION_ERROR ("not available") and NO token is minted; the no-grant token flow is unchanged byte-for-byte, so existing tokens never silently gain AI/publish/integration access (grants only ever NARROW).\n• Acceptance: flag on → create-with-grant persists a revision-1 GrantRecord + returns the summary; off → grant requests reject and plain tokens still mint.',
+    key: 'ai_api_keys',
+    owner_email: 'brian@megabyte.space',
+    stage: 'experimental',
+  },
   // ── 10 experimental features — site-as-MCP, cold-tier, ghost-routes, speed-compare, auto-gen-files, hallucination-guard, visitor-recognition, faq-from-tickets, competitor-monitor
   ai_gateway_guardrails: {
     default_enabled: false,
