@@ -1,9 +1,17 @@
 /**
  * Tests for the MCP OAuth 2.1 authorization server.
- * Mocks flag gate + api_tokens + KV so no network/DB hits.
+ * Mocks flag gate + api_tokens; KV mock carries client registrations; codes
+ * live in a REAL in-memory SQLite behind a D1-shaped adapter (schema loaded
+ * from migration 0649 — the real-SQLite harness pattern), matching the
+ * D1-backed atomic code store shipped in campaign lane-2 (fire-57).
  * Covers: flag-off 404, DCR, authorize (browser + API), token exchange.
+ * Presenter-intersection + parallel-exchange atomicity live in the sibling
+ * scope_intersection_atomic_codes.test.ts.
  */
 import { Hono } from 'hono';
+import { DatabaseSync } from 'node:sqlite';
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
 
 const mockIsFlagOn = jest.fn();
 jest.mock('../../../../src/modules/feature_flags/services.js', () => ({
@@ -45,7 +53,84 @@ function app(kv: ReturnType<typeof makeKv>) {
   return a;
 }
 
-const baseEnv = (kv: ReturnType<typeof makeKv>) => ({ CACHE_KV: kv } as never);
+// ── Real-SQLite D1 harness for the code store (schema = migration 0649) ──────
+const MIGRATION_SQL = readFileSync(
+  join(__dirname, '../../../../migrations/0649_mcp_oauth_codes.sql'),
+  'utf8',
+);
+
+function freshDb(): DatabaseSync {
+  const db = new DatabaseSync(':memory:');
+  db.exec(MIGRATION_SQL);
+  return db;
+}
+
+function makeD1(db: DatabaseSync) {
+  return {
+    prepare(sql: string) {
+      let bound: unknown[] = [];
+      const api = {
+        bind(...args: unknown[]) {
+          bound = args;
+          return api;
+        },
+        async run() {
+          const info = db.prepare(sql).run(...(bound as never[]));
+          return { success: true, meta: { changes: Number(info.changes ?? 0) } };
+        },
+        async first<T>() {
+          return (db.prepare(sql).get(...(bound as never[])) ?? null) as T | null;
+        },
+        async all<T>() {
+          return { results: db.prepare(sql).all(...(bound as never[])) as T[] };
+        },
+      };
+      return api;
+    },
+  };
+}
+
+/** SHA-256 hex — mirrors how the service stores codes (hash only, never plaintext). */
+async function sha256Hex(s: string): Promise<string> {
+  const buf = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(s));
+  return Array.from(new Uint8Array(buf))
+    .map((b) => b.toString(16).padStart(2, '0'))
+    .join('');
+}
+
+/** Seeds a code row in the D1 store (presenter_scopes defaults to the granted scope). */
+async function seedCode(
+  db: DatabaseSync,
+  code: string,
+  record: {
+    client_id: string;
+    redirect_uri: string;
+    scope: string;
+    presenter_scopes?: string;
+    code_challenge?: string;
+    org_id: string;
+    expires_at: number;
+  },
+): Promise<void> {
+  db.prepare(
+    `INSERT INTO mcp_oauth_codes (code_hash, org_id, client_id, scope, presenter_scopes, code_challenge, redirect_uri, created_by_token_id, expires_at, used_at, created_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, ?)`,
+  ).run(
+    await sha256Hex(code),
+    record.org_id,
+    record.client_id,
+    record.scope,
+    record.presenter_scopes ?? record.scope,
+    record.code_challenge ?? 'unused-challenge-aaaaaaaaaaaaaaaaaaaaaaaaaaa',
+    record.redirect_uri,
+    'tok-1',
+    record.expires_at,
+    Math.floor(Date.now() / 1000),
+  );
+}
+
+const baseEnv = (kv: ReturnType<typeof makeKv>, db?: DatabaseSync) =>
+  ({ CACHE_KV: kv, DB: db ? makeD1(db) : undefined } as never);
 
 beforeEach(() => {
   mockIsFlagOn.mockReset();
@@ -299,6 +384,7 @@ describe('POST /api/oauth/authorize', () => {
       created_at: new Date().toISOString(),
     }));
     const kv = makeKv(store);
+    const db = freshDb();
 
     const res = await app(kv).request('/api/oauth/authorize', {
       method: 'POST',
@@ -311,13 +397,20 @@ describe('POST /api/oauth/authorize', () => {
         scope: 'sites:read',
         state: 'random_state_xyz',
       }),
-    }, baseEnv(kv));
+    }, baseEnv(kv, db));
 
     expect(res.status).toBe(200);
     const body = await res.json() as { redirect_uri: string };
     expect(body.redirect_uri).toContain('code=');
     expect(body.redirect_uri).toContain('state=random_state_xyz');
     expect(body.redirect_uri).toContain('https://example.com/cb');
+    // The code row landed in D1 with the presenter snapshot (hash-only at rest).
+    const row = db
+      .prepare('SELECT scope, presenter_scopes, used_at FROM mcp_oauth_codes')
+      .get() as { scope: string; presenter_scopes: string; used_at: number | null };
+    expect(row.scope).toBe('sites:read');
+    expect(row.presenter_scopes).toBe('sites:read');
+    expect(row.used_at).toBeNull();
   });
 });
 
@@ -336,9 +429,10 @@ describe('POST /oauth/token', () => {
     expect(res.status).toBe(400);
   });
 
-  it('returns 400 when code does not exist in KV', async () => {
+  it('returns 400 when code does not exist in the D1 store', async () => {
     mockIsFlagOn.mockResolvedValue(true);
     const kv = makeKv();
+    const db = freshDb();
     const res = await app(kv).request('/oauth/token', {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
@@ -349,7 +443,7 @@ describe('POST /oauth/token', () => {
         redirect_uri: 'https://ex.com/cb',
         code_verifier: 'pkce_verifier_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
       }),
-    }, baseEnv(kv));
+    }, baseEnv(kv, db));
     expect(res.status).toBe(400);
     const body = await res.json() as { error: string };
     expect(body.error).toBe('invalid_grant');
@@ -358,13 +452,14 @@ describe('POST /oauth/token', () => {
   it('accepts form-urlencoded body as well as JSON', async () => {
     mockIsFlagOn.mockResolvedValue(true);
     const kv = makeKv();
+    const db = freshDb();
     // Not seeding a code, but the endpoint must parse the form body and
     // return 400 (invalid_grant) — proving it accepted the content-type.
     const res = await app(kv).request('/oauth/token', {
       method: 'POST',
       headers: { 'content-type': 'application/x-www-form-urlencoded' },
       body: 'grant_type=authorization_code&code=badcode&client_id=c1&redirect_uri=https%3A%2F%2Fex.com%2Fcb&code_verifier=pkce_verifier_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
-    }, baseEnv(kv));
+    }, baseEnv(kv, db));
     // 400 invalid_grant (not 422 parse error) proves body was parsed
     const body = await res.json() as { error: string };
     expect(body.error).toBe('invalid_grant');
@@ -381,16 +476,16 @@ describe('POST /oauth/token', () => {
 
   it('rejects a wrong PKCE verifier with invalid_grant', async () => {
     mockIsFlagOn.mockResolvedValue(true);
-    const store = new Map<string, string>();
-    store.set('oauth_code:c-pkce', JSON.stringify({
+    const kv = makeKv();
+    const db = freshDb();
+    await seedCode(db, 'c-pkce', {
       client_id: 'client-tok',
       redirect_uri: 'https://example.com/cb',
       code_challenge: await s256('the_real_verifier_value_123456'),
       scope: 'sites:read',
       org_id: 'org-1',
       expires_at: Math.floor(Date.now() / 1000) + 300,
-    }));
-    const kv = makeKv(store);
+    });
     const res = await app(kv).request('/oauth/token', {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
@@ -398,7 +493,7 @@ describe('POST /oauth/token', () => {
         grant_type: 'authorization_code', code: 'c-pkce', client_id: 'client-tok',
         redirect_uri: 'https://example.com/cb', code_verifier: 'pkce_verifier_bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb',
       }),
-    }, baseEnv(kv));
+    }, baseEnv(kv, db));
     expect(res.status).toBe(400);
     expect(((await res.json()) as { error: string }).error).toBe('invalid_grant');
     expect(mockCreate).not.toHaveBeenCalled(); // no token minted on PKCE failure
@@ -407,17 +502,17 @@ describe('POST /oauth/token', () => {
   it('mints the psk_ PLAINTEXT as access_token on a valid exchange + enforces single-use', async () => {
     mockIsFlagOn.mockResolvedValue(true);
     const verifier = 'pkce_verifier_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa';
-    const store = new Map<string, string>();
-    store.set('oauth_code:good', JSON.stringify({
+    const kv = makeKv();
+    const db = freshDb();
+    await seedCode(db, 'good', {
       client_id: 'client-ok',
       redirect_uri: 'https://example.com/cb',
       code_challenge: await s256(verifier),
       scope: 'sites:read sites:write',
+      presenter_scopes: 'sites:read sites:write',
       org_id: 'org-1',
-      created_by_token_id: 'tok-1',
       expires_at: Math.floor(Date.now() / 1000) + 300,
-    }));
-    const kv = makeKv(store);
+    });
     // Mirror the REAL createApiToken return shape: { token: <public row>, plaintext: <psk_ string> }.
     mockCreate.mockResolvedValue({ token: { id: 'tok-new', org_id: 'org-1' }, plaintext: 'psk_realsecret' });
 
@@ -427,7 +522,7 @@ describe('POST /oauth/token', () => {
     };
     const res = await app(kv).request('/oauth/token', {
       method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body),
-    }, baseEnv(kv));
+    }, baseEnv(kv, db));
 
     expect(res.status).toBe(200);
     const json = (await res.json()) as { access_token: string; token_type: string; scope: string };
@@ -439,10 +534,10 @@ describe('POST /oauth/token', () => {
     expect(args[1]).toBe('org-1');
     expect(args[3]).toEqual(['sites:read', 'sites:write']);
 
-    // Single-use: the code was deleted on first exchange → replay fails.
+    // Single-use: the atomic claim flipped used_at on first exchange → replay fails.
     const replay = await app(kv).request('/oauth/token', {
       method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body),
-    }, baseEnv(kv));
+    }, baseEnv(kv, db));
     expect(replay.status).toBe(400);
     expect(((await replay.json()) as { error: string }).error).toBe('invalid_grant');
   });
@@ -450,17 +545,20 @@ describe('POST /oauth/token', () => {
   it('rejects an expired authorization code with invalid_grant', async () => {
     mockIsFlagOn.mockResolvedValue(true);
     const verifier = 'pkce_verifier_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa';
-    const store = new Map<string, string>();
-    store.set('oauth_code:exp', JSON.stringify({
-      client_id: 'c', redirect_uri: 'https://ex.com/cb',
-      code_challenge: await s256(verifier), scope: 'sites:read', org_id: 'org-1',
+    const kv = makeKv();
+    const db = freshDb();
+    await seedCode(db, 'exp', {
+      client_id: 'c',
+      redirect_uri: 'https://ex.com/cb',
+      code_challenge: await s256(verifier),
+      scope: 'sites:read',
+      org_id: 'org-1',
       expires_at: Math.floor(Date.now() / 1000) - 10, // already expired
-    }));
-    const kv = makeKv(store);
+    });
     const res = await app(kv).request('/oauth/token', {
       method: 'POST', headers: { 'content-type': 'application/json' },
       body: JSON.stringify({ grant_type: 'authorization_code', code: 'exp', client_id: 'c', redirect_uri: 'https://ex.com/cb', code_verifier: verifier }),
-    }, baseEnv(kv));
+    }, baseEnv(kv, db));
     expect(res.status).toBe(400);
     expect(((await res.json()) as { error: string }).error).toBe('invalid_grant');
     expect(mockCreate).not.toHaveBeenCalled();
@@ -468,16 +566,15 @@ describe('POST /oauth/token', () => {
 
   it('returns 400 when client_id does not match stored code', async () => {
     mockIsFlagOn.mockResolvedValue(true);
-    const store = new Map<string, string>();
-    store.set('oauth_code:c999', JSON.stringify({
-      code: 'c999',
+    const kv = makeKv();
+    const db = freshDb();
+    await seedCode(db, 'c999', {
       client_id: 'real-client',
       redirect_uri: 'https://ex.com/cb',
       scope: 'sites:read',
       org_id: 'org-1',
-      created_at: new Date().toISOString(),
-    }));
-    const kv = makeKv(store);
+      expires_at: Math.floor(Date.now() / 1000) + 300,
+    });
 
     const res = await app(kv).request('/oauth/token', {
       method: 'POST',
@@ -489,7 +586,7 @@ describe('POST /oauth/token', () => {
         redirect_uri: 'https://ex.com/cb',
         code_verifier: 'pkce_verifier_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
       }),
-    }, baseEnv(kv));
+    }, baseEnv(kv, db));
 
     expect(res.status).toBe(400);
     const body = await res.json() as { error: string };

@@ -72,11 +72,18 @@ export const AuthorizeParamsSchema = z.object({
 });
 export type AuthorizeParams = z.infer<typeof AuthorizeParamsSchema>;
 
-// ── KV stored authorization code ─────────────────────────────────────────────
+// ── D1-stored authorization code (mcp_oauth_codes, migration 0649) ───────────
 export const OAuthCodeSchema = z.object({
   client_id: z.string(),
   redirect_uri: z.string(),
+  /** GRANTED scopes — requested ∩ presenter at authorize time, space-delimited. */
   scope: z.string(),
+  /**
+   * Snapshot of the PRESENTING principal's effective OAuth scopes at authorize
+   * time, space-delimited. The token exchange re-intersects against this
+   * defensively so a minted child token can never exceed presenter authority.
+   */
+  presenter_scopes: z.string(),
   code_challenge: z.string(),
   org_id: z.string(),
   created_by_token_id: z.string().optional(),

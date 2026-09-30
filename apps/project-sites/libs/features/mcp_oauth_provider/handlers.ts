@@ -21,6 +21,7 @@ import {
   TokenRequestSchema,
   OAUTH_ALLOWED_SCOPES,
 } from './schemas.js';
+import type { OAuthScope } from './schemas.js';
 import {
   FLAG_KEY,
   CODE_TTL_SECONDS,
@@ -29,6 +30,9 @@ import {
   getClient,
   putCode,
   consumeCode,
+  presenterScopesFromTokenScopes,
+  presenterScopesForSession,
+  intersectScopes,
   randomUrlSafe,
   pkceMatches,
   isAllowedRedirectUri,
@@ -171,18 +175,36 @@ oauthProvider.get('/oauth/authorize', async (c) => {
   return c.redirect(`${base}/oauth/consent?${qs.toString()}`, 302);
 });
 
-// ── API authorize (Bearer-gated) — issues code ────────────────────────────────
+// ── API authorize (presenter-gated) — issues code ────────────────────────────
 oauthProvider.post('/api/oauth/authorize', async (c) => {
   if (!(await flagGuard(c))) return c.json({ error: { code: 'NOT_FOUND' } }, 404);
 
-  // Bearer-gate: caller must present a valid platform token
+  // Presenter resolution — WHO is granting, and what may they grant? The
+  // consent POST arrives either with a psk_ API token (api_tokens service) or
+  // as the signed-in SESSION (authMiddleware populates userId/orgId on /api/*
+  // — the Angular consent page's path). The minted grant can never exceed the
+  // PRESENTER's own authority: grantable = requested ∩ presenter (below).
   const bearerRaw = extractBearerToken(c.req.header('authorization') ?? null);
-  if (!bearerRaw) {
-    return c.json({ error: 'unauthorized', error_description: 'Bearer token required.' }, 401);
-  }
-  const tokenResult = await verifyApiToken(c.env.DB, bearerRaw);
-  if (!tokenResult) {
-    return c.json({ error: 'unauthorized', error_description: 'Invalid or expired token.' }, 401);
+  let orgId: string;
+  let createdByTokenId: string | undefined;
+  let presenterScopes: readonly OAuthScope[];
+
+  if (bearerRaw) {
+    const tokenResult = await verifyApiToken(c.env.DB, bearerRaw);
+    if (!tokenResult) {
+      return c.json({ error: 'unauthorized', error_description: 'Invalid or expired token.' }, 401);
+    }
+    orgId = tokenResult.org_id;
+    createdByTokenId = tokenResult.id;
+    presenterScopes = presenterScopesFromTokenScopes(tokenResult.scopes);
+  } else {
+    const sessionUserId = c.get('userId');
+    const sessionOrgId = c.get('orgId');
+    if (!sessionUserId || !sessionOrgId) {
+      return c.json({ error: 'unauthorized', error_description: 'Bearer token required.' }, 401);
+    }
+    orgId = sessionOrgId;
+    presenterScopes = await presenterScopesForSession(c.env.DB, sessionUserId, sessionOrgId);
   }
 
   let body: unknown;
@@ -216,23 +238,37 @@ oauthProvider.post('/api/oauth/authorize', async (c) => {
     return c.json({ error: 'invalid_request', error_description: 'Only S256 code_challenge_method is supported.' }, 400);
   }
 
-  // Scope validation
+  // Scope validation — static allowlist first (clear error for unknown scopes)…
   const requestedScopes = parsed.data.scope.split(' ').filter(Boolean);
   const invalidScopes = requestedScopes.filter((s) => !(OAUTH_ALLOWED_SCOPES as readonly string[]).includes(s));
   if (invalidScopes.length > 0) {
     return c.json({ error: 'invalid_scope', error_description: `Unsupported scopes: ${invalidScopes.join(', ')}` }, 400);
   }
 
-  // Mint single-use authorization code
+  // …then the PRESENTER intersection (grant-mint escalation fix): the grant is
+  // requested ∩ presenter. Empty ⇒ the presenter holds none of what was asked
+  // for — refuse rather than escalate. Partial overlap narrows the grant.
+  const grantableScopes = intersectScopes(requestedScopes, presenterScopes);
+  if (grantableScopes.length === 0) {
+    return c.json({
+      error: 'invalid_scope',
+      error_description: "Requested scopes exceed the presenting credential's authority.",
+    }, 400);
+  }
+
+  // Mint single-use authorization code (D1-backed; hash-only at rest). The
+  // presenter's effective scopes are snapshotted so the exchange can
+  // re-intersect defensively (minted child token ≤ presenter authority).
   const code = randomUrlSafe(32);
   const now = Math.floor(Date.now() / 1000);
-  await putCode(c.env.CACHE_KV, code, {
+  await putCode(c.env.DB, code, {
     client_id: parsed.data.client_id,
     redirect_uri: parsed.data.redirect_uri,
-    scope: parsed.data.scope,
+    scope: grantableScopes.join(' '),
+    presenter_scopes: presenterScopes.join(' '),
     code_challenge: parsed.data.code_challenge,
-    org_id: tokenResult.org_id,
-    created_by_token_id: tokenResult.id,
+    org_id: orgId,
+    ...(createdByTokenId ? { created_by_token_id: createdByTokenId } : {}),
     expires_at: now + CODE_TTL_SECONDS,
   });
 
@@ -272,13 +308,16 @@ oauthProvider.post('/oauth/token', async (c) => {
     return c.json({ error: 'unsupported_grant_type', error_description: 'Only authorization_code is supported.' }, 400);
   }
 
-  // Consume the code (atomic delete)
-  const codeRecord = await consumeCode(c.env.CACHE_KV, parsed.data.code);
+  // Consume the code — ATOMIC single-use claim in D1: one conditional UPDATE
+  // (`used_at IS NULL AND expires_at > now`, meta.changes === 1). Two racing
+  // exchanges of the same code: exactly one wins; the loser, any replay, an
+  // expired code, and an unknown code all land here.
+  const codeRecord = await consumeCode(c.env.DB, parsed.data.code);
   if (!codeRecord) {
     return c.json({ error: 'invalid_grant', error_description: 'Authorization code not found, expired, or already used.' }, 400);
   }
 
-  // Expiry double-check (KV TTL should handle this, but belt+suspenders)
+  // Expiry double-check (the claim's WHERE already enforces this; belt+suspenders)
   const now = Math.floor(Date.now() / 1000);
   if (codeRecord.expires_at < now) {
     return c.json({ error: 'invalid_grant', error_description: 'Authorization code has expired.' }, 400);
@@ -300,10 +339,24 @@ oauthProvider.post('/oauth/token', async (c) => {
     return c.json({ error: 'invalid_grant', error_description: 'PKCE code_verifier does not match code_challenge.' }, 400);
   }
 
+  // Defensive re-intersection (child ≤ presenter): even if a stored record was
+  // widened (tampering, legacy drift), the minted token never exceeds the
+  // presenter-authority snapshot captured at authorize time.
+  const presenterSet = codeRecord.presenter_scopes.split(' ').filter(Boolean);
+  const scopes = codeRecord.scope
+    .split(' ')
+    .filter(Boolean)
+    .filter((s): s is ApiScope =>
+      (OAUTH_ALLOWED_SCOPES as readonly string[]).includes(s) && presenterSet.includes(s)
+    );
+  if (scopes.length === 0) {
+    return c.json({
+      error: 'invalid_scope',
+      error_description: "Granted scopes exceed the presenting credential's authority.",
+    }, 400);
+  }
+
   // Mint a real psk_ token via the existing token service
-  const scopes = codeRecord.scope.split(' ').filter((s): s is ApiScope =>
-    (OAUTH_ALLOWED_SCOPES as readonly string[]).includes(s)
-  );
   const expiresAt = new Date(Date.now() + TOKEN_TTL_SECONDS * 1000).toISOString();
   const tokenResult = await createApiToken(
     c.env.DB,
@@ -320,7 +373,9 @@ oauthProvider.post('/oauth/token', async (c) => {
     // an unusable object and break every subsequent /api/mcp call.
     access_token: tokenResult.plaintext,
     token_type: 'Bearer',
-    scope: codeRecord.scope,
+    // Report the scopes actually MINTED (post-intersection), never the raw
+    // stored string — the response must not overstate the token's authority.
+    scope: scopes.join(' '),
     expires_in: TOKEN_TTL_SECONDS,
   });
 });
