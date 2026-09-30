@@ -2,35 +2,35 @@
   "states": {
     "/::public-home::::d05f796d": {
       "discovered": "2026-09-29T19:57:38.675Z",
-      "visits": 10,
+      "visits": 11,
       "status": "visited",
       "lastAction": "homepage loads (initial state)",
-      "lastVisited": "2026-09-30T00:11:23.767Z",
-      "lastRun": "dux-2026-09-30T00-11-13-824Z"
+      "lastVisited": "2026-09-30T03:11:00.416Z",
+      "lastRun": "dux-2026-09-30T03-10-52-037Z"
     },
     "/signin::signin::::576d826f": {
       "discovered": "2026-09-29T19:57:43.656Z",
-      "visits": 9,
+      "visits": 10,
       "status": "visited",
       "lastAction": "click Sign In (header) → /signin",
-      "lastVisited": "2026-09-29T23:45:17.621Z",
-      "lastRun": "dux-2026-09-29T23-45-06-615Z"
+      "lastVisited": "2026-09-30T03:11:03.335Z",
+      "lastRun": "dux-2026-09-30T03-10-52-037Z"
     },
     "/signin::signin-test-seam::::02622a42": {
       "discovered": "2026-09-29T19:57:48.051Z",
-      "visits": 9,
+      "visits": 10,
       "status": "visited",
       "lastAction": "enter test seam (/signin?test=1) — panel render",
-      "lastVisited": "2026-09-29T23:45:20.758Z",
-      "lastRun": "dux-2026-09-29T23-45-06-615Z"
+      "lastVisited": "2026-09-30T03:11:06.427Z",
+      "lastRun": "dux-2026-09-30T03-10-52-037Z"
     },
     "/admin::admin-dashboard::::fec53253": {
       "discovered": "2026-09-29T19:57:55.718Z",
-      "visits": 10,
+      "visits": 11,
       "status": "visited",
       "lastAction": "test login submit → lands /admin",
-      "lastVisited": "2026-09-29T23:45:24.987Z",
-      "lastRun": "dux-2026-09-29T23-45-06-615Z"
+      "lastVisited": "2026-09-30T03:11:10.595Z",
+      "lastRun": "dux-2026-09-30T03-10-52-037Z"
     },
     "/admin/editor::admin-editor-shell::::6eca7550": {
       "discovered": "2026-09-29T19:58:16.461Z",
@@ -343,9 +343,58 @@
       "lastAction": "required-field blur-empty → inline error state",
       "lastVisited": "2026-09-30T00:11:52.047Z",
       "lastRun": "dux-2026-09-30T00-11-13-824Z"
+    },
+    "/admin/settings::admin-settings::::61dd00af": {
+      "discovered": "2026-09-30T03:11:14.858Z",
+      "visits": 1,
+      "status": "visited",
+      "lastAction": "nav → Settings (root, General tab)",
+      "lastVisited": "2026-09-30T03:11:14.858Z",
+      "lastRun": "dux-2026-09-30T03-10-52-037Z"
+    },
+    "/admin/settings::admin-settings::::f4563c30": {
+      "discovered": "2026-09-30T03:11:20.542Z",
+      "visits": 1,
+      "status": "visited",
+      "lastAction": "Settings › API Tokens tab — list state (0 token row(s))",
+      "lastVisited": "2026-09-30T03:11:20.542Z",
+      "lastRun": "dux-2026-09-30T03-10-52-037Z"
+    },
+    "/admin/settings::admin-settings::create-token-dialog::53e2bf34": {
+      "discovered": "2026-09-30T03:11:24.728Z",
+      "visits": 1,
+      "status": "visited",
+      "lastAction": "open New API Token dialog (name+scopes+expiry — NO mint)",
+      "lastVisited": "2026-09-30T03:11:24.728Z",
+      "lastRun": "dux-2026-09-30T03-10-52-037Z"
+    },
+    "/admin/settings::admin-settings::::487a2946": {
+      "discovered": "2026-09-30T03:11:27.174Z",
+      "visits": 1,
+      "status": "visited",
+      "lastAction": "dismiss create dialog (Escape, no mint) → list intact",
+      "lastVisited": "2026-09-30T03:11:27.174Z",
+      "lastRun": "dux-2026-09-30T03-10-52-037Z"
+    },
+    "/admin/settings::admin-settings::::72b562a3": {
+      "discovered": "2026-09-30T03:11:30.554Z",
+      "visits": 1,
+      "status": "visited",
+      "lastAction": "tab → General (back to Settings root)",
+      "lastVisited": "2026-09-30T03:11:30.554Z",
+      "lastRun": "dux-2026-09-30T03-10-52-037Z"
     }
   },
   "runs": [
+    {
+      "runId": "dux-2026-09-30T03-10-52-037Z",
+      "status": "PASS_CLOUDFLARE",
+      "provider": "cloudflare-browser-run",
+      "coverage": "CLOUD_PASS_ELIGIBLE",
+      "statesVisited": 9,
+      "blockedStates": {},
+      "finishedAt": "2026-09-30T03:11:30.555Z"
+    },
     {
       "runId": "dux-2026-09-30T00-11-13-824Z",
       "status": "PASS_CLOUDFLARE",

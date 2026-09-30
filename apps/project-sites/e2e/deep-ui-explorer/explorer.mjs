@@ -484,8 +484,10 @@ try {
   // before the sign-in phases below via this early check.
   // ---- Journey switch (coverage-ledger rotation across fires) --------------
   // EXPLORER_JOURNEY=admin-breadth walks the Angular admin's nav sections
-  // (no editor iframe — fast, wide); default database-history grinds the
-  // deep editor path. Rotate per fire via the coverage ledger.
+  // (no editor iframe — fast, wide); settings-api-tokens grinds the Settings ›
+  // API Tokens tab (list + mint dialog opened-then-dismissed, zero mutation);
+  // default database-history grinds the deep editor path. Rotate per fire via
+  // the coverage ledger.
   const JOURNEY = process.env.EXPLORER_JOURNEY || 'database-history';
   if (JOURNEY === 'admin-breadth') {
     const SECTIONS = (
@@ -512,6 +514,145 @@ try {
     // Return-to-dashboard closes the tour; proves nav persistence both ways.
     await clickFirst(page, [(p) => p.getByRole('link', { name: /^Dashboard$/ })]);
     await capture(page, 'nav → Dashboard (tour closes)', { surface: 'admin-dashboard' });
+    finish(
+      manifest.blocked.length === 0
+        ? acq.coverage === 'CLOUD_PASS_ELIGIBLE'
+          ? 'PASS_CLOUDFLARE'
+          : 'PASS_ON_FALLBACK_PROVIDER'
+        : 'PARTIAL',
+    );
+    await acq.browser.close().catch(() => {});
+    process.exit(manifest.status.startsWith('PASS') ? 0 : 2);
+  }
+
+  if (JOURNEY === 'settings-api-tokens') {
+    // Settings › API Tokens — authenticated, READ-ONLY BY CONSTRUCTION: walks
+    // list state → the "New API Token" mint dialog (opened, captured, DISMISSED
+    // — at-create-submit is NEVER clicked) → a token row's Revoke confirm (the
+    // row's one detail surface; at-revoke-confirm is NEVER clicked) → back to
+    // Settings root. Three honest list states handled: flag-dark gate notice /
+    // empty launchpad / populated table.
+    const navClicked = await clickFirst(page, [
+      (p) => p.getByRole('link', { name: /^Settings$/ }),
+      (p) => p.getByRole('link', { name: /settings/i }),
+    ]);
+    await page.waitForURL(/\/admin\/settings/, { timeout: 15_000 }).catch(() => {});
+    await capture(page, navClicked ? 'nav → Settings (root, General tab)' : 'Settings nav link NOT FOUND', {
+      surface: 'admin-settings',
+      subview: 'general',
+      overlay: navClicked ? '' : 'missing-nav-link',
+    });
+    if (!navClicked) {
+      manifest.blocked.push({ phase: 'settings-api-tokens', reason: 'Settings nav link not found' });
+      throw new Error('BLOCKED:settings-nav');
+    }
+
+    // API Tokens is a Settings TAB since 2026-08-12 (standalone /admin/api-tokens
+    // 302s to /admin/settings#api-tokens) — enter it via the real tablist click.
+    const tabClicked = await clickFirst(page, [
+      (p) => p.getByRole('tab', { name: /^API Tokens$/i }),
+    ]);
+    await page
+      .getByTestId('settings-api-tokens-panel')
+      .waitFor({ state: 'visible', timeout: 10_000 })
+      .catch(() => {});
+    // Let the token fetch resolve: skeleton (api-tokens-skeleton) → table/empty/gate.
+    await page
+      .getByTestId('api-tokens-skeleton')
+      .waitFor({ state: 'hidden', timeout: 15_000 })
+      .catch(() => {});
+    const flagDark = await page
+      .getByTestId('api-tokens-flag-gate')
+      .isVisible()
+      .catch(() => false);
+    const rowCount = await page.getByTestId('at-revoke-btn').count().catch(() => 0);
+    await capture(
+      page,
+      tabClicked
+        ? `Settings › API Tokens tab — list state (${flagDark ? 'flag-dark gate' : `${rowCount} token row(s)`})`
+        : 'API Tokens tab NOT FOUND in Settings tablist',
+      {
+        surface: 'admin-settings',
+        subview: 'api-tokens',
+        overlay: tabClicked ? (flagDark ? 'flag-gate-notice' : '') : 'missing-tab',
+      },
+    );
+    if (!tabClicked) {
+      manifest.blocked.push({ phase: 'settings-api-tokens', reason: 'API Tokens tab not found in Settings tablist' });
+      throw new Error('BLOCKED:api-tokens-tab');
+    }
+
+    if (flagDark) {
+      // Honest dark state: public_api_v1 off for this org → create button is
+      // (correctly) absent; nothing to open. Recorded, not fabricated around.
+      manifest.blocked.push({
+        phase: 'settings-api-tokens',
+        reason: 'public_api_v1 flag dark for this org — gate notice shown, mint dialog unreachable (honest state)',
+      });
+    } else {
+      // ---- Mint dialog: open → capture → DISMISS (Escape → DialogShell closes).
+      const createOpened = await clickFirst(page, [
+        (p) => p.getByTestId('at-create-open'),
+        (p) => p.getByRole('button', { name: /create your first token/i }),
+      ]);
+      if (createOpened) {
+        await page.getByTestId('at-name-input').waitFor({ state: 'visible', timeout: 8_000 }).catch(() => {});
+      }
+      await capture(page, createOpened ? 'open New API Token dialog (name+scopes+expiry — NO mint)' : 'create-token trigger NOT FOUND', {
+        surface: 'admin-settings',
+        subview: 'api-tokens',
+        overlay: createOpened ? 'create-token-dialog' : 'missing-create-trigger',
+      });
+      if (createOpened) {
+        await page.keyboard.press('Escape'); // document-level DialogShell escape → closeCreateModal()
+        const stillOpen = await page.getByTestId('at-name-input').isVisible().catch(() => false);
+        if (stillOpen) {
+          // Escape SHOULD close the one dialog primitive — a stuck dialog is a real defect.
+          await clickFirst(page, [(p) => p.getByRole('button', { name: /^Cancel$/ })]);
+          manifest.blocked.push({
+            phase: 'settings-api-tokens',
+            reason: 'Escape did not dismiss the New API Token dialog (DialogShell escape contract broken)',
+          });
+        }
+        await capture(page, 'dismiss create dialog (Escape, no mint) → list intact', {
+          surface: 'admin-settings',
+          subview: 'api-tokens',
+        });
+      } else {
+        manifest.blocked.push({
+          phase: 'settings-api-tokens',
+          reason: 'create-token trigger not found while flag is ON (frontend drift)',
+        });
+      }
+
+      // ---- Row detail: Revoke's CONFIRM dialog is the row's action surface.
+      // Open it read-only, capture, Escape — the destructive confirm is never touched.
+      if (rowCount > 0) {
+        const revokeOpened = await clickFirst(page, [(p) => p.getByTestId('at-revoke-btn')]);
+        if (revokeOpened) {
+          await capture(page, `token row → Revoke confirm dialog (read-only; ${rowCount} row(s) present)`, {
+            surface: 'admin-settings',
+            subview: 'api-tokens',
+            overlay: 'revoke-confirm-dialog',
+          });
+          await page.keyboard.press('Escape');
+          await capture(page, 'dismiss revoke confirm (Escape) → token intact', {
+            surface: 'admin-settings',
+            subview: 'api-tokens',
+          });
+        }
+      } else {
+        console.warn('  (0 token rows — revoke-confirm state skipped honestly)');
+      }
+    }
+
+    // ---- Back to Settings root (General tab) — proves tab nav both ways.
+    await clickFirst(page, [(p) => p.getByRole('tab', { name: /^General$/i })]);
+    await capture(page, 'tab → General (back to Settings root)', {
+      surface: 'admin-settings',
+      subview: 'general',
+    });
+
     finish(
       manifest.blocked.length === 0
         ? acq.coverage === 'CLOUD_PASS_ELIGIBLE'
