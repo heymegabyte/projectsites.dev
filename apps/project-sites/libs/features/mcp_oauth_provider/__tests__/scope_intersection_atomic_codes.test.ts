@@ -47,7 +47,7 @@ import { oauthProvider } from '../handlers.js';
 
 // ── Real-SQLite D1 harness — schema from the ACTUAL migration ────────────────
 const MIGRATION_SQL = readFileSync(
-  join(__dirname, '../../../../migrations/0649_mcp_oauth_codes.sql'),
+  join(__dirname, '../../../../migrations/0650_mcp_oauth_codes.sql'),
   'utf8',
 );
 

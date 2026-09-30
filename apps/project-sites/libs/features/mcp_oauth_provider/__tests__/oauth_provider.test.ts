@@ -55,7 +55,7 @@ function app(kv: ReturnType<typeof makeKv>) {
 
 // ── Real-SQLite D1 harness for the code store (schema = migration 0649) ──────
 const MIGRATION_SQL = readFileSync(
-  join(__dirname, '../../../../migrations/0649_mcp_oauth_codes.sql'),
+  join(__dirname, '../../../../migrations/0650_mcp_oauth_codes.sql'),
   'utf8',
 );
 
