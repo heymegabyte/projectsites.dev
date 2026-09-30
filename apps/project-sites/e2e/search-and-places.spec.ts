@@ -97,9 +97,11 @@ test.describe('Guest acquisition — homepage business search', () => {
       await expect(page.locator(CUSTOM)).toBeVisible();
       await expect(page.locator(CUSTOM)).toContainText(/custom/i);
     } else {
-      // Degraded path (Places unavailable) — the honest nudge steers to the manual route.
+      // Degraded path (Places unavailable) — the honest nudge steers to the REAL,
+      // always-visible escape hatch (fire-57): the “Claim Your Site” CTA, which while
+      // degraded routes to the manual-entry create wizard.
       await expect(page.locator(DEGRADED)).toBeVisible();
-      await expect(page.locator(DEGRADED)).toContainText(/custom website/i);
+      await expect(page.locator(DEGRADED)).toContainText(/Claim Your Site/i);
     }
     expect(errors.filter(blocking)).toEqual([]);
   });

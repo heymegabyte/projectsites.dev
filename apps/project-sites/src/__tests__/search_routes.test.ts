@@ -351,6 +351,152 @@ describe('GET /api/search/businesses', () => {
 });
 
 // ═══════════════════════════════════════════════════════════════════════════
+// GET /api/search/businesses — money-path resilience contract (fire-57)
+// Normalized-query KV key + 24h TTL + cache-before-ANY-provider + `_provider`
+// on the OSM fallback envelope (honest `osm:` ids, never faked Places ids).
+// ═══════════════════════════════════════════════════════════════════════════
+
+describe('GET /api/search/businesses — KV cache + OSM fallback contract (fire-57)', () => {
+  /** Stateful KV double — reassigns the SHARED mockCacheKv fns with a fresh Map per test. */
+  function primeKv(seed?: Record<string, string>) {
+    const store = new Map<string, string>(Object.entries(seed ?? {}));
+    const put = jest.fn(async (k: string, v: string) => {
+      store.set(k, v);
+    });
+    mockCacheKv.get = jest.fn(async (k: string) => store.get(k) ?? null) as never;
+    mockCacheKv.put = put as never;
+    return { put, store };
+  }
+
+  it('caches a Places success under the normalized-query key with a 24h TTL', async () => {
+    const { put } = primeKv();
+    const payload = makePlacesResponse([
+      { id: 'v1', name: "Vito's Mens Salon", address: '74 N Beverwyck Rd' },
+    ]);
+    mockFetch.mockResolvedValueOnce(new Response(JSON.stringify(payload), { status: 200 }));
+
+    const res = await makeRequest(
+      "/api/search/businesses?q=%20Vito's%20Mens%20Salon%20&lat=40.88&lng=-74.38",
+    );
+    expect(res.status).toBe(200);
+    expect((await res.json())._provider).toBe('places');
+
+    expect(put).toHaveBeenCalledTimes(1);
+    const [key, value, opts] = put.mock.calls[0] as [string, string, { expirationTtl?: number }];
+    // Normalized-query key: lower-trimmed q ONLY — per-visitor geolocation float jitter
+    // must not fragment the cache into near-duplicate entries that each re-burn quota.
+    expect(key).toBe("bizsearch:v3:vito's mens salon");
+    expect(opts).toEqual({ expirationTtl: 86400 }); // 24h
+    expect((JSON.parse(value) as { _provider?: string })._provider).toBe('places');
+  });
+
+  it('serves an identical query from cache even when the geo bias differs (no 2nd Places call)', async () => {
+    primeKv();
+    const payload = makePlacesResponse([
+      { id: 'v1', name: "Vito's Mens Salon", address: '74 N Beverwyck Rd' },
+    ]);
+    mockFetch.mockImplementation(() =>
+      Promise.resolve(new Response(JSON.stringify(payload), { status: 200 })),
+    );
+
+    const r1 = await makeRequest("/api/search/businesses?q=vito's+mens+salon&lat=40.8811&lng=-74.3821");
+    expect((await r1.json()).data).toHaveLength(1);
+    // Same business, different (jittered) geolocation + different casing → MUST be a cache hit.
+    const r2 = await makeRequest("/api/search/businesses?q=Vito's+Mens+Salon&lat=40.8899&lng=-74.3700");
+    expect((await r2.json()).data).toHaveLength(1);
+    expect(mockFetch).toHaveBeenCalledTimes(1);
+  });
+
+  it('Places 429 → OSM fallback returns mapped items with _provider:"osm" and caches them 24h', async () => {
+    const { put } = primeKv();
+    mockFetch.mockResolvedValueOnce(new Response('quota exceeded', { status: 429 }));
+    const nominatim = [
+      {
+        osm_type: 'node',
+        osm_id: 77,
+        lat: '40.8811',
+        lon: '-74.3821',
+        name: "Vito's Mens Salon",
+        display_name: "Vito's Mens Salon, 74, N Beverwyck Rd, Lake Hiawatha, NJ",
+        class: 'shop',
+        type: 'hairdresser',
+        extratags: { phone: '+1 973 000 0000' },
+      },
+    ];
+    mockFetch.mockResolvedValueOnce(new Response(JSON.stringify(nominatim), { status: 200 }));
+
+    const res = await makeRequest('/api/search/businesses?q=vitos');
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body._provider).toBe('osm'); // canonical provider marker (fire-57)
+    expect(body._source).toBe('osm'); // legacy alias existing probes read — kept
+    expect(body._error).toBeUndefined();
+    expect(body.data).toHaveLength(1);
+    const item = body.data[0];
+    // SAME item shape as the Places path. create-from-search stores place_id VERBATIM
+    // (site_creation enriches by re-searching NAME+ADDRESS via lookupBusiness — it never
+    // dereferences the id), so an honest `osm:`-prefixed id works end-to-end and is
+    // never a faked Google place_id.
+    expect(item.name).toBe("Vito's Mens Salon");
+    expect(item.address).toContain('N Beverwyck Rd');
+    expect(item.place_id).toBe('osm:n77');
+    expect(typeof item.lat).toBe('number');
+    expect(typeof item.lng).toBe('number');
+    // OSM rescues are cached like Places hits (Nominatim ≤1 req/s courtesy) — 24h TTL.
+    expect(put).toHaveBeenCalledTimes(1);
+    expect((put.mock.calls[0] as unknown[])[2]).toEqual({ expirationTtl: 86400 });
+  });
+
+  it('serves the cache BEFORE any provider — a hit skips Places AND Nominatim even with no Places key', async () => {
+    primeKv({
+      'bizsearch:v3:cached town diner': JSON.stringify({
+        data: [
+          {
+            place_id: 'osm:n5',
+            name: 'Cached Town Diner',
+            address: '1 Main St',
+            types: ['restaurant'],
+            lat: 40.1,
+            lng: -74.1,
+            phone: null,
+            website: null,
+          },
+        ],
+        _provider: 'osm',
+        _source: 'osm',
+      }),
+    });
+    const noKeyApp = new Hono<{ Bindings: Env; Variables: Variables }>();
+    noKeyApp.route('/', placesSearch);
+    const noKeyEnv = { ...mockEnv, GOOGLE_PLACES_API_KEY: undefined } as unknown as Env;
+
+    const res = await noKeyApp.request(
+      '/api/search/businesses?q=%20Cached%20TOWN%20Diner%20',
+      undefined,
+      noKeyEnv,
+    );
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.data).toHaveLength(1);
+    expect(body._provider).toBe('osm'); // cache hit still reports its provider
+    expect(mockFetch).not.toHaveBeenCalled(); // NO provider touched on a hit
+  });
+
+  it('only when BOTH Places and OSM fail does the honest _error surface (and nothing is cached)', async () => {
+    const { put } = primeKv();
+    mockFetch.mockResolvedValueOnce(new Response('quota exceeded', { status: 429 }));
+    mockFetch.mockResolvedValueOnce(new Response('blocked', { status: 403 })); // Nominatim down too
+    const res = await makeRequest('/api/search/businesses?q=nowhere');
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.data).toEqual([]);
+    expect(body._error.code).toBe('SEARCH_PROVIDER_UNAVAILABLE');
+    expect(body._error.status).toBe(429);
+    expect(put).not.toHaveBeenCalled();
+  });
+});
+
+// ═══════════════════════════════════════════════════════════════════════════
 // GET /api/search/address  (Autocomplete → Text-Search fallback)
 // ═══════════════════════════════════════════════════════════════════════════
 

@@ -25,7 +25,7 @@ import {
 } from 'rxjs';
 import { ApiService, type BusinessResult } from '../../services/api.service';
 import { AuthService } from '../../services/auth.service';
-import { createFunnelNav } from './create-funnel-nav';
+import { createFunnelNav, DEGRADED_SEARCH_COPY } from './create-funnel-nav';
 import { canPreviewPrebuilt, prebuiltPreviewUrl } from './prebuilt-preview';
 import { GeolocationService } from '../../services/geolocation.service';
 import { TelemetryService } from '../../services/telemetry.service';
@@ -140,9 +140,14 @@ export class HomepageComponent implements OnInit, OnDestroy, AfterViewInit {
   results = signal<SearchItem[]>([]);
   loading = signal(false);
   // Business-lookup (Google Places) proxy returned a provider `_error` → surface an
-  // honest "temporarily unavailable" nudge instead of a silent empty dropdown, so a
-  // degraded lookup never reads as "your business isn't findable" (mirrors search.component).
+  // honest "lookup is busy" nudge instead of a silent empty dropdown, so a degraded
+  // lookup never reads as "your business isn't findable" (mirrors search.component).
   searchUnavailable = signal(false);
+
+  /** Degraded-lookup banner copy (SSOT — see `DEGRADED_SEARCH_COPY`): names the
+   *  always-visible “Claim Your Site” CTA, whose degraded behavior really IS the
+   *  manual-entry create wizard (see `goGetStarted`). */
+  readonly degradedSearchCopy = DEGRADED_SEARCH_COPY;
   heroDropdownOpen = signal(false);
   ctaDropdownOpen = signal(false);
   currentLang = signal('en');
@@ -444,6 +449,18 @@ export class HomepageComponent implements OnInit, OnDestroy, AfterViewInit {
   goGetStarted(): void {
     this.mobileMenuOpen.set(false);
     this.telemetry.track('hero.cta_clicked', { variant: this.heroVariant() });
+    // Honest degraded escape hatch (fire-57): when the business lookup is DOWN, focusing
+    // the dead search box is a dead-end — the degradation banner promises “tap Claim Your
+    // Site to enter your details manually”, so this CTA must actually deliver the
+    // manual-entry create wizard (custom mode), carrying anything already typed
+    // (redundant-entry, WCAG 3.3.7). A healthy lookup keeps the focus-the-search behavior.
+    if (this.searchUnavailable()) {
+      this.auth.setMode('custom');
+      this.auth.clearSelectedBusiness();
+      const typed = (this.activeSource() === 'cta' ? this.ctaQuery : this.heroQuery).trim();
+      this.navigateToDetailsOrSignin(typed || undefined);
+      return;
+    }
     if (this.heroSearchInput?.nativeElement) {
       this.heroSearchInput.nativeElement.focus();
       const behavior: ScrollBehavior = this.prefersReducedMotion() ? 'auto' : 'smooth';

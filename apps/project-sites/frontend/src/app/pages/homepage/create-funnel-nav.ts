@@ -37,3 +37,15 @@ export function createFunnelNav(name: string | undefined, isLoggedIn: boolean): 
     ? { path: '/signin', queryParams: { returnUrl: `/create?name=${encodeURIComponent(trimmed)}` } }
     : { path: '/signin' };
 }
+
+/**
+ * Honest degraded-lookup nudge (fire-57). The banner must name a control that ACTUALLY
+ * EXISTS on the page in every state: the old copy pointed at the “Build a custom website”
+ * dropdown row, which is hidden whenever the dropdown is closed (blur / hard-error path) —
+ * a dead reference on the money path. “Claim Your Site” is the always-visible hero CTA,
+ * and while degraded `goGetStarted()` really does route it to the manual-entry create
+ * wizard (custom mode). SSOT — both homepage banners bind this constant, and the Karma
+ * spec pins it, so the copy and the control can never drift apart again.
+ */
+export const DEGRADED_SEARCH_COPY =
+  'Business lookup is busy — tap “Claim Your Site” to enter your details manually.';

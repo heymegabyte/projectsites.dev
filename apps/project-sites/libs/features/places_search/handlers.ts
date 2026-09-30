@@ -74,21 +74,34 @@ placesSearch.get('/api/search/businesses', async (c) => {
   const hasGeo = !Number.isNaN(geoLat) && !Number.isNaN(geoLng);
   const osmOpts = hasGeo ? { lat: geoLat, lng: geoLng } : undefined;
 
-  // Cache successful business-search results in KV to spare the daily quota (and, now, the
-  // Nominatim ≤1 req/sec policy). Popular/repeat queries re-hit the same text search on every
+  // Cache successful business-search results in KV to spare the daily Places quota (and the
+  // Nominatim ≤1 req/sec courtesy). Popular/repeat queries re-hit the same text search on every
   // 300ms keystroke-debounce otherwise. Only successful non-empty results are cached (errors/
-  // empties stay live so recovery + new listings surface immediately). 6h TTL — listings stable.
-  // `v2` namespace bump (2026-09-19): the OSM mapper now strips the duplicate leading business name +
-  // joins the house number (nominatim_search.cleanNominatimAddress). Bump so cached PRE-FIX entries
-  // (6h TTL, carrying the "Name, Name, 123 St" duplicate) are ignored and the clean address takes
-  // effect immediately on deploy instead of persisting for up to 6h.
-  const cacheKey = `bizsearch:v2:${boundedQ.toLowerCase()}:${latStr ?? ''}:${lngStr ?? ''}`;
+  // empties stay live so recovery + new listings surface immediately).
+  // `v3` namespace bump (fire-57): the key is now the NORMALIZED QUERY ONLY (lower-trimmed q) —
+  // the old `:lat:lng` suffix fragmented the cache with per-visitor geolocation float jitter, so
+  // identical queries (e.g. the Vito test business) each re-burned Places quota. Geo remains a
+  // request-time BIAS for live calls; for a cached, stable-listing answer it's noise. TTL 6h→24h
+  // for the same reason — listings are stable and the no-cache-on-empty rule keeps recovery live.
+  const cacheKey = `bizsearch:v3:${boundedQ.toLowerCase()}`;
+  const CACHE_TTL_SECONDS = 86400; // 24h
+
+  // Serve the cache BEFORE touching ANY provider (fire-57): previously the read sat below the
+  // Places-key check, so in unconfigured mode every keystroke re-hit Nominatim even for cached
+  // queries. A hit costs zero provider quota and reports its `_provider` (stored in the entry).
+  const cachedRaw = await c.env.CACHE_KV?.get(cacheKey).catch(() => null);
+  if (cachedRaw) {
+    return c.json(JSON.parse(cachedRaw) as { data: unknown[] });
+  }
 
   // OSM/Nominatim fallback (AL-729): when Google Places is unconfigured or down, try OSM's
   // free-text NAME search BEFORE surfacing the honest `_error`. Places is persistently 429/403
   // (GCP billing not enabled), so without this the guest-acquisition funnel's PRIMARY action
   // dead-ends for every visitor ("Business lookup is temporarily unavailable"). Real OSM hits
-  // are KV-cached (6h) like Places so keystroke-debounced repeats never re-hit Nominatim.
+  // are KV-cached (24h) like Places so keystroke-debounced repeats never re-hit Nominatim.
+  // OSM items carry an honest `osm:<type><id>` place_id — NEVER a faked Google place_id. That is
+  // safe downstream: create-from-search stores place_id VERBATIM (dedup/lookup by equality) and
+  // site_creation's enrichment re-searches by NAME+ADDRESS (`lookupBusiness`), never by the id.
   const osmFallbackOr = async (code: string, status: number, message: string) => {
     const osm = await searchBusinessesByName(boundedQ, osmOpts);
     // Observability (AL-845): the #1 top-of-funnel action (guest business search) is running
@@ -102,12 +115,14 @@ placesSearch.get('/api/search/businesses', async (c) => {
       { reason: code, status, provider: osm.length > 0 ? 'osm' : 'none', degraded: true, ok: osm.length > 0, count: osm.length, qlen: boundedQ.length },
     );
     if (osm.length > 0) {
-      // Cache WITH `_source` so a cache HIT reports the provider too (a bare `{data}` cache made
-      // the funnel's provider unobservable — the probe defaulted to 'places' even for OSM hits).
-      await c.env.CACHE_KV?.put(cacheKey, JSON.stringify({ data: osm, _source: 'osm' }), {
-        expirationTtl: 21600,
+      // Cache WITH the provider markers so a cache HIT reports the provider too (a bare `{data}`
+      // cache made the funnel's provider unobservable). `_provider` is the canonical field
+      // (fire-57); `_source` is the legacy alias existing probes/tests still read.
+      const envelope = { data: osm, _provider: 'osm', _source: 'osm' };
+      await c.env.CACHE_KV?.put(cacheKey, JSON.stringify(envelope), {
+        expirationTtl: CACHE_TTL_SECONDS,
       }).catch(() => {});
-      return c.json({ data: osm, _source: 'osm' });
+      return c.json(envelope);
     }
     return c.json({ data: [], _error: { code, status, message } });
   };
@@ -123,11 +138,6 @@ placesSearch.get('/api/search/businesses', async (c) => {
     requestBody.locationBias = {
       circle: { center: { latitude: geoLat, longitude: geoLng }, radius: 50000.0 }, // 50 km
     };
-  }
-
-  const cachedRaw = await c.env.CACHE_KV?.get(cacheKey).catch(() => null);
-  if (cachedRaw) {
-    return c.json(JSON.parse(cachedRaw) as { data: unknown[] });
   }
 
   const response = await fetch('https://places.googleapis.com/v1/places:searchText', {
@@ -180,14 +190,15 @@ placesSearch.get('/api/search/businesses', async (c) => {
   }));
 
   // Only cache real hits — never an empty/error so recovery + new listings surface live.
-  // Stamp `_source: 'places'` (cache + response) so the funnel's provider is always observable.
+  // Stamp `_provider`/`_source: 'places'` (cache + response) so the provider is always observable.
+  const envelope = { data, _provider: 'places', _source: 'places' };
   if (data.length > 0) {
-    await c.env.CACHE_KV?.put(cacheKey, JSON.stringify({ data, _source: 'places' }), {
-      expirationTtl: 21600,
+    await c.env.CACHE_KV?.put(cacheKey, JSON.stringify(envelope), {
+      expirationTtl: CACHE_TTL_SECONDS,
     }).catch(() => {});
   }
 
-  return c.json({ data, _source: 'places' });
+  return c.json(envelope);
 });
 
 // ─── Google Places Address Autocomplete ──────────────────────
