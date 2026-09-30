@@ -399,10 +399,14 @@ describe('GET /api/search/businesses — KV cache + OSM fallback contract (fire-
       Promise.resolve(new Response(JSON.stringify(payload), { status: 200 })),
     );
 
-    const r1 = await makeRequest("/api/search/businesses?q=vito's+mens+salon&lat=40.8811&lng=-74.3821");
+    const r1 = await makeRequest(
+      "/api/search/businesses?q=vito's+mens+salon&lat=40.8811&lng=-74.3821",
+    );
     expect((await r1.json()).data).toHaveLength(1);
     // Same business, different (jittered) geolocation + different casing → MUST be a cache hit.
-    const r2 = await makeRequest("/api/search/businesses?q=Vito's+Mens+Salon&lat=40.8899&lng=-74.3700");
+    const r2 = await makeRequest(
+      "/api/search/businesses?q=Vito's+Mens+Salon&lat=40.8899&lng=-74.3700",
+    );
     expect((await r2.json()).data).toHaveLength(1);
     expect(mockFetch).toHaveBeenCalledTimes(1);
   });
