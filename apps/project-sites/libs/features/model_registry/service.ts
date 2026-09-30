@@ -270,6 +270,69 @@ export function findModelAlias(id: string): ModelAliasRecord | null {
 }
 
 // ---------------------------------------------------------------------------
+// Chat-completions routing (campaign lane-4, fire-57 — POST /v1/chat/completions)
+// ---------------------------------------------------------------------------
+
+/** The standard vendors `services/external_llm.callExternalLLM` can route. */
+export const CHAT_ROUTABLE_PROVIDERS = ['openai', 'anthropic', 'deepseek'] as const;
+export type ChatRoutableProvider = (typeof CHAT_ROUTABLE_PROVIDERS)[number];
+
+/**
+ * How a requested model id maps onto `callExternalLLM` options.
+ *
+ * - `tier`     — delegate provider choice to external_llm's cost-tier ladder
+ *                (`chooseProviderForTier`: premium → Fable/Claude-class first;
+ *                standard/instant → volume DeepSeek-first).
+ * - `provider` — pin a concrete vendor (optionally a concrete model).
+ */
+export type ChatRoute =
+  | { kind: 'tier'; tier: 'premium' | 'standard' | 'instant' }
+  | { kind: 'provider'; provider: ChatRoutableProvider; model?: string };
+
+/**
+ * Virtual-model → external_llm routing intents (the §7 contract):
+ * auto/fast ride the cheap volume ladders, balanced pins the
+ * gpt-4o-mini-class workhorse, premium rides the frontier ladder.
+ */
+const VIRTUAL_CHAT_ROUTES: Record<string, ChatRoute> = {
+  'projectsites-auto': { kind: 'tier', tier: 'standard' },
+  'projectsites-fast': { kind: 'tier', tier: 'instant' },
+  'projectsites-balanced': { kind: 'provider', provider: 'openai', model: 'gpt-4o-mini' },
+  'projectsites-premium': { kind: 'tier', tier: 'premium' },
+};
+
+/**
+ * Resolve a requested model id to a chat-completions route.
+ *
+ * Virtual service models map through {@link VIRTUAL_CHAT_ROUTES}; registry
+ * aliases route to their first provider that external_llm can actually speak
+ * (openai/anthropic/deepseek). Unknown ids AND aliases whose providers are
+ * all unroutable on this path (workers-ai/gemini/grok/litellm/ollama) return
+ * null — the handler surfaces both as OpenAI `model_not_found`, matching
+ * OpenAI's "does not exist or you do not have access to it" semantics.
+ *
+ * @param id - The requested model id from the chat.completions body.
+ * @returns The ChatRoute, or null when the id cannot be served.
+ *
+ * @example
+ * resolveChatRoute('projectsites-premium') // → { kind: 'tier', tier: 'premium' }
+ * resolveChatRoute('claude-architect')     // → { kind: 'provider', provider: 'anthropic' }
+ * resolveChatRoute('edge-fast')            // → null (workers-ai not routable here yet)
+ */
+export function resolveChatRoute(id: string): ChatRoute | null {
+  const virtual = VIRTUAL_CHAT_ROUTES[id];
+  if (virtual) return virtual;
+
+  const alias = findModelAlias(id);
+  if (!alias) return null;
+
+  const provider = alias.providers.find((p): p is ChatRoutableProvider =>
+    (CHAT_ROUTABLE_PROVIDERS as readonly string[]).includes(p),
+  );
+  return provider ? { kind: 'provider', provider } : null;
+}
+
+// ---------------------------------------------------------------------------
 // Availability helpers
 // ---------------------------------------------------------------------------
 

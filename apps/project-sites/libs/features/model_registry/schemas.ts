@@ -17,15 +17,16 @@ export type ModelCapabilities = z.infer<typeof ModelCapabilitiesSchema>;
 
 /**
  * A single model entry in the OpenAI-compatible list response.
- * `created: 0` is intentional — deterministic for tests.
+ * Aliases carry `created: 0` (deterministic); virtual service models carry
+ * the fixed VIRTUAL_MODEL_CREATED epoch — both stable across requests.
  */
 export const ModelEntrySchema = z.object({
   /** Model alias id (e.g. "edge-fast", "claude-architect"). */
   id: z.string(),
   /** Always "model" per OpenAI spec. */
   object: z.literal('model'),
-  /** Unix timestamp. Set to 0 for determinism (no external calls). */
-  created: z.literal(0),
+  /** Unix timestamp. 0 for aliases; VIRTUAL_MODEL_CREATED for virtual models. */
+  created: z.number(),
   owned_by: z.literal('projectsites'),
   /** Provider tier of the alias (first provider's tier). */
   _tier: z.string(),
@@ -44,3 +45,38 @@ export const ModelsListResponseSchema = z.object({
   data: z.array(ModelEntrySchema),
 });
 export type ModelsListResponse = z.infer<typeof ModelsListResponseSchema>;
+
+// ---------------------------------------------------------------------------
+// POST /v1/chat/completions request (campaign lane-4, fire-57 — non-streamed)
+// ---------------------------------------------------------------------------
+
+/**
+ * One OpenAI chat message. `developer` is OpenAI's newer system-role spelling
+ * and is treated as `system`. Content is string-only for now — multimodal
+ * content-part arrays are rejected with a 400 until vision routing lands.
+ */
+export const ChatMessageSchema = z.object({
+  role: z.enum(['system', 'developer', 'user', 'assistant']),
+  content: z.string(),
+});
+export type ChatMessage = z.infer<typeof ChatMessageSchema>;
+
+/**
+ * OpenAI-compatible chat.completions request body (non-streamed).
+ * Deliberately NOT `.strict()` — unknown OpenAI params (top_p, n, stop, …)
+ * are accepted and ignored so real openai-sdk clients work unmodified.
+ * `stream: true` is refused by the handler with `stream_not_supported`.
+ */
+export const ChatCompletionRequestSchema = z.object({
+  model: z.string().min(1),
+  messages: z
+    .array(ChatMessageSchema)
+    .min(1)
+    .refine((msgs) => msgs.some((m) => m.role === 'user' || m.role === 'assistant'), {
+      message: 'messages must include at least one user or assistant message',
+    }),
+  temperature: z.number().min(0).max(2).optional(),
+  max_tokens: z.number().int().positive().optional(),
+  stream: z.boolean().optional(),
+});
+export type ChatCompletionRequest = z.infer<typeof ChatCompletionRequestSchema>;
