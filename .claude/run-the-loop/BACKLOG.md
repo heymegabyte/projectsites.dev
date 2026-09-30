@@ -894,9 +894,9 @@
   defects (latency rule overriding security-review · capability-blind fallback step-down ·
   premium-only-vision assumption) with VERIFIED per-model capabilities
   - deps: L1.2 · files: the 5 named modules · flag: `ai_model_router` · est: L · acceptance: §17.8
-- [ ] GET /v1/models (+lookup) + POST /v1/chat/completions — Bearer, response/chunk schemas,
-  streamed+non-streamed tools, consistent IDs/indexes, correct tool deltas, finish reasons, usage,
-  ONE terminal marker (turns L1.4 RED specs green)
+- [~] GET /v1/models (+lookup) + POST /v1/chat/completions — DONE fire-56/57: models (e5106673c) +
+  non-streamed chat (b31faa534, prod-proven "OK"+usage via projectsites-fast; stream:true→honest 400).
+  REMAINING: streaming SSE + tool-call deltas + ONE terminal marker (turns remaining L1.4 RED specs green)
   - deps: L2.3 + L4.1 · files: Workers/Hono backend (new `/v1` routes) · flag: `ai_compat_api` · est: L · acceptance: §17.1
 - [ ] POST /v1/messages + /v1/messages/count_tokens — x-api-key + anthropic-version, content
   blocks, tool_use/tool_result, documented named events + content-block indexes + cumulative
@@ -1042,6 +1042,5 @@
   Promote/Clone/Delete-resource controls on provisioned state (doomed-control rule). Evidence:
   dux-2026-09-29T23-45-06 state 11. Owner: UX/editor. Est: M.
 - [ ] packages/shared/CLAUDE.md test-count stale after ai-policy (+58) — one-line doc sync. Est: XS.
-- [ ] Convergence deploy (next fire): worker deploy AFTER mint-fix lands (covers e5106673c +
-  mint); frontend deploy for the gated-h1 fix; then rerun e2e/ai-api RED specs → /v1/models
-  cases expected GREEN on prod.
+- [x] Convergence deploy — DONE fire-57: worker 23cdff9f (models+mint+grants+chat+search+flags-union),
+  frontend main-N5NOCGEV hash-verified, editor Pages 42e82f04; migrations 0649+0650 applied to prod D1.

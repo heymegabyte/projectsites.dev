@@ -211,3 +211,16 @@ git history._
   not distinguished by message) + doomed Write/Promote/Clone/Delete controls on "Not provisioned".
 - Loop improvements: role-16 structural rule (runs IN main checkout — auto-worktree strands it
   from node_modules/stack; 3 deaths proven) + nested-node_modules hazard recorded.
+
+## fire-57 (2026-09-29/30, lease fire-57-campaign-lane3) — campaign lane-3/4 + money-path incident
+- flags-union: `13185767f` GET /api/feature-flags = registry∪D1 (75 live: 40 reg + 35 d1); admin shell SITE_INDEPENDENT_ADMIN_PATHS fix; **long-trail Phase B GREEN** (1 passed 7.6s, was RED at flag-rows).
+- editor honest-dark: `067f083bf` ResourceDetailPanel flag-dark card + doomed-control gating; editor 1305 green; Pages 42e82f04 live.
+- lane-3 grants: `531fd8ceb` ai_api_key_grants (migr 0649) + service (fail-closed, revision, mint-unwind) behind DARK ai_api_keys; 20/20.
+- search resilience: `e0f6db659` KV 24h cache + OSM fallback (`_provider:"osm"`) + honest degraded CTA→manual wizard; prod-proven 10 OSM results ("pizza newark nj") while Places 429.
+- oauth mint fix: `404caaf59` presenter∩requested scopes + atomic D1 mcp_oauth_codes (migr 0650, renumbered from 0649 in `bc35eba4b`); double-mint RED→GREEN vs real SQLite.
+- lane-4 chat: `b31faa534` POST /v1/chat/completions non-streamed; prod-proven 200 "OK" via projectsites-fast, stream→400 honest, unknown→404. Usage-split invariant fix (adversarial-e2e caught 21≠0+0) in follow-up commit this fire.
+- deploys: worker 23cdff9f (+ migr 0649/0650 applied via d1 execute — bulk `migrations apply` blocked by ancient untracked backlog referencing dropped ai_endpoints); frontend main-N5NOCGEV hash-verified; editor Pages 42e82f04.
+- adversarial review (security-reviewer): ALL SIX SLICES CLEAN; note mcp_server+model_registry live at 100% (OAuth+chat load-bearing, not dark); public flags union = by-design (llms.txt).
+- ops: junk tokens e2e-v1-{b,c,d} revoked (3×200, only e2e-v1-acceptance remains); stale fire-55 worktree removed (salvaged, 0 ahead); 2 wedged agents killed (fire-56 mint original silent 36m; chat-completions v1 silent 45m — nudge, kill, fresh respawn landed in 7m).
+- explorer: create-funnel journey (PASS_CLOUDFLARE, 5 states, 5/5 vision) — caught the live Places-429 money-path degradation that became the search-resilience slice.
+- loop improvement: stall-detection playbook proven (silent-agent mtime check → SendMessage nudge → bounded 90s wait → kill+salvage+respawn with exact-file brief).
