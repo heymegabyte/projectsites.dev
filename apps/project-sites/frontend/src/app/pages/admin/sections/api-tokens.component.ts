@@ -45,11 +45,33 @@ import {
 import { DialogShellComponent } from '../../../components/dialog-shell/dialog-shell.component';
 import { HlmBadgeDirective, HlmButtonDirective, HlmInputDirective, HlmCheckboxDirective } from '../../../ui';
 import { AdminStateService } from '../admin-state.service';
-import { ApiService } from '../../../services/api.service';
+import { ApiService, type Site } from '../../../services/api.service';
 import { ToastService } from '../../../services/toast.service';
+import { FeatureFlagService } from '../../../services/feature-flag.service';
 import { RevealDirective } from '../../../directives/reveal.directive';
 import { RollingCounterComponent } from '../../../components/rolling-counter/rolling-counter.component';
 import { FlagGateNoticeComponent } from '../../../components/states/flag-gate-notice.component';
+import {
+  capabilityIdSchema,
+  type CapabilityKind,
+} from '../../../../../../../../packages/shared/src/ai-policy/capability';
+
+/**
+ * Counts-only AI grant summary the worker attaches per token when the
+ * `ai_api_keys` flag is ON (see routes/api_tokens_admin.ts + services/
+ * ai_key_grants.ts summarizeGrant). NEVER the full id arrays — render only
+ * what the server sends.
+ */
+interface GrantSummary {
+  siteCount: number;
+  connectionCount: number;
+  actionCount: number;
+  modelCount: number;
+  approvalPolicy: string;
+  revision: number;
+  expiresAt: string;
+  revokedAt?: string;
+}
 
 interface ApiToken {
   id: string;
@@ -58,13 +80,76 @@ interface ApiToken {
   last_used_at: string | null;
   expires_at: string | null;
   created_at: string;
+  /** Present only when the ai_api_keys flag is ON server-side AND the token carries a grant. */
+  grant?: GrantSummary;
 }
 
 interface CreateTokenResponse {
   token: ApiToken;
   plaintext: string;
   warning: string;
+  /** Echoed counts-only summary when a mint-time AI grant was attached. */
+  grant?: GrantSummary;
 }
+
+/**
+ * Mint-time AI grant body — EXACTLY the caller-selectable fields of the
+ * server's GrantInputSchema (services/ai_key_grants.ts — a strict .pick() of
+ * the SHARED GrantRecordSchema in packages/shared/src/ai-policy). The server
+ * schema is .strict(), so no extra keys may EVER be added here (the protocol
+ * picker is a client-side SDK-surface hint, never a payload field). The
+ * server re-validates authoritatively.
+ */
+interface AiGrantInput {
+  siteIds: string[];
+  connectionIds: string[];
+  actionIds: string[];
+  modelIds: string[];
+  expiresAt: string;
+  limits?: { spendCents: number };
+}
+
+/** Grants are never perpetual — a token without an expiry still gets a 90-day AI grant. */
+const AI_GRANT_DEFAULT_TTL_MS = 90 * 86_400_000;
+
+/**
+ * Curated mint-time capability options. Ids are canonical
+ * provider.resource.action ids from the SHARED ai-policy layer and every id
+ * is validated against the SHARED capabilityIdSchema (never a locally
+ * redefined grammar); an id failing the schema is dropped so it can never
+ * reach a grant. Kinds use the shared CapabilityKind vocabulary — the dialog
+ * groups kind read under Read and everything else under Write.
+ */
+const AI_CAPABILITY_OPTIONS: ReadonlyArray<{
+  id: string;
+  kind: CapabilityKind;
+  label: string;
+  description: string;
+}> = [
+  {
+    id: 'projectsites.site.read',
+    kind: 'read',
+    label: 'Sites — read',
+    description: 'Read site content, structure and data',
+  },
+  {
+    id: 'workers_ai.text.generate',
+    kind: 'write',
+    label: 'AI — generate text',
+    description: 'Run text inference through the AI gateway',
+  },
+  {
+    id: 'projectsites.site.publish',
+    kind: 'publish',
+    label: 'Sites — publish',
+    description: 'Publish or promote a site build',
+  },
+].filter((option) => capabilityIdSchema.safeParse(option.id).success) as ReadonlyArray<{
+  id: string;
+  kind: CapabilityKind;
+  label: string;
+  description: string;
+}>;
 
 const ALL_SCOPES = [
   { key: 'sites:read', label: 'Sites — read', description: 'List and get site data' },
@@ -183,6 +268,20 @@ const ALL_SCOPES = [
                         <span hlmBadge variant="info" class="at-scope-tag">{{ scope }}</span>
                       }
                     </div>
+                    <!-- Counts-only AI grant summary (server sends it only when ai_api_keys is ON). -->
+                    @if (row.original.grant; as g) {
+                      <div class="at-grant-chip" data-testid="at-grant-chip">
+                        <span class="at-grant-chip-ai">AI</span>
+                        <span>{{ g.siteCount }} {{ g.siteCount === 1 ? 'site' : 'sites' }}</span>
+                        <span class="at-grant-chip-dot" aria-hidden="true">·</span>
+                        <span>{{ g.actionCount }} {{ g.actionCount === 1 ? 'capability' : 'capabilities' }}</span>
+                        <span class="at-grant-chip-dot" aria-hidden="true">·</span>
+                        <span>{{ g.modelCount }} {{ g.modelCount === 1 ? 'model' : 'models' }}</span>
+                        @if (g.revokedAt) {
+                          <span class="at-grant-chip-revoked">revoked</span>
+                        }
+                      </div>
+                    }
                   </td>
                   <td class="at-meta-cell">{{ row.original.last_used_at ? formatRelative(row.original.last_used_at) : '—' }}</td>
                   <td class="at-meta-cell">{{ row.original.expires_at ? formatDate(row.original.expires_at) : 'Never' }}</td>
@@ -284,11 +383,139 @@ const ALL_SCOPES = [
             <span class="at-field-hint">Leave blank for a token that never expires.</span>
           }
         </div>
+
+        <!-- Optional AI permissions (campaign lane-3, flag ai_api_keys — DARK renders NOTHING). -->
+        @if (aiKeysOn()) {
+          <div class="at-ai-section" data-testid="at-ai-section">
+            <label class="at-scope-row" for="ai-grant-enable">
+              <input
+                type="checkbox"
+                hlmCheckbox
+                id="ai-grant-enable"
+                data-testid="at-ai-enable"
+                [ngModel]="aiGrantEnabled()"
+                (ngModelChange)="aiGrantEnabled.set($event)" />
+              <span class="at-scope-info">
+                <span class="at-scope-key">AI permissions (optional)</span>
+                <span class="at-scope-desc">Attach a scoped AI grant — concrete sites + capabilities only, never future resources.</span>
+              </span>
+            </label>
+
+            @if (aiGrantEnabled()) {
+              <div class="at-field">
+                <span class="at-label" id="ai-protocol-label">Protocol</span>
+                <div class="at-protocol-row" role="radiogroup" aria-labelledby="ai-protocol-label">
+                  @for (p of aiProtocols; track p.value) {
+                    <label class="at-protocol-pill" [class.at-protocol-active]="aiProtocol() === p.value">
+                      <input
+                        type="radio"
+                        name="ai-protocol"
+                        class="sr-only"
+                        [value]="p.value"
+                        [attr.data-testid]="'at-ai-protocol-' + p.value"
+                        [checked]="aiProtocol() === p.value"
+                        (change)="aiProtocol.set(p.value)" />
+                      {{ p.label }}
+                    </label>
+                  }
+                </div>
+                <span class="at-field-hint">Which SDK surface this key targets — it names the env var shown after minting.</span>
+              </div>
+
+              <div class="at-field">
+                <span class="at-label">Sites</span>
+                <div class="at-scopes-grid at-ai-sites" data-testid="at-ai-sites">
+                  @for (site of aiSites(); track site.id) {
+                    <label class="at-scope-row" [attr.for]="'ai-site-' + site.id">
+                      <input
+                        type="checkbox"
+                        hlmCheckbox
+                        [id]="'ai-site-' + site.id"
+                        [attr.data-testid]="'at-ai-site-' + site.id"
+                        [ngModel]="selectedAiSites().has(site.id)"
+                        (ngModelChange)="toggleAiSite(site.id)" />
+                      <span class="at-scope-info">
+                        <span class="at-scope-key">{{ site.business_name }}</span>
+                        <span class="at-scope-desc">{{ site.slug }}.projectsites.dev</span>
+                      </span>
+                    </label>
+                  } @empty {
+                    <span class="at-field-hint">No sites yet — leave empty for a key that is not site-bound.</span>
+                  }
+                </div>
+                <span class="at-field-hint">The key may touch only the selected sites — never future ones.</span>
+              </div>
+
+              <div class="at-field">
+                <span class="at-label">Capabilities</span>
+                <div class="at-scopes-grid">
+                  <span class="at-cap-group">Read</span>
+                  @for (cap of readAiCapabilities; track cap.id) {
+                    <label class="at-scope-row" [attr.for]="'ai-cap-' + cap.id">
+                      <input
+                        type="checkbox"
+                        hlmCheckbox
+                        [id]="'ai-cap-' + cap.id"
+                        [attr.data-testid]="'at-ai-cap-' + cap.id"
+                        [ngModel]="selectedAiCapabilities().has(cap.id)"
+                        (ngModelChange)="toggleAiCapability(cap.id)" />
+                      <span class="at-scope-info">
+                        <span class="at-scope-key">{{ cap.label }}</span>
+                        <span class="at-scope-desc">{{ cap.description }}</span>
+                      </span>
+                    </label>
+                  }
+                  <span class="at-cap-group">Write</span>
+                  @for (cap of writeAiCapabilities; track cap.id) {
+                    <label class="at-scope-row" [attr.for]="'ai-cap-' + cap.id">
+                      <input
+                        type="checkbox"
+                        hlmCheckbox
+                        [id]="'ai-cap-' + cap.id"
+                        [attr.data-testid]="'at-ai-cap-' + cap.id"
+                        [ngModel]="selectedAiCapabilities().has(cap.id)"
+                        (ngModelChange)="toggleAiCapability(cap.id)" />
+                      <span class="at-scope-info">
+                        <span class="at-scope-key">{{ cap.label }}</span>
+                        <span class="at-scope-desc">{{ cap.description }}</span>
+                      </span>
+                    </label>
+                  }
+                </div>
+                @if (aiGrantEnabled() && selectedAiCapabilities().size === 0) {
+                  <span class="at-field-hint" data-testid="at-ai-cap-hint" style="color:var(--ps-warning)">Select at least one capability — a grant without capabilities allows nothing.</span>
+                }
+              </div>
+
+              <div class="at-field">
+                <label class="at-label" for="ai-budget">Monthly budget (USD, optional)</label>
+                <input
+                  id="ai-budget"
+                  hlmInput
+                  type="number"
+                  min="1"
+                  step="1"
+                  inputmode="decimal"
+                  data-testid="at-ai-budget"
+                  [(ngModel)]="aiBudgetUsd"
+                  [attr.aria-invalid]="aiBudgetInvalid() || null"
+                  [attr.aria-describedby]="aiBudgetInvalid() ? 'ai-budget-err' : null"
+                  placeholder="e.g. 25"
+                  class="w-full" />
+                @if (aiBudgetInvalid()) {
+                  <span id="ai-budget-err" data-testid="at-ai-budget-err" class="block text-[0.7rem] mt-1" style="color:var(--ps-danger)" role="alert">Budget must be a positive dollar amount — leave blank for no spend cap.</span>
+                } @else {
+                  <span class="at-field-hint">Hard spend cap for this key. AI access expires with the token, or in 90 days when the token never expires.</span>
+                }
+              </div>
+            }
+          </div>
+        }
       </div>
       <div dialogFooter class="px-6 py-4 border-t border-white/[0.06] flex items-center justify-end gap-3">
         <button hlmBtn variant="ghost" size="sm" type="button" (click)="closeCreateModal()">Cancel</button>
         <button hlmBtn variant="primary" size="sm" type="button" data-testid="at-create-submit"
-          [disabled]="creating() || !newName.trim() || expiryInvalid()" (click)="createToken()">
+          [disabled]="creating() || !newName.trim() || expiryInvalid() || aiGrantBlocked()" (click)="createToken()">
           <svg width="1em" height="1em" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" [class.at-spin]="creating()"><path d="m15.5 7.5 2.3 2.3a1 1 0 0 0 1.4 0l2.1-2.1a1 1 0 0 0 0-1.4L19 4"/><path d="m21 2-9.6 9.6"/><circle cx="7.5" cy="15.5" r="5.5"/></svg>
           {{ creating() ? 'Creating…' : 'Create Token' }}
         </button>
@@ -311,6 +538,22 @@ const ALL_SCOPES = [
             {{ copied() ? '✓ Copied' : 'Copy' }}
           </button>
         </div>
+        <!-- SDK hint — only when a mint-time AI grant was actually attached. -->
+        @if (createdToken()?.grant) {
+          <div class="at-ai-env-hint" data-testid="at-ai-env-hint">
+            AI grant attached — use this key as
+            @if (aiProtocol() === 'openai' || aiProtocol() === 'both') {
+              <code>OPENAI_API_KEY</code>
+            }
+            @if (aiProtocol() === 'both') {
+              <span aria-hidden="true">/</span>
+            }
+            @if (aiProtocol() === 'anthropic' || aiProtocol() === 'both') {
+              <code>ANTHROPIC_API_KEY</code>
+            }
+            with your SDK pointed at your ProjectSites base URL.
+          </div>
+        }
       </div>
       <div dialogFooter class="px-6 py-4 border-t border-white/[0.06] flex items-center justify-end gap-3">
         <button hlmBtn variant="primary" size="sm" type="button" data-testid="at-reveal-done" (click)="clearCreatedToken()">Done — I've saved this token</button>
@@ -427,6 +670,36 @@ const ALL_SCOPES = [
     .at-scope-tag {
       font-family: 'JetBrains Mono', monospace; font-size: 10px; letter-spacing: 0.3px;
     }
+
+    /* ── AI API keys (flag ai_api_keys) ─────────────────────────────────── */
+    .at-ai-section { display: flex; flex-direction: column; gap: 18px; border-top: 1px solid rgba(0,229,255,0.10); padding-top: 18px; }
+    .at-protocol-row { display: flex; gap: 8px; flex-wrap: wrap; }
+    /* Pill radio: 28px min-height clears the WCAG 2.5.8 24px target-size floor. */
+    .at-protocol-pill {
+      display: inline-flex; align-items: center; min-height: 28px; padding: 4px 14px;
+      border: 1px solid rgba(255,255,255,0.12); border-radius: 999px; cursor: pointer;
+      font-size: 12px; font-weight: 600; color: rgba(244,244,255,0.7);
+      transition: background 140ms ease, border-color 140ms ease, color 140ms ease;
+    }
+    .at-protocol-pill:hover { border-color: var(--ps-accent-line, rgba(0,229,255,0.35)); }
+    .at-protocol-pill:has(input:focus-visible) { outline: 2px solid var(--ps-accent, #00e5ff); outline-offset: 2px; }
+    .at-protocol-active { border-color: var(--ps-accent, #00e5ff); background: rgba(0,229,255,0.10); color: var(--ps-accent, #00e5ff); }
+    .at-ai-sites { max-height: 180px; overflow-y: auto; }
+    .at-cap-group { font-size: 10px; font-weight: 700; letter-spacing: 1px; text-transform: uppercase; color: rgba(244,244,255,0.45); margin-top: 2px; }
+    .at-grant-chip {
+      display: inline-flex; align-items: center; gap: 5px; margin-top: 5px;
+      font-family: 'JetBrains Mono', monospace; font-size: 10px; letter-spacing: 0.3px;
+      color: rgba(244,244,255,0.62); white-space: nowrap;
+    }
+    .at-grant-chip-ai {
+      display: inline-flex; align-items: center; padding: 1px 6px; border-radius: 5px;
+      border: 1px solid var(--ps-accent-line, rgba(0,229,255,0.25)); background: rgba(0,229,255,0.08);
+      color: var(--ps-accent, #00e5ff); font-weight: 700;
+    }
+    .at-grant-chip-dot { opacity: 0.5; }
+    .at-grant-chip-revoked { color: var(--ps-danger, #ff6b81); font-weight: 600; }
+    .at-ai-env-hint { margin-top: 12px; font-size: 12px; color: rgba(244,244,255,0.62); line-height: 1.6; }
+    .at-ai-env-hint code { font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--ps-accent, #00e5ff); background: rgba(0,229,255,0.06); border: 1px solid rgba(0,229,255,0.15); border-radius: 5px; padding: 1px 5px; }
   `],
 })
 export class AdminApiTokensComponent {
@@ -436,6 +709,7 @@ export class AdminApiTokensComponent {
   private api = inject(ApiService);
   private toast = inject(ToastService);
   private adminState = inject(AdminStateService);
+  private flags = inject(FeatureFlagService);
   private route = inject(ActivatedRoute);
   private router = inject(Router);
   /** Sortable column ids — allow-list guarding a hand-edited `?sort=`. */
@@ -516,6 +790,99 @@ export class AdminApiTokensComponent {
     return Number.isFinite(t) && t <= Date.now();
   }
 
+  // ── AI API keys (flag ai_api_keys — DARK renders NOTHING new) ─────────────
+  /**
+   * Client-side ai_api_keys resolution. Resolved LAZILY when the create dialog
+   * opens (never an eager fetch on section load — the LIST surface needs no
+   * client flag: the server only attaches grant summaries when the flag is ON,
+   * so chips are server-driven). Fail-safe false.
+   */
+  aiKeysOn = signal(false);
+  /** The AI permissions section is OPT-IN — default mint stays byte-identical. */
+  aiGrantEnabled = signal(false);
+  /**
+   * SDK surface the key targets. A client-side hint ONLY (names the env var in
+   * the reveal dialog) — GrantInputSchema is strict server-side and carries no
+   * protocol field, so this never enters the payload.
+   */
+  aiProtocol = signal<'openai' | 'anthropic' | 'both'>('both');
+  readonly aiProtocols = [
+    { value: 'openai' as const, label: 'OpenAI' },
+    { value: 'anthropic' as const, label: 'Anthropic' },
+    { value: 'both' as const, label: 'Both' },
+  ];
+  selectedAiSites = signal<Set<string>>(new Set());
+  selectedAiCapabilities = signal<Set<string>>(new Set());
+  /** Monthly budget in USD; '' = no spend cap. Sent as integer spendCents. */
+  aiBudgetUsd: string | number = '';
+  /** Sites available for the grant's site multi-select — the shared admin state list. */
+  readonly aiSites = computed<Site[]>(() => this.adminState.sites());
+  readonly readAiCapabilities = AI_CAPABILITY_OPTIONS.filter((c) => c.kind === 'read');
+  readonly writeAiCapabilities = AI_CAPABILITY_OPTIONS.filter((c) => c.kind !== 'read');
+
+  toggleAiSite(id: string): void {
+    const s = new Set(this.selectedAiSites());
+    if (s.has(id)) { s.delete(id); } else { s.add(id); }
+    this.selectedAiSites.set(s);
+  }
+
+  toggleAiCapability(id: string): void {
+    const s = new Set(this.selectedAiCapabilities());
+    if (s.has(id)) { s.delete(id); } else { s.add(id); }
+    this.selectedAiCapabilities.set(s);
+  }
+
+  /** True when a budget is typed but not a positive dollar amount. Blank = no cap = valid. */
+  aiBudgetInvalid(): boolean {
+    const raw = String(this.aiBudgetUsd).trim();
+    if (!raw) return false;
+    const n = Number(raw);
+    return !Number.isFinite(n) || n <= 0;
+  }
+
+  /**
+   * Blocks the mint while the OPT-IN grant draft is doomed: zero capabilities
+   * (a grant that allows nothing) or an invalid budget. Inert when the flag is
+   * off or the section is unchecked — the plain token flow is never gated.
+   */
+  aiGrantBlocked(): boolean {
+    if (!this.aiKeysOn() || !this.aiGrantEnabled()) return false;
+    return this.selectedAiCapabilities().size === 0 || this.aiBudgetInvalid();
+  }
+
+  /**
+   * Build the optional mint-time grant — EXACTLY the server GrantInputSchema
+   * shape (strict): siteIds / connectionIds / actionIds / modelIds / expiresAt
+   * + optional limits. Capability ids are re-validated against the SHARED
+   * capabilityIdSchema at this boundary (an invalid id can never ship).
+   * Grant expiry follows the token's expiry, else defaults to +90 days —
+   * grants are never perpetual.
+   */
+  private buildAiGrant(): AiGrantInput | null {
+    if (!this.aiKeysOn() || !this.aiGrantEnabled() || this.aiGrantBlocked()) return null;
+    const actionIds = Array.from(this.selectedAiCapabilities()).filter(
+      (id) => capabilityIdSchema.safeParse(id).success,
+    );
+    if (actionIds.length === 0) return null;
+    const grant: AiGrantInput = {
+      siteIds: Array.from(this.selectedAiSites()),
+      connectionIds: [],
+      actionIds,
+      modelIds: [],
+      expiresAt: this.newExpiry
+        ? new Date(this.newExpiry).toISOString()
+        : new Date(Date.now() + AI_GRANT_DEFAULT_TTL_MS).toISOString(),
+    };
+    const usd = Number(String(this.aiBudgetUsd).trim());
+    if (Number.isFinite(usd) && usd > 0) grant.limits = { spendCents: Math.round(usd * 100) };
+    return grant;
+  }
+
+  /** Resolve ai_api_keys lazily (cached shareReplay observable; completes after one emission). */
+  private resolveAiKeysFlag(): void {
+    this.flags.isOn('ai_api_keys').subscribe((on) => this.aiKeysOn.set(on));
+  }
+
   createdToken = signal<CreateTokenResponse | null>(null);
   /** Derived dialog visibility — mirrors the createdToken signal. */
   get revealVisible(): boolean { return this.createdToken() !== null; }
@@ -593,6 +960,14 @@ export class AdminApiTokensComponent {
     this.newName = '';
     this.newExpiry = '';
     this.selectedScopes.set(new Set(['sites:read']));
+    // Fresh AI draft every open — a stale half-configured grant must never leak
+    // into an unrelated mint.
+    this.aiGrantEnabled.set(false);
+    this.aiProtocol.set('both');
+    this.selectedAiSites.set(new Set());
+    this.selectedAiCapabilities.set(new Set());
+    this.aiBudgetUsd = '';
+    this.resolveAiKeysFlag();
     this.createModalVisible = true;
   }
 
@@ -607,14 +982,22 @@ export class AdminApiTokensComponent {
   }
 
   createToken(): void {
-    if (!this.newName.trim() || this.creating() || this.expiryInvalid()) return;
+    if (!this.newName.trim() || this.creating() || this.expiryInvalid() || this.aiGrantBlocked()) return;
     this.creating.set(true);
 
-    const body = {
+    const body: {
+      name: string;
+      scopes: string[];
+      expires_at: string | null;
+      grant?: AiGrantInput;
+    } = {
       name: this.newName.trim(),
       scopes: Array.from(this.selectedScopes()),
       expires_at: this.newExpiry ? new Date(this.newExpiry).toISOString() : null,
     };
+    // Optional AI grant: flag-off / opted-out mints stay byte-identical (no key at all).
+    const grant = this.buildAiGrant();
+    if (grant) body.grant = grant;
 
     this.api
       .post<CreateTokenResponse>('/v1-tokens', body, { silent: true })

@@ -5,6 +5,8 @@ import { HttpClient } from '@angular/common/http';
 import { AdminApiTokensComponent } from './api-tokens.component';
 import { ToastService } from '../../../services/toast.service';
 import { AdminStateService } from '../admin-state.service';
+import { FeatureFlagService } from '../../../services/feature-flag.service';
+import { capabilityIdSchema } from '../../../../../../../../packages/shared/src/ai-policy/capability';
 
 /**
  * Covers the security-critical API-token CRUD (no prior spec):
@@ -21,7 +23,17 @@ interface Stubs {
   show: jasmine.Spy;
 }
 
-function make(over: { get?: jasmine.Spy; post?: jasmine.Spy; delete?: jasmine.Spy; orgId?: string } = {}): Stubs {
+function make(
+  over: {
+    get?: jasmine.Spy;
+    post?: jasmine.Spy;
+    delete?: jasmine.Spy;
+    orgId?: string;
+    /** ai_api_keys flag resolution — omitted = the real service resolves false off the mocked HTTP. */
+    aiFlagOn?: boolean;
+    sites?: unknown[];
+  } = {},
+): Stubs {
   const http = {
     get: over.get ?? jasmine.createSpy('get').and.returnValue(of({ data: [] })),
     post: over.post ?? jasmine.createSpy('post').and.returnValue(of({ id: 't1', plaintext: 'sk_live_x' })),
@@ -33,7 +45,10 @@ function make(over: { get?: jasmine.Spy; post?: jasmine.Spy; delete?: jasmine.Sp
     providers: [
       { provide: HttpClient, useValue: http },
       { provide: ToastService, useValue: { show } },
-      { provide: AdminStateService, useValue: { orgId: signal(over.orgId ?? 'org1') } },
+      { provide: AdminStateService, useValue: { orgId: signal(over.orgId ?? 'org1'), sites: signal(over.sites ?? []) } },
+      ...(over.aiFlagOn !== undefined
+        ? [{ provide: FeatureFlagService, useValue: { isOn: () => of(over.aiFlagOn) } }]
+        : []),
       provideRouter([]), // component now injects Router + ActivatedRoute for ?sort= sync
     ],
   });
@@ -359,5 +374,270 @@ describe('AdminApiTokensComponent (flag-disabled banner link is underlined)', ()
     expect(link!.querySelector('svg[aria-hidden="true"]'))
       .withContext('crisp external-link SVG, not a unicode arrow').not.toBeNull();
     expect(link!.textContent ?? '').withContext('no leftover ↗ glyph').not.toContain('↗');
+  });
+});
+
+/**
+ * AI API Keys (campaign lane-3, flag `ai_api_keys` — DARK in prod).
+ *
+ * The mint dialog gains an OPTIONAL "AI permissions" section that constructs the
+ * POST /api/v1-tokens `grant` body in EXACTLY the server's GrantInputSchema shape
+ * (a strict .pick() of the SHARED GrantRecordSchema): siteIds / connectionIds /
+ * actionIds / modelIds / expiresAt (+ optional limits). The schema is .strict()
+ * server-side, so NO extra keys may leak (protocol is a client-side SDK-surface
+ * hint, never a payload field). Flag OFF → the mint body is byte-identical to the
+ * pre-existing flow (no `grant` key at all — existing tokens never silently gain
+ * AI access).
+ */
+describe('AdminApiTokensComponent (AI API keys — grant payload)', () => {
+  afterEach(() => TestBed.resetTestingModule());
+
+  const DAY = 86_400_000;
+
+  it('flag OFF: the mint body carries NO grant key even if AI selections were made', () => {
+    const { c, http } = make(); // real FeatureFlagService resolves false off the mocked HTTP
+    c.openCreateModal();
+    c.newName = 'CI bot';
+    c.aiGrantEnabled.set(true);
+    c.toggleAiCapability('workers_ai.text.generate');
+    c.createToken();
+    expect(http.post).toHaveBeenCalled();
+    const body = http.post.calls.mostRecent().args[1] as Record<string, unknown>;
+    expect('grant' in body).withContext('flag-off mint is byte-identical — no grant key').toBeFalse();
+  });
+
+  it('flag ON but AI section left disabled: no grant key (the section is opt-in)', () => {
+    const { c, http } = make({ aiFlagOn: true });
+    c.openCreateModal();
+    c.newName = 'CI bot';
+    c.createToken();
+    const body = http.post.calls.mostRecent().args[1] as Record<string, unknown>;
+    expect('grant' in body).toBeFalse();
+  });
+
+  it('flag ON + enabled: builds the grant in the EXACT GrantInputSchema shape from the selections', () => {
+    const { c, http } = make({ aiFlagOn: true });
+    c.openCreateModal();
+    c.newName = 'AI key';
+    c.aiGrantEnabled.set(true);
+    c.toggleAiSite('s1');
+    c.toggleAiCapability('workers_ai.text.generate');
+    c.aiBudgetUsd = '12.5';
+    c.createToken();
+    expect(http.post).toHaveBeenCalled();
+    const body = http.post.calls.mostRecent().args[1] as {
+      grant: {
+        siteIds: string[]; connectionIds: string[]; actionIds: string[];
+        modelIds: string[]; expiresAt: string; limits?: { spendCents: number };
+      };
+    };
+    expect(body.grant.siteIds).toEqual(['s1']);
+    expect(body.grant.connectionIds).toEqual([]);
+    expect(body.grant.actionIds).toEqual(['workers_ai.text.generate']);
+    expect(body.grant.modelIds).toEqual([]);
+    expect(body.grant.limits).withContext('USD → integer cents').toEqual({ spendCents: 1250 });
+    // Strict-schema safety: EXACTLY the pickable keys — a stray `protocol` (or any
+    // other extra key) would 400 the whole mint against the strict server schema.
+    expect(Object.keys(body.grant).sort()).toEqual(
+      ['actionIds', 'connectionIds', 'expiresAt', 'limits', 'modelIds', 'siteIds'],
+    );
+    // Grants are never perpetual: token has no expiry → grant defaults to ~90 days out.
+    const exp = Date.parse(body.grant.expiresAt);
+    expect(exp).withContext('expiresAt parses').not.toBeNaN();
+    expect(exp).toBeGreaterThan(Date.now() + 89 * DAY);
+    expect(exp).toBeLessThan(Date.now() + 91 * DAY);
+  });
+
+  it('a token expiry drives the grant expiry (same instant), and a blank budget omits limits', () => {
+    const { c, http } = make({ aiFlagOn: true });
+    c.openCreateModal();
+    c.newName = 'AI key';
+    c.newExpiry = new Date(Date.now() + 30 * DAY).toISOString().slice(0, 16);
+    c.aiGrantEnabled.set(true);
+    c.toggleAiCapability('projectsites.site.read');
+    c.aiBudgetUsd = '';
+    c.createToken();
+    const body = http.post.calls.mostRecent().args[1] as { grant: { expiresAt: string; limits?: unknown } };
+    expect(body.grant.expiresAt).toBe(new Date(c.newExpiry).toISOString());
+    expect('limits' in body.grant).withContext('no budget → limits key omitted (schema default)').toBeFalse();
+  });
+
+  it('flag ON + enabled + ZERO capabilities selected: createToken is a no-op (never mint a doomed grant)', () => {
+    const { c, http } = make({ aiFlagOn: true });
+    c.openCreateModal();
+    c.newName = 'AI key';
+    c.aiGrantEnabled.set(true);
+    expect(c.aiGrantBlocked()).toBeTrue();
+    c.createToken();
+    expect(http.post).not.toHaveBeenCalled();
+    expect(c.creating()).toBe(false);
+  });
+
+  it('aiBudgetInvalid: blank = valid (no cap), positive = valid, zero/negative/garbage = invalid + blocks', () => {
+    const { c } = make({ aiFlagOn: true });
+    c.openCreateModal();
+    c.aiGrantEnabled.set(true);
+    c.toggleAiCapability('workers_ai.text.generate');
+    c.aiBudgetUsd = '';
+    expect(c.aiBudgetInvalid()).toBeFalse();
+    c.aiBudgetUsd = '25';
+    expect(c.aiBudgetInvalid()).toBeFalse();
+    expect(c.aiGrantBlocked()).toBeFalse();
+    c.aiBudgetUsd = '0';
+    expect(c.aiBudgetInvalid()).toBeTrue();
+    c.aiBudgetUsd = '-3';
+    expect(c.aiBudgetInvalid()).toBeTrue();
+    expect(c.aiGrantBlocked()).withContext('invalid budget blocks the mint').toBeTrue();
+  });
+
+  it('openCreateModal resets the AI draft (protocol both, nothing selected, no budget)', () => {
+    const { c } = make({ aiFlagOn: true });
+    c.openCreateModal();
+    c.aiGrantEnabled.set(true);
+    c.aiProtocol.set('anthropic');
+    c.toggleAiSite('s1');
+    c.toggleAiCapability('workers_ai.text.generate');
+    c.aiBudgetUsd = '9';
+    c.openCreateModal();
+    expect(c.aiGrantEnabled()).toBeFalse();
+    expect(c.aiProtocol()).toBe('both');
+    expect(c.selectedAiSites().size).toBe(0);
+    expect(c.selectedAiCapabilities().size).toBe(0);
+    expect(String(c.aiBudgetUsd)).toBe('');
+  });
+
+  it('every offered capability id passes the SHARED ai-policy capabilityIdSchema, grouped read/write non-empty', () => {
+    const { c } = make();
+    expect(c.readAiCapabilities.length).toBeGreaterThan(0);
+    expect(c.writeAiCapabilities.length).toBeGreaterThan(0);
+    for (const cap of [...c.readAiCapabilities, ...c.writeAiCapabilities]) {
+      expect(capabilityIdSchema.safeParse(cap.id).success)
+        .withContext(`"${cap.id}" must be a valid provider.resource.action id`).toBeTrue();
+    }
+  });
+});
+
+/**
+ * AI API Keys — rendered UI. Flag OFF must render NOTHING new (the existing token
+ * UI is unchanged); flag ON reveals the opt-in AI permissions section inside the
+ * mint dialog. List-row grant chips are SERVER-driven: they render exactly the
+ * counts-only GrantSummary fields the list response carries (flag off ⇒ the server
+ * never sends `grant` ⇒ no chip — no client flag check needed).
+ */
+describe('AdminApiTokensComponent (AI API keys — rendered UI)', () => {
+  afterEach(() => TestBed.resetTestingModule());
+
+  function render(opts: { aiFlagOn?: boolean; get?: () => unknown } = {}): ComponentFixture<AdminApiTokensComponent> {
+    TestBed.configureTestingModule({
+      imports: [AdminApiTokensComponent],
+      providers: [
+        {
+          provide: HttpClient,
+          useValue: { get: opts.get ?? (() => of({ data: [] })), post: () => of({}), delete: () => of({}) },
+        },
+        { provide: ToastService, useValue: { show: () => 0 } },
+        {
+          provide: AdminStateService,
+          useValue: {
+            orgId: signal('org1'),
+            sites: signal([{ id: 's1', slug: 'one', business_name: 'Site One' }]),
+          },
+        },
+        ...(opts.aiFlagOn !== undefined
+          ? [{ provide: FeatureFlagService, useValue: { isOn: () => of(opts.aiFlagOn) } }]
+          : []),
+        provideRouter([]),
+      ],
+    });
+    return TestBed.createComponent(AdminApiTokensComponent);
+  }
+
+  it('flag OFF: the mint dialog renders NO AI section (existing token UI unchanged)', () => {
+    const fx = render({ aiFlagOn: false });
+    fx.detectChanges();
+    fx.componentInstance.openCreateModal();
+    fx.detectChanges();
+    const el = fx.nativeElement as HTMLElement;
+    expect(el.querySelector('[data-testid="at-name-input"]')).withContext('dialog itself renders').not.toBeNull();
+    expect(el.querySelector('[data-testid="at-ai-section"]')).withContext('no new UI while dark').toBeNull();
+  });
+
+  it('flag ON: the dialog shows the opt-in AI section — protocol picker, sites, read/write capabilities, budget', () => {
+    const fx = render({ aiFlagOn: true });
+    fx.detectChanges();
+    fx.componentInstance.openCreateModal();
+    fx.detectChanges();
+    const el = fx.nativeElement as HTMLElement;
+    expect(el.querySelector('[data-testid="at-ai-section"]')).not.toBeNull();
+    expect(el.querySelector('[data-testid="at-ai-enable"]')).withContext('opt-in toggle').not.toBeNull();
+    // Collapsed until opted in — no doomed half-configured controls.
+    expect(el.querySelector('[data-testid="at-ai-budget"]')).toBeNull();
+    fx.componentInstance.aiGrantEnabled.set(true);
+    fx.detectChanges();
+    expect(el.querySelector('[data-testid="at-ai-protocol-openai"]')).not.toBeNull();
+    expect(el.querySelector('[data-testid="at-ai-protocol-anthropic"]')).not.toBeNull();
+    expect(el.querySelector('[data-testid="at-ai-protocol-both"]')).not.toBeNull();
+    expect(el.querySelector('[data-testid="at-ai-site-s1"]')).withContext('sites multi-select from admin state').not.toBeNull();
+    expect(el.querySelector('[data-testid="at-ai-cap-workers_ai.text.generate"]')).withContext('capability checkbox').not.toBeNull();
+    expect(el.querySelector('[data-testid="at-ai-budget"]')).withContext('budget input').not.toBeNull();
+    const section = el.querySelector('[data-testid="at-ai-section"]') as HTMLElement;
+    expect(section.textContent).withContext('read/write grouping headers').toContain('Read');
+    expect(section.textContent).toContain('Write');
+  });
+
+  it('renders a compact grant chip from the server GrantSummary — and no chip on grantless rows', () => {
+    const withGrant = {
+      id: 'a', name: 'AI key', scopes: ['sites:read'], last_used_at: null, expires_at: null,
+      created_at: '2026-01-01T00:00:00Z',
+      grant: {
+        siteCount: 2, connectionCount: 0, actionCount: 3, modelCount: 1,
+        approvalPolicy: 'follow_capability', revision: 1, expiresAt: '2027-01-01T00:00:00Z',
+      },
+    };
+    const plain = {
+      id: 'b', name: 'CI', scopes: ['sites:read'], last_used_at: null, expires_at: null,
+      created_at: '2026-01-01T00:00:00Z',
+    };
+    const fx = render({ get: () => of({ data: [withGrant, plain] }) });
+    fx.detectChanges();
+    const el = fx.nativeElement as HTMLElement;
+    const chips = el.querySelectorAll('[data-testid="at-grant-chip"]');
+    expect(chips.length).withContext('exactly the granted row carries a chip').toBe(1);
+    const text = (chips[0].textContent ?? '').replace(/\s+/g, ' ');
+    expect(text).toContain('2 sites');
+    expect(text).toContain('3 capabilities');
+    expect(text).toContain('1 model');
+  });
+
+  it('the reveal dialog names the SDK env var(s) for the chosen protocol when a grant was minted', () => {
+    const fx = render({ aiFlagOn: true });
+    fx.detectChanges();
+    fx.componentInstance.aiProtocol.set('both');
+    fx.componentInstance.createdToken.set({
+      token: { id: 't1', name: 'AI key', scopes: ['sites:read'], last_used_at: null, expires_at: null, created_at: '2026-01-01T00:00:00Z' },
+      plaintext: 'psk_once',
+      warning: 'once',
+      grant: {
+        siteCount: 1, connectionCount: 0, actionCount: 1, modelCount: 0,
+        approvalPolicy: 'follow_capability', revision: 1, expiresAt: '2027-01-01T00:00:00Z',
+      },
+    });
+    fx.detectChanges();
+    const hint = (fx.nativeElement as HTMLElement).querySelector('[data-testid="at-ai-env-hint"]');
+    expect(hint).withContext('grant-minted reveal carries the SDK hint').not.toBeNull();
+    expect(hint!.textContent).toContain('OPENAI_API_KEY');
+    expect(hint!.textContent).toContain('ANTHROPIC_API_KEY');
+  });
+
+  it('a grantless mint reveal shows NO SDK env hint', () => {
+    const fx = render({ aiFlagOn: true });
+    fx.detectChanges();
+    fx.componentInstance.createdToken.set({
+      token: { id: 't1', name: 'CI', scopes: ['sites:read'], last_used_at: null, expires_at: null, created_at: '2026-01-01T00:00:00Z' },
+      plaintext: 'psk_once',
+      warning: 'once',
+    });
+    fx.detectChanges();
+    expect((fx.nativeElement as HTMLElement).querySelector('[data-testid="at-ai-env-hint"]')).toBeNull();
   });
 });
