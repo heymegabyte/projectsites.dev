@@ -72,7 +72,12 @@ test.describe('Long-Trail Case 001 — Money Path :: PHASE A (homepage → real 
     // 1. Homepage paints.
     await page.goto(APP + '/');
     await expect(page).toHaveTitle(/ProjectSites/i);
-    await expect(page.getByRole('heading', { level: 1 })).toContainText(/ready to claim/i);
+    // Hero copy is A/B/N-varianted per load (data-hero-variant) — assert the
+    // CONTRACT (headline testid renders substantive copy), never one variant's words.
+    await expect(page.getByTestId('hero-headline')).toBeVisible();
+    await expect
+      .poll(async () => ((await page.getByTestId('hero-headline').textContent()) ?? '').trim().length)
+      .toBeGreaterThan(15);
 
     // 2. Sign In entry present in the header (rendered as a <button>, `.header-signin-btn`, on
     //    logged-out non-/signin routes — discovered from the live DOM, not assumed to be a link).
@@ -156,12 +161,101 @@ test.describe('Long-Trail Case 001 — Money Path :: PHASE A (homepage → real 
 });
 
 // ───────────────────────────────────────────────────────────────────────────────
-// PHASES B–F — authored in case-001-money-path.md, driven live in later cycles.
+// PHASE B — cockpit tour (actions 16-25 per case-001-money-path.md)
+// Promoted from test.fixme in fire-55; driven live against the real local stack.
+// ───────────────────────────────────────────────────────────────────────────────
+test.describe('Long-Trail Case 001 :: PHASE B (cockpit tour)', () => {
+  test.skip(!TEST_PASSWORD, 'E2E_TEST_PASSWORD not set — real test-login seam is unreachable.');
+
+  test(
+    'B: cockpit tour — Forms/Analytics/Feature Flags/Hosting + Cmd+K + nav-away',
+    async ({ page }) => {
+      const consoleErrors: string[] = [];
+      page.on('console', (m) => {
+        if (m.type() === 'error') consoleErrors.push(m.text());
+      });
+
+      // ── Auth ──────────────────────────────────────────────────────────────
+      await page.goto(APP + '/signin?test=1');
+      await page.getByTestId('test-signin-password').fill(TEST_PASSWORD);
+      await page.getByTestId('test-signin-submit').click();
+      await expect(page).toHaveURL(/\/admin/);
+
+      // ── Action 16: Click Forms nav → renders ──────────────────────────────
+      await page.getByRole('link', { name: /^Forms$/ }).click();
+      await expect(page).toHaveURL(/\/admin\/forms/i);
+      await page.screenshot({ path: 'e2e/long-trail/screenshots-local/04-forms.png', fullPage: false });
+
+      // ── Action 17: Exactly one H1 ─────────────────────────────────────────
+      const h1s = page.getByRole('heading', { level: 1 });
+      await expect(h1s.first()).toBeVisible();
+      expect(await h1s.count()).toBe(1);
+
+      // ── Action 18: Click Analytics nav → renders ──────────────────────────
+      await page.getByRole('link', { name: /^Analytics$/ }).click();
+      await expect(page).toHaveURL(/\/admin\/analytics/i);
+      await page.screenshot({ path: 'e2e/long-trail/screenshots-local/05-analytics.png', fullPage: false });
+
+      // ── Action 19: No manual Refresh/Reconcile button ─────────────────────
+      const refreshBtn = page.getByRole('button', { name: /Refresh|Reconcile/i });
+      expect(await refreshBtn.count(), 'Manual Refresh/Reconcile button must not be present').toBe(0);
+
+      // ── Action 20: Click Feature Flags nav → renders ──────────────────────
+      await page.getByRole('link', { name: /Feature Flags/i }).click();
+      await expect(page).toHaveURL(/\/admin\/feature-flags/i);
+      await page.screenshot({ path: 'e2e/long-trail/screenshots-local/06-flags.png', fullPage: false });
+
+      // ── Action 21: At least one known flag row visible ────────────────────
+      const flagRow = page.locator('[data-testid="flag-row"], tr, .flag-card').first();
+      const hasFlagContent = await page
+        .getByText(/per_site_data|live_build_stream|better_auth|core_sites/i)
+        .isVisible()
+        .catch(() => false);
+      const hasAnyRow = (await flagRow.count()) > 0;
+      expect(
+        hasFlagContent || hasAnyRow,
+        'Feature Flags page must show at least one flag row',
+      ).toBe(true);
+
+      // ── Action 22: Click Hosting nav → renders ────────────────────────────
+      await page.getByRole('link', { name: /^Hosting$/ }).click();
+      await expect(page).toHaveURL(/\/admin\/hosting/i);
+
+      // ── Action 23: Cmd+K opens the palette ───────────────────────────────
+      await page.keyboard.press('Meta+K');
+      const palette = page
+        .getByTestId('cmdk-input')
+        .or(page.getByRole('combobox', { name: /Search|Command/i }))
+        .or(page.getByPlaceholder(/Search|Type a command/i));
+      await expect(palette).toBeVisible({ timeout: 3000 });
+      await page.screenshot({ path: 'e2e/long-trail/screenshots-local/07-cmdk.png', fullPage: false });
+
+      // ── Action 24: Escape closes the palette ──────────────────────────────
+      await page.keyboard.press('Escape');
+      await expect(palette).not.toBeVisible({ timeout: 2000 });
+
+      // ── Action 25: Navigate to '/' (public) then back → still authed ──────
+      await page.goto(APP + '/');
+      await page.goto(APP + '/admin');
+      await expect(page).toHaveURL(/\/admin/);
+      const me = await fetchMe(page);
+      expect(me.status, 'Session must survive public-page visit').toBe(200);
+
+      // ── Console-error gate ────────────────────────────────────────────────
+      const unexpected = consoleErrors.filter(
+        (e) => !/\/api\/auth\/get-session/.test(e) && !/status of 404/.test(e),
+      );
+      expect(unexpected, `unexpected console errors: ${unexpected.join(' | ')}`).toHaveLength(0);
+    },
+  );
+});
+
+// ───────────────────────────────────────────────────────────────────────────────
+// PHASES C–F — authored in case-001-money-path.md, driven live in later cycles.
 // `test.fixme` = honestly PENDING (never a false green). Each promotes to a real
 // test when its surface is exercised against the live local stack.
 // ───────────────────────────────────────────────────────────────────────────────
-test.describe('Long-Trail Case 001 :: PHASES B–F (pending live drive)', () => {
-  test.fixme('B: cockpit tour — Forms/Analytics/Feature Flags/Hosting + Cmd+K + nav-away', async () => {});
+test.describe('Long-Trail Case 001 :: PHASES C–F (pending live drive)', () => {
   test.fixme('C: create/open a disposable ltt-e2e- site (stop before costly AI build)', async () => {});
   test.fixme('D: Bolt editor — Code edit + Preview live-reload + per-site D1 Data tab isolation', async () => {});
   test.fixme('E: promote → visit published → submit form → reconcile lead + pageview in stores', async () => {});

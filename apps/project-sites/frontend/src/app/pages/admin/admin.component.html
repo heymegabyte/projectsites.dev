@@ -1081,6 +1081,10 @@
             <rect x="2" y="3" width="20" height="14" rx="2" />
             <path d="M8 21h8M12 17v4" />
           </svg>
+          <!-- Page identity survives the site-gate: the section's h1 renders above the
+               launchpad so every gated view keeps exactly one h1 (WCAG/a11y contract —
+               fire-56 long-trail RED: all gated sections had zero h1). -->
+          <h1 class="text-white font-bold text-2xl m-0">{{ currentSection() }}</h1>
           <h2 class="text-white font-semibold text-xl m-0">No sites yet</h2>
           <p class="text-[0.9rem] max-w-[400px] m-0">
             Create your first AI-powered website in minutes.

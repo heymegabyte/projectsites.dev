@@ -1031,3 +1031,17 @@
   (never skips writes, never leaks tenants); CF free allowance vs our pricing vs marginal cost
   distinguished
   - deps: L4.2 + L2.4 · files: gateway adapters + metering · flag: `ai_model_router` · est: M · acceptance: §17.9 (billing honesty leg)
+
+## fire-56 replenish (verified)
+
+- [ ] Feature Flags admin page: list CODE-REGISTRY flags even when D1 feature_flags is empty
+  (registry is SoT; fresh-DB shows 0 rows — long-trail Phase B RED blocks here). Acceptance:
+  Phase B greens on fresh local D1. Owner: Feature Delivery. Est: S-M.
+- [ ] KV/detail (all per-kind details): distinguish flag-dark 404 by MESSAGE → honest
+  "not enabled yet" state (not "Failed to load resource"+Retry); gate Write/TTL/Delete +
+  Promote/Clone/Delete-resource controls on provisioned state (doomed-control rule). Evidence:
+  dux-2026-09-29T23-45-06 state 11. Owner: UX/editor. Est: M.
+- [ ] packages/shared/CLAUDE.md test-count stale after ai-policy (+58) — one-line doc sync. Est: XS.
+- [ ] Convergence deploy (next fire): worker deploy AFTER mint-fix lands (covers e5106673c +
+  mint); frontend deploy for the gated-h1 fix; then rerun e2e/ai-api RED specs → /v1/models
+  cases expected GREEN on prod.

@@ -187,3 +187,27 @@ git history._
   explorer resources-deep journey w/ LIVE real-time-contract probe + scoped pill discovery.
   Attrition: long-trail died 2nd time mid-stack-boot (patch salvaged; next attempt = pre-booted
   stack). Fire-lease coalescing PROVEN: the 18:58 cron tick joined this fire instead of stacking.
+
+## Fire 56 (2026-09-29) — campaign lane-2/4/8 + three-strike root causes killed
+
+- Campaign slices LANDED: ai-policy shared layer `89cd67788` (7-leg effectiveAllow, 58 tests) ·
+  /v1/models+lookup `e5106673c` (flag model_registry→beta, OpenAI shapes, gateway_route.ts
+  deleted w/ zero-importer proof, jest 13,873 ✓) · bolt-chat auth hardened `4ac9a238f`
+  (marker/origin no longer grant; PS_BOLT_SERVICE_TOKEN; agent live-proved 200-token/401-spoof;
+  NOTE: agent self-deployed worker 9d9cbfee + Pages 985dd8f6 — deploy-discipline deviation,
+  outcome verified) · ide_sandbox fabrication cull `9c6a606d9`+`10a6c4173` (honest states, 6/6).
+- OAuth mint fix (presenter-intersection + atomic D1 codes): agent still in flight at fire close —
+  lands via its own commit+push; convergence worker deploy rides next fire with it.
+- ⭐ Long-trail THREE-STRIKE root causes found + killed in-thread: (1) stray 592MB
+  apps/project-sites/node_modules/node_modules duplicate → two Playwright instances → "No tests
+  found" (REMOVED); (2) .dev.vars E2E_TEST_PASSWORD was stale 47-char vs real secret → local seam
+  401 (SYNCED+worker restarted); (3) wedged 44-min ng serve (RESTARTED). Phase A re-green 3/3.
+  Phase B promoted (6 real tests) and drove a REAL fix: gated no-sites sections had ZERO h1 —
+  shell site-gate now renders currentSection() as h1 (a11y contract). Phase B now RED at exactly
+  one honest assertion: Feature Flags page shows 0 rows on fresh D1 (registry-vs-D1 design gap) —
+  checkpointed as next unmet unit. Hero A/B/N variants: spec assertion made contract-based.
+- Role 17: resources-deep + Advanced-console drill-in `787462049` — PASS_CLOUDFLARE 11 states,
+  11/11 vision; REAL finding: flag-dark KV detail shows generic "Failed to load resource" (dark-404
+  not distinguished by message) + doomed Write/Promote/Clone/Delete controls on "Not provisioned".
+- Loop improvements: role-16 structural rule (runs IN main checkout — auto-worktree strands it
+  from node_modules/stack; 3 deaths proven) + nested-node_modules hazard recorded.
