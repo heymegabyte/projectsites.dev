@@ -158,18 +158,104 @@ async function updateSiteStatus(db: D1Database, siteId: string, status: string):
   }
 }
 
+/** The `notifyOwnerEvent` argument shape the workflow's terminal owner-notify fires. */
+export interface OwnerNotifyEvent {
+  orgId: string;
+  workflowId: 'build.complete' | 'build.failed';
+  actionUrl?: string;
+  event: {
+    name: 'build.complete' | 'build.failed';
+    subscriberId: string;
+    payload: Record<string, unknown>;
+  };
+}
+
+/** Facts the terminal owner-notify needs to compose the bell event. */
+export interface OwnerNotifyFacts {
+  orgId: string;
+  siteId: string;
+  slug: string;
+  businessName: string;
+  /** Owner-appropriate failure reason (the `build.failed` body); unused on complete. */
+  reason?: string;
+  /**
+   * True when the build finished DEGRADED (e.g. seed-only, build-LLM credit dead). The
+   * completion EMAIL already flags this (notifySiteBuilt `degraded`); the in-app bell
+   * MUST say so too — otherwise the bell claims a flat "is live 🎉" for a reduced-quality
+   * build, lying to the owner (degraded-success-must-flag-reduced-quality-to-user).
+   */
+  degraded?: boolean;
+}
+
+/**
+ * Build the CANONICAL {@link PsnotifyEventSchema}-shaped (`{ name, subscriberId, payload }`)
+ * `notifyOwnerEvent` argument for a terminal build transition. Pure + exported → the
+ * complete/fail bell copy (incl. the degraded-quality framing) is unit-testable WITHOUT a DO.
+ *
+ * The pre-existing `{ event, tenantId, siteId, … }` novu-era object FAILED the schema →
+ * `notifyOwnerEvent` returned `invalid_event` and the DO write NEVER fired, so the owner
+ * silently discovered build status by polling (BACKLOG fire-51 "psnotify `build.*` channel
+ * never fires"). `notifyOwnerEvent` resolves the owner email server-side; the event
+ * `subscriberId` is a placeholder the schema requires — pass `orgId`. The live site URL rides
+ * as the bell row's `action_url` deep link so one click opens the finished (or retry) site.
+ *
+ * @param kind - `'complete'` (build published) or `'failed'` (build errored).
+ * @param facts - The transition facts ({@link OwnerNotifyFacts}).
+ * @returns The exact object to pass to `notifyOwnerEvent(env, db, …)`.
+ * @example buildOwnerNotifyEvent('complete', { orgId, siteId, slug, businessName }).event.name // 'build.complete'
+ */
+export function buildOwnerNotifyEvent(
+  kind: 'complete' | 'failed',
+  facts: OwnerNotifyFacts,
+): OwnerNotifyEvent {
+  const actionUrl = facts.slug ? `https://${facts.slug}${DOMAINS.SITES_SUFFIX}` : undefined;
+  if (kind === 'failed') {
+    return {
+      orgId: facts.orgId,
+      workflowId: 'build.failed',
+      ...(actionUrl ? { actionUrl } : {}),
+      event: {
+        name: 'build.failed',
+        subscriberId: facts.orgId,
+        payload: {
+          subject: 'Your site build needs attention',
+          body: facts.reason || 'Your site build did not finish. Please try again.',
+          siteId: facts.siteId,
+          ...(actionUrl ? { action_url: actionUrl } : {}),
+        },
+      },
+    };
+  }
+  // build.complete — honest about a degraded (seed-only) delivery.
+  const liveAt = `${facts.slug}${DOMAINS.SITES_SUFFIX}`;
+  const subject = facts.degraded
+    ? `${facts.businessName} is live (draft quality)`
+    : `${facts.businessName} is live 🎉`;
+  const body = facts.degraded
+    ? `Your site is published at ${liveAt}, but it was built in reduced-quality mode. Regenerate for free to get the full build.`
+    : `Your new site is published at ${liveAt}.`;
+  return {
+    orgId: facts.orgId,
+    workflowId: 'build.complete',
+    ...(actionUrl ? { actionUrl } : {}),
+    event: {
+      name: 'build.complete',
+      subscriberId: facts.orgId,
+      payload: {
+        subject,
+        body,
+        siteId: facts.siteId,
+        degraded: !!facts.degraded,
+        ...(actionUrl ? { action_url: actionUrl } : {}),
+      },
+    },
+  };
+}
+
 /**
  * Notify the org owner that a build FAILED — the in-app psnotify bell (`build.failed`).
  * Best-effort: any failure is swallowed so it never affects the workflow's own error
- * handling / deadlettering.
- *
- * MUST pass the CANONICAL {@link PsnotifyEventSchema} shape (`{ name, subscriberId,
- * payload }`). The pre-existing `{ event, tenantId, siteId, error }` novu-era object
- * FAILED that schema → `notifyOwnerEvent` returned `invalid_event` and the DO write
- * NEVER fired, so the owner silently discovered a failed build by polling (BACKLOG
- * fire-51 "psnotify `build.*` channel never fires"). `notifyOwnerEvent` resolves the
- * owner email; the event `subscriberId` is a placeholder the schema requires — pass
- * `orgId`. The site URL rides as the bell row's `action_url` deep link.
+ * handling / deadlettering. Delegates the canonical event shape to {@link buildOwnerNotifyEvent}.
  *
  * @param env - Worker bindings (needs DB for owner resolution).
  * @param orgId - The org whose owner is notified.
@@ -186,22 +272,17 @@ async function notifyBuildFailed(
 ): Promise<void> {
   try {
     const { notifyOwnerEvent } = await import('../services/notify.js');
-    const actionUrl = slug ? `https://${slug}${DOMAINS.SITES_SUFFIX}` : undefined;
-    await notifyOwnerEvent(env, env.DB, {
-      orgId,
-      workflowId: 'build.failed',
-      actionUrl,
-      event: {
-        name: 'build.failed',
-        subscriberId: orgId,
-        payload: {
-          subject: 'Your site build needs attention',
-          body: reason || 'Your site build did not finish. Please try again.',
-          siteId,
-          ...(actionUrl ? { action_url: actionUrl } : {}),
-        },
-      },
-    });
+    await notifyOwnerEvent(
+      env,
+      env.DB,
+      buildOwnerNotifyEvent('failed', {
+        orgId,
+        siteId,
+        slug: slug ?? '',
+        businessName: '',
+        reason,
+      }),
+    );
   } catch {
     /* bell is best-effort */
   }
@@ -2840,32 +2921,42 @@ export class SiteGenerationWorkflow extends WorkflowEntrypoint<Env, SiteGenerati
     // Notify the org owner that their AI-built site is LIVE — the in-app psnotify bell
     // (`build.complete`). In a step.do so workflow replay never double-sends. Best-effort.
     //
-    // MUST pass the CANONICAL PsnotifyEventSchema shape (`{ name, subscriberId, payload }`).
-    // The old `{ event, tenantId, siteId, previewUrl }` novu-era object FAILED that schema →
-    // `notifyOwnerEvent` returned `invalid_event` and the "your site is live" bell NEVER
-    // fired (BACKLOG fire-51 "psnotify `build.*` channel never fires" — the owner discovered
-    // completion only by polling). `notifyOwnerEvent` resolves the owner email; the event
-    // `subscriberId` is a placeholder the schema requires — pass `orgId`. The live site URL
-    // rides as the bell row's `action_url` deep link so one click opens the finished site.
+    // MUST pass the CANONICAL PsnotifyEventSchema shape (`{ name, subscriberId, payload }`) —
+    // built by {@link buildOwnerNotifyEvent}. The old `{ event, tenantId, siteId, previewUrl }`
+    // novu-era object FAILED that schema → `notifyOwnerEvent` returned `invalid_event` and the
+    // "your site is live" bell NEVER fired (BACKLOG fire-51 "psnotify `build.*` channel never
+    // fires" — the owner discovered completion only by polling). `notifyOwnerEvent` resolves the
+    // owner email server-side; the event `subscriberId` is a placeholder the schema requires —
+    // pass `orgId`. The live site URL rides as the bell row's `action_url` deep link.
+    //
+    // DEGRADED-aware: re-read the same `workflow.build_llm_degraded*` audit signal the completion
+    // EMAIL reads (the authoritative seed-only marker keyed to this site), so the bell flags
+    // reduced quality too instead of a flat "is live 🎉" (degraded-success-must-flag-user).
     await step.do('notify-owner-published', async () => {
       try {
+        let degradedBuild = false;
+        try {
+          const degradedRow = await env.DB.prepare(
+            `SELECT 1 FROM audit_logs WHERE target_id = ? AND action LIKE 'workflow.build_llm_degraded%' LIMIT 1`,
+          )
+            .bind(params.siteId)
+            .first();
+          degradedBuild = !!degradedRow;
+        } catch {
+          degradedBuild = false;
+        }
         const { notifyOwnerEvent } = await import('../services/notify.js');
-        const siteUrl = `https://${params.slug}${DOMAINS.SITES_SUFFIX}`;
-        const r = await notifyOwnerEvent(env, env.DB, {
-          orgId: params.orgId,
-          workflowId: 'build.complete',
-          actionUrl: siteUrl,
-          event: {
-            name: 'build.complete',
-            subscriberId: params.orgId,
-            payload: {
-              subject: `${params.businessName} is live 🎉`,
-              body: `Your new site is published at ${params.slug}${DOMAINS.SITES_SUFFIX}.`,
-              siteId: params.siteId,
-              action_url: siteUrl,
-            },
-          },
-        });
+        const r = await notifyOwnerEvent(
+          env,
+          env.DB,
+          buildOwnerNotifyEvent('complete', {
+            orgId: params.orgId,
+            siteId: params.siteId,
+            slug: params.slug,
+            businessName: params.businessName,
+            degraded: degradedBuild,
+          }),
+        );
         return r.ok ? 'sent' : `skipped:${r.detail ?? 'unknown'}`;
       } catch {
         return 'error';
