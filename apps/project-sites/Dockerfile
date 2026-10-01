@@ -55,7 +55,7 @@ COPY scripts/upload-to-r2.mjs /home/cuser/upload-to-r2.mjs
 # the COPY, so bumping its string forces CF's build pipeline to re-run everything
 # from here down, re-copying the LATEST container-server.mjs into the image. Bump
 # the token on any change that must reach the running build container reliably.
-RUN echo "container-server-cache-bust: al791-llms-manifest-sanitizer-2026-09-19"
+RUN echo "container-server-cache-bust: fire62-claude-usage-capture-2026-10-01"
 COPY scripts/container-server.mjs /home/cuser/container-server.mjs
 # AL-701: the vertical classifier table + scoring, extracted PURE from container-server.mjs
 # so it's unit-testable (scripts/vertical-rules.test.mjs). container-server.mjs imports it via
