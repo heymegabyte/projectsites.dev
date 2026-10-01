@@ -134,3 +134,22 @@ Golden paths are executable product design: long, stateful user journeys written
 - The standing Long-Trail lane owns gp-01/gp-02 (case-001 continues from action 38); the Deep UI Explorer lane owns gp-07; other paths rotate through the 15-role roster.
 - A path untouched for 5 consecutive fires escalates to a standing lane next fire. New journeys enter via the Backlog list → get a full entry when first picked up.
 - Status ratchet: FUTURE → PARTIAL → RUNNABLE only via verified runs; never by edit. Regressions demote the status same-fire and open a LEDGER line.
+
+## gp-09 — destructive-recreate loop (STANDING, Brian 2026-10-01)
+
+- **Persona:** the platform itself proving delivery end-to-end, repeatedly.
+- **Fixture:** `lone-mountain-global` — SACRIFICIAL; full delete + regeneration explicitly
+  authorized, standing. Never use any other customer slug destructively.
+- **Steps:** admin → Sites → lone-mountain-global → Delete (full teardown: R2 version-tree,
+  D1 allocation row + database, KV host/manifest keys, WfP dispatch script, hostname rows)
+  → verify public 404s + admin list absence → re-create via the NORMAL generation flow
+  (search → build; WebGL industry-themed template) → watch build stream → site live →
+  Editor → Resources → Advanced → assert truthful inventory: ≥1 R2, 1 D1, + every other
+  allocated resource NAMED (0 "unknown" rows) → record wall-clock + $-per-build →
+  frontier-vision QA ≥8/10 (Anthropic vision or Unified-Billing OpenAI — never Workers-AI
+  for this gate) → public share-link only after hard gates (owner-draft/public-gated).
+- **Status:** FUTURE until `webgl-templates` + `resources-truth` land.
+- **CAPABILITY GAPS:** full-teardown delete path (verify nothing orphans); per-cycle
+  build-cost metering; resources panel ground-truth reconciler; WebGL template gate.
+- **Visual evidence:** post-delete 404, build stream, live hero (WebGL), Resources>Advanced
+  panel, vision-QA scorecard.

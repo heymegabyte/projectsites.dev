@@ -89,6 +89,10 @@
   time-to-live-site and $-per-build (see BACKLOG FRONTIER 0 instrumentation item). Rank
   fire work by its effect on those two numbers first. **Targets (Brian 2026-10-01):**
   instrument the real baseline FIRST, then drive to **<5 min live / ≤$1 per build**.
+- **Golden-loop / generation vision QA models (Brian 2026-10-01): ANTHROPIC vision or
+  Unified-Billing OpenAI** — the gp-09 recreate gate and generated-site scoring must use a
+  frontier eye; Workers-AI vision is fallback-only for this class (Gemini ladder remains
+  for high-volume cheap critiques per `./RUNNER-AND-CRITICS.md`).
 - **Speed-vs-quality policy: OWNER-DRAFT / PUBLIC-GATED** (Brian 2026-10-01) — the owner
   may watch the draft improve live (speed feels instant), but the PUBLIC share-link serves
   only once hard gates pass (vision ≥8 · zero console errors · clean copy). First
