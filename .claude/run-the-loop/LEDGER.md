@@ -409,3 +409,8 @@ exit-code deploys).
 - **Deep UI Explorer (STANDING) — BLOCKED** — fleet auto-worktrees EVERY agent → sparse node_modules → CF Browser Run tooling couldn't execute; zero durable artifacts (only settings.local.json). See DISCOVERIES D-64-1. Re-queued.
 - **Long-Trail TDD Phase F (STANDING) — DEFERRED** — heavy 37-action continuation + editor-CSP iframe blocker; lease stale/reclaimable. Re-queued.
 - **No worker runtime change shipped** (error_handler reverted) → no deploy. Gates: tsc touched-clean · jest error_handler 28/28 · validate:features errors=0 · validate:e2e-inventory 345 valid · IDOR gate CLEAN.
+
+## fire-65 — 2026-10-01 — loop-improvement: browser-role execution contract codified
+- **§7 loop-improvement (retires the fire-64 `fleet-auto-worktree-blocks-standing-browser-roles` + fire-63 `loop-role-17-needs-write-capable-specialist` shortcomings):** added OPERATING-PRINCIPLES § Browser-role execution contract — roles 16 (Long-Trail TDD) + 17 (Deep UI Explorer) run in the **MAIN checkout, NEVER a fleet auto-worktree** (sparse node_modules can't boot Playwright/local-stack/D1/`.dev.vars` → false BLOCKED/zero-CF-coverage); assert `test -d node_modules && test -d apps/project-sites/node_modules` + `.dev.vars` BEFORE claiming coverage (missing = BLOCKED, never "passed"); Write-capable specialist only (`test-writer`/`general-purpose`), never read-only `visual-qa` when the role must edit.
+- Command file §1.16 + §1.17 each got ONE tight "Execution env (mandatory)" line pointing to the canonical statement (no duplication across files).
+- Commit `<SHA>`. Touched ONLY `.claude/run-the-loop/OPERATING-PRINCIPLES.md` + `.claude/commands/run-the-loop.md` + this LEDGER line (`.claude/loop.md` + `.claude/scheduled_tasks.json` untouched).

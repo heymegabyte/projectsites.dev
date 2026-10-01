@@ -297,9 +297,29 @@ treating an agent's transient death as the session HARD-STOP wrongly checkpoints
   continue); the *lead* failing is the only signal to checkpoint. `subagent_tokens:0` from a
   network drop on one agent ≠ lead saturation — read WHICH thing failed before deciding.
 
+## Browser-role execution contract (roles 16 & 17 — never bends)
+
+The STANDING browser roles — role 16 (Long-Trail TDD case-owner) + role 17 (Deep UI Explorer) —
+run Playwright/CF-Browser-Run against a LIVE local stack, so their execution environment is fixed:
+
+- **MAIN checkout, NEVER a fleet auto-worktree.** A fleet auto-worktree gets sparse/absent
+  `node_modules` (no local D1, no `.dev.vars`), so Playwright + the local stack can't boot and the
+  role falsely reports BLOCKED / zero CF coverage (fire-56 proved 3 role-16 deaths; fire-64 BLOCKED
+  role 17 the same way). Route both roles to the MAIN checkout (full node_modules + local D1 +
+  `.dev.vars`); do NOT pass `isolation:"worktree"`.
+- **Assert deps BEFORE claiming coverage.** The lead/role runs
+  `test -d node_modules && test -d apps/project-sites/node_modules` (+ `.dev.vars` present) FIRST.
+  A missing-deps launch = **BLOCKED with the exact missing prerequisite**, never "passed" — a worktree
+  with no deps can never count as passed CF/browser coverage.
+- **Write-capable specialist only.** When the role must edit code/specs/checkpoints
+  (role 16 always; role 17's same-fire repair hand-off), the specialist is `test-writer` or
+  `general-purpose` — NEVER `visual-qa` (read-only, no Write; mis-assigning it strands the fire,
+  fire-63).
+
 ## Deep UI Explorer / Visual Intelligence (role 17 — invariants)
 
-Full role contract: `.claude/commands/run-the-loop.md` §1.17. The invariants that never bend:
+Full role contract: `.claude/commands/run-the-loop.md` §1.17. Execution env: see § Browser-role
+execution contract above (MAIN checkout, assert deps, Write-capable specialist). The invariants that never bend:
 
 - **Honest coverage semantics.** Cloud test proof = Cloudflare Browser Run CDP with recorded
   provider + session id. Browserbase/local Chromium = `FALLBACK`; missing credential, failed
