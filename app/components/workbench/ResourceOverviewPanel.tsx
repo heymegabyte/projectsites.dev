@@ -144,11 +144,46 @@ function iconForKind(kind: string): string {
     return 'i-ph:lock-key-duotone';
   }
 
+  if (k.includes('hostname') || k.includes('domain') || k.includes('routing') || k.includes('dns')) {
+    return 'i-ph:globe-duotone';
+  }
+
   return 'i-ph:cube-duotone';
 }
 
-/** A human title for a `resource_kind` — strips separators + Title-Cases each word. */
+/**
+ * The adapter kinds the worker's per-kind detail endpoint actually serves
+ * (`ResourceKindSchema`). The owner-grade wire kinds (`wfp_worker` / `hostname` / `routing`)
+ * have NO drill-in endpoint — a card of those kinds must never be a doomed click into a 400;
+ * its advanced ids live behind the in-card disclosure instead.
+ */
+const DETAIL_KINDS: ReadonlySet<string> = new Set([
+  'd1',
+  'kv',
+  'r2',
+  'durable_object',
+  'workflow',
+  'queue',
+  'vectorize',
+  'analytics_engine',
+  'connection',
+]);
+
+/** Owner-grade group titles for the wire kinds whose auto-title would read as jargon. */
+const WIRE_KIND_TITLES: Readonly<Record<string, string>> = {
+  hostname: 'Your Domains',
+  routing: 'Routing',
+  wfp_worker: 'Site Worker',
+};
+
+/** A human title for a `resource_kind` — owner-grade overrides, else Title-Cased words. */
 function titleForKind(kind: string): string {
+  const override = WIRE_KIND_TITLES[(kind || '').toLowerCase()];
+
+  if (override) {
+    return override;
+  }
+
   const raw = (kind || 'Resource').replace(/[_-]+/g, ' ').trim();
 
   if (!raw) {
@@ -884,8 +919,11 @@ const ResourceCard = memo(
   }) => {
     const availability = availabilityFor(entry);
     const drifted = Boolean(entry.drift_code);
-    // Only a CONNECTED resource can be drilled into — an available/unsupported card keeps its own affordance.
-    const openable = availability === 'connected';
+    // Only a CONNECTED resource of an adapter-served kind can be drilled into — an
+    // available/unsupported card keeps its own affordance, and an owner-grade wire kind
+    // (`wfp_worker` / `hostname` / `routing`) has no detail endpoint, so it never opens
+    // (its ids live behind the in-card Advanced disclosure instead).
+    const openable = availability === 'connected' && DETAIL_KINDS.has(entry.resource_kind);
     const open = openable ? () => onOpen(entry) : undefined;
 
     const availabilityChip =
@@ -961,10 +999,17 @@ const ResourceCard = memo(
             />
           </div>
           <div className="min-w-0 flex-1">
-            <p className="text-xs font-semibold text-bolt-elements-textPrimary truncate" title={entry.resource_concept}>
-              {entry.resource_concept || titleForKind(entry.resource_kind)}
+            <p
+              className="text-xs font-semibold text-bolt-elements-textPrimary truncate"
+              title={entry.display_name || entry.resource_concept}
+            >
+              {entry.display_name || entry.resource_concept || titleForKind(entry.resource_kind)}
             </p>
-            <p className="text-[10px] text-bolt-elements-textTertiary truncate">{titleForKind(entry.resource_kind)}</p>
+            {/* Owner-grade type label ("Your site database") — never a raw kind token when the
+                server provided one, and never "unknown" (the server's label map is total). */}
+            <p className="text-[10px] text-bolt-elements-textTertiary truncate">
+              {entry.owner_label || titleForKind(entry.resource_kind)}
+            </p>
           </div>
           {drifted && (
             <span
@@ -989,6 +1034,25 @@ const ResourceCard = memo(
             <div className="i-ph:plug text-[11px] shrink-0" />
             No binding
           </div>
+        )}
+
+        {/* Advanced detail (CF ids / script / prefix) — behind a disclosure, never headline.
+            Clicks + keys stay inside the disclosure so toggling never triggers the card's open. */}
+        {entry.detail && (
+          <details
+            className="rounded-lg border border-bolt-elements-borderColor/50 bg-bolt-elements-background-depth-1/60"
+            data-testid="resources-advanced-detail"
+            onClick={(e) => e.stopPropagation()}
+            onKeyDown={(e) => e.stopPropagation()}
+          >
+            <summary className="min-h-[24px] px-2 py-1 text-[10px] text-bolt-elements-textTertiary cursor-pointer select-none hover:text-bolt-elements-textSecondary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-bolt-elements-item-contentAccent rounded-lg flex items-center gap-1">
+              <div className="i-ph:caret-right text-[9px]" aria-hidden="true" />
+              Advanced
+            </summary>
+            <code className="block px-2 pb-1.5 text-[10px] font-mono text-bolt-elements-textSecondary break-all">
+              {entry.detail}
+            </code>
+          </details>
         )}
 
         {/* Chips — lifecycle + tenancy + availability */}

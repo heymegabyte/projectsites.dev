@@ -86,12 +86,21 @@ interface KindSpec {
    * `action-button-must-gate-on-server-precondition`). Distinct from a mere `platformNote` caveat.
    */
   unsupported?: boolean;
+  /**
+   * TRUE for a kind that is SUPPORTED + countable but has no per-kind adapter drill-in endpoint
+   * (the owner-grade wire kinds `wfp_worker` / `hostname` / `routing` — the worker's detail route
+   * only serves the adapter kinds). The tile counts honestly but stays presentational — never a
+   * doomed click into a 400.
+   */
+  noDrill?: boolean;
 }
 
-const KIND_SPECS: KindSpec[] = [
+export const KIND_SPECS: KindSpec[] = [
   { key: 'd1', label: 'D1 Databases', icon: 'i-ph:database-duotone', match: ['d1', 'database', 'sql'] },
   { key: 'kv', label: 'KV Namespaces', icon: 'i-ph:key-duotone', match: ['kv', 'key'] },
-  { key: 'r2', label: 'R2 Buckets', icon: 'i-ph:cloud-duotone', match: ['r2', 'bucket', 'object', 'storage'] },
+  // NOTE: no bare 'object' match — `durable_object` contains it and would mis-bucket under R2
+  // (caught by owner-resource-mapping.spec). 'r2'/'bucket'/'storage' cover the real variants.
+  { key: 'r2', label: 'R2 Buckets', icon: 'i-ph:cloud-duotone', match: ['r2', 'bucket', 'storage'] },
   {
     key: 'durable_object',
     label: 'Durable Objects',
@@ -116,6 +125,22 @@ const KIND_SPECS: KindSpec[] = [
     label: 'Observability',
     icon: 'i-ph:chart-line-duotone',
     match: ['observability', 'analytics', 'logs', 'metric'],
+  },
+  {
+    key: 'worker',
+    label: 'Site Workers',
+    icon: 'i-ph:function-duotone',
+    match: ['wfp', 'worker', 'dispatch'],
+    platformNote: 'The Worker that serves your site, deployed per environment',
+    noDrill: true,
+  },
+  {
+    key: 'domain',
+    label: 'Domains & Routing',
+    icon: 'i-ph:globe-duotone',
+    match: ['hostname', 'routing', 'dns'],
+    platformNote: 'Where your site is reachable — your subdomain and any custom domains',
+    noDrill: true,
   },
 ];
 
@@ -156,7 +181,7 @@ function availabilityFor(entry: ResourceOverviewEntry): Availability {
 }
 
 /** Bucket a raw `resource_kind` into a KindSpec (first substring match wins), else OTHER. */
-function specForKind(kind: string): KindSpec {
+export function specForKind(kind: string): KindSpec {
   const k = (kind || '').toLowerCase();
 
   for (const spec of KIND_SPECS) {
@@ -210,6 +235,14 @@ function deriveNamespaceLabel(resources: ResourceOverviewEntry[]): string | null
     const isWfp = k.includes('wfp') || k.includes('dispatch') || k.includes('function') || k.includes('namespace');
 
     if (isWfp) {
+      // The owner-grade wire carries the REAL dispatch-namespace name in the advanced detail
+      // (`… · namespace: project-sites-endpoints`) — prefer it over the concept token.
+      const fromDetail = /namespace:\s*([^\s·]+)/.exec(entry.detail || '')?.[1];
+
+      if (fromDetail) {
+        return fromDetail;
+      }
+
       const candidate = (entry.resource_concept || entry.binding_name || '').trim();
 
       if (candidate) {
@@ -568,7 +601,9 @@ const KindTile = memo(({ row, onOpen }: { row: KindRollup; onOpen?: (target: Ope
   // unsupported kind + the `other` bucket stay presentational. A zero-count-but-supported kind IS
   // clickable — that is exactly how the dark per-site KV / DO / Connections / Observability surfaces
   // are reached (their FLAG gates the server; the drill-in renders the honest not-enabled/empty state).
-  const actionable = Boolean(onOpen) && !row.spec.unsupported && !isOther;
+  // `noDrill` kinds (worker / domain — no per-kind adapter endpoint) count honestly but stay
+  // presentational, so a tile can never be a doomed click into a 400.
+  const actionable = Boolean(onOpen) && !row.spec.unsupported && !row.spec.noDrill && !isOther;
 
   // The status dot: warn on drift, ok when connected, muted when only "available", amber when unsupported.
   const dot = drifted

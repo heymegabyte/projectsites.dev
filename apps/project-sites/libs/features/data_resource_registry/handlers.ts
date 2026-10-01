@@ -29,8 +29,9 @@
  *   4. OPERANDS   — validate the `environment` enum (`ResourceEnvironmentSchema`), else 400.
  *   5. RESOLVE    — only then call the trusted service, which server-resolves every CF id.
  *
- * Since `site_resource_registry` is EMPTY until a reconcile seeds it, the GET honestly returns an
- * empty list for a site that has never reconciled — an honest-empty state, not an error.
+ * The GET does NOT depend on a prior reconcile: it enumerates the AUTHORITATIVE stores live
+ * (registry ∪ `site_database_allocations` ∪ R2 version tree ∪ hostnames), so an empty list means
+ * the site TRULY has nothing yet (honest empty), never "the registry was never seeded".
  *
  * @packageDocumentation
  */
@@ -43,8 +44,9 @@ import { resolveCfCredentials } from '../../../src/services/cf_credentials.js';
 import { ownsSiteData } from '../site_data_api/handlers.js';
 
 import type { AdapterResult, ResolvedScope } from './adapter.js';
+import { enumerateOwnerResources, type OwnerResourceEntry } from './owner_inventory.js';
 import { IMPLEMENTED_ADAPTERS, reconcileResources } from './reconciler.js';
-import { listResources, resolveResourceRef } from './service.js';
+import { resolveResourceRef } from './service.js';
 import {
   type ResourceDetailAction,
   ResourceDetailActionSchema,
@@ -55,7 +57,6 @@ import {
   type ResourceKind,
   ResourceKindSchema,
   ResourceMutateBodySchema,
-  type ResourceRecord,
 } from './schemas.js';
 
 type AppContext = { Bindings: Env; Variables: Variables };
@@ -89,8 +90,15 @@ function parseEnvironment(raw: string | undefined): ResourceEnvironment | null {
 }
 
 /**
- * GET the site's registry rows for one environment, grouped by `resource_kind` for the overview UI.
- * Read-only. Server-resolves nothing beyond the OWNED site + env (no CF id is ever accepted).
+ * GET the site's OWNER-GRADE resource inventory for one environment, grouped by `resource_kind`
+ * for the overview UI. Read-only. Server-resolves nothing beyond the OWNED site + env (no CF id
+ * is ever accepted).
+ *
+ * The rows are the TRUTHFUL, snake_case wire shape from {@link enumerateOwnerResources} —
+ * registry rows (platform-shared EXCLUDED) merged with the live allocation store, the R2 site
+ * version tree, routing + custom hostnames. This replaced the raw camelCase `ResourceRecord[]`
+ * dump that the editor's snake_case contract could never read (the fire-60 lying-empty root
+ * cause: every per-kind count rendered 0 while real rows showed as "Unknown").
  */
 resourceRegistryApi.get('/api/sites/:siteId/resources', async (c) => {
   // 1. AUTH
@@ -118,13 +126,13 @@ resourceRegistryApi.get('/api/sites/:siteId/resources', async (c) => {
       400,
     );
 
-  // 5. RESOLVE — trusted service reads only rows for the OWNED site + env.
+  // 5. RESOLVE — the trusted enumerator reads only the OWNED site's authoritative stores.
   try {
-    const resources = await listResources(c.env, siteId, environment);
+    const resources = await enumerateOwnerResources(c.env, siteId, environment);
     return c.json({
       data: {
         environment,
-        resources: sortByKind(resources),
+        resources,
         countsByKind: countByKind(resources),
       },
     });
@@ -611,42 +619,10 @@ function collectDetailParams(req: {
   return out;
 }
 
-/** Stable kind ordering for the overview (mirrors `ResourceKindSchema` declaration order). */
-const KIND_ORDER: readonly ResourceKind[] = [
-  'd1',
-  'kv',
-  'r2',
-  'durable_object',
-  'workflow',
-  'queue',
-  'vectorize',
-  'analytics_engine',
-  'connection',
-];
-
-/**
- * Sort registry rows by `resource_kind` (declaration order), then concept, then id — a deterministic
- * order the UI can group on without re-sorting. `listResources` already orders by
- * kind/concept/created_at at the SQL layer; this keeps the guarantee explicit + stable if the query
- * ever changes.
- */
-function sortByKind(rows: ResourceRecord[]): ResourceRecord[] {
-  const rank = (k: ResourceKind): number => {
-    const i = KIND_ORDER.indexOf(k);
-    return i === -1 ? KIND_ORDER.length : i;
-  };
-  return [...rows].sort(
-    (a, b) =>
-      rank(a.resourceKind) - rank(b.resourceKind) ||
-      a.resourceConcept.localeCompare(b.resourceConcept) ||
-      a.id.localeCompare(b.id),
-  );
-}
-
-/** Count rows per kind so the overview can render a per-kind tally without re-scanning client-side. */
-function countByKind(rows: ResourceRecord[]): Record<string, number> {
+/** Count wire rows per kind so the overview can render a per-kind tally without re-scanning client-side. */
+function countByKind(rows: OwnerResourceEntry[]): Record<string, number> {
   const counts: Record<string, number> = {};
-  for (const row of rows) counts[row.resourceKind] = (counts[row.resourceKind] ?? 0) + 1;
+  for (const row of rows) counts[row.resource_kind] = (counts[row.resource_kind] ?? 0) + 1;
   return counts;
 }
 

@@ -942,6 +942,15 @@ export interface ResourceOverviewEntry {
 
   /** ISO timestamp of the last successful sync/reconcile, when known. */
   last_sync_at?: string;
+
+  /** Owner-facing NAME of this specific resource ("lone-mountain-global build 2026-10-01…"). */
+  display_name?: string;
+
+  /** Owner-grade TYPE label ("Your site database" / "Your site worker") — never "unknown". */
+  owner_label?: string;
+
+  /** Advanced detail (CF id / script / prefix) — rendered behind a disclosure, never headline. */
+  detail?: string;
 }
 
 /**

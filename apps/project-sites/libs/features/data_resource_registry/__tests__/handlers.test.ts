@@ -42,6 +42,14 @@ jest.mock('../service.js', () => ({
   getResource: jest.fn(),
 }));
 
+// The GET now reads the owner-grade enumerator (fire-60) — mock it like the old listResources.
+const mockEnumerateOwnerResources = jest.fn();
+jest.mock('../owner_inventory.js', () => ({
+  enumerateOwnerResources: (...args: unknown[]) => mockEnumerateOwnerResources(...args),
+  ownerLabelFor: (kind: string) => `label:${kind}`,
+  OWNER_LABELS: {},
+}));
+
 const mockReconcileResources = jest.fn();
 jest.mock('../reconciler.js', () => ({
   reconcileResources: (...args: unknown[]) => mockReconcileResources(...args),
@@ -104,6 +112,7 @@ beforeEach(() => {
   mockIsFlagOn.mockReset();
   mockOwnsSiteData.mockReset();
   mockListResources.mockReset();
+  mockEnumerateOwnerResources.mockReset();
   mockReconcileResources.mockReset();
 });
 
@@ -135,8 +144,8 @@ describe('GET /api/sites/:siteId/resources', () => {
     expect(res.status).toBe(404);
     const body = await res.json() as { error: { code: string } };
     expect(body.error.code).toBe('NOT_FOUND');
-    // The ownership check fired; listResources must NOT have been called.
-    expect(mockListResources).not.toHaveBeenCalled();
+    // The ownership check fired; the enumerator must NOT have been called.
+    expect(mockEnumerateOwnerResources).not.toHaveBeenCalled();
   });
 
   it('returns 400 on an invalid environment param', async () => {
@@ -144,44 +153,59 @@ describe('GET /api/sites/:siteId/resources', () => {
     mockOwnsSiteData.mockResolvedValue(true);
     const res = await getResources('site-1', { environment: 'staging' });
     expect(res.status).toBe(400);
-    expect(mockListResources).not.toHaveBeenCalled();
+    expect(mockEnumerateOwnerResources).not.toHaveBeenCalled();
   });
 
-  it('returns 200 with grouped resources for an owned site when flag is ON', async () => {
+  it('returns 200 with owner-grade snake_case wire rows for an owned site when flag is ON', async () => {
     mockIsFlagOn.mockResolvedValue(true);
     mockOwnsSiteData.mockResolvedValue(true);
-    mockListResources.mockResolvedValue([
+    mockEnumerateOwnerResources.mockResolvedValue([
       {
         id: 'row-1',
-        siteId: 'site-1',
-        resourceKind: 'd1',
-        resourceConcept: 'main_db',
+        resource_kind: 'd1',
+        resource_concept: 'account_resource',
+        environment: 'production',
         tenancy: 'dedicated',
-        lifecycleState: 'active',
-        resourceEnvironment: 'production',
-        driftCode: null,
-        driftDetail: null,
-        cfResourceId: 'db-abc',
-        cfAccountId: 'acct-1',
-        lastSyncAt: null,
-        createdAt: '2026-01-01T00:00:00Z',
-        updatedAt: '2026-01-01T00:00:00Z',
-        deletedAt: null,
+        lifecycle_state: 'active',
+        display_name: 'ps-site-x',
+        owner_label: 'Your site database',
+        detail: 'id: db-abc',
+      },
+      {
+        id: 'row-2',
+        resource_kind: 'wfp_worker',
+        resource_concept: 'wfp_namespace',
+        environment: 'production',
+        tenancy: 'dedicated',
+        lifecycle_state: 'active',
+        display_name: 'site-abc (production)',
+        owner_label: 'Your site worker',
       },
     ]);
 
     const res = await getResources('site-1');
     expect(res.status).toBe(200);
-    const body = await res.json() as { data: { environment: string; resources: unknown[]; countsByKind: Record<string, number> } };
+    const body = await res.json() as {
+      data: {
+        environment: string;
+        resources: Record<string, unknown>[];
+        countsByKind: Record<string, number>;
+      };
+    };
     expect(body.data.environment).toBe('production');
-    expect(body.data.resources).toHaveLength(1);
+    expect(body.data.resources).toHaveLength(2);
     expect(body.data.countsByKind['d1']).toBe(1);
+    expect(body.data.countsByKind['wfp_worker']).toBe(1);
+    // The wire contract is snake_case + owner-labeled — the editor reads these exact keys.
+    expect(body.data.resources[0]?.resource_kind).toBe('d1');
+    expect(body.data.resources[0]?.owner_label).toBe('Your site database');
+    expect(body.data.resources[0]?.resourceKind).toBeUndefined();
   });
 
-  it('returns 200 with empty resources for an owned site with no registry rows (honest empty)', async () => {
+  it('returns 200 with empty resources for a truly blank site (honest empty)', async () => {
     mockIsFlagOn.mockResolvedValue(true);
     mockOwnsSiteData.mockResolvedValue(true);
-    mockListResources.mockResolvedValue([]);
+    mockEnumerateOwnerResources.mockResolvedValue([]);
 
     const res = await getResources('site-1');
     expect(res.status).toBe(200);
