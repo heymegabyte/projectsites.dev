@@ -248,9 +248,7 @@ describe('ingestContainerBuildUsage (accumulation + idempotency)', () => {
     const env = envWith({}, kv);
     await expect(ingestContainerBuildUsage(env, 'ghost', USAGE)).resolves.toBeUndefined();
     await initBuildMetrics(env, { siteId: 's1', buildId: 'wf-1', startedAtMs: 1 });
-    await expect(
-      ingestContainerBuildUsage(env, 's1', { source: 'nope' }),
-    ).resolves.toBeUndefined();
+    await expect(ingestContainerBuildUsage(env, 's1', { source: 'nope' })).resolves.toBeUndefined();
     const state = JSON.parse(store.get(buildMetricsKey('s1')) as string);
     expect(state.modelCalls).toEqual({});
     expect(state.containerLlmUsd ?? 0).toBe(0);
@@ -522,9 +520,9 @@ describe('finalizeBuildMetrics — terminal row against REAL SQLite (migration D
       });
       expect(row?.tokens_in).toBe(0);
       expect(row?.tokens_out).toBe(0);
-      expect(
-        Object.values(row?.model_calls ?? {}).some((a) => a.source === 'container_json'),
-      ).toBe(false);
+      expect(Object.values(row?.model_calls ?? {}).some((a) => a.source === 'container_json')).toBe(
+        false,
+      );
       expect(row?.est_cost_usd).toBeCloseTo(0.2, 6); // container minutes only
     } finally {
       h.close();
