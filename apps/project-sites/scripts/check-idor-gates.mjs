@@ -60,6 +60,7 @@ const OWNERSHIP_IDIOMS = [
   /\bgateOwnedSite\b/,
   /\bfetchOwnedSite\b/,
   /\bverifySiteOwnership\b/,
+  /\bownsSiteData\b/, // per-site data plane guard (data_resource_registry, r2_buckets) — org-scoped, 404-not-403
   /\bsiteOrgId\b/,
   // Generic catch for any future `*OwnedSite*` / `*SiteOwn*` helper.
   /\b\w*Owned[Ss]ite\w*\b/,
