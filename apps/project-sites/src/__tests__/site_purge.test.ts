@@ -154,20 +154,18 @@ beforeEach(() => {
   mockTeardownWfp
     .mockReset()
     .mockResolvedValue({ attempted: true, slotsDeleted: 2, registryCleared: 2 });
-  mockListAllocs
-    .mockReset()
-    .mockResolvedValue([
-      {
-        id: 'alloc-1',
-        bucketName: `ps-site-${SITE}-uploads`,
-        displayName: 'uploads',
-        environment: 'preview',
-        isDefault: true,
-        publicAccess: false,
-        publicBaseUrl: null,
-        createdAt: 'x',
-      },
-    ]);
+  mockListAllocs.mockReset().mockResolvedValue([
+    {
+      id: 'alloc-1',
+      bucketName: `ps-site-${SITE}-uploads`,
+      displayName: 'uploads',
+      environment: 'preview',
+      isDefault: true,
+      publicAccess: false,
+      publicBaseUrl: null,
+      createdAt: 'x',
+    },
+  ]);
   mockDeleteBucket.mockReset().mockResolvedValue({ ok: true, deleted: true, objectsDeleted: 4 });
   stubCfFetch();
 });

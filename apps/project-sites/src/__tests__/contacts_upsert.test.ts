@@ -61,7 +61,9 @@ interface ContactRow {
 }
 
 function allContacts(h: D1SqliteHarness): ContactRow[] {
-  return h.raw.prepare('SELECT * FROM contacts ORDER BY created_at').all() as unknown as ContactRow[];
+  return h.raw
+    .prepare('SELECT * FROM contacts ORDER BY created_at')
+    .all() as unknown as ContactRow[];
 }
 
 describe('upsertContact — dedupe-honoring CRM write', () => {
