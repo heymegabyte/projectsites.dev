@@ -141,12 +141,50 @@ describe('kvAdapter.list()', () => {
     expect(url.pathname).toContain(`/storage/kv/namespaces/${scope.resourceId}/keys`);
   });
 
-  it('maps a 5xx to a retryable error (never "gone")', async () => {
-    fetchMock.mockResolvedValueOnce(jsonResponse(503, { success: false, errors: [{ code: 1 }] }));
+  it('maps a 5xx to a retryable error (never "gone") — AFTER exhausting the read-after-write retry', async () => {
+    // Every attempt 503s → the transient-retry is exhausted and the honest retryable error surfaces.
+    fetchMock.mockResolvedValue(jsonResponse(503, { success: false, errors: [{ code: 1 }] }));
     const result = await kvAdapter.list(scope);
     expect(result.ok).toBe(false);
     expect(result.error?.retryable).toBe(true);
     expect(result.error?.code).toBe('cf_server_error');
+  });
+
+  // ── read-after-write grace: the open RIGHT AFTER a provision must not flake ──────
+  // A freshly-created KV namespace can return a transient non-200 from the CF keys API
+  // (eventual consistency). `list` retries a transient error a bounded number of times so the
+  // editor's post-provision "open" succeeds instead of showing the opaque "Failed to load resource".
+  it('retries a transient 5xx then SUCCEEDS on the next attempt (post-provision open grace)', async () => {
+    fetchMock
+      .mockResolvedValueOnce(jsonResponse(503, { success: false, errors: [{ code: 1 }] }))
+      .mockResolvedValueOnce(
+        jsonResponse(200, { success: true, result: [{ name: 'k1' }], result_info: { cursor: '' } }),
+      );
+    const result = await kvAdapter.list(scope);
+    expect(result.ok).toBe(true);
+    expect(result.data?.keys.map((k) => k.name)).toEqual(['k1']);
+    // It genuinely retried — two CF calls (the transient one + the success).
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+
+  it('retries a transient network failure then succeeds (never the opaque "Failed to load resource")', async () => {
+    fetchMock
+      .mockRejectedValueOnce(new Error('ECONNRESET'))
+      .mockResolvedValueOnce(jsonResponse(200, { success: true, result: [], result_info: { cursor: '' } }));
+    const result = await kvAdapter.list(scope);
+    expect(result.ok).toBe(true);
+    expect(result.data?.keys).toHaveLength(0);
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+
+  it('does NOT retry a non-retryable 4xx (a real client error surfaces immediately, no wasted calls)', async () => {
+    fetchMock.mockResolvedValueOnce(jsonResponse(400, { success: false, errors: [{ code: 10001 }] }));
+    const result = await kvAdapter.list(scope);
+    expect(result.ok).toBe(false);
+    expect(result.error?.code).toBe('cf_request_failed');
+    expect(result.error?.retryable).toBe(false);
+    // A 400 is a definitive client error — no retry storm.
+    expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 });
 

@@ -288,6 +288,23 @@ function clampLimit(limit: number | undefined): number {
 }
 
 /**
+ * Read-after-write grace for the FIRST read of a just-provisioned namespace. A KV namespace created
+ * milliseconds earlier (the "open" right after a provision mutation) can return a TRANSIENT non-200
+ * from the CF keys API (CF KV is eventually-consistent) — surfaced as `cf_server_error`/
+ * `cf_request_failed` with `retryable:true`. Without a retry that transient blip becomes the opaque
+ * "Failed to load resource" the editor showed (fire-67 / WLK-08). We retry ONLY a retryable failure a
+ * bounded number of times with a short linear backoff; a definitive client error (non-retryable 4xx) or
+ * a success returns immediately — no retry storm, no masking a real error.
+ */
+const LIST_RETRY_ATTEMPTS = 3;
+const LIST_RETRY_BASE_DELAY_MS = 150;
+
+/** Sleep `ms` — a thin wrapper so the backoff is a single awaited point (and 0ms is a no-op microtask). */
+function delay(ms: number): Promise<void> {
+  return ms > 0 ? new Promise((resolve) => setTimeout(resolve, ms)) : Promise.resolve();
+}
+
+/**
  * Normalize a bulk key list: coerce to an array of non-empty strings, drop blanks, de-duplicate (a
  * repeated key in a bulk op is one operation), and CLAMP to {@link BULK_MAX_KEYS} (returning how many were
  * dropped so the caller can report it honestly). A read (`bulk_get`) clamps silently-but-reported; a
@@ -337,9 +354,32 @@ class KvAdapter
    */
   async list(scope: ResolvedScope, input?: KvListInput): Promise<AdapterResult<KvListData>> {
     const cid = correlationId();
-    const namespaceId = scope.resourceId;
     const limit = clampLimit(input?.limit);
 
+    // Read-after-write grace: retry ONLY a retryable (transient) failure so the first read of a
+    // just-provisioned namespace succeeds instead of surfacing the opaque "Failed to load resource".
+    // A success or a non-retryable error returns immediately.
+    let last: AdapterResult<KvListData> | null = null;
+    for (let attempt = 0; attempt < LIST_RETRY_ATTEMPTS; attempt++) {
+      last = await this.listOnce(cid, scope, input, limit);
+      if (last.ok || last.error?.retryable !== true) return last;
+      if (attempt < LIST_RETRY_ATTEMPTS - 1) await delay(LIST_RETRY_BASE_DELAY_MS * (attempt + 1));
+    }
+    // Exhausted — surface the last (retryable) failure honestly; the UI shows the typed message + retry.
+    return last as AdapterResult<KvListData>;
+  }
+
+  /**
+   * ONE attempt of the `list` CF call (no retry) — the per-attempt body {@link KvAdapter.list} wraps.
+   * Returns a success or a typed {@link restError} (whose `retryable` flag drives whether `list` retries).
+   */
+  private async listOnce(
+    cid: string,
+    scope: ResolvedScope,
+    input: KvListInput | undefined,
+    limit: number,
+  ): Promise<AdapterResult<KvListData>> {
+    const namespaceId = scope.resourceId;
     const url = new URL(
       `${CF_API_BASE}/accounts/${scope.accountId}/storage/kv/namespaces/${namespaceId}/keys`,
     );

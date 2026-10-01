@@ -436,6 +436,23 @@ function r2ErrMessage(err: unknown): string | undefined {
   return undefined;
 }
 
+/**
+ * Resolve the ACTIONABLE message for a failed Resource-platform request (overview / reconcile /
+ * detail / mutate), mirroring the PS_SITEDB bridge's verbatim-message pattern. The worker returns
+ * `{ error: { code, message } }` on an HTTP failure; we surface that real message (e.g. "Could not
+ * read this resource.", a CF-auth hint, a quota message) instead of the opaque generic the editor
+ * used to show. Falls back to the provided generic ONLY when the worker sent no usable message
+ * (true network/parse failure). This is the fire-67 / WLK-08 fix: the user saw a bare browser
+ * "Failed to load resource" because this bridge discarded the typed message.
+ */
+function resourceErrMessage(err: unknown, fallback: string): string {
+  if (err instanceof HttpErrorResponse) {
+    const message = (err.error as { error?: { message?: string } } | null)?.error?.message;
+    if (typeof message === 'string' && message && !message.includes('not enabled')) return message;
+  }
+  return fallback;
+}
+
 /** Encode an R2 object key for the `…/objects/*` wildcard path (keeps `/` so folder paths survive). */
 function encodeR2Key(key: string): string {
   return key
@@ -2300,7 +2317,7 @@ export class BoltEmbedService {
                 ) {
                   reply({ ok: false, enabled: false });
                 } else {
-                  reply({ ok: false, error: 'Failed to load resources' });
+                  reply({ ok: false, error: resourceErrMessage(err, 'Could not load resources.') });
                 }
               },
             });
@@ -2343,7 +2360,7 @@ export class BoltEmbedService {
                 ) {
                   reply({ ok: false, enabled: false });
                 } else {
-                  reply({ ok: false, error: 'Failed to reconcile resources' });
+                  reply({ ok: false, error: resourceErrMessage(err, 'Could not reconcile resources.') });
                 }
               },
             });
@@ -2409,7 +2426,7 @@ export class BoltEmbedService {
                 ) {
                   reply({ ok: false, enabled: false });
                 } else {
-                  reply({ ok: false, error: 'Failed to load resource' });
+                  reply({ ok: false, error: resourceErrMessage(err, 'Could not load this resource.') });
                 }
               },
             });
@@ -2471,7 +2488,7 @@ export class BoltEmbedService {
                 ) {
                   reply({ ok: false, enabled: false });
                 } else {
-                  reply({ ok: false, error: 'Failed to perform action' });
+                  reply({ ok: false, error: resourceErrMessage(err, 'Could not perform this action.') });
                 }
               },
             });

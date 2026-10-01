@@ -79,6 +79,14 @@ function d1CreatedResponse(uuid: string): Promise<Response> {
     json: async () => ({ success: true, result: { uuid } }),
   } as unknown as Response);
 }
+/** A CF KV-namespace-create response: result.id is the new namespace id. */
+function kvCreatedResponse(id: string): Promise<Response> {
+  return Promise.resolve({
+    ok: true,
+    status: 200,
+    json: async () => ({ success: true, result: { id } }),
+  } as unknown as Response);
+}
 
 const registryRows = (h: D1SqliteHarness): Record<string, unknown>[] =>
   h.raw.prepare('SELECT * FROM site_resource_registry').all() as Record<string, unknown>[];
@@ -365,5 +373,112 @@ describe('d1Adapter.mutate({action:provision}) bridge (h)', () => {
 
   it('declares the provision mutation in supports', () => {
     expect(d1Adapter.supports.mutations).toContain('provision');
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// WLK-08 — KV purchase→provision→open: a RETRY must never double-provision a namespace.
+// (There is no Stripe charge for provisioning — it is gated by confirm + account quota only — so
+// "no duplicate charge" reduces to "no duplicate namespace". This locks the KV kind end-to-end
+// through the service, the exact Lone Mountain Global path.)
+// ─────────────────────────────────────────────────────────────────────────────
+describe('provisionResource (kv) — WLK-08 idempotent retry (no duplicate namespace / no duplicate charge)', () => {
+  it('first provision CREATES; an identical retry REUSES — zero second CF create, one registry row', async () => {
+    const h = createD1Sqlite();
+    try {
+      h.exec(ALLOC_DDL);
+      h.exec(REGISTRY_DDL);
+      // First provision: quota list (under cap) + the KV namespace create.
+      mockFetch
+        .mockReturnValueOnce(quotaListResponse(10))
+        .mockReturnValueOnce(kvCreatedResponse('kvns-1'));
+      const first = await provisionResource(envWithCreds(h), 'site1', 'kv', {
+        confirm: true,
+        environment: 'production',
+        orgId: 'org1',
+        ownsSite: ownsTrue,
+      });
+      expect(first.ok).toBe(true);
+      if (!first.ok) throw new Error('expected ok');
+      expect(first.created).toBe(true);
+      expect(first.resourceId).toBe('kvns-1');
+      const callsAfterFirst = mockFetch.mock.calls.length;
+
+      // The retry (owner re-opens / re-clicks): the idempotency short-circuit fires BEFORE quota/create.
+      const retry = await provisionResource(envWithCreds(h), 'site1', 'kv', {
+        confirm: true,
+        environment: 'production',
+        orgId: 'org1',
+        ownsSite: ownsTrue,
+      });
+      expect(retry.ok).toBe(true);
+      if (!retry.ok) throw new Error('expected ok');
+      expect(retry.created).toBe(false); // REUSED — never a second billable create
+      expect(retry.resourceId).toBe('kvns-1'); // the SAME namespace id (no duplicate)
+      expect(mockFetch.mock.calls.length).toBe(callsAfterFirst); // ZERO extra CF calls on retry
+      // Exactly ONE allocation + ONE registry row — no duplicate namespace anywhere.
+      expect(
+        (h.raw.prepare('SELECT COUNT(*) c FROM site_database_allocations').get() as { c: number }).c,
+      ).toBe(1);
+      expect(registryRows(h)).toHaveLength(1);
+    } finally {
+      h.close();
+    }
+  });
+
+  it('a record_failed PARTIAL is recoverable — the retry reuses the SAME namespace, never a new one', async () => {
+    const h = createD1Sqlite();
+    try {
+      // ALLOC table only (registry table missing) → the first call provisions the CF namespace + writes
+      // the allocation, but recordResource fails → record_failed WITH the created id (recoverable partial).
+      h.exec(ALLOC_DDL);
+      mockFetch
+        .mockReturnValueOnce(quotaListResponse(10))
+        .mockReturnValueOnce(kvCreatedResponse('kvns-1'));
+      const first = await provisionResource(envWithCreds(h), 'site1', 'kv', {
+        confirm: true,
+        environment: 'production',
+        orgId: 'org1',
+        ownsSite: ownsTrue,
+      });
+      expect(first.ok).toBe(false);
+      if (first.ok) throw new Error('expected failure');
+      expect(first.reason).toBe('record_failed');
+      if (first.reason !== 'record_failed') throw new Error('expected record_failed');
+      expect(first.resourceId).toBe('kvns-1'); // the id IS reported → recoverable
+      // The allocation row proves the namespace genuinely exists (a true partial, not a phantom).
+      expect(
+        (h.raw.prepare("SELECT kv_namespace_id FROM site_database_allocations WHERE site_id='site1'").get() as {
+          kv_namespace_id: string;
+        }).kv_namespace_id,
+      ).toBe('kvns-1');
+
+      // Now create the registry table + retry. The provisioner is idempotent (reuses the allocation →
+      // the kv_provisioner's own DB short-circuit returns reused:true), so NO second CF create happens.
+      h.exec(REGISTRY_DDL);
+      const callsBeforeRetry = mockFetch.mock.calls.length;
+      // Quota is still consulted on the retry (the service idempotency short-circuit only fires when a
+      // REGISTRY row already exists; here only the allocation exists, so the provisioner's reuse is what
+      // prevents the duplicate). Provide a quota list for that path; the provisioner must NOT create again.
+      mockFetch.mockReturnValueOnce(quotaListResponse(11));
+      const retry = await provisionResource(envWithCreds(h), 'site1', 'kv', {
+        confirm: true,
+        environment: 'production',
+        orgId: 'org1',
+        ownsSite: ownsTrue,
+      });
+      expect(retry.ok).toBe(true);
+      if (!retry.ok) throw new Error('expected ok');
+      expect(retry.resourceId).toBe('kvns-1'); // SAME namespace — the partial healed, no duplicate
+      expect(retry.created).toBe(false); // the provisioner reused the existing allocation
+      // No KV-create POST happened on the retry (only the quota list) — assert via call count delta.
+      expect(mockFetch.mock.calls.length).toBe(callsBeforeRetry + 1); // quota list only, no create
+      expect(
+        (h.raw.prepare('SELECT COUNT(*) c FROM site_database_allocations').get() as { c: number }).c,
+      ).toBe(1);
+      expect(registryRows(h)).toHaveLength(1);
+    } finally {
+      h.close();
+    }
   });
 });
