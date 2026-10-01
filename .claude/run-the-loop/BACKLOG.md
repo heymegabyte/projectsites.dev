@@ -49,6 +49,9 @@
 - [ ] Generated-brand quality cluster (vision 7/10): wordmark dark-on-dark + garbled glyph render, eyebrow AA fail, pack-default H1, irrelevant stock hero — root-cause in logo/theme/copy pipeline; ties to LB-2 gallery bar
   - cadence: next-2-fires · priority: high · category: product · estimate: 1-2 fires · discovered_by: gp-09-cycle-2
 
+- [ ] Editor feature continual-verification sweep (Brian: "ensure ALL bolt.diy editor features work continually") — Deep UI Explorer owns a recurring pass that drives EVERY editor toolbar control + panel (sticky/minimap/split/inline-diff view toggles, Code/Diff/Preview, Data tab, terminal, file tree ops, SQL console) in a real authed embed and asserts each produces its effect; catches the dead-useState class (diff's fileHistory was `useState({})` w/ no setter — fixed fire this turn). Add a drift gate flagging any `useState` whose setter is never destructured on an interactive toggle
+  - cadence: every-2-fires · priority: high · category: testing · estimate: 1 fire · discovered_by: brian-2026-10-01
+
 ## FRONTIER 0 — Constitution bootstrap (fire-59 opened)
 
 > `./CONSTITUTION.md` landed 2026-09-30 and now governs the loop. These items bootstrap its

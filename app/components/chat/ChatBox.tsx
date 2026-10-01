@@ -70,7 +70,7 @@ export const ChatBox: React.FC<ChatBoxProps> = (props) => {
   return (
     <div
       className={classNames(
-        'relative bg-bolt-elements-background-depth-2 backdrop-blur p-3 rounded-lg border border-bolt-elements-borderColor relative w-full max-w-chat mx-auto z-prompt',
+        'relative bg-bolt-elements-background-depth-2 backdrop-blur p-2 rounded-lg border border-bolt-elements-borderColor relative w-full max-w-chat mx-auto z-prompt',
 
         /*
          * {
@@ -180,9 +180,9 @@ export const ChatBox: React.FC<ChatBoxProps> = (props) => {
         <textarea
           ref={props.textareaRef}
           className={classNames(
-            'w-full pl-4 pt-3 pr-16 outline-none resize-none text-bolt-elements-textPrimary placeholder-bolt-elements-textTertiary bg-transparent text-sm',
+            'w-full pl-3 pt-2.5 pr-16 outline-none resize-none text-bolt-elements-textPrimary placeholder-bolt-elements-textTertiary bg-transparent text-[13px] leading-relaxed',
             'transition-all duration-200',
-            'hover:border-bolt-elements-focus focus:pt-4',
+            'hover:border-bolt-elements-focus focus:pt-3',
           )}
           onDragEnter={(e) => {
             e.preventDefault();
@@ -272,7 +272,7 @@ export const ChatBox: React.FC<ChatBoxProps> = (props) => {
          * scheme, Supabase, model-chip moved into the ⋯ overflow to reduce
          * visual noise for the cinematic persona rollout (2026-05-24).
          */}
-        <div className="flex justify-between items-center text-sm px-4 pb-3 pt-1.5">
+        <div className="flex justify-between items-center text-xs px-2.5 pb-2 pt-1">
           <div className="flex gap-1 items-center">
             <IconButton title="Attach file" className="transition-all" onClick={() => props.handleFileUpload()}>
               <div className="i-ph:paperclip text-xl"></div>

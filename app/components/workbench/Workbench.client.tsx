@@ -1,9 +1,10 @@
 import { useStore } from '@nanostores/react';
 import { motion, type Variants } from 'framer-motion';
 import { computed } from 'nanostores';
-import { memo, useCallback, useEffect, useState, type ReactNode } from 'react';
+import { memo, useCallback, useEffect, useMemo, useState, type ReactNode } from 'react';
 import { toast } from 'react-toastify';
 
+import { aiOriginalFiles } from '~/lib/chat/ai-undo';
 import type { FileHistory } from '~/types/actions';
 import {
   type OnChangeCallback as OnEditorChange,
@@ -114,7 +115,23 @@ export const Workbench = memo(
   }: WorkspaceProps) => {
     renderLogger.trace('Workbench');
 
-    const [fileHistory] = useState<Record<string, FileHistory>>({});
+    /*
+     * Inline-diff baseline — derive `fileHistory` from the reactive AI-original snapshot
+     * (set by `captureBeforeAssistantTurn`). Previously a dead `useState({})` with no setter,
+     * so the editor's "Toggle inline diff against AI original" button always showed
+     * "No AI-tracked changes yet". Now each AI turn publishes its pre-turn baseline and the
+     * diff resolves against real content.
+     */
+    const aiOriginals = useStore(aiOriginalFiles);
+    const fileHistory = useMemo<Record<string, FileHistory>>(() => {
+      const out: Record<string, FileHistory> = {};
+
+      for (const [filePath, originalContent] of Object.entries(aiOriginals)) {
+        out[filePath] = { originalContent } as FileHistory;
+      }
+
+      return out;
+    }, [aiOriginals]);
 
     // const modifiedFiles = Array.from(useStore(workbenchStore.unsavedFiles).keys());
 

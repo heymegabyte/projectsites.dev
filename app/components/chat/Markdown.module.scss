@@ -1,5 +1,14 @@
 $font-mono: ui-monospace, 'Fira Code', Menlo, Monaco, Consolas, 'Liberation Mono', 'Courier New', monospace;
-$code-font-size: 13px;
+
+// Compact chat density scale (pass 1) — one SSOT every rule below reads from, so the
+// 30 passes compound instead of fighting. Body drops from inherited ~15px → 13px.
+$chat-fs-body: 13px;
+$chat-fs-code: 12.5px;
+$chat-lh-body: 1.5;
+$chat-block-gap: 10px; // was 16px everywhere
+$chat-heading-mt: 14px; // was 24px
+$chat-heading-mb: 6px; // was 16px
+$code-font-size: $chat-fs-code;
 
 @mixin not-inside-actions {
   &:not(:has(:global(.actions)), :global(.actions *)) {
@@ -8,54 +17,58 @@ $code-font-size: 13px;
 }
 
 .MarkdownContent {
-  line-height: 1.6;
+  font-size: $chat-fs-body; // pass 2 — the "large fonts" fix: compact 13px body
+  line-height: $chat-lh-body; // pass 3 — 1.6 → 1.5, tighter but readable
   color: var(--bolt-elements-textPrimary);
+  text-wrap: pretty; // pass 3b — nicer ragged edge, no orphans
 
   > *:not(:last-child) {
-    margin-block-end: 16px;
+    margin-block-end: $chat-block-gap; // pass 4 — 16px → 10px vertical rhythm
   }
 
   :global(.artifact) {
-    margin: 1.5em 0;
+    margin: 10px 0; // pass 5 — 1.5em → 10px, artifacts sit tighter in the flow
   }
 
   :is(h1, h2, h3, h4, h5, h6) {
     @include not-inside-actions {
-      margin-block-start: 24px;
-      margin-block-end: 16px;
-      font-weight: 600;
-      line-height: 1.25;
+      margin-block-start: $chat-heading-mt; // pass 6 — 24px → 14px
+      margin-block-end: $chat-heading-mb; // 16px → 6px
+      font-weight: 650;
+      line-height: 1.2;
+      letter-spacing: -0.01em; // pass 6b — tighter tracking reads crisper small
       color: var(--bolt-elements-textPrimary);
     }
   }
 
+  // pass 7 — heading scale compressed (was 2 / 1.5 / 1.25 em — oversized in a panel)
   h1 {
-    font-size: 2em;
+    font-size: 1.5em;
     border-bottom: 1px solid var(--bolt-elements-borderColor);
-    padding-bottom: 0.3em;
+    padding-bottom: 0.25em;
   }
 
   h2 {
-    font-size: 1.5em;
+    font-size: 1.3em;
     border-bottom: 1px solid var(--bolt-elements-borderColor);
-    padding-bottom: 0.3em;
+    padding-bottom: 0.2em;
   }
 
   h3 {
-    font-size: 1.25em;
+    font-size: 1.15em;
   }
 
   h4 {
-    font-size: 1em;
+    font-size: 1.02em;
   }
 
   h5 {
-    font-size: 0.875em;
+    font-size: 0.92em;
   }
 
   h6 {
-    font-size: 0.85em;
-    color: #6a737d;
+    font-size: 0.88em;
+    color: var(--bolt-elements-textTertiary); // pass 7b — themed, not hardcoded #6a737d
   }
 
   p {
@@ -63,7 +76,7 @@ $code-font-size: 13px;
 
     &:not(:last-of-type) {
       margin-block-start: 0;
-      margin-block-end: 16px;
+      margin-block-end: $chat-block-gap; // pass 8 — paragraph gap 16px → 10px
     }
   }
 
@@ -71,9 +84,26 @@ $code-font-size: 13px;
     color: var(--bolt-elements-messages-linkColor);
     text-decoration: none;
     cursor: pointer;
+    text-underline-offset: 2px; // pass 29 — refined underline when hovered
+    border-radius: 2px;
 
     &:hover {
       text-decoration: underline;
+    }
+
+    &:focus-visible {
+      outline: 2px solid var(--bolt-elements-item-contentAccent);
+      outline-offset: 2px;
+    }
+  }
+
+  // pass 30 — final polish: honor reduced-motion for any in-message transition/animation
+  @media (prefers-reduced-motion: reduce) {
+    *,
+    *::before,
+    *::after {
+      animation-duration: 0.001ms !important;
+      transition-duration: 0.001ms !important;
     }
   }
 
@@ -82,16 +112,16 @@ $code-font-size: 13px;
     font-size: $code-font-size;
 
     @include not-inside-actions {
-      border-radius: 6px;
-      padding: 0.2em 0.4em;
+      border-radius: 5px; // pass 9 — inline code: tighter pill
+      padding: 0.08em 0.34em;
       background-color: var(--bolt-elements-messages-inlineCode-background);
       color: var(--bolt-elements-messages-inlineCode-text);
     }
   }
 
   pre {
-    padding: 20px 16px;
-    border-radius: 6px;
+    padding: 11px 12px; // pass 10 — code block padding 20/16 → 11/12, reclaims height
+    border-radius: 7px;
   }
 
   pre:has(> code) {
@@ -104,16 +134,16 @@ $code-font-size: 13px;
 
   blockquote {
     margin: 0;
-    padding: 0 1em;
+    padding: 0.1em 0.85em; // pass 11 — snug quote inset
     color: var(--bolt-elements-textTertiary);
-    border-left: 0.25em solid var(--bolt-elements-borderColor);
+    border-left: 2px solid var(--bolt-elements-borderColorActive, var(--bolt-elements-borderColor)); // crisp hairline, not 0.25em slab
   }
 
   :is(ul, ol) {
     @include not-inside-actions {
-      padding-left: 2em;
+      padding-left: 1.35em; // pass 12 — 2em → 1.35em, recover horizontal space
       margin-block-start: 0;
-      margin-block-end: 16px;
+      margin-block-end: $chat-block-gap;
     }
   }
 
@@ -132,11 +162,11 @@ $code-font-size: 13px;
   li {
     @include not-inside-actions {
       & + li {
-        margin-block-start: 8px;
+        margin-block-start: 3px; // pass 13 — list items 8px → 3px apart
       }
 
       > *:not(:last-child) {
-        margin-block-end: 16px;
+        margin-block-end: $chat-block-gap;
       }
     }
   }
@@ -147,9 +177,9 @@ $code-font-size: 13px;
   }
 
   hr {
-    height: 0.25em;
+    height: 1px; // pass 14 — 0.25em slab → crisp 1px hairline
     padding: 0;
-    margin: 24px 0;
+    margin: 14px 0;
     background-color: var(--bolt-elements-borderColor);
     border: 0;
   }
@@ -157,15 +187,21 @@ $code-font-size: 13px;
   table {
     border-collapse: collapse;
     width: 100%;
-    margin-block-end: 16px;
+    margin-block-end: $chat-block-gap;
+    font-size: 0.95em; // pass 15 — tables read a touch smaller + denser
 
     :is(th, td) {
-      padding: 6px 13px;
-      border: 1px solid #dfe2e5;
+      padding: 3px 8px; // 6/13 → 3/8, compact cells
+      border: 1px solid var(--bolt-elements-borderColor); // pass 15b — themed border, not #dfe2e5
+    }
+
+    th {
+      font-weight: 650;
+      text-align: left;
     }
 
     tr:nth-child(2n) {
-      background-color: #f6f8fa;
+      background-color: var(--bolt-elements-messages-inlineCode-background); // pass 16 — themed zebra, not light-only #f6f8fa (was invisible/wrong in dark)
     }
   }
 }

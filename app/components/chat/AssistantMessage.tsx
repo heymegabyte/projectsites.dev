@@ -161,7 +161,7 @@ export const AssistantMessage = memo(
     return (
       <div className="overflow-hidden w-full ps-msg ps-msg--ai" data-role="ai">
         <>
-          <div className=" flex gap-2 items-center text-sm text-bolt-elements-textSecondary mb-2">
+          <div className="flex gap-1.5 items-center text-[11px] text-bolt-elements-textSecondary mb-1.5">
             {(codeContext || chatSummary) && (
               <Popover side="right" align="start" trigger={<div className="i-ph:info" />}>
                 {chatSummary && (
@@ -203,8 +203,8 @@ export const AssistantMessage = memo(
             )}
             <div className="flex w-full items-center justify-between">
               {usage && (
-                <div>
-                  Tokens: {usage.totalTokens} (prompt: {usage.promptTokens}, completion: {usage.completionTokens})
+                <div className="font-mono tabular-nums text-bolt-elements-textTertiary">
+                  {usage.totalTokens} tok · {usage.promptTokens}↑ {usage.completionTokens}↓
                 </div>
               )}
               {(onRewind || onFork) && messageId && (
@@ -214,7 +214,8 @@ export const AssistantMessage = memo(
                       <button
                         onClick={handleUndo}
                         data-testid="ai-undo-button"
-                        className="i-ph:arrow-counter-clockwise text-xl text-bolt-elements-textSecondary hover:text-bolt-elements-item-contentAccent transition-colors"
+                        aria-label="Undo last AI message (restore files)"
+                        className="i-ph:arrow-counter-clockwise text-base p-1 -m-1 text-bolt-elements-textSecondary hover:text-bolt-elements-item-contentAccent transition-colors"
                       />
                     </WithTooltip>
                   )}
@@ -223,7 +224,8 @@ export const AssistantMessage = memo(
                       <button
                         onClick={() => onRewind(messageId)}
                         key="i-ph:arrow-u-up-left"
-                        className="i-ph:arrow-u-up-left text-xl text-bolt-elements-textSecondary hover:text-bolt-elements-textPrimary transition-colors"
+                        aria-label="Revert to this message"
+                        className="i-ph:arrow-u-up-left text-base p-1 -m-1 text-bolt-elements-textSecondary hover:text-bolt-elements-textPrimary transition-colors"
                       />
                     </WithTooltip>
                   )}
@@ -241,9 +243,9 @@ export const AssistantMessage = memo(
         {touched.count > 1 && (
           <div
             data-testid="other-files-touched"
-            className="mt-2 text-[11px] text-bolt-elements-textTertiary flex items-center gap-1"
+            className="mt-1.5 text-[11px] text-bolt-elements-textTertiary flex items-center gap-1"
           >
-            <span className="i-ph:files text-sm" />
+            <span className="i-ph:files text-xs" />
             Other files touched: {touched.count}
             <span className="font-mono ml-1 truncate">
               ({touched.paths.slice(0, 3).join(', ')}
@@ -256,7 +258,7 @@ export const AssistantMessage = memo(
             type="button"
             onClick={handleContinue}
             data-testid="ai-continue-button"
-            className="mt-2 text-xs px-3 py-1.5 rounded-md bg-bolt-elements-item-backgroundAccent text-bolt-elements-item-contentAccent border border-bolt-elements-item-contentAccent/40 hover:bg-bolt-elements-item-backgroundActive transition-colors inline-flex items-center gap-1"
+            className="mt-1.5 text-[11px] font-medium px-2.5 py-1 min-h-[24px] rounded-md bg-bolt-elements-item-backgroundAccent text-bolt-elements-item-contentAccent border border-bolt-elements-item-contentAccent/40 hover:bg-bolt-elements-item-backgroundActive transition-colors inline-flex items-center gap-1"
           >
             <span className="i-ph:arrow-right" />
             Continue from here

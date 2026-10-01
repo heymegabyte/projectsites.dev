@@ -8,6 +8,7 @@
  *   Storing only `{path: content}` for text files keeps memory bounded.
  */
 
+import { atom } from 'nanostores';
 import { workbenchStore } from '~/lib/stores/workbench';
 import type { FileMap } from '~/lib/stores/files';
 
@@ -19,6 +20,14 @@ export interface AiSnapshot {
 
 const MAX_SNAPSHOTS = 20;
 const snapshots: AiSnapshot[] = [];
+
+/**
+ * Reactive baseline of pre-AI-turn file content (`path → original content`), updated
+ * each time a snapshot is captured. This is the "AI original" the editor's inline-diff
+ * toggle diffs the current document against. Exposed as a nanostore so the Workbench
+ * re-derives `fileHistory` when a new AI turn establishes a fresh baseline.
+ */
+export const aiOriginalFiles = atom<Record<string, string>>({});
 
 function snapshotFromMap(files: FileMap): Record<string, string> {
   const out: Record<string, string> = {};
@@ -52,11 +61,15 @@ export function captureBeforeAssistantTurn(messageId: string): void {
   }
 
   const files = workbenchStore.files.get();
-  snapshots.push({ messageId, takenAt: Date.now(), files: snapshotFromMap(files) });
+  const snapshotFiles = snapshotFromMap(files);
+  snapshots.push({ messageId, takenAt: Date.now(), files: snapshotFiles });
 
   while (snapshots.length > MAX_SNAPSHOTS) {
     snapshots.shift();
   }
+
+  // Publish the fresh pre-turn baseline so the editor inline-diff has real data to show.
+  aiOriginalFiles.set(snapshotFiles);
 }
 
 export function hasSnapshotFor(messageId: string): boolean {
