@@ -143,6 +143,27 @@ E2E_TEST_PASSWORD="$(get-secret E2E_TEST_PASSWORD)" \
   (two `@playwright/test` copies otherwise).
 - **`/api/auth/get-session` 404 in console** → benign; `better_auth` is dark locally. The spec's
   console-error gate allowlists exactly this one.
+- **`504 Outdated Optimize Dep` + "Failed to fetch dynamically imported module" on lazy admin
+  routes (Logs/Settings), bouncing the SPA to `/`** → the FIRST `ng serve` boot on an empty
+  `.angular/cache` discovers deps mid-flight and its optimizer state goes stale for those chunks —
+  and it does NOT fully self-heal. Fix (fire-60): visit the heavy lazy routes once (warm), then
+  **restart `ng serve` a second time on the now-populated cache** — the second boot serves stable
+  chunk hashes and every lazy route loads in place with 0 console errors.
+- **Shared main checkout has a concurrent agent's uncommitted (broken) frontend edit** → do NOT
+  stash/checkout over it. Serve the SPA from a clean worktree instead:
+  `git worktree add .claude/worktrees/<agent> HEAD --detach`, symlink
+  `apps/project-sites/frontend/node_modules` (and the worker + root `node_modules`) from the main
+  checkout into the worktree, and run `npm start` from the worktree's `frontend/`. The worker +
+  the spec keep running from the main checkout (ports/API unchanged). (fire-60)
+- **Editor iframe never boots locally: console `Framing 'https://editor.projectsites.dev/'
+  violates … frame-ancestors`** → the DEPLOYED editor's `public/_headers` CSP predates fire-60 and
+  lacks `http://localhost:4200` / `http://localhost:4300` (the editor's own
+  `app/lib/embed/embedded-mode.ts` `ALLOWED_ORIGINS` already includes them — one-sided drift).
+  Fixed in repo `public/_headers`; locked by
+  `src/__tests__/editor_frame_ancestors.test.ts`; takes local effect once
+  `editor.projectsites.dev` redeploys (verify:
+  `curl -sI https://editor.projectsites.dev | grep -i frame-ancestors`). Until then the long-trail
+  spec allowlists exactly this refusal and `D-boot` stays `test.fixme`.
 
 ## Teardown
 

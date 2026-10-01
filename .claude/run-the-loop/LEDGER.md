@@ -266,3 +266,32 @@ Analytics skeleton wall · case-001 Phase D action 38 · Profile Vault slice 1.
 OpenAI/Google/xAI/Groq); vision ladder Gemini 2.5 Flash-Lite → Workers-AI vision →
 gpt-5-mini arbiter (<$5/mo). Shipped inert `.github/workflows/run-the-loop.yml` (green
 no-op until CLAUDE_CODE_OAUTH_TOKEN secret exists; one rail at a time until KV lease).
+
+## fire-60 — 2026-10-01 — first constitution-era build fire (closed, adversarial 7/7)
+
+**6 lanes, all green, incrementally folded** (lead hit ceiling once; compaction recovered it —
+checkpoint ac1e74b3a was insurance, not used):
+- claim_flow module flag-dark (21/21; KV price lookup-or-create; zero new webhook code) `f8d0cecfe`
+- WebGL hero system: 4 industry presets 8-9/10, gate 5/5 (canvas+pixel+motion) `f8d0cecfe`
+- Resources>Advanced truth: camelCase/snake_case wire drift root-caused; 4 "unknowns" were the
+  site's own D1/KV/R2/WfP; owner_inventory enumerator, 0 unknowns `5146105a1`
+- analytics forkJoin wall → streaming first-paint (2437ms cold/589ms warm, was >10s) +
+  domain-stack auto-poll `d1dabc929`
+- build_metrics instrumentation + BASELINE: 182 builds p50 2.8min/p95 7.9min (all-time 517:
+  2.87/20.8); cost never recorded before — starts now `d07db8788`
+- long-trail case-001 actions 38→49; frame-ancestors one-sided drift fixed (localhost parents) —
+  checkpoint action 49
+**Deploys:** worker `f1f9a73c` · frontend R2 299/299+purge · editor Pages `5b23e8bd` (bare
+`npm run deploy` failed "Project not found" — explicit `--project-name=bolt-diy` required) ·
+D1 0652 DIRECT-applied+tracked (blanket apply blocked by 10+ ghost-unapplied ancient rows —
+reconciliation queued).
+**Adversarial (7/7 PASS):** resources 6 typed rows/0 unknown · claim dark 404 never 500 · IDOR
+404 · regression 200s · analytics <2.5s · metrics upsert shape ok · zero camelCase row drift.
+**Spend:** ~2.19M subagent tokens (7 agents incl. adversarial) + lead — within ~3M budget.
+**Loop improvements:** incremental-fold-under-compaction pattern (commit each green lane's
+disjoint paths immediately; checkpoint early, keep folding when headroom returns); migration
+direct-apply+track precedent codified as BACKLOG reconcile item; exit-code-masked-by-tail
+deploy failure caught → verify deploy by URL not exit code.
+**Next wave:** template-sync WebGL → template repo + remaining 6 industries · claim-flow
+frontend CTA wiring + flag promote · gp-09 first cycle (prereqs now met) · migration-tracking
+reconcile · build_metrics admin trend surface · case-001 Phase E (build/seed decision).
