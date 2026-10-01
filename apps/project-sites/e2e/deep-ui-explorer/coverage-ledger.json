@@ -2,43 +2,43 @@
   "states": {
     "/::public-home::::d05f796d": {
       "discovered": "2026-09-29T19:57:38.675Z",
-      "visits": 11,
+      "visits": 13,
       "status": "visited",
       "lastAction": "homepage loads (initial state)",
-      "lastVisited": "2026-09-30T03:11:00.416Z",
-      "lastRun": "dux-2026-09-30T03-10-52-037Z"
+      "lastVisited": "2026-10-01T19:46:21.109Z",
+      "lastRun": "dux-2026-10-01T19-46-13-202Z"
     },
     "/signin::signin::::576d826f": {
       "discovered": "2026-09-29T19:57:43.656Z",
-      "visits": 10,
+      "visits": 12,
       "status": "visited",
       "lastAction": "click Sign In (header) → /signin",
-      "lastVisited": "2026-09-30T03:11:03.335Z",
-      "lastRun": "dux-2026-09-30T03-10-52-037Z"
+      "lastVisited": "2026-10-01T19:46:24.437Z",
+      "lastRun": "dux-2026-10-01T19-46-13-202Z"
     },
     "/signin::signin-test-seam::::02622a42": {
       "discovered": "2026-09-29T19:57:48.051Z",
-      "visits": 10,
+      "visits": 12,
       "status": "visited",
       "lastAction": "enter test seam (/signin?test=1) — panel render",
-      "lastVisited": "2026-09-30T03:11:06.427Z",
-      "lastRun": "dux-2026-09-30T03-10-52-037Z"
+      "lastVisited": "2026-10-01T19:46:28.082Z",
+      "lastRun": "dux-2026-10-01T19-46-13-202Z"
     },
     "/admin::admin-dashboard::::fec53253": {
       "discovered": "2026-09-29T19:57:55.718Z",
-      "visits": 11,
+      "visits": 13,
       "status": "visited",
       "lastAction": "test login submit → lands /admin",
-      "lastVisited": "2026-09-30T03:11:10.595Z",
-      "lastRun": "dux-2026-09-30T03-10-52-037Z"
+      "lastVisited": "2026-10-01T19:46:32.982Z",
+      "lastRun": "dux-2026-10-01T19-46-13-202Z"
     },
     "/admin/editor::admin-editor-shell::::6eca7550": {
       "discovered": "2026-09-29T19:58:16.461Z",
-      "visits": 7,
+      "visits": 9,
       "status": "visited",
       "lastAction": "click Editor nav → /admin/editor (iframe mounts)",
-      "lastVisited": "2026-09-29T23:45:37.378Z",
-      "lastRun": "dux-2026-09-29T23-45-06-615Z"
+      "lastVisited": "2026-10-01T19:46:41.639Z",
+      "lastRun": "dux-2026-10-01T19-46-13-202Z"
     },
     "/admin/editor::editor-workbench::::ea74008d": {
       "discovered": "2026-09-29T19:58:22.511Z",
@@ -50,11 +50,11 @@
     },
     "/admin/editor::editor-database::::25fc7ab7": {
       "discovered": "2026-09-29T19:58:40.949Z",
-      "visits": 3,
+      "visits": 5,
       "status": "visited",
       "lastAction": "open Database tab",
-      "lastVisited": "2026-09-29T22:34:32.110Z",
-      "lastRun": "dux-2026-09-29T22-33-32-322Z"
+      "lastVisited": "2026-10-01T19:46:57.985Z",
+      "lastRun": "dux-2026-10-01T19-46-13-202Z"
     },
     "/admin/editor::editor-database::::8876121d": {
       "discovered": "2026-09-29T19:58:54.195Z",
@@ -90,11 +90,11 @@
     },
     "/admin/editor::editor-database::::10f58d63": {
       "discovered": "2026-09-29T19:59:21.758Z",
-      "visits": 3,
+      "visits": 7,
       "status": "visited",
-      "lastAction": "Escape closes History overlay → back to Tables",
-      "lastVisited": "2026-09-29T22:34:51.179Z",
-      "lastRun": "dux-2026-09-29T22-33-32-322Z"
+      "lastAction": "dismiss Create Table (local schema modal) (Escape) → Tables intact",
+      "lastVisited": "2026-10-01T19:47:43.036Z",
+      "lastRun": "dux-2026-10-01T19-46-13-202Z"
     },
     "/admin/snapshots::admin-snapshots::::96210135": {
       "discovered": "2026-09-29T22:18:08.762Z",
@@ -383,9 +383,99 @@
       "lastAction": "tab → General (back to Settings root)",
       "lastVisited": "2026-09-30T03:11:30.554Z",
       "lastRun": "dux-2026-09-30T03-10-52-037Z"
+    },
+    "/admin/editor::editor-database::::7fcc98ea": {
+      "discovered": "2026-10-01T19:41:31.877Z",
+      "visits": 2,
+      "status": "visited",
+      "lastAction": "Database › SQL sub-view",
+      "lastVisited": "2026-10-01T19:47:04.512Z",
+      "lastRun": "dux-2026-10-01T19-46-13-202Z"
+    },
+    "/admin/editor::editor-database::kv-locked-upsell::976b1e89": {
+      "discovered": "2026-10-01T19:41:35.093Z",
+      "visits": 2,
+      "status": "visited",
+      "lastAction": "Database › KV sub-view (honest $10/mo locked-upsell — not unlocked)",
+      "lastVisited": "2026-10-01T19:47:10.834Z",
+      "lastRun": "dux-2026-10-01T19-46-13-202Z"
+    },
+    "/admin/editor::editor-database::missing-action-schema::4616e8ff": {
+      "discovered": "2026-10-01T19:41:40.776Z",
+      "visits": 1,
+      "status": "visited",
+      "lastAction": "Tables › Schema builder (New Table) overlay trigger NOT reachable",
+      "lastVisited": "2026-10-01T19:41:40.776Z",
+      "lastRun": "dux-2026-10-01T19-40-45-868Z"
+    },
+    "/admin/editor::editor-database::missing-action-seed::cda0a5f5": {
+      "discovered": "2026-10-01T19:42:12.756Z",
+      "visits": 1,
+      "status": "visited",
+      "lastAction": "Tables › AI-Seed overlay trigger NOT reachable",
+      "lastVisited": "2026-10-01T19:42:12.756Z",
+      "lastRun": "dux-2026-10-01T19-40-45-868Z"
+    },
+    "/admin/editor::editor-database::missing-action-import::494c64d5": {
+      "discovered": "2026-10-01T19:43:53.071Z",
+      "visits": 1,
+      "status": "visited",
+      "lastAction": "Tables › CSV/JSON Import overlay trigger NOT reachable",
+      "lastVisited": "2026-10-01T19:43:53.071Z",
+      "lastRun": "dux-2026-10-01T19-40-45-868Z"
+    },
+    "/admin/editor::editor-database::empty-launchpad::8c47e5c8": {
+      "discovered": "2026-10-01T19:47:16.872Z",
+      "visits": 1,
+      "status": "visited",
+      "lastAction": "Database › Tables (empty launchpad) — for action overlays",
+      "lastVisited": "2026-10-01T19:47:16.872Z",
+      "lastRun": "dux-2026-10-01T19-46-13-202Z"
+    },
+    "/admin/editor::editor-database::action-seed-settled::3202d17b": {
+      "discovered": "2026-10-01T19:47:22.934Z",
+      "visits": 1,
+      "status": "visited",
+      "lastAction": "Tables › AI-Seed settled (open-then-dismiss — no submit/seed/import)",
+      "lastVisited": "2026-10-01T19:47:22.934Z",
+      "lastRun": "dux-2026-10-01T19-46-13-202Z"
+    },
+    "/admin/editor::editor-database::action-import-settled::f98b5c81": {
+      "discovered": "2026-10-01T19:47:31.719Z",
+      "visits": 1,
+      "status": "visited",
+      "lastAction": "Tables › CSV/JSON Import settled (open-then-dismiss — no submit/seed/import)",
+      "lastVisited": "2026-10-01T19:47:31.719Z",
+      "lastRun": "dux-2026-10-01T19-46-13-202Z"
+    },
+    "/admin/editor::editor-database::create-table-modal-settled::92031d14": {
+      "discovered": "2026-10-01T19:47:40.247Z",
+      "visits": 1,
+      "status": "visited",
+      "lastAction": "Tables › Create Table (local schema modal) settled (open-then-dismiss — no submit/seed/import)",
+      "lastVisited": "2026-10-01T19:47:40.247Z",
+      "lastRun": "dux-2026-10-01T19-46-13-202Z"
     }
   },
   "runs": [
+    {
+      "runId": "dux-2026-10-01T19-46-13-202Z",
+      "status": "PASS_CLOUDFLARE",
+      "provider": "cloudflare-browser-run",
+      "coverage": "CLOUD_PASS_ELIGIBLE",
+      "statesVisited": 15,
+      "blockedStates": {},
+      "finishedAt": "2026-10-01T19:47:43.037Z"
+    },
+    {
+      "runId": "dux-2026-10-01T19-40-45-868Z",
+      "status": "PARTIAL",
+      "provider": "cloudflare-browser-run",
+      "coverage": "CLOUD_PASS_ELIGIBLE",
+      "statesVisited": 12,
+      "blockedStates": {},
+      "finishedAt": "2026-10-01T19:43:53.071Z"
+    },
     {
       "runId": "dux-2026-09-30T03-10-52-037Z",
       "status": "PASS_CLOUDFLARE",
