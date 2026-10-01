@@ -353,3 +353,29 @@ exit-code deploys).
   no-WebGL → graceful fallback, deferred rIC init so never LCP, low-power ctx + DPR cap).
   Only 3 packs carried webgl before → now 10 archetypes have packs. No fake provenance.
   Gates: 7/7 JSON.parse OK, 7/7 validateWebGLConfig clean, site-gen `tsc --noEmit` exit 0.
+
+
+## fire-63 — 2026-10-01 — build_metrics flag-gate + feature-module close-out (closed)
+
+- Lane: Feature Delivery (north star: generation speed + cost). The fire-60/61 build_metrics
+  instrument (migration 0652, services, GET /api/admin/build-metrics/summary, Angular trend card)
+  shipped UNFLAGGED — a feature-module-architecture gap. This fire closed it.
+- Shipped (`750ab3138`, rebased onto 5dab7662d, fast-forward to origin/main):
+  - New DARK flag `build_metrics` (enabled=0, rollout=0, experimental) in FLAG_REGISTRY + FLAG_DOCS
+    (checklist + smoke_test + e2e spec ref); sorted before claim_flow (no new eslint sort warning).
+  - Route gated: auth (401) → `build_metrics` flag (404, never 403) → super-admin (403). Flag runs
+    BEFORE super-admin so off = hard 404 for everyone (existence never leaked), per admin_leads precedent.
+    The Angular card already self-hides on the 404 (`@if (!failed())`).
+  - `libs/features/build_metrics/`: feature.manifest.ts (7 fields, flagKey build_metrics) + handlers.ts
+    re-export (recycle proven code, no dup) + README.md.
+  - TDD RED-first: added 404-when-flag-off + gate-order (`isSuperAdmin` not consulted when off) tests,
+    watched them FAIL (403 instead of 404), then added the gate → GREEN.
+  - e2e/build-metrics.spec.ts contract spec + COVERAGE.yml row; also registered 3 PRE-EXISTING orphan
+    specs (per-site-data-panel · r2-buckets · wfp-site-hosting) to green the inventory gate.
+- Gates: worker `tsc --noEmit` 0 · full jest 895 suites / 14092 tests pass · validate:features 0 violations
+  · validate:e2e-inventory green (345 specs) · frontend `tsc -p tsconfig.app.json` 0 · eslint 0 errors.
+- Deployed production (Version 353847d6-12c0-4a5e-b282-f7cb2593b43b). Prod-verified: unauth GET
+  /api/admin/build-metrics/summary → 401 JSON (never 200/SPA/500); invalid days unauth → 401; /health 200.
+  Flag DARK by default — card hidden until promoted at /admin/feature-flags.
+- Note: the SLICE was ~95% pre-built across fires 60/61/62; this fire delivered the remaining full-arc
+  requirement (flag-gating + feature module + docs + inventory), per predictive-completeness.
