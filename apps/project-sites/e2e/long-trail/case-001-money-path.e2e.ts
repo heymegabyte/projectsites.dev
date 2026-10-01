@@ -118,14 +118,12 @@ test.describe('Long-Trail Case 001 — Money Path :: PHASE A (homepage → real 
     expect(me.orgIdPresent).toBe(true);
     expect(me.isSuperAdmin).toBe(true);
 
-    // Console-error gate — tolerate ONLY the known dark-feature probe (better_auth off locally)
-    // + the editor-prewarm frame-ancestors refusal (deployed editor pre-dates the
-    // fire-60 public/_headers fix; prewarm fires on /admin once a site exists).
+    // Console-error gate — tolerate ONLY the known dark-feature probe (better_auth off locally).
+    // The editor-prewarm frame-ancestors refusal is RESOLVED fire-63 (editor.projectsites.dev
+    // redeployed with the fire-60 public/_headers fix) — no longer allowlisted, so a future
+    // regression of that class fails this gate precisely.
     const unexpected = consoleErrors.filter(
-      (e) =>
-        !/\/api\/auth\/get-session/.test(e) &&
-        !/status of 404/.test(e) &&
-        !/(Refused to (frame|display)|Framing)\s+'?https:\/\/editor\.projectsites\.dev/i.test(e),
+      (e) => !/\/api\/auth\/get-session/.test(e) && !/status of 404/.test(e),
     );
     expect(unexpected, `unexpected console errors: ${unexpected.join(' | ')}`).toHaveLength(0);
   });
@@ -258,12 +256,9 @@ test.describe('Long-Trail Case 001 :: PHASE B (cockpit tour)', () => {
       const me = await fetchMe(page);
       expect(me.status, 'Session must survive public-page visit').toBe(200);
 
-      // ── Console-error gate (editor-prewarm refusal allowlisted — see Phase D) ──
+      // ── Console-error gate (editor-prewarm frame-ancestors refusal RESOLVED fire-63) ──
       const unexpected = consoleErrors.filter(
-        (e) =>
-          !/\/api\/auth\/get-session/.test(e) &&
-          !/status of 404/.test(e) &&
-          !/(Refused to (frame|display)|Framing)\s+'?https:\/\/editor\.projectsites\.dev/i.test(e),
+        (e) => !/\/api\/auth\/get-session/.test(e) && !/status of 404/.test(e),
       );
       expect(unexpected, `unexpected console errors: ${unexpected.join(' | ')}`).toHaveLength(0);
     },
@@ -410,13 +405,13 @@ test.describe('Long-Trail Case 001 :: PHASE C (Settings + API Tokens + Editor sh
         /the server responded with a status of 500/.test(e),
       );
       // Allow up to knownTeam500Count generic 500 errors (attributed to /api/team).
+      // Editor-prewarm frame-ancestors refusal RESOLVED fire-63 — no longer allowlisted.
       const unexplainedGenericCount = Math.max(0, genericLoadErrors.length - knownTeam500Count);
       const unexpected = consoleErrors.filter(
         (e) =>
           !/\/api\/auth\/get-session/.test(e) &&
           !/status of 404/.test(e) &&
-          !/the server responded with a status of 500/.test(e) &&
-          !/(Refused to (frame|display)|Framing)\s+'?https:\/\/editor\.projectsites\.dev/i.test(e),
+          !/the server responded with a status of 500/.test(e),
       );
       // Attach diagnostic 5xx URL list to any console-error failure for easier triage.
       const diagSuffix =
@@ -672,12 +667,12 @@ test.describe('Long-Trail Case 001 :: PHASE D (site seed → editor → data hon
       /the server responded with a status of 500/.test(e),
     );
     const unexplainedGenericCount = Math.max(0, genericLoadErrors.length - knownTeam500Count);
+    // Editor-prewarm frame-ancestors refusal RESOLVED fire-63 — no longer allowlisted.
     const unexpected = consoleErrors.filter(
       (e) =>
         !/\/api\/auth\/get-session/.test(e) &&
         !/status of 404/.test(e) &&
-        !/the server responded with a status of 500/.test(e) &&
-        !/(Refused to (frame|display)|Framing)\s+'?https:\/\/editor\.projectsites\.dev/i.test(e),
+        !/the server responded with a status of 500/.test(e),
     );
     const diagSuffix = srv5xxUrls.length > 0 ? ` | srv-5xx-urls: [${srv5xxUrls.join(', ')}]` : '';
     expect(
@@ -695,15 +690,24 @@ test.describe('Long-Trail Case 001 :: PHASE D (site seed → editor → data hon
   }) => {
     // Hard assertion of the REQUIRED behavior: the editor document loads when the
     // local admin embeds it. Observed RED in fire-60: Chromium refuses the frame
-    // because the DEPLOYED editor's frame-ancestors lacks http://localhost:4200
-    // (public/_headers fixed in-repo this fire; needs an editor Pages deploy).
-    // UNFIXME when editor.projectsites.dev redeploys with the fire-60 _headers —
-    // verify first: `curl -sI https://editor.projectsites.dev | grep -i frame-ancestors`
-    // shows http://localhost:4200. Regression lock: src/__tests__/editor_frame_ancestors.test.ts.
-    test.fixme(
-      true,
-      'blocked-on-deploy: editor.projectsites.dev still serves pre-fire-60 frame-ancestors (no localhost:4200) — fix is in repo public/_headers, awaiting editor Pages deploy',
-    );
+    // because the DEPLOYED editor's frame-ancestors lacked http://localhost:4200.
+    // UNBLOCKED fire-63: editor.projectsites.dev now serves the fire-60
+    // public/_headers fix in prod (verified live:
+    // `curl -sI https://editor.projectsites.dev | grep -i frame-ancestors` shows
+    // http://localhost:4200). Regression lock: src/__tests__/editor_frame_ancestors.test.ts.
+    //
+    // UN-FIXMEing surfaced a SECOND, independent bug the frame-ancestors fix
+    // alone didn't catch: `BoltEmbedService.bootForSite` built the
+    // `importChatFrom` query param from `window.location.origin` (the ADMIN's
+    // own origin — `http://localhost:4200` locally), but the editor iframe's
+    // OWN CSP `connect-src 'self' https: wss: blob:` has no `http:` scheme, so
+    // the now-successfully-loaded editor refused its own chat-import fetch
+    // ("Refused to connect to 'http://localhost:4200/api/sites/by-slug/.../
+    // chat'… violates… connect-src"). Root-caused + fixed in
+    // frontend/src/app/services/bolt-embed.service.ts (PUBLIC_API_ORIGIN
+    // constant — the chat-import endpoint is public + unauthenticated and
+    // always reachable at https://projectsites.dev regardless of which admin
+    // origin requested the embed).
     await page.goto(APP + '/signin?test=1');
     await page.getByTestId('test-signin-password').fill(TEST_PASSWORD);
     await page.getByTestId('test-signin-submit').click();
@@ -740,7 +744,52 @@ test.describe('Long-Trail Case 001 :: PHASE D (site seed → editor → data hon
 
 const WORKER_URL = 'http://127.0.0.1:8787';
 const SITE_HOST = `${LTT_SLUG}.projectsites.dev`;
+/** This SPEC FILE's own package dir — NOT necessarily where the live worker
+ * process runs from (see {@link liveWorkerPkgDir} below). Kept as the
+ * fallback + used for any purpose unrelated to the worker's `.wrangler/state`. */
 const WORKER_PKG_DIR = fileURLToPath(new URL('../..', import.meta.url));
+
+/** The directory the LIVE local worker process (`wrangler dev --local`, :8787)
+ * actually runs from — this is where its `.wrangler/state/v3/d1/...sqlite`
+ * local-D1 file lives. Per the resume recipe (checkpoint-case-001.json), the
+ * worker is intentionally run from the MAIN checkout (not whichever worktree
+ * this spec happens to execute in) so hot-reload survives across fires'
+ * worktree churn. Running `wrangler d1 execute --local` from THIS spec's own
+ * worktree therefore resolves a DIFFERENT (empty) miniflare sqlite file than
+ * the one the worker actually serves from — `d1LocalCount` would silently
+ * read zero rows (or 'no such table') while the real data sits in the main
+ * checkout. Derive the main checkout generically via `git rev-parse
+ * --git-common-dir` (worktree-agnostic — correct regardless of which
+ * worktree this fire happens to run in) rather than hardcoding a path.
+ * Root-caused + fixed fire-63 (long-trail case-001, resumed in a worktree
+ * different from the one fire-61 authored this helper against). */
+function resolveLiveWorkerPkgDir(): string {
+  try {
+    const commonDir = execSync('git rev-parse --git-common-dir', {
+      cwd: WORKER_PKG_DIR,
+      encoding: 'utf8',
+      stdio: ['ignore', 'pipe', 'pipe'],
+      timeout: 10_000,
+    }).trim();
+    // `--git-common-dir` is typically `.../repo/.git` (absolute, or relative
+    // to cwd when the main checkout IS the cwd) — the main checkout root is
+    // its parent, then the worker package is `apps/project-sites` under it.
+    const absCommonDir = commonDir.startsWith('/')
+      ? commonDir
+      : fileURLToPath(new URL(commonDir + '/', `file://${WORKER_PKG_DIR}/`));
+    const repoRoot = fileURLToPath(new URL('..', `file://${absCommonDir}/`));
+    const candidate = fileURLToPath(
+      new URL('apps/project-sites/', `file://${repoRoot}/`),
+    ).replace(/\/$/, '');
+    // Only trust the derived path if it actually holds a `.wrangler` dir —
+    // otherwise fall back rather than pointing at a plausible-but-wrong path.
+    execSync(`test -d ${JSON.stringify(candidate)}/.wrangler`, { stdio: 'ignore' });
+    return candidate;
+  } catch {
+    return WORKER_PKG_DIR; // fallback — spec still runs, just may read 0 rows
+  }
+}
+const LIVE_WORKER_PKG_DIR = resolveLiveWorkerPkgDir();
 
 /** Deterministic hand-authored site bundle — the Phase E build fixture.
  *
@@ -821,12 +870,16 @@ async function buildFixtureZipBase64(): Promise<string> {
 
 /** AUTHORITATIVE-STORE read: COUNT(*) against the SAME local D1 the running worker
  * uses (`.wrangler/state` sqlite — safe concurrent read). Never the endpoint the UI
- * reads — this is the verify-against-source-of-truth half of every reconcile. */
+ * reads — this is the verify-against-source-of-truth half of every reconcile.
+ * MUST run from {@link LIVE_WORKER_PKG_DIR} (the live worker process's own cwd),
+ * never this spec file's own package dir — `wrangler d1 execute --local` resolves
+ * its miniflare sqlite relative to CWD, so running it from the wrong worktree
+ * silently reads a different (empty) database. */
 function d1LocalCount(fromWhere: string): number {
   const sql = `SELECT COUNT(*) AS n ${fromWhere}`;
   const out = execSync(
     `npx wrangler d1 execute project-sites-db --local --json --command ${JSON.stringify(sql)}`,
-    { cwd: WORKER_PKG_DIR, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'], timeout: 90_000 },
+    { cwd: LIVE_WORKER_PKG_DIR, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'], timeout: 90_000 },
   );
   const parsed = JSON.parse(out.slice(out.indexOf('['))) as Array<{
     results?: Array<{ n?: number }>;
@@ -1266,12 +1319,12 @@ test.describe('Long-Trail Case 001 :: PHASE E (deploy-seed → published site �
       /the server responded with a status of 400/.test(e),
     );
     const unexplained400Count = Math.max(0, generic400Errors.length - contactForm400Count);
+    // Editor-prewarm frame-ancestors refusal RESOLVED fire-63 — no longer allowlisted.
     const unexpected = consoleErrors.filter(
       (e) =>
         !/\/api\/auth\/get-session/.test(e) &&
         !/status of 404/.test(e) &&
-        !/the server responded with a status of (400|500)/.test(e) &&
-        !/(Refused to (frame|display)|Framing)\s+'?https:\/\/editor\.projectsites\.dev/i.test(e),
+        !/the server responded with a status of (400|500)/.test(e),
     );
     const diagSuffix = srv5xxUrls.length > 0 ? ` | srv-5xx-urls: [${srv5xxUrls.join(', ')}]` : '';
     expect(

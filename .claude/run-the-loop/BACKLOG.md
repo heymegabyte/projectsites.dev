@@ -1127,3 +1127,11 @@
 - [ ] packages/shared/CLAUDE.md test-count stale after ai-policy (+58) — one-line doc sync. Est: XS.
 - [x] Convergence deploy — DONE fire-57: worker 23cdff9f (models+mint+grants+chat+search+flags-union),
   frontend main-N5NOCGEV hash-verified, editor Pages 42e82f04; migrations 0649+0650 applied to prod D1.
+
+## fire-63 next-wave (appended by convergence)
+- [ ] **Editor Create-Table orphan** — wire `DatabasePanel.onCreateTable` to the `schema` SchemaBuilder overlay OR consolidate the two create paths (local `sitedb-create-table` modal vs `database-action-overlay`). Acceptance: one create path reachable from Tables UI; the other removed. (G#2)
+- [ ] **AI-Seed empty-DB dead-end** — inline "Create a table" CTA inside the AI-Seed empty state so a blank-DB owner proceeds without leaving. Acceptance: AI-Seed on empty DB offers inline create. (G#3)
+- [ ] **IDOR gate blind-spot** — add `src/index.ts` to SCAN_DIRS in check-idor-gates / check-idor-handlers / check-get-read-idor / check-body-slug-write-idor, OR enforce per-site handlers live only in libs/features. Acceptance: an inline `:siteId` handler in index.ts without assertSiteOwned fails the gate. (H)
+- [ ] **Finish admin-ops golden journey** — F authored `e2e/admin-ops-journey/admin-ops.e2e.ts` (280 lines, complete) but never ran it green (d1Count helper cwd resolution). Role 4 next fire: fix the cwd + run green vs real backend. Acceptance: spec passes with the analytics display-vs-store reconcile.
+- [ ] **Long-Trail case-001 Phase F iframe legs** — D-boot iframe legs need `editor.projectsites.dev` CSP `frame-ancestors http://localhost:4200` OR run case vs PROD editor. Acceptance: actions 91-96 (apps install/removal + tenant-isolation + cleanup) drive live + green. (role 16 resume)
+- [ ] **Apply role-17 specialist-mapping fix to `.claude/commands/run-the-loop.md`** line ~96 (permission-blocked from headless main session this fire). Acceptance: role 17 line names general-purpose/test-writer, not visual-qa.
