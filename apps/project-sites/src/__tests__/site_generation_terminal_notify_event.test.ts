@@ -22,7 +22,7 @@ const facts = {
   orgId: 'org_1',
   siteId: 'site_1',
   slug: 'acme',
-  businessName: "Acme Barbers",
+  businessName: 'Acme Barbers',
 };
 const SITE_URL = `https://acme${SUFFIX}`;
 
