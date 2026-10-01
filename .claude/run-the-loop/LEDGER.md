@@ -11,6 +11,12 @@
 
 ---
 
+### 2026-10-01 · fire-63 — destructive-opt-in silent-downgrade fix (correctness slice)
+- **Frontier-0 closed:** `DELETE /api/sites/:id` `purge_resources` opt-in no longer silently downgrades on a lost/garbled body. Was `const body = await c.req.json().catch(() => ({}))` → a malformed/non-object body became `{}` → `purge_resources` undefined → irreversible teardown SKIPPED while the delete still 200'd. Now `.catch(() => null)` + null/non-object/array guard → `throw badRequest('Request body must be a JSON object')` (400, `BAD_REQUEST` envelope). Mirrors the PATCH `/api/sites/:id` fix; the valid empty-`{}` no-op stays 200.
+- **Asserable effect:** a successful purge now echoes `{ purged: <number> }` (R2 version objects + dedicated D1 + KV + buckets torn down) so a caller can assert the destructive action actually ran, not just that it 200'd.
+- **IDOR:** `requireOwnedSite` (`AND org_id = ?`) already guards the handler — no change needed.
+- **TDD RED→GREEN:** +4 regression tests in `src/__tests__/site_delete_subscription.test.ts` (malformed→400, non-object→400, purge echoes numeric `purged`, empty-`{}` no-op preserved). RED observed (malformed→200, purged=undefined) → GREEN 12/12; sibling blast-radius (site_purge · patch_site_malformed_body · api_malformed_json_authed_boundary · site_ownership) 45/45. `tsc --noEmit` exit 0.
+
 ### 2026-09-29 · fire-52 — money-path notify + golden-path WCAG + failure-taxonomy loop-improvement
 - **§7 loop-improvement (the fire-51→52 re-prompt gradient):** failure-taxonomy shipped (`2f28f3dd3` + skills-rules `05982ffd5`) — a WORKER agent failing (ECONNRESET / one-agent `subagent_tokens:0` / cut-off) is fan-out ATTRITION → salvage its commit (`git show <tip>` before `git branch -D`) + re-queue + KEEP RUNNING; only the LEAD failing ("prompt too long"/autocompact/can't-spawn) is the checkpoint trigger. monitor-orchestration shortcoming #13.
 - **Money-path (§3): owner build.complete/build.failed bell now actually FIRES** (`0915cfeb6`). Root cause: the workflow passed the legacy novu-era `{event,tenantId,…}` shape → failed `PsnotifyEventSchema` → `invalid_event` → the DO write silently never fired (a prior fire made it observable but never fixed the callers). Rewrote all build.* notifies to canonical `{name,subscriberId,payload}` + threaded `action_url` (live site URL) through `notify.ts` (bell rows were un-clickable). tsc 0, jest 53✓.

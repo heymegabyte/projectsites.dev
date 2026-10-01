@@ -1676,13 +1676,24 @@ api.delete('/api/sites/:id', async (c) => {
     'id, slug, plan',
   );
 
-  const body = await c.req.json().catch(() => ({}));
-  const cancelSubscription = body && (body as Record<string, unknown>).cancel_subscription === true;
+  // FAIL LOUD on a lost/garbled body — never silently downgrade a DESTRUCTIVE opt-in.
+  // A no-body DELETE is a legitimate soft-delete (no opt-in), so absent → `{}`. But a
+  // body that was SENT and failed to parse (malformed JSON, or valid JSON that isn't an
+  // object) is ambiguous: reading `purge_resources` off it would coerce to `undefined`
+  // and quietly skip the irreversible teardown while still 200-ing. `.catch(() => null)`
+  // + a null/non-object guard makes that a 400 instead (mirrors PATCH /api/sites/:id).
+  const hasBody = (c.req.header('content-length') ?? '') !== '' || !!c.req.header('content-type');
+  const parsedBody = hasBody ? await c.req.json().catch(() => null) : {};
+  if (parsedBody === null || typeof parsedBody !== 'object' || Array.isArray(parsedBody)) {
+    throw badRequest('Request body must be a JSON object');
+  }
+  const body = parsedBody as Record<string, unknown>;
+  const cancelSubscription = body.cancel_subscription === true;
   // gp-09 full-teardown opt-in: `purge_resources: true` additionally removes the site's
   // entire dedicated footprint (R2 version-tree, dedicated D1/KV/buckets, WfP slots,
   // registry/hostname rows) and FREES the slug for re-creation. Same explicit body-opt-in
   // tier as `cancel_subscription`; the purge itself refuses non-archived rows.
-  const purgeResources = body && (body as Record<string, unknown>).purge_resources === true;
+  const purgeResources = body.purge_resources === true;
 
   await c.env.DB.prepare(
     "UPDATE sites SET deleted_at = datetime('now'), status = 'archived' WHERE id = ?",
@@ -1705,8 +1716,16 @@ api.delete('/api/sites/:id', async (c) => {
   // Explicit full teardown (awaited so the response carries the honest per-step summary;
   // `purgeSiteResources` never throws and refuses anything not already soft-deleted).
   let purge: Awaited<ReturnType<typeof purgeSiteResources>> | undefined;
+  let purged: number | undefined;
   if (purgeResources) {
     purge = await purgeSiteResources(c.env, { orgId, siteId, slug: site.slug as string });
+    // Asserable effect count the caller can check — total dedicated resources actually
+    // torn down (R2 version objects + dedicated D1 + KV + each bucket that deleted ok).
+    purged =
+      purge.r2VersionObjectsDeleted +
+      (purge.dedicatedD1 === 'deleted' ? 1 : 0) +
+      (purge.dedicatedKv === 'deleted' ? 1 : 0) +
+      purge.dedicatedBuckets.filter((b) => b.ok).length;
   }
 
   let subscriptionCanceled = false;
@@ -1765,6 +1784,7 @@ api.delete('/api/sites/:id', async (c) => {
       deleted: true,
       subscription_canceled: subscriptionCanceled,
       ...(purge ? { purge } : {}),
+      ...(purged !== undefined ? { purged } : {}),
     },
   });
 });

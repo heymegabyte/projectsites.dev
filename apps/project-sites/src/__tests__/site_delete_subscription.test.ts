@@ -31,6 +31,23 @@ jest.mock('../lib/posthog.js', () => ({
   trackError: jest.fn(),
 }));
 
+// Full-teardown purge is awaited by the DELETE handler when the owner opts in with
+// `purge_resources: true`. Stub it so the destructive-opt-in tests can assert the
+// handler echoes the real purged count back to the caller (not a silent no-op).
+const mockPurgeSiteResources = jest.fn();
+jest.mock('../services/site_purge.js', () => ({
+  purgeSiteResources: (...a: unknown[]) => mockPurgeSiteResources(...a),
+}));
+
+// WfP teardown is fire-and-forget off the response path; stub it so it can't reach CF.
+jest.mock('../services/wfp_site_hosting.js', () => ({
+  teardownSiteWfp: jest.fn().mockResolvedValue({
+    attempted: false,
+    slotsDeleted: 0,
+    registryCleared: 0,
+  }),
+}));
+
 import { Hono } from 'hono';
 import type { Env, Variables } from '../types/env.js';
 import { errorHandler } from '../middleware/error_handler.js';
@@ -123,6 +140,19 @@ function createMockD1() {
 beforeEach(() => {
   jest.clearAllMocks();
   jest.spyOn(console, 'warn').mockImplementation(() => {});
+  mockPurgeSiteResources.mockResolvedValue({
+    attempted: true,
+    r2VersionObjectsDeleted: 3,
+    dedicatedD1: 'deleted',
+    dedicatedKv: 'deleted',
+    dedicatedBuckets: [{ bucket: 'ps-site-x-uploads', ok: true }],
+    wfp: { attempted: true, slotsDeleted: 2, registryCleared: 2 },
+    allocationRetired: true,
+    registryRetired: 1,
+    hostnamesRetired: 1,
+    hostKeyCleared: true,
+    slugFreed: 'test-biz--purged-abc',
+  });
   mockFetch = jest.fn().mockResolvedValue(
     new Response(JSON.stringify({ id: 'mock-id' }), {
       status: 200,
@@ -431,5 +461,131 @@ describe('DELETE /api/sites/:id', () => {
         subscription_canceled: true,
       }),
     );
+  });
+});
+
+/**
+ * Destructive-opt-in integrity (BACKLOG Frontier-0 "Destructive-opt-in silent downgrade").
+ *
+ * The `purge_resources: true` opt-in triggers an IRREVERSIBLE full teardown. The prior
+ * contract read the body with `.catch(() => ({}))`, so a lost/garbled/non-object body
+ * silently became `{}` → `purge_resources` undefined → `false` → the purge was skipped
+ * while the DELETE still returned 200. A destructive action must FAIL LOUD on a body it
+ * can't parse (400), never silently downgrade to a no-op — and a successful purge must
+ * echo the purged count so a caller can ASSERT the effect happened.
+ */
+describe('DELETE /api/sites/:id — destructive purge_resources opt-in', () => {
+  const siteId = 'site-uuid-900';
+  const orgId = 'org-uuid-900';
+  const userId = 'user-uuid-900';
+
+  /** DELETE with a raw (possibly non-JSON) body string the caller fully controls. */
+  function makeDeleteRaw(
+    app: Hono<{ Bindings: Env; Variables: Variables }>,
+    env: Env,
+    id: string,
+    rawBody: string,
+  ) {
+    return app.request(
+      `/api/sites/${id}`,
+      { method: 'DELETE', headers: { 'Content-Type': 'application/json' }, body: rawBody },
+      env,
+    );
+  }
+
+  it('(a) FAILS LOUD with 400 on a malformed/garbled body — never a 200 silent no-op', async () => {
+    const mockDb = createMockD1();
+    mockDbQueryOne.mockResolvedValueOnce({ id: siteId, slug: 'purge-biz', plan: 'free' });
+
+    const { app, env } = createAuthenticatedApp(
+      { userId, orgId, requestId: 'req-purge-malformed' },
+      { DB: mockDb as unknown as D1Database },
+    );
+
+    const res = await makeDeleteRaw(app, env, siteId, 'not-json{bad');
+
+    // The silent-downgrade bug returned 200 here; the destructive action must reject.
+    expect(res.status).toBe(400);
+    const body = await res.json();
+    expect(body.error.code).toBe('BAD_REQUEST');
+
+    // And it must NOT have run the destructive purge nor the soft-delete on a garbled body.
+    expect(mockPurgeSiteResources).not.toHaveBeenCalled();
+    expect(mockDb.prepare).not.toHaveBeenCalledWith(
+      expect.stringContaining('UPDATE sites SET deleted_at'),
+    );
+  });
+
+  it('(a2) FAILS LOUD with 400 when the body is valid JSON but not an object', async () => {
+    const mockDb = createMockD1();
+    mockDbQueryOne.mockResolvedValueOnce({ id: siteId, slug: 'purge-biz', plan: 'free' });
+
+    const { app, env } = createAuthenticatedApp(
+      { userId, orgId, requestId: 'req-purge-nonobject' },
+      { DB: mockDb as unknown as D1Database },
+    );
+
+    // `"true"` parses to a boolean — reading `.purge_resources` off it would throw or
+    // coerce to undefined, the exact ambiguity a destructive flag must never swallow.
+    const res = await makeDeleteRaw(app, env, siteId, 'true');
+
+    expect(res.status).toBe(400);
+    const body = await res.json();
+    expect(body.error.code).toBe('BAD_REQUEST');
+    expect(mockPurgeSiteResources).not.toHaveBeenCalled();
+  });
+
+  it('(b) a successful purge echoes { purged: <number> } the caller can assert', async () => {
+    const mockDb = createMockD1();
+    mockDbQueryOne.mockResolvedValueOnce({ id: siteId, slug: 'purge-biz', plan: 'free' });
+
+    const { app, env } = createAuthenticatedApp(
+      { userId, orgId, requestId: 'req-purge-ok' },
+      { DB: mockDb as unknown as D1Database },
+    );
+
+    const res = await app.request(
+      `/api/sites/${siteId}`,
+      {
+        method: 'DELETE',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ purge_resources: true }),
+      },
+      env,
+    );
+
+    expect(res.status).toBe(200);
+    const body = await res.json();
+
+    // The destructive teardown actually ran, with the resolved owned-site identity.
+    expect(mockPurgeSiteResources).toHaveBeenCalledTimes(1);
+    expect(mockPurgeSiteResources).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({ orgId, siteId, slug: 'purge-biz' }),
+    );
+
+    // The caller can ASSERT the effect: an asserable numeric purged count.
+    expect(body.data.deleted).toBe(true);
+    expect(typeof body.data.purged).toBe('number');
+    // 3 R2 objects + D1 + KV + 1 bucket = 6 dedicated resources torn down.
+    expect(body.data.purged).toBe(6);
+  });
+
+  it('(c) the valid empty-object no-op is preserved (200, no purge) — fix must not over-reject', async () => {
+    const mockDb = createMockD1();
+    mockDbQueryOne.mockResolvedValueOnce({ id: siteId, slug: 'purge-biz', plan: 'free' });
+
+    const { app, env } = createAuthenticatedApp(
+      { userId, orgId, requestId: 'req-purge-empty' },
+      { DB: mockDb as unknown as D1Database },
+    );
+
+    const res = await makeDeleteRaw(app, env, siteId, '{}');
+
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.data.deleted).toBe(true);
+    expect(body.data.purged).toBeUndefined();
+    expect(mockPurgeSiteResources).not.toHaveBeenCalled();
   });
 });
