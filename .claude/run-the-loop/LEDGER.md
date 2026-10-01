@@ -261,3 +261,8 @@ install itself; cron re-arm; dedupe-guard class; `:where()` neutralizer pattern;
 drift fixes (React 19/Tailwind v4, cron status).
 **Next wave:** gen speed+cost instrumentation (FRONTIER 0, leads) · domain-stack Refresh ·
 Analytics skeleton wall · case-001 Phase D action 38 · Profile Vault slice 1.
+**fire-59 epilogue:** RUNNER-AND-CRITICS.md (161L, verified) — GHA+OAuth runner chosen
+(API keys 38-135× vs Max); Unified Billing LIVE (separate prepaid wallet, 5% fee, pays
+OpenAI/Google/xAI/Groq); vision ladder Gemini 2.5 Flash-Lite → Workers-AI vision →
+gpt-5-mini arbiter (<$5/mo). Shipped inert `.github/workflows/run-the-loop.yml` (green
+no-op until CLAUDE_CODE_OAUTH_TOKEN secret exists; one rail at a time until KV lease).

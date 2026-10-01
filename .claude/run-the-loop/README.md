@@ -87,7 +87,12 @@
   prod-verify + ledger receipt. Regeneration passes and design-taste changes still held.
 - **NORTH STAR (through ~2026-10-31): WEBSITE GENERATION SPEED + COST.** Optimize
   time-to-live-site and $-per-build (see BACKLOG FRONTIER 0 instrumentation item). Rank
-  fire work by its effect on those two numbers first.
+  fire work by its effect on those two numbers first. **Targets (Brian 2026-10-01):**
+  instrument the real baseline FIRST, then drive to **<5 min live / ≤$1 per build**.
+- **Speed-vs-quality policy: OWNER-DRAFT / PUBLIC-GATED** (Brian 2026-10-01) — the owner
+  may watch the draft improve live (speed feels instant), but the PUBLIC share-link serves
+  only once hard gates pass (vision ≥8 · zero console errors · clean copy). First
+  impressions are protected; speed work happens in front of the owner, not the public.
 - **Worker-failure ≠ lead-failure** (`./OPERATING-PRINCIPLES.md` § Failure taxonomy): a
   dying WORKER agent is attrition — salvage its commits FIRST (`git show <branch-tip>`
   BEFORE any `git branch -D`; rescues go under `./salvage/`), re-queue its slice in

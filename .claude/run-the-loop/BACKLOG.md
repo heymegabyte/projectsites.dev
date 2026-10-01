@@ -27,7 +27,7 @@
 > **NORTH STAR (Brian 2026-10-01, through ~Oct-31): WEBSITE GENERATION SPEED + COST** —
 > every fire ranks work by its effect on time-to-live-site and $-per-build first.
 
-- [ ] Generation speed+cost instrumentation — measure p50/p95 wall-clock search→live and $-per-build (AI tokens, container minutes, CF calls) per site build; persist per-build rows; surface a trend in admin; set baseline then drive down (template fast-path, parallel passes, cache reuse, cheaper models where quality holds)
+- [ ] Generation speed+cost instrumentation — measure p50/p95 wall-clock search→live and $-per-build (AI tokens, container minutes, CF calls) per site build; persist per-build rows; surface a trend in admin; set baseline then drive to <5min live / ≤$1 per build (Brian 2026-10-01) via template fast-path, parallel passes, cache reuse, cheaper models where quality holds; enforce owner-draft/public-gated serving
   - cadence: every-fire · priority: highest · category: product · estimate: 2h-first-slice · depends_on: none · discovered_by: brian-north-star
 - [ ] domain-stack.component.ts still has a manual Refresh button (same doctrine class as the fixed domains.component.ts one) — replace with the visibility-aware poll pattern
   - cadence: once · priority: medium · category: ux-a11y · estimate: 30m · depends_on: none · discovered_by: fire-59-admin-agent
@@ -50,6 +50,10 @@
   - cadence: every-2-loops · priority: medium · category: ux · estimate: 60m · depends_on: none · discovered_by: constitution-bootstrap
 - [ ] Constitution champion/challenger evaluation — after ~4 fires, evaluate whether the constitution-governed loop beats the pre-fire-59 model (completion rate, defect escape, visual quality, token yield); fold evidence back into `./CONSTITUTION.md` per its § Recursive Improvement
   - cadence: every-4-loops · priority: medium · category: loop-improvement · estimate: 45m · depends_on: 4 fires of LEDGER data · discovered_by: constitution-bootstrap
+- [ ] Cloud runner slice 1 — GitHub Actions scheduled `/run-the-loop` (`.github/workflows/run-the-loop.yml`): `anthropics/claude-code-action@v1` + `CLAUDE_CODE_OAUTH_TOKEN` repo secret from `claude setup-token` (Max subscription auth — NEVER `ANTHROPIC_API_KEY`: ≈$9.6K–27K/mo at our 130–216M tok/day vs $200/mo Max), `on: schedule */20 * * * *`, `concurrency: group: run-the-loop` as the CI fire-lease, `timeout-minutes: 25` + `--max-turns` governor exposed as repo vars, prompt reads the in-repo `run-the-loop` command + constitution (self-updating), fire transcript uploaded as artifact; quota-neutral vs the Mac loop; Mac harness cron becomes dormant fallback; slice 2 = CF Cron Trigger → Container runner (~$40–70/mo compute, same OAuth rail) per `./RUNNER-AND-CRITICS.md`
+  - cadence: once · priority: high · category: loop-improvement · estimate: 90m · depends_on: none · discovered_by: fire-59-research
+- [ ] Vision-critic ladder wiring — route screenshot art-director critiques through AI Gateway as: PRIMARY Gemini 2.5 Flash-Lite (≈$0.31/1000, free tier ~1K RPD covers 200/day; 2.5 Flash deprecates 2026-10-16 — pin Lite alias) → SECONDARY Workers AI `@cf/meta/llama-3.2-11b-vision-instruct` ($0 inside 10K free neurons/day ≈ 250 critiques) → ARBITER OpenAI gpt-5-mini via **Unified Billing** (CF prepaid credit wallet pays OpenAI/Google/Workers AI; 5% credit fee, pass-through token rates; enable: dash → AI Gateway → Credits → Top-up + set Workers AI billing to Unified); set a $10/mo gateway spend limit; <$5/mo at 200/day; replaces the OpenAI-429/Anthropic-$0 ladder in deep-ui-explorer per `./RUNNER-AND-CRITICS.md`
+  - cadence: once · priority: high · category: testing · estimate: 2h · depends_on: none · discovered_by: fire-59-research
 
 ---
 
