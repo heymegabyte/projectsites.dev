@@ -445,3 +445,35 @@ when a fire is token-heavy, cap fan-out at ≤2-3 concurrent (not the 6 ceiling)
 **Next wave (fire-64):** Lane C brand-quality cluster (wordmark polarity/glyphs, eyebrow AA, pack
 H1) + Lane E long-trail Phase F + "generation emits webgl canvas" consumption gap + wire
 dead-toggle gate into the `check` chain (lane D rec) + prod-verify purge echo on a real teardown.
+
+
+## fire-66 (2026-10-01) — convergence: notify-honesty + flag-drift + serving-gate + ZOMBIE-LEASE fix
+
+- **⚠️ Reclaimed a ZOMBIE fire-lease deadlock.** `fire-63-cf-native`'s owner PID (67992) was
+  DEAD, but a detached `while true; loop-fire-lock.mjs heartbeat; sleep 300` loop (PID 68960)
+  refreshed its lease forever — so every scheduled tick (incl. a concurrent `claude -p
+  /run-the-loop` PID 68364) coalesced and the loop made zero progress. Reaped the zombie,
+  reclaimed the lease, shipped the root fix.
+- **Loop-improvement (§7):** `scripts/loop-fire-lock.mjs` now caps lease age at `MAX_AGE_MS`
+  (90 min) independent of heartbeat (zombie backstop; proven: `MAX_AGE_MS=1` → live:false) +
+  `status` reports `ageMs`. Doctrine codified (heartbeat INLINE, never detach a loop) in README +
+  OPERATING-PRINCIPLES. Commit `1c4c556dd`.
+- **A — owner-notify honesty (money-path):** build.complete BELL now flags a DEGRADED build
+  instead of falsely celebrating "is live 🎉" (the completion EMAIL was already honest); both
+  terminal event shapes (`build.complete`/`build.failed`) unit-locked via `buildOwnerNotifyEvent`.
+  `f0b811ebb`.
+- **B — flag drift closed (re-queued 2×):** `voice_insights` + `cloudflare_rum` ALLOWLISTED as
+  always-on org-scoped fail-soft observability reads (same class as analytics/adminAnalytics); RUM
+  `days` Zod-clamped [1,30] (not 90 — CF RUM retention, avoids dishonest empty tails).
+  validate:features 0 WARN. `dc97d578e`.
+- **C — serving correctness:** unpaid promo top-bar (app.js `data-paid` tag) gated to 200 content
+  only — no longer leaks onto 404/500 error responses. RED-before-green proven. `772875d30`.
+- **Golden-path (role 4/17, deploy-verifier on PROD):** money path GREEN end-to-end — home → search
+  (real OSM + API 200) → /create prefilled → authed (`test@megabyte.space`, pre-existing session) →
+  dashboard → analytics reconciled real data (44 visits / 87 views, honest-empty labeled) → settings
+  (owner-language tabs) → lone-mountain-global wfp 200 styled. 1 real defect → BACKLOG.
+- **Concurrent session (`fire-63-cf-native`) already shipped** the `purge_resources` silent-downgrade
+  fix (`85fde7d7d`) — correctly NOT re-done (check-origin-before-reimplementing held).
+- **Verify:** tsc 0 · jest 155/155 (5 suites) · validate:features 0 WARN. **Deploy:** Worker Version
+  `6918fd09` · push `1c4c556dd`. **Prod:** /health 200 · / 200 · 404→404 · lone-mountain `x-ps-serve: wfp`
+  200 · 404 app.js=0.

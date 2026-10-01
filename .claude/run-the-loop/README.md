@@ -42,8 +42,11 @@
    a live fire holds it → coalesce: end this tick (the running fire already advances the
    same backlog). Stale lease (heartbeat >20 min) auto-reclaims — a dead lead never wedges
    the loop.
-2. **Background heartbeat** — `node scripts/loop-fire-lock.mjs heartbeat fire-<n>-<slug>`
-   after each phase so the lease stays live.
+2. **Heartbeat INLINE, per phase** — `node scripts/loop-fire-lock.mjs heartbeat
+   fire-<n>-<slug>` after each phase so the lease stays live. NEVER background a
+   detached `while true; heartbeat; sleep` loop — it outlives a dead fire and holds
+   the lease forever, wedging every future tick into coalescing (the zombie-heartbeat
+   deadlock; fire-66). The lock's `MAX_AGE_MS` cap is only a backstop; inline is the rule.
 3. **Run the constitution's 15-MINUTE HEARTBEAT stages** (CONSTITUTION § The 15-Minute
    Heartbeat): ORIENT → LOOK → EXPERIENCE → MEASURE → RESEARCH → IMAGINE → PRIORITIZE →
    IMPROVE THE PLAN → FAN OUT → BUILD → RENDER → ITERATE VISUALLY → TEST → EXPLORE →

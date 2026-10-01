@@ -1171,3 +1171,37 @@
 - [ ] **Deep UI sweep: Voice · SEO · Super Admin** — role 17. Acc: vision ≥8, 0 dead controls; Super Admin asserts every action gated-with-reason (never a bare destructive button). Ev: not-yet-inspected.
 - [ ] **Cmd+K palette: first verdict + reach-every-section** — role 17/6. Acc: `Cmd+K` opens (focus-trap, Esc, focus-return), type-ahead navigates each primary section; vision ≥8. Ev: not-yet-inspected; gp-06 gap.
 - [ ] **Mobile @390 sweep: Sites · Analytics · Settings · Feature Flags · Apps · Editor** — role 17/4. Acc: 0 horizontal overflow (`scrollWidth<=clientWidth`), 0 console errors, axe-clean, vision ≥8 per surface. Ev: not-yet-inspected mobile; `04` misalignment.
+
+
+## fire-66 close-out (2026-10-01) — advanced + replenish
+
+**Advanced this fire (mark done on next discovery reconcile):**
+- [x] Owner-notify degraded-bell honesty (A, `f0b811ebb`)
+- [x] voice_insights + cloudflare_rum flag-drift → ALLOWLIST + RUM Zod clamp (B, `dc97d578e`)
+- [x] Promo top-bar suppressed on 404/500 (C, `772875d30`)
+- [x] purge_resources silent-downgrade (shipped by concurrent fire-63-cf-native `85fde7d7d`)
+- [x] Loop-improvement: fire-lease zombie-deadlock backstop + doctrine (`1c4c556dd`)
+
+**Next-wave (deduplicated, evidence-backed — from role 4/17 PROD journey + fire-66 findings):**
+- **PostHog `/ingest/` reverse-proxy returns 403 on repeat** (cat: bug/perf; state: READY) — batched
+  beacon flush 403s on every admin page (`/admin/apps`, `/admin/settings`); direct `us.i.posthog.com`
+  200s, so it's the Worker `/ingest/*` proxy route (likely missing path match or header passthrough).
+  Non-blocking (analytics still captured direct) but drops proxied events + console noise.
+  accept: admin page beacon flush → 0 console 403 on `/ingest/*`; paths: `src/` worker `/ingest/*` route.
+- **Admin account-menu avatar fallback renders literal "?"** (cat: ux; state: READY) — `/admin` top-bar
+  "Account menu for current user" shows `"?"` instead of user initials/avatar. accept: initials fallback
+  when no avatar; paths: admin top-bar component.
+- **Generated-site `site.webmanifest` enctype console warning** (cat: ux; state: READY) — cosmetic
+  `Manifest: Enctype should be set to...` on every generated site. accept: warning gone; paths: manifest
+  generator template.
+- **IDOR scanner blind-spot: `src/index.ts` not in SCAN_DIRS** (cat: security; state: READY) — all of
+  `check-idor-handlers.mjs`/`check-body-slug-write-idor.mjs`/`check-get-read-idor.mjs`/`validate-idor-gates.mjs`
+  scan `src/routes`+`libs` only; inline `src/index.ts` handlers are unscanned (clean today, but a future
+  per-site inline handler could regress unguarded). accept: add `src/index.ts` to the scanners; CI stays green.
+- **Prod-verify C on an R2-served (non-WfP) unpaid site** (cat: testing; state: READY) — lone-mountain is
+  WfP (bypasses buildSiteResponse) so C's top-bar gate couldn't be curled in prod; find/host an R2-path
+  unpaid site OR a platform error route through buildSiteResponse to assert the 200-vs-404 top-bar behavior live.
+- **Fleet auto-worktree STILL blocks standing browser roles 16/17 at the tooling level** (cat: loop-improvement;
+  state: needs-design) — fire-65 codified "MAIN checkout" in docs but the fleet auto-worktrees every agent;
+  enforce it (route browser roles to main checkout OR provision worktree node_modules) so role 16 Long-Trail +
+  role 17 Deep UI Explorer run locally, not just via PROD deploy-verifier.

@@ -348,6 +348,14 @@ coalesce this tick), heartbeat per phase, release at §10. A stale lease (heartb
 is reclaimed — a dead lead never wedges the loop. One fire at a time means one browser
 fleet, one deploy stream, no conflicting commits.
 
+- **Heartbeat INLINE per phase — NEVER background a detached `while true; heartbeat; sleep`
+  loop.** Such a loop outlives its dead fire and refreshes the heartbeat forever, holding the
+  lease LIVE and coalescing EVERY future tick — a permanent deadlock no later fire can
+  self-heal (fire-66 reclaimed exactly such a zombie: owner PID dead, lease fresh). Backstops
+  the lock now ships: lease age is capped at `MAX_AGE_MS` (90 min) regardless of heartbeat, and
+  `status` reports `ageMs`. If you ever hit a BUSY lease whose owner PID is dead (`ps -p <pid>`),
+  reap the stray — `pkill -f 'loop-fire-lock.mjs heartbeat <fireId>'` — then reclaim.
+
 ## Wedged-agent protocol (proven fire-57, codified fire-58)
 
 - A background agent whose output-file mtime is SILENT >20 min is presumed wedged (two cases fire-57: both stuck in reading phase). Protocol: (1) check mtime vs now; (2) SendMessage nudge ("land the smallest green slice now"); (3) bounded 90s wait — mtime unchanged → (4) TaskStop, salvage check (worktree branch tip + `git status` for its paths; a reading-phase agent has nothing to salvage), (5) respawn FRESH with an exact-file brief (name the files to read — an agent told to explore is an agent that can wedge). Never leave a wedged agent running alongside its replacement (duplicate-surface collision).
