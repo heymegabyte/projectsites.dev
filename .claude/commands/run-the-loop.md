@@ -6,18 +6,25 @@ argument-hint: "[role/lane name, category, or 'all' (default)]"
 # Run The Loop
 
 > **🔁 SELF-ARMING SCHEDULER (Brian directive 2026-10-01 — do this FIRST, every invocation).**
-> `/run-the-loop` means CONTINUOUS operation, not one fire. **Scheduler of record = macOS
-> launchd**: `~/Library/LaunchAgents/space.megabyte.projectsites.run-the-loop.plist` runs
-> headless `claude -p "/run-the-loop"` every 900s (log: `.claude/run-the-loop/cron-runs.log`;
-> verify: `launchctl list | grep run-the-loop`; re-load: `launchctl bootstrap gui/501 <plist>`).
-> The in-session harness cron is BELT-AND-SUSPENDERS ONLY — it silently skipped 7 straight
-> ticks on 2026-10-01 (12:34–2:04 PM) while armed+durable; never rely on it alone.
-> Per invocation: (1) `CronList` — if no recurring
-> `/run-the-loop` job exists, `CronCreate` cron `4,19,34,49 * * * *` (15-min cadence),
-> `durable: true` (harness auto-expires recurring jobs after ~7 days — this self-arm step IS
-> the re-arm); (2) then run ONE fire per this file. Overlapping ticks coalesce via the fire
-> lease (exit 3 = a live fire holds it → end the tick silently). Never end an invocation
-> with no armed cron.
+> `/run-the-loop` means CONTINUOUS operation, not one fire. **Scheduler = THIS Claude Code
+> session's harness cron** (launchd/plist rail REMOVED — ran invisibly + locally, Brian rejected
+> both; dogfood ProjectSites' own agent runner once it ships). Per invocation: (1) `CronList` —
+> if no recurring `/run-the-loop` job exists, `CronCreate` cron `4,19,34,49 * * * *` (15-min
+> cadence), `durable: true` (harness auto-expires recurring jobs after ~7 days — this self-arm
+> step IS the re-arm); (2) then run ONE fire per this file. Overlapping ticks coalesce via the
+> fire lease (exit 3 = a live fire holds it → end the tick silently). Never end an invocation
+> with no armed cron. Cloud fallback (GHA / CF cron-container) stays dark until
+> `CLAUDE_CODE_OAUTH_TOKEN` is minted.
+
+> **📥 FEEDBACK INTAKE (§6 of `./WALKTHROUGH-SPEC.md`, absorbed fire-67).** At each iteration
+> boundary: (1) read the canonical ledger (`BACKLOG.md`) + any newly-dropped walkthrough/spec
+> in `.claude/run-the-loop/*-SPEC.md` or `~/Downloads/run-the-loop*`; (2) normalize contradictions
+> (later corrections supersede earlier), dedupe by meaning (reuse IDs, cross-ref duplicates),
+> propagate deltas to in-flight work; (3) prioritize BROKEN golden paths + their deps before
+> extensions — brainstorming must not displace delivery; (4) inspect affected live UI
+> before+after (real menus/search/long/empty/error states + screenshots); (5) never mark done
+> because a button exists or a test was proposed — "verified" needs OBSERVED behavior.
+> Detailed product requirements live in the SPEC, not here — keep this entry concise.
 
 > **⚖️ GOVERNED BY `.claude/run-the-loop/CONSTITUTION.md` (fire-59, 2026-09-30).**
 > The Autonomous Visual Product Organization constitution supersedes this file wherever they

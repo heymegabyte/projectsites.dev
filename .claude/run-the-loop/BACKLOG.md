@@ -57,6 +57,28 @@
 - [ ] Wire dead-toggle gate into the `check` aggregate (lane D rec: add check:dead-toggle + && into check chain) + prod-verify purge {purged,archived} echo on a real teardown
   - cadence: next-fire · priority: medium · category: testing · estimate: 20m · discovered_by: fire-63-lane-D
 
+## WALKTHROUGH (WLK-*) — Brian STT walkthrough, absorbed fire-67 (2026-10-01)
+
+> Full spec: `./WALKTHROUGH-SPEC.md` (verbatim). Canonical IDs below; map to existing items by
+> meaning (reuse IDs, don't duplicate). P0 = reported-broken paths + loop intake. "Verified"
+> requires OBSERVED behavior. Primary product ProjectSites.dev; Lone Mountain Global = repro target.
+
+**P0 — broken paths + intake (implement first, §4 order):**
+- [x] WLK-01 absorb: upgrade loop + persist spec + merge ledger + next-select reads it — fire-67 (this)
+- [ ] WLK-03 editable table cells: edit→save→reload reads same value from correct DB; errors preserve failed edits
+- [ ] WLK-04 one **AI** action (replace AI Column/Filter split); repro+fix the "3 attempts / bad gateway"
+- [ ] WLK-08 Lone Mountain Global KV purchase→provision→open "failed to load resource"; no duplicate charge
+- [ ] WLK-09 Lone Mountain Global Hosting→Preview link (investigate double-dash route/TLS/redirect/load)
+- [ ] WLK-02 one-click "Use AI to load sample data" creates tables when absent + seeds synthetic rows (no dead-end)
+- [ ] WLK-05 SQL readability: presets visibly populate SQL before run; fix unreadable-contrast cases
+- [ ] WLK-28 real error details + useful log rows (stack/resource context/trace nav), not empty/generic
+
+**P1 — requested core behavior:** WLK-06 persist SQL runs+saved queries · WLK-07 real D1 Time-Travel recovery UI · WLK-10 site/env/resource mappings + separate R2 buckets · WLK-11 migrate shared-bucket layout (resumable+rollback) · WLK-12 preview autosave/version history (Git-backed + AI title) · WLK-13 main env/bucket/history/publish selector · WLK-14 compact Code tree/panels + StackBlitz relocation + Code-only footer · WLK-15 remove standalone Queues/Vectorize/R2/KV inspectors + System Services · WLK-16 Resources→Buckets/Manage (counts/names/IDs/health/bindings) · WLK-17 per-bucket scoped credentials (masked, rotate) · WLK-18 create/clone/backup/assign resources w/ progress · WLK-19 useful Durable Objects panel · WLK-20 auto-discover site Workflows+instances · WLK-21 unified AI knowledge area (uploads + multi-Google + MCP, sync status) · WLK-22 reusable compact MCP attachment widget under all prompts · WLK-23 form-prompt motion + 3-4 var chips + None-available state · WLK-24 Voice+SMS into one shared agent prompt · WLK-25 automatic model routing (quality/latency/cost) · WLK-26 auto call-recording + browser assist w/ state+fallback · WLK-27 Social connected-account layout + 30 visual passes · WLK-29 correlate logs/audit/traces/costs · WLK-30 Analytics expand (CF datasets, filters, honest-unavailable) · WLK-31 Feature Flags bulk enable/disable (scoped, partial-failure) · WLK-32 Super Admin spreadsheet ops + grounded AI + refund-prepare · WLK-33 stable-size search everywhere (kbd/empty/error/AI overview) · WLK-34 Lead Scanner saved-query tabs + Improve-Prompt + Attach-MCPs · WLK-35 lead-job estimates/budgets/resumable/meter/pause · WLK-36 advanced leads grid (sort/filter/export/AI ops) · WLK-37 separate outreach draft/review/human-approval (no auto-send) · WLK-41 Dashboard/Editor/Analytics action tiles + Settings polish · WLK-42 API-doc transitions + real contract examples · WLK-43 bounded recurring OAuth-MCP+AI-enhancement loop activity · WLK-44 route/state visual+functional coverage matrix
+
+**P2 — larger extensions:** WLK-38 Apps catalog (EmDash + Slink, verified installs) · WLK-39 Claude Code launch beside editor terminal (real runtime) · WLK-40 paid Full IDE (code-server runtime, durable workspace) · WLK-45 evaluate+deliver the 20 Super Admin ideas (combine into spreadsheet views)
+
+**Deferred (explicit):** cross-site drag-and-drop (future design only); Megabyte Space Chat (roadmap, no inert button).
+
 ## FRONTIER 0 — Constitution bootstrap (fire-59 opened)
 
 > `./CONSTITUTION.md` landed 2026-09-30 and now governs the loop. These items bootstrap its
