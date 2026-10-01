@@ -750,9 +750,7 @@ describe('hero_copy — no adjacent duplicate words on fallback identity (fire-5
 
     it('never touches digits, punctuation-attached tokens, or non-adjacent repeats', () => {
       expect(collapseAdjacentDuplicateWords('(555) 555-1234')).toBe('(555) 555-1234');
-      expect(collapseAdjacentDuplicateWords('local, local business')).toBe(
-        'local, local business',
-      );
+      expect(collapseAdjacentDuplicateWords('local, local business')).toBe('local, local business');
       expect(collapseAdjacentDuplicateWords('your community — your community first')).toBe(
         'your community — your community first',
       );

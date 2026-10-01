@@ -1073,46 +1073,46 @@ export class SiteGenerationWorkflow extends WorkflowEntrypoint<Env, SiteGenerati
       // trust" <title>, "so your your community order" FAQ). URLs/CTA labels are single
       // tokens or dup-free — the guard is a no-op on them (and idempotent everywhere).
       const seededContent: Record<string, string> = {
-          ABOUT_PARAGRAPH_1: aboutPara1,
-          FAQ_1_A: faq.items[0].a,
-          FAQ_1_Q: faq.items[0].q,
-          FAQ_2_A: faq.items[1].a,
-          FAQ_2_Q: faq.items[1].q,
-          FAQ_3_A: faq.items[2].a,
-          FAQ_3_Q: faq.items[2].q,
-          FAQ_4_A: faq.items[3].a,
-          FAQ_4_Q: faq.items[3].q,
-          FAQ_5_A: faq.items[4].a,
-          FAQ_5_Q: faq.items[4].q,
-          FAQ_HEADLINE: faq.headline,
-          HERO_CTA: heroCtas.primary,
-          HERO_HEADLINE: heroHeadline,
-          HERO_SECONDARY_CTA: heroCtas.secondary,
-          HERO_SUBHEADLINE: heroSub,
-          TRUST_BADGE_1: trustBadges[0],
-          TRUST_BADGE_2: trustBadges[1],
-          TRUST_BADGE_3: trustBadges[2],
-          // AL-539: seed the homepage META DESCRIPTION ({SEO_DESCRIPTION} → Home.tsx useSEO → the
-          // CLIENT <meta name="description">) for EVERY vertical — DECOUPLED from the heroImg gate.
-          // AL-491 originally gated this to the same collapsing sub-verticals as the curated hero image
-          // (heroImg truthy), but the two concerns are different: a vertical can have a CORRECT pack
-          // hero image yet a WRONG-vertical pack meta-desc. A BAKERY (heroImg=null → skipped) collapsed
-          // to the `restaurant` pack default "made-from-scratch food from local ingredients" and shipped
-          // that wrong-vertical SERP snippet (live on tartine-bakery-sf, flagged by
-          // verify-meta-desc-vertical). seoDescriptionFor weaves the real name+category+city with a
-          // commerce-mode angle, GUARANTEED 120-156 chars — strictly more specific than any static,
-          // business-agnostic pack default — so seeding it unconditionally is a net SEO win with no
-          // vertical left behind. The existing-wins _content.json merge still lets a genuinely-crafted
-          // build value override it.
-          SEO_DESCRIPTION: seoDescriptionFor(commerceMode, safeName, catService, cityPhrase),
-          ...(heroImg
-            ? {
-                HERO_IMAGE_ALT: heroImg.alt,
-                HERO_IMAGE_URL: heroImg.url,
-              }
-            : {}),
-          SEO_TAGLINE: seoTagline,
-          SERVICES_INTRO: servicesIntro,
+        ABOUT_PARAGRAPH_1: aboutPara1,
+        FAQ_1_A: faq.items[0].a,
+        FAQ_1_Q: faq.items[0].q,
+        FAQ_2_A: faq.items[1].a,
+        FAQ_2_Q: faq.items[1].q,
+        FAQ_3_A: faq.items[2].a,
+        FAQ_3_Q: faq.items[2].q,
+        FAQ_4_A: faq.items[3].a,
+        FAQ_4_Q: faq.items[3].q,
+        FAQ_5_A: faq.items[4].a,
+        FAQ_5_Q: faq.items[4].q,
+        FAQ_HEADLINE: faq.headline,
+        HERO_CTA: heroCtas.primary,
+        HERO_HEADLINE: heroHeadline,
+        HERO_SECONDARY_CTA: heroCtas.secondary,
+        HERO_SUBHEADLINE: heroSub,
+        TRUST_BADGE_1: trustBadges[0],
+        TRUST_BADGE_2: trustBadges[1],
+        TRUST_BADGE_3: trustBadges[2],
+        // AL-539: seed the homepage META DESCRIPTION ({SEO_DESCRIPTION} → Home.tsx useSEO → the
+        // CLIENT <meta name="description">) for EVERY vertical — DECOUPLED from the heroImg gate.
+        // AL-491 originally gated this to the same collapsing sub-verticals as the curated hero image
+        // (heroImg truthy), but the two concerns are different: a vertical can have a CORRECT pack
+        // hero image yet a WRONG-vertical pack meta-desc. A BAKERY (heroImg=null → skipped) collapsed
+        // to the `restaurant` pack default "made-from-scratch food from local ingredients" and shipped
+        // that wrong-vertical SERP snippet (live on tartine-bakery-sf, flagged by
+        // verify-meta-desc-vertical). seoDescriptionFor weaves the real name+category+city with a
+        // commerce-mode angle, GUARANTEED 120-156 chars — strictly more specific than any static,
+        // business-agnostic pack default — so seeding it unconditionally is a net SEO win with no
+        // vertical left behind. The existing-wins _content.json merge still lets a genuinely-crafted
+        // build value override it.
+        SEO_DESCRIPTION: seoDescriptionFor(commerceMode, safeName, catService, cityPhrase),
+        ...(heroImg
+          ? {
+              HERO_IMAGE_ALT: heroImg.alt,
+              HERO_IMAGE_URL: heroImg.url,
+            }
+          : {}),
+        SEO_TAGLINE: seoTagline,
+        SERVICES_INTRO: servicesIntro,
       };
       contextFiles['content.json'] = JSON.stringify(
         Object.fromEntries(
