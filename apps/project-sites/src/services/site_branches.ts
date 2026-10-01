@@ -33,6 +33,28 @@ export interface SiteBranch {
 // ─── helpers ──────────────────────────────────────────────────────────────────
 
 /**
+ * The reserved, always-available preview branch name.
+ *
+ * The Hosting owner surface advertises ONE canonical preview host per site —
+ * `preview--{slug}.projectsites.dev` — regardless of whether a site has any
+ * explicit review branches. That host MUST resolve + serve (it is the "share
+ * before you publish" link). A dedicated `preview` branch is optional: when
+ * none exists, {@link resolveSite} falls back to the site's current production
+ * build so the link is a working preview of the live site rather than a 404.
+ */
+export const PREVIEW_BRANCH_NAME = 'preview';
+
+/**
+ * Whether a parsed branch host targets the reserved default preview slot
+ * (`preview--{slug}`). The caller uses this to decide whether a missing
+ * `site_branches` row should fall back to the live build (reserved preview)
+ * or 404 (a real, unknown review branch).
+ */
+export function isDefaultPreviewBranch(branchName: string): boolean {
+  return branchName.toLowerCase() === PREVIEW_BRANCH_NAME;
+}
+
+/**
  * Sanitise branch names so they are safe in a hostname label.
  * Strips leading/trailing hyphens and replaces invalid chars with `-`.
  * Max 32 chars to keep the preview hostname under 63 chars.

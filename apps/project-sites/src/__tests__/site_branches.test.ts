@@ -24,6 +24,8 @@ import {
   closeBranch,
   listBranches,
   parseBranchHost,
+  isDefaultPreviewBranch,
+  PREVIEW_BRANCH_NAME,
 } from '../services/site_branches.js';
 import type { D1Database } from '@cloudflare/workers-types';
 
@@ -215,5 +217,28 @@ describe('parseBranchHost', () => {
   it('returns null for a non-branch host', () => {
     expect(parseBranchHost('vitos-salon.projectsites.dev')).toBeNull();
     expect(parseBranchHost('example.com')).toBeNull();
+  });
+
+  // The Hosting UI builds `preview--{slug}` — the double-dash must split at the
+  // separator so branch='preview' and the slug (even a dashed one) stays intact.
+  it('splits the reserved preview host so a dashed slug survives (WLK-09)', () => {
+    expect(parseBranchHost('preview--lone-mountain-global.projectsites.dev')).toEqual({
+      branchName: 'preview',
+      slug: 'lone-mountain-global',
+    });
+  });
+});
+
+// ─── isDefaultPreviewBranch (pure) ────────────────────────────────────────────
+describe('isDefaultPreviewBranch (WLK-09)', () => {
+  it('recognises the reserved preview slot (case-insensitive)', () => {
+    expect(isDefaultPreviewBranch(PREVIEW_BRANCH_NAME)).toBe(true);
+    expect(isDefaultPreviewBranch('preview')).toBe(true);
+    expect(isDefaultPreviewBranch('PREVIEW')).toBe(true);
+  });
+
+  it('does NOT treat a real review branch as the default preview', () => {
+    expect(isDefaultPreviewBranch('feat-x')).toBe(false);
+    expect(isDefaultPreviewBranch('staging')).toBe(false);
   });
 });

@@ -34,7 +34,7 @@ import { dbQueryOne } from './db.js';
 import { localBusinessSubtypeFor } from './build_validators.js';
 import { resolveActiveOrgPlan } from './build_limits.js';
 import { minifyCssCached } from './css_minify.js';
-import { parseBranchHost } from './site_branches.js';
+import { parseBranchHost, isDefaultPreviewBranch } from './site_branches.js';
 import { buildAnalyticsTracker } from './analytics_tracker.js';
 import { log } from '../lib/log.js';
 import { isWfpConfigured, siteFunctionsScriptName, dispatchToUserWorker } from './wfp_dispatch.js';
@@ -315,6 +315,36 @@ export async function resolveSite(
         };
       }
     }
+
+    // Reserved-preview fallback (WLK-09): the Hosting surface advertises ONE
+    // canonical preview host per site — `preview--{slug}.projectsites.dev` —
+    // whether or not an explicit `preview` review branch was ever created. That
+    // link MUST work. When no dedicated `preview` branch row exists, serve the
+    // site's CURRENT PRODUCTION build as the preview (a live preview of what's
+    // published) rather than a 404 "failed to load resource". A REAL `preview`
+    // branch (handled above) still wins. Any OTHER unknown branch still 404s
+    // (do NOT resolve an arbitrary branch as the base slug).
+    if (isDefaultPreviewBranch(branchInfo.branchName)) {
+      const siteRow = await dbQueryOne<{
+        id: string;
+        org_id: string;
+        current_build_version: string | null;
+      }>(
+        db,
+        'SELECT id, org_id, current_build_version FROM sites WHERE slug = ? AND deleted_at IS NULL',
+        [branchInfo.slug],
+      );
+      if (siteRow && siteRow.current_build_version) {
+        return {
+          site_id: siteRow.id,
+          slug: `${branchInfo.branchName}--${branchInfo.slug}`,
+          org_id: siteRow.org_id,
+          current_build_version: siteRow.current_build_version,
+          plan: 'free', // Preview hosts always show the top bar (never claim-able)
+        };
+      }
+    }
+
     // Branch not found / closed → fall through to 404 (do NOT resolve as base slug)
     return null;
   }
