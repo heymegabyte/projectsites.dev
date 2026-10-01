@@ -119,9 +119,7 @@ export function buildMetricsKey(siteId: string): string {
 
 /** Structured warn — metrics must be observable but never throw. */
 function warn(message: string, extra: Record<string, unknown> = {}): void {
-  console.warn(
-    JSON.stringify({ level: 'warn', message, service: 'build_metrics', ...extra }),
-  );
+  console.warn(JSON.stringify({ level: 'warn', message, service: 'build_metrics', ...extra }));
 }
 
 /** Read + validate in-flight state; null when absent/corrupt (fail-soft). */
@@ -330,7 +328,10 @@ export async function finalizeBuildMetrics(
     const row = BuildMetricsRowSchema.safeParse({
       build_id: state.buildId,
       container_ms: containerMs,
-      est_cost_usd: estimateBuildCostUsd(state.modelCalls as Record<string, ModelCallAgg>, containerMs),
+      est_cost_usd: estimateBuildCostUsd(
+        state.modelCalls as Record<string, ModelCallAgg>,
+        containerMs,
+      ),
       model_calls: state.modelCalls,
       org_id: state.orgId,
       outcome,

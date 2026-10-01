@@ -884,7 +884,13 @@ export async function callExternalLLM(
 
       void meterAiTokensForCall(env, options, inputTokens, outputTokens, model);
       // fire-60 build metrics — per-build token counters (no-op without siteId).
-      accumulateBuildModelCallFromTrace(env, options.traceContext, model, inputTokens, outputTokens);
+      accumulateBuildModelCallFromTrace(
+        env,
+        options.traceContext,
+        model,
+        inputTokens,
+        outputTokens,
+      );
 
       return {
         output: result.text,
@@ -1054,7 +1060,13 @@ export async function callExternalLLMWithVision(
       });
 
       // fire-60 build metrics — per-build token counters (no-op without siteId).
-      accumulateBuildModelCallFromTrace(env, options.traceContext, model, inputTokens, outputTokens);
+      accumulateBuildModelCallFromTrace(
+        env,
+        options.traceContext,
+        model,
+        inputTokens,
+        outputTokens,
+      );
 
       return {
         output: result.text,

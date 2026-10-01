@@ -149,11 +149,23 @@ describe('KV state semantics (replay-safe)', () => {
     await initBuildMetrics(env, { siteId: 's1', buildId: 'wf-1', startedAtMs: 1_000 });
     await markBuildPhase(env, 's1', 'generating', 61_000);
     await markBuildPhase(env, 's1', 'generating', 999_999); // replay re-mark — ignored
-    await accumulateBuildModelCall(env, 's1', { model: 'deepseek-chat', tokensIn: 100, tokensOut: 200 });
-    await accumulateBuildModelCall(env, 's1', { model: 'deepseek-chat', tokensIn: 50, tokensOut: 25 });
+    await accumulateBuildModelCall(env, 's1', {
+      model: 'deepseek-chat',
+      tokensIn: 100,
+      tokensOut: 200,
+    });
+    await accumulateBuildModelCall(env, 's1', {
+      model: 'deepseek-chat',
+      tokensIn: 50,
+      tokensOut: 25,
+    });
     const state = JSON.parse(store.get(buildMetricsKey('s1')) as string);
     expect(state.marks.generating).toBe(61_000);
-    expect(state.modelCalls['deepseek-chat']).toEqual({ calls: 2, tokens_in: 150, tokens_out: 225 });
+    expect(state.modelCalls['deepseek-chat']).toEqual({
+      calls: 2,
+      tokens_in: 150,
+      tokens_out: 225,
+    });
   });
 
   it('accumulate without an in-flight build and zero-token calls are quiet no-ops', async () => {
@@ -186,7 +198,12 @@ describe('finalizeBuildMetrics — terminal row against REAL SQLite (migration D
     try {
       h.exec(MIGRATION_SQL);
 
-      await initBuildMetrics(env, { siteId: 's1', buildId: 'wf-1', orgId: 'o1', startedAtMs: 1_000 });
+      await initBuildMetrics(env, {
+        siteId: 's1',
+        buildId: 'wf-1',
+        orgId: 'o1',
+        startedAtMs: 1_000,
+      });
       await markBuildPhase(env, 's1', 'generating', 61_000);
       await accumulateBuildModelCall(env, 's1', {
         model: 'deepseek-chat',
@@ -221,9 +238,9 @@ describe('finalizeBuildMetrics — terminal row against REAL SQLite (migration D
       expect(row?.est_cost_usd).toBeCloseTo(0.00247 + 0.01, 6);
 
       // Ground truth: exactly ONE row, outcome published, JSON columns intact.
-      const stored = h.raw
-        .prepare('SELECT COUNT(*) AS c FROM build_metrics')
-        .get() as { c: number };
+      const stored = h.raw.prepare('SELECT COUNT(*) AS c FROM build_metrics').get() as {
+        c: number;
+      };
       expect(stored.c).toBe(1);
       const dbRow = h.raw
         .prepare('SELECT * FROM build_metrics WHERE build_id = ?')
@@ -247,9 +264,9 @@ describe('finalizeBuildMetrics — terminal row against REAL SQLite (migration D
       h.exec(MIGRATION_SQL);
       const row = await finalizeBuildMetrics(env, 'no-such-site', 'error');
       expect(row).toBeNull();
-      const stored = h.raw
-        .prepare('SELECT COUNT(*) AS c FROM build_metrics')
-        .get() as { c: number };
+      const stored = h.raw.prepare('SELECT COUNT(*) AS c FROM build_metrics').get() as {
+        c: number;
+      };
       expect(stored.c).toBe(0);
     } finally {
       h.close();

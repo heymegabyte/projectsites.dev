@@ -1905,9 +1905,8 @@ async function buildSiteResponse(
               'SELECT business_name FROM sites WHERE id = ? AND deleted_at IS NULL',
               [site.site_id],
             ).catch(() => null);
-            const { claimPitchScriptAttrs } = await import(
-              '../../libs/features/claim_flow/service.js'
-            );
+            const { claimPitchScriptAttrs } =
+              await import('../../libs/features/claim_flow/service.js');
             claimAttrs = claimPitchScriptAttrs(bizRow?.business_name ?? site.slug);
           }
         } catch {
