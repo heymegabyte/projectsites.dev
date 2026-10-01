@@ -49,8 +49,13 @@
 - [ ] Generated-brand quality cluster (vision 7/10): wordmark dark-on-dark + garbled glyph render, eyebrow AA fail, pack-default H1, irrelevant stock hero — root-cause in logo/theme/copy pipeline; ties to LB-2 gallery bar
   - cadence: next-2-fires · priority: high · category: product · estimate: 1-2 fires · discovered_by: gp-09-cycle-2
 
-- [ ] Editor feature continual-verification sweep (Brian: "ensure ALL bolt.diy editor features work continually") — Deep UI Explorer owns a recurring pass that drives EVERY editor toolbar control + panel (sticky/minimap/split/inline-diff view toggles, Code/Diff/Preview, Data tab, terminal, file tree ops, SQL console) in a real authed embed and asserts each produces its effect; catches the dead-useState class (diff's fileHistory was `useState({})` w/ no setter — fixed fire this turn). Add a drift gate flagging any `useState` whose setter is never destructured on an interactive toggle
+- [x] (fire-63 `2ddefd5e6`: dead-toggle gate 0-hits + deep-ui-explorer PASS_CLOUDFLARE live editor sweep) Editor feature continual-verification sweep (Brian: "ensure ALL bolt.diy editor features work continually") — Deep UI Explorer owns a recurring pass that drives EVERY editor toolbar control + panel (sticky/minimap/split/inline-diff view toggles, Code/Diff/Preview, Data tab, terminal, file tree ops, SQL console) in a real authed embed and asserts each produces its effect; catches the dead-useState class (diff's fileHistory was `useState({})` w/ no setter — fixed fire this turn). Add a drift gate flagging any `useState` whose setter is never destructured on an interactive toggle
   - cadence: every-2-fires · priority: high · category: testing · estimate: 1 fire · discovered_by: brian-2026-10-01
+
+- [ ] WebGL generation-consumption gap — packs carry `webgl` blocks + gate passes, yet gp-09's generated site rendered NO canvas; the generation pipeline isn't EMITTING the WebGLHero from the pack block into built sites. Trace pack.webgl → build output; add a post-build assert that a vertical with a webgl block ships a mounted canvas
+  - cadence: next-fire · priority: high · category: product · estimate: 1h · discovered_by: fire-63-lane-B
+- [ ] Wire dead-toggle gate into the `check` aggregate (lane D rec: add check:dead-toggle + && into check chain) + prod-verify purge {purged,archived} echo on a real teardown
+  - cadence: next-fire · priority: medium · category: testing · estimate: 20m · discovered_by: fire-63-lane-D
 
 ## FRONTIER 0 — Constitution bootstrap (fire-59 opened)
 

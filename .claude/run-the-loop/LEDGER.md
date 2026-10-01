@@ -421,3 +421,27 @@ exit-code deploys).
 - **Dead-Code/Hygiene (A3) — RE-QUEUED** — spawn failed (`dead-code-remover` agent type unavailable this session; roster has `code-simplifier`). Cleanup starved 2 fires → over-weight next fire.
 - **Product Discovery (A4)** — 11 deduped evidence-backed items appended to BACKLOG § fire-65 replenish (money-path: Readiness-F dead-end, analytics SWR, billing verdict, delivered-console GATE; + objective admin UX + not-yet-inspected surfaces + mobile @390).
 - **Ship/verify** — main `bcf393da8→d493e45b9→148a2820c`; worker `24e2f48f` + frontend R2 `main-QPZ5SPDQ.js`; prod `/health` 200, admin shell serves new hash, lone-mountain-global 200 `x-ps-serve: wfp` (no regression). 2 cut-off worktrees removed + 0-commit branches deleted (A1 salvaged by copy — nothing lost per failure taxonomy).
+
+## fire-63-cf-native — 2026-10-01 — purge-echo + editor-verify (closed; rate-limit survived)
+
+**Rate-limit event:** the 4-wide fan-out tripped a session-wide Anthropic rate limit — ALL 4
+lanes died `API Error: Rate limited` at ~0 tokens (nothing written). Per failure taxonomy this
+is TRANSIENT ATTRITION, not lead saturation → did NOT checkpoint; backed off, re-fired
+SEQUENTIALLY (1-2 wide). All lanes then succeeded. LESSON → loop-improvement below.
+**Shipped:**
+- Lane A (`85fde7d7d`, deployed `e663cab9`): site teardown echoes `{purged,archived,resources}`
+  triad — the destructive silent-downgrade/ambiguous-bare-count class is closed; 20/20 tests,
+  gates green. (cycle-1 already had the parse-fail→400 guard.)
+- Lane D (`2ddefd5e6`): dead-toggle drift gate (`check-dead-toggle-state.mjs`, 186 files, 0 hits)
+  + deep-ui-explorer editor-toolbar journey — **PASS_CLOUDFLARE: inline-diff toggle flipped
+  false→true on the LIVE authed embed**, proving the fire-62/63 diff fix is wired in prod.
+- Lane B: WebGL pack coverage was ALREADY complete (all 10 packs carry blocks, gate 11/11) —
+  no-op; gp-09's "WebGL absent" is a GENERATION-TIME consumption gap, not pack coverage → fire-64.
+**Deploy:** worker `e663cab9` via `npm run deploy:production` (raw `npx wrangler` hit a spurious
+"Missing entry-point" under 2 concurrent `wrangler dev` sessions — the npm script resolved clean).
+**Loop-improvement (§7):** the dead-toggle gate (new) + this rate-limit taxonomy entry. RULE:
+when a fire is token-heavy, cap fan-out at ≤2-3 concurrent (not the 6 ceiling) with stagger;
+"ALL lanes rate-limited at ~0 tokens" = transient → retry sequentially, NEVER checkpoint.
+**Next wave (fire-64):** Lane C brand-quality cluster (wordmark polarity/glyphs, eyebrow AA, pack
+H1) + Lane E long-trail Phase F + "generation emits webgl canvas" consumption gap + wire
+dead-toggle gate into the `check` chain (lane D rec) + prod-verify purge echo on a real teardown.
