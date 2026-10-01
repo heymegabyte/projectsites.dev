@@ -1806,3 +1806,104 @@ button:not(:disabled):not([class*='ResizeHandle']):not([data-panel-resize-handle
 [data-theme] .cm-gutters {
   border-right-color: var(--bolt-elements-borderColor, rgba(0, 229, 255, 0.14));
 }
+
+/* ── Nebula Waiting Experience (editor loading) — rev 1 ───────────────────── */
+/* The WebGL nebula IS the experience; the foreground is deliberately tiny.    */
+.ps-editor-loader--nebula {
+  gap: 0;
+  background: #050108; /* near-black space; nebula paints over it */
+}
+.ps-nebula-canvas {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  display: block;
+  z-index: 0;
+}
+/* CSS fallback mark — a faint cyan orb, visible only if WebGL never paints. */
+.ps-editor-loader__orb--fallback {
+  position: absolute;
+  z-index: 0;
+  width: 54px;
+  height: 54px;
+  border-radius: 50%;
+  background: radial-gradient(circle at 50% 45%, #00e5ff 0%, #7c3aed 55%, transparent 72%);
+  filter: blur(2px);
+  opacity: 0.9;
+  animation: ps-editor-loader-breathe 3.2s ease-in-out infinite;
+}
+/* Tiny foreground: one small spinner + one short rotating status (+ hairline bar). */
+.ps-nebula-ui {
+  position: absolute;
+  z-index: 2;
+  left: 50%;
+  bottom: clamp(44px, 12vh, 112px);
+  transform: translateX(-50%);
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  padding: 7px 14px;
+  border-radius: 999px;
+  background: rgba(6, 6, 16, 0.32);
+  backdrop-filter: blur(6px);
+  -webkit-backdrop-filter: blur(6px);
+}
+.ps-nebula-ui__spin {
+  width: 13px;
+  height: 13px;
+  border-radius: 50%;
+  border: 1.5px solid rgba(0, 229, 255, 0.28);
+  border-top-color: #00e5ff;
+  animation: ps-nebula-spin 0.9s linear infinite;
+  flex: none;
+}
+.ps-nebula-ui__msg {
+  font: 500 12.5px/1 'Space Grotesk', system-ui, sans-serif;
+  letter-spacing: 0.02em;
+  color: rgba(244, 244, 255, 0.92);
+  text-shadow: 0 1px 10px rgba(124, 58, 237, 0.55), 0 0 2px rgba(0, 0, 0, 0.6);
+  white-space: nowrap;
+  animation: ps-nebula-msg-in 620ms cubic-bezier(0.2, 0.7, 0.2, 1) both;
+}
+.ps-nebula-ui__bar {
+  position: absolute;
+  left: 14px;
+  right: 14px;
+  bottom: 3px;
+  height: 1.5px;
+  border-radius: 2px;
+  background: linear-gradient(90deg, #7c3aed, #00e5ff, #ff3d9a);
+  transform-origin: left;
+  transform: scaleX(var(--p, 0));
+  transition: transform 420ms ease;
+}
+@keyframes ps-nebula-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+@keyframes ps-nebula-msg-in {
+  from {
+    opacity: 0;
+    filter: blur(5px);
+    transform: translateY(5px);
+  }
+  to {
+    opacity: 1;
+    filter: blur(0);
+    transform: translateY(0);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .ps-nebula-ui__spin {
+    animation: none;
+    border-top-color: rgba(0, 229, 255, 0.6);
+  }
+  .ps-nebula-ui__msg {
+    animation: none;
+  }
+  .ps-editor-loader__orb--fallback {
+    animation: none;
+  }
+}
