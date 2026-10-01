@@ -723,23 +723,26 @@ export const SqlNavigator = memo(() => {
           </div>
           <div className="min-w-0">
             <h2 className="text-sm font-semibold tracking-tight text-bolt-elements-textPrimary">SQL navigator</h2>
-            <p className="text-[10px] text-bolt-elements-textTertiary truncate">
+            <p className="text-[10px] text-bolt-elements-textSecondary truncate">
               Runs against your site&rsquo;s own database — writes ask before they change data
             </p>
           </div>
         </div>
 
         <div className="flex flex-wrap items-center gap-1.5">
-          <span className="text-[10px] uppercase tracking-wider text-bolt-elements-textTertiary mr-0.5">Starters</span>
+          <span className="text-[10px] uppercase tracking-wider text-bolt-elements-textSecondary mr-0.5">Starters</span>
           {STARTERS.map((s) => (
             <button
               key={s.label}
               type="button"
               onClick={() => {
+                // Populate-before-run (WLK-05): drop the preset SQL into the editor so the user SEES
+                // it, then presses Run. Never auto-execute — the query must be visible first.
                 setSql(s.query);
-                void runQuery(s.query, false, false);
+                setExplainSent(false);
               }}
               data-testid="database-sql-starter"
+              title="Load this query into the editor — review it, then press Run"
               className="min-h-[24px] text-[10px] rounded-full px-2.5 py-0.5 border border-bolt-elements-borderColor text-bolt-elements-textSecondary hover:border-[#00e5ff66] hover:text-bolt-elements-textPrimary transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-bolt-elements-item-contentAccent cursor-pointer"
             >
               {s.label}
@@ -869,7 +872,7 @@ export const SqlNavigator = memo(() => {
                 <span className="min-w-[6ch] text-center">{askBusy ? 'Writing…' : 'Write SQL'}</span>
               </button>
             </div>
-            <p className="text-[9px] italic text-bolt-elements-textTertiary">
+            <p className="text-[9px] italic text-bolt-elements-textSecondary">
               The AI reads your site&rsquo;s own tables + columns and drafts the SQL into the editor. You review it and
               press Run — nothing runs automatically, and writes ask before they change data.
             </p>
@@ -904,7 +907,7 @@ export const SqlNavigator = memo(() => {
           <div className="flex flex-col gap-2 p-3 border-b border-bolt-elements-borderColor/60 shrink-0">
             <label
               htmlFor="database-sql-input"
-              className="text-[10px] uppercase tracking-wider text-bolt-elements-textTertiary"
+              className="text-[10px] uppercase tracking-wider text-bolt-elements-textSecondary"
             >
               SQL — runs against your site&rsquo;s own database
             </label>
@@ -988,7 +991,7 @@ export const SqlNavigator = memo(() => {
                   <div className="i-ph:warning" /> Add LIMIT {rowLimitAdvice.limit}
                 </button>
               )}
-              <span className="text-[10px] text-bolt-elements-textTertiary ml-auto">⌘/Ctrl + Enter to run</span>
+              <span className="text-[10px] text-bolt-elements-textSecondary ml-auto">⌘/Ctrl + Enter to run</span>
             </div>
           </div>
 
@@ -1021,7 +1024,7 @@ export const SqlNavigator = memo(() => {
                 <p className="text-sm font-medium text-bolt-elements-textSecondary">
                   The SQL navigator isn&rsquo;t enabled yet
                 </p>
-                <p className="text-[11px] text-bolt-elements-textTertiary max-w-[260px]">
+                <p className="text-[11px] text-bolt-elements-textSecondary max-w-[260px]">
                   Your site&rsquo;s own database is on the way. Once it&rsquo;s turned on, you can run SQL here —
                   nothing to set up.
                 </p>
@@ -1158,14 +1161,14 @@ const QueryHistoryRail = memo(
       >
         {/* Saved queries */}
         <div className="p-2.5 border-b border-bolt-elements-borderColor/40">
-          <div className="flex items-center gap-1.5 mb-1.5 text-[10px] uppercase tracking-wider text-bolt-elements-textTertiary">
+          <div className="flex items-center gap-1.5 mb-1.5 text-[10px] uppercase tracking-wider text-bolt-elements-textSecondary">
             <div className="i-ph:bookmark-simple text-bolt-elements-item-contentAccent" aria-hidden /> Saved queries
             {saved.length > 0 && <span className="tabular-nums">({saved.length})</span>}
           </div>
 
           {saved.length === 0 ? (
             <p
-              className="text-[10px] text-bolt-elements-textTertiary italic px-0.5"
+              className="text-[10px] text-bolt-elements-textSecondary italic px-0.5"
               data-testid="database-sql-saved-empty"
             >
               Name a query and press Save to keep it here.
@@ -1210,7 +1213,7 @@ const QueryHistoryRail = memo(
 
         {/* Run history */}
         <div className="p-2.5 flex-1">
-          <div className="flex items-center gap-1.5 mb-1.5 text-[10px] uppercase tracking-wider text-bolt-elements-textTertiary">
+          <div className="flex items-center gap-1.5 mb-1.5 text-[10px] uppercase tracking-wider text-bolt-elements-textSecondary">
             <div className="i-ph:clock-counter-clockwise text-bolt-elements-item-contentAccent" aria-hidden /> Recent
             runs
             {history.length > 0 && <span className="tabular-nums">({history.length})</span>}
@@ -1218,7 +1221,7 @@ const QueryHistoryRail = memo(
 
           {history.length === 0 ? (
             <p
-              className="text-[10px] text-bolt-elements-textTertiary italic px-0.5"
+              className="text-[10px] text-bolt-elements-textSecondary italic px-0.5"
               data-testid="database-sql-history-empty"
             >
               Run a query to start your history.
@@ -1239,7 +1242,7 @@ const QueryHistoryRail = memo(
                     <span className="block truncate font-mono text-[11px] text-bolt-elements-textSecondary group-hover:text-bolt-elements-textPrimary">
                       {previewQuery(h.query)}
                     </span>
-                    <span className="block text-[9px] text-bolt-elements-textTertiary tabular-nums">
+                    <span className="block text-[9px] text-bolt-elements-textSecondary tabular-nums">
                       {relativeTime(h.ranAt, now)}
                     </span>
                   </button>
@@ -1301,7 +1304,7 @@ const SqlResult = memo(
         {/* Effect summary strip — classification + ground-truth cost meta */}
         <div className="mb-2 flex flex-wrap items-center gap-2 text-[10px]">
           {data.classification && (
-            <span className="uppercase tracking-wider px-2 py-0.5 rounded-full bg-bolt-elements-background-depth-2 text-bolt-elements-textTertiary">
+            <span className="uppercase tracking-wider px-2 py-0.5 rounded-full bg-bolt-elements-background-depth-2 text-bolt-elements-textSecondary">
               {data.classification}
             </span>
           )}
@@ -1332,14 +1335,14 @@ const SqlResult = memo(
           )}
           {typeof data.rowsRead === 'number' && data.rowsRead > 0 && (
             <span
-              className="px-2 py-0.5 rounded-full bg-bolt-elements-background-depth-2 text-bolt-elements-textTertiary tabular-nums"
+              className="px-2 py-0.5 rounded-full bg-bolt-elements-background-depth-2 text-bolt-elements-textSecondary tabular-nums"
               data-testid="database-sql-rows-read"
             >
               {data.rowsRead.toLocaleString()} read
             </span>
           )}
           {typeof data.durationMs === 'number' && (
-            <span className="text-bolt-elements-textTertiary tabular-nums">{data.durationMs} ms</span>
+            <span className="text-bolt-elements-textSecondary tabular-nums">{data.durationMs} ms</span>
           )}
           {isExpensiveScan(data.rowsRead) && (
             <span
