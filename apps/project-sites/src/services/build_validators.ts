@@ -862,6 +862,11 @@ const PACK_DEFAULT_HERO_PATTERNS: readonly RegExp[] = [
   /\bpull up a chair\b/i, // diner-persona seed
   /\beveryone has a seat\b/i, // diner-persona seed
   /\bmade with heart\b/i, // "Good food, made with heart" — the pack about-hero
+  // "<Business> — Your community local business" — the generic fallback-pack tail that shipped
+  // VERBATIM on lone-mountain-global (fire-65). "your community" + "local business" together is a
+  // distinctive un-customized-boilerplate signature; a genuine hero rarely pairs both generic
+  // phrases back-to-back, so this is validator-precise (warn-only, same as its siblings above).
+  /\byour community\b.*\blocal business\b/i,
 ];
 
 /**
@@ -890,6 +895,81 @@ export const validateHeroNotPackDefault = (files: BuildFile[]): Violation[] => {
         message: `Hero <h1> "${raw}" is the un-customized industry content-pack default — the #1 conversion element is generic/colliding copy, not this business's real value. Apply the AI hero_headline / derive a business-specific hero.`,
         file: file.path,
       });
+    }
+  }
+  return out;
+};
+
+/**
+ * Doubled-adjacent-word detector — catches a seed-token interpolation bug where a placeholder
+ * value is pasted twice back-to-back ("Your your community local business", "LOCAL LOCAL BUSINESS
+ * YOU CAN TRUST"). Unlike {@link validateHeroNotPackDefault} (a judgment call on GENERIC copy,
+ * hence `warn`), a doubled word is an unambiguous visible defect on EVERY render — `error`
+ * severity. Scans rendered body text only (script/style stripped, tags stripped), case/markup
+ * insensitive so "LOCAL" immediately followed by "local" still counts. Skips non-content shells
+ * (404/500/offline) per `content-validators-must-exclude-non-content-shells` — those are
+ * legitimately short/synthetic strings, not real customer-facing copy. Ref: fire-65,
+ * memory `generated-site-h1-doubled-tokens-and-missing-wordmark`.
+ */
+export const validateAdjacentDuplicateWords = (files: BuildFile[]): Violation[] => {
+  const out: Violation[] = [];
+  // Alphanumeric word tokens (letters/digits/apostrophes) — catches both prose ("the the") and
+  // numeric seed tokens ("24 24"), while ignoring bare punctuation/markup remnants.
+  const WORD_RE = /[\p{L}\p{N}][\p{L}\p{N}'’]*/gu;
+  for (const file of files) {
+    if (!isContentHtml(file.path) || !file.text) continue;
+    const text = stripScripts(file.text).replace(/<[^>]+>/g, ' ');
+    const words = text.match(WORD_RE) ?? [];
+    for (let i = 1; i < words.length; i++) {
+      if (words[i].toLowerCase() === words[i - 1].toLowerCase()) {
+        out.push({
+          code: 'copy.doubled_adjacent_word',
+          severity: 'error',
+          message: `Doubled word "${words[i - 1]} ${words[i]}" — a seed token or placeholder was interpolated twice back-to-back and shipped visibly to the customer. Remove the duplicate.`,
+          file: file.path,
+        });
+      }
+    }
+  }
+  return out;
+};
+
+/**
+ * Header-logo asset existence — the Header component renders the wordmark <img> CLIENT-SIDE from
+ * the bundled JS (React renders `e("img",{src:"/logo-wordmark.png",...})` at runtime), so the
+ * literal tag NEVER appears in the server HTML shell. {@link validateAssetExistence}'s `collectRefs`
+ * only regex-scans HTML markup for literal `<img src=...>`/`<link href=...>` tags — it is
+ * structurally BLIND to a reference that exists only as a quoted path string inside a JS bundle.
+ * This is the gap that let `/logo-wordmark.png` 404 ship visibly on lone-mountain-global (the
+ * Header's `onError` text-fallback recovers visually, but the network 404 still fires — both a
+ * console error AND, before this gate, an un-flagged asset-existence hole). `error` severity:
+ * identical class + urgency to `asset.missing`. Also catches the literal-HTML case so this
+ * subsumes (never regresses) the HTML-only path. Excludes unfilled `{{TOKEN}}`-style template
+ * placeholders per `content-validators-must-exclude-non-content-shells` — those aren't a real
+ * path reference yet. Ref: fire-65, memory `generated-site-logo-icon-404-when-gen-flakes`.
+ */
+export const validateHeaderLogoAssetExistence = (files: BuildFile[]): Violation[] => {
+  const out: Violation[] = [];
+  const fileSet = new Set(files.map((f) => f.path));
+  // Matches the literal rendered path only — `/logo-wordmark.png` (optionally under a subpath),
+  // never an unfilled `{{...}}` template token (those don't contain the literal `.png` path).
+  const WORDMARK_REF_RE = /["'(]\/?((?:[\w-]+\/)*logo-wordmark\.png)["')]/g;
+  for (const file of files) {
+    if (!isText(file.path) || !file.text) continue;
+    for (const m of file.text.matchAll(WORDMARK_REF_RE)) {
+      const refPath = m[1];
+      if (!fileSet.has(refPath)) {
+        out.push({
+          code: 'asset.header_logo_missing',
+          severity: 'error',
+          message: `Header references "/${refPath}" but it is absent from the build output — logo-gen flaked and the site ships a broken/404 wordmark image. Emit the asset or fall back to the text wordmark.`,
+          file: file.path,
+          detail: refPath,
+        });
+        // One violation per referencing file is enough signal; avoid duplicate noise when the
+        // same bundle string repeats (e.g. minified multiple times).
+        break;
+      }
     }
   }
   return out;
@@ -1634,6 +1714,8 @@ export const validateBuild = (
     ...validateSitemapRoutesExist(files),
     ...validateBannedWords(files),
     ...validateHeroNotPackDefault(files),
+    ...validateAdjacentDuplicateWords(files),
+    ...validateHeaderLogoAssetExistence(files),
     ...validateNoBrandPlaceholders(files),
     ...validateBrandNameMatch(files, opts.expectedBusinessName),
     ...validateJsBundleSize(files),
