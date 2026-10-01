@@ -295,3 +295,26 @@ deploy failure caught → verify deploy by URL not exit code.
 **Next wave:** template-sync WebGL → template repo + remaining 6 industries · claim-flow
 frontend CTA wiring + flag promote · gp-09 first cycle (prereqs now met) · migration-tracking
 reconcile · build_metrics admin trend surface · case-001 Phase E (build/seed decision).
+
+## fire-61 — 2026-10-01 — self-arming era begins (closed; 6 lanes green)
+
+**Cadence corrected per Brian:** /run-the-loop = SELF-ARMING 15-min cron (4,19,34,49; job
+589089ab) + fire immediately — never a single fire (`230b15de3`). Overnight silence
+root-caused: Mac asleep = no harness ticks (GHA runner remains the fix, one token away).
+**Lanes:** WebGL ALL 10 industries ≥8/10 + template repo synced `0a5eabe` (`cca40d75e`) ·
+metrics admin card (`414e5302b`) · claim owner-surfaces, 2431 Karma (`88e602538`) ·
+**migration reconcile: 78 ghosts, prod schema healed 572→629 tables, apply=clean no-op**
+(`3b0f06963`) · **gp-09 cycle 1 RUNNABLE: delete→live 5m29s, $0.071/build measured,
+site_purge teardown CF-verified, preferred_slug** (`a06fc9b1e`) · case-001 →action 59,
+contact_email 0653 prod-applied + contacts upsert silent-loss fix, 14,072 green.
+**Deploys:** worker `2c30fecb` · frontend R2 · editor Pages prod `c573d299` + the REAL CSP
+emitter fixed (app/lib/security.ts — _headers was a decoy, Functions CSP wins) + the
+editor.projectsites.dev STALE-PROJECT discovery: hostname had pinned an old bolt-diy.pages.dev
+project all week; domain re-attached ACTIVE to current project + DNS repointed; pages.dev +
+bolt.megabyte.space prove new policy live; editor.* propagation pending stale-claimer eviction.
+**Deployment-URL CSP 'none' is Pages hardening, not app code** — never judge by hash URLs.
+**North star:** cycle-1 measured 5m29s/$0.071 vs targets <5min/≤$1 — 29s over on time, 14× under
+on cost. Gaps queued: container-internal token metering 0/0 · eager per-site D1 provisioning ·
+served-sites PROD-absolute URLs · editor stale-claimer eviction.
+**Spend:** ~2.13M subagent (6 lanes) + lead. **Loop improvement:** self-arming semantics +
+the stale-hostname forensic chain (CNAME → project domains API → deactivated re-validate).
