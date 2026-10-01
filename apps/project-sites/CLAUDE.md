@@ -7,9 +7,10 @@
 
 ## ⟳ Loop Charter (READ on EVERY `/run-the-loop` fire)
 
-> Scheduled loop CRONS are **CANCELLED** (fire-58, `044ac0ebc`, Brian directive) — fires are
-> MANUAL, governed by `.claude/run-the-loop/CONSTITUTION.md` (fire-59). The charter mandates
-> below still bind each manual fire.
+> Fires are governed by `.claude/run-the-loop/CONSTITUTION.md` (fire-59) and run on a
+> **20-minute harness cron** (re-armed per Brian 2026-10-01, superseding the fire-58 cancel;
+> lease mutex coalesces overlaps). North star through Oct: **generation speed + cost**.
+> The charter mandates below still bind every fire.
 
 Every loop fire MUST obey **`apps/project-sites/_LOOP_CHARTER.md`** — the SSOT
 for all loops. Three mandates, every fire: (1) prove the touched surface through a **complete

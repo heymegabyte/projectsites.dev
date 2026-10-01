@@ -75,8 +75,19 @@
 
 ## Standing invariants
 
-- **Crons are CANCELLED (Brian, fire-58) — manual fires only.** The loop fires when Brian
-  says "run the loop". Never re-create a scheduler; the lease (overlap safety) still binds.
+- **Cadence: 20-minute cron, RE-ARMED (Brian, 2026-10-01, supersedes fire-58 cancel).**
+  Harness cron `13,33,53 * * * *` → `/run-the-loop` (durable, `.claude/scheduled_tasks.json`).
+  The harness auto-expires recurring jobs after 7 days — re-arm via CronCreate each week /
+  session restart. The lease (overlap coalescing) is what makes 20m safe; it still binds.
+- **Fire budget ~3M subagent tokens (heavy roster)** — Brian 2026-10-01. Evaluator sweep +
+  builders + champion/challenger + multi-critic vision allowed every fire; report spend in
+  the LEDGER entry.
+- **Delivered customer sites: EXECUTE-SURGICAL standing autonomy** (Brian 2026-10-01) —
+  auto-fix objective defects (broken copy, 404 assets, contrast, console errors) with
+  prod-verify + ledger receipt. Regeneration passes and design-taste changes still held.
+- **NORTH STAR (through ~2026-10-31): WEBSITE GENERATION SPEED + COST.** Optimize
+  time-to-live-site and $-per-build (see BACKLOG FRONTIER 0 instrumentation item). Rank
+  fire work by its effect on those two numbers first.
 - **Worker-failure ≠ lead-failure** (`./OPERATING-PRINCIPLES.md` § Failure taxonomy): a
   dying WORKER agent is attrition — salvage its commits FIRST (`git show <branch-tip>`
   BEFORE any `git branch -D`; rescues go under `./salvage/`), re-queue its slice in

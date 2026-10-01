@@ -51,6 +51,7 @@ import {
   categoryFromName,
   categoryPhrase,
   cityFromAddress,
+  collapseAdjacentDuplicateWords,
   heroCtasFor,
   heroHeadlineOptions,
   homepageFaq,
@@ -945,7 +946,14 @@ export class SiteGenerationWorkflow extends WorkflowEntrypoint<Env, SiteGenerati
         `We are here to make good ${catService} easy to reach in ${cityPhrase}. Honest, personal, and always on your side is how we work.`,
       ]);
       contextFiles['research.json'] = JSON.stringify(
-        { profile: { description, mission_statement: mission } },
+        {
+          profile: {
+            // fire-59: collapse seam-duplicated words (the 'your community'/'local
+            // business' fallbacks duplicating a frame's literal word) at the boundary.
+            description: collapseAdjacentDuplicateWords(description),
+            mission_statement: collapseAdjacentDuplicateWords(mission),
+          },
+        },
         null,
         2,
       );
@@ -1058,8 +1066,13 @@ export class SiteGenerationWorkflow extends WorkflowEntrypoint<Env, SiteGenerati
       // ~150s fast path (AL-409). Curated real-Unsplash map (on-vertical pixels + query-encoding
       // ixid); same existing-wins _content.json seam. null → omit → pack default stands (no regress).
       const heroImg = heroImageForVertical(catService);
-      contextFiles['content.json'] = JSON.stringify(
-        {
+      // fire-59: EVERY seeded copy token passes through the adjacent-duplicate-word
+      // collapse at this single composition boundary — the fallback identity
+      // (cat 'local business' / city 'your community') duplicated frame-literal words
+      // LIVE ("Your your community local business" H1, "Local local business you can
+      // trust" <title>, "so your your community order" FAQ). URLs/CTA labels are single
+      // tokens or dup-free — the guard is a no-op on them (and idempotent everywhere).
+      const seededContent: Record<string, string> = {
           ABOUT_PARAGRAPH_1: aboutPara1,
           FAQ_1_A: faq.items[0].a,
           FAQ_1_Q: faq.items[0].q,
@@ -1100,7 +1113,14 @@ export class SiteGenerationWorkflow extends WorkflowEntrypoint<Env, SiteGenerati
             : {}),
           SEO_TAGLINE: seoTagline,
           SERVICES_INTRO: servicesIntro,
-        },
+      };
+      contextFiles['content.json'] = JSON.stringify(
+        Object.fromEntries(
+          Object.entries(seededContent).map(([token, value]) => [
+            token,
+            collapseAdjacentDuplicateWords(value),
+          ]),
+        ),
         null,
         2,
       );

@@ -562,3 +562,94 @@ describe('AdminDomainsComponent (AI domain search — gate on a real query)', ()
     );
   });
 });
+
+/**
+ * Real-time doctrine (fire-59): the Domains surface self-updates — NO manual
+ * "Refresh" button anywhere. The hostname list background-polls on a
+ * visibility-aware interval (paused while `document.hidden`, immediate silent
+ * catch-up on foreground return) and refreshes after every mutation. A quiet
+ * "synced" hint replaces the old button — informational text, zero chrome.
+ */
+describe('AdminDomainsComponent (real-time: no manual refresh + visibility-aware poll)', () => {
+  let fixture: ComponentFixture<AdminDomainsComponent>;
+  let selectedSite: WritableSignal<{ id: string; slug: string } | null>;
+  let getSpy: jasmine.Spy;
+
+  function build(initial: { id: string; slug: string } | null): void {
+    selectedSite = signal(initial);
+    getSpy = jasmine.createSpy('get').and.callFake(() => of({ data: [] }));
+    const api = {
+      get: getSpy,
+      post: () => of({ data: {} }),
+      put: () => of({ data: {} }),
+      delete: () => of({ data: {} }),
+    };
+    TestBed.configureTestingModule({
+      imports: [AdminDomainsComponent],
+      providers: [
+        { provide: AdminStateService, useValue: { selectedSite } },
+        { provide: ApiService, useValue: api },
+        { provide: ToastService, useValue: { success: () => undefined, error: () => undefined } },
+        { provide: ConfirmService, useValue: { confirm: () => Promise.resolve(true) } },
+      ],
+    });
+    fixture = TestBed.createComponent(AdminDomainsComponent);
+    fixture.detectChanges();
+  }
+
+  beforeEach(() => jasmine.clock().install());
+  afterEach(() => {
+    jasmine.clock().uninstall();
+    TestBed.resetTestingModule();
+  });
+
+  it('renders NO manual Refresh button (real-time-no-manual-refresh doctrine)', () => {
+    build({ id: 's1', slug: 'vito' });
+    const buttons = Array.from((fixture.nativeElement as HTMLElement).querySelectorAll('button'));
+    const refreshButtons = buttons.filter((b) => /refresh/i.test(b.textContent ?? ''));
+    expect(refreshButtons.length)
+      .withContext('a manual Refresh control violates the real-time doctrine')
+      .toBe(0);
+  });
+
+  it('background-polls the hostname list on the poll interval while visible', () => {
+    build({ id: 's1', slug: 'vito' });
+    const initial = getSpy.calls.count();
+    jasmine.clock().tick(45_001);
+    expect(getSpy.calls.count()).withContext('first poll tick').toBe(initial + 1);
+    jasmine.clock().tick(45_001);
+    expect(getSpy.calls.count()).withContext('second poll tick').toBe(initial + 2);
+  });
+
+  it('pauses the poll while hidden and silently catches up on foreground return', () => {
+    build({ id: 's1', slug: 'vito' });
+    const c = fixture.componentInstance as unknown as { isHidden(): boolean };
+    const hiddenSpy = spyOn(c, 'isHidden').and.returnValue(true);
+    const initial = getSpy.calls.count();
+    jasmine.clock().tick(45_001);
+    expect(getSpy.calls.count()).withContext('no fetch while hidden').toBe(initial);
+    hiddenSpy.and.returnValue(false);
+    document.dispatchEvent(new Event('visibilitychange'));
+    expect(getSpy.calls.count()).withContext('immediate catch-up on return').toBe(initial + 1);
+    // The catch-up is a BACKGROUND refresh — it must not flash the loading skeleton.
+    expect(fixture.componentInstance.loadingHostnames()).toBeFalse();
+  });
+
+  it('shows the quiet synced hint instead of a button after data lands', () => {
+    build({ id: 's1', slug: 'vito' });
+    fixture.detectChanges();
+    const hint = (fixture.nativeElement as HTMLElement).querySelector(
+      '[data-testid="domains-synced-hint"]',
+    );
+    expect(hint).withContext('quiet auto-update hint replaces the Refresh button').not.toBeNull();
+    expect(hint!.textContent).toContain('synced');
+  });
+
+  it('stops polling after destroy (no timer leak)', () => {
+    build({ id: 's1', slug: 'vito' });
+    const afterInit = getSpy.calls.count();
+    fixture.destroy();
+    jasmine.clock().tick(140_000);
+    expect(getSpy.calls.count()).withContext('destroyed component must not fetch').toBe(afterInit);
+  });
+});

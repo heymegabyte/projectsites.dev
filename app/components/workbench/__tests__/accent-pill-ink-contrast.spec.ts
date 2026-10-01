@@ -92,6 +92,51 @@ describe('filled-pill tabs stay legible under the brand override (fire-53)', () 
     ).toEqual([]);
   });
 
+  it('the UA ButtonFace neutralizer carries ZERO specificity (:where) so bg-* utilities win', () => {
+    /**
+     * Fire-59 regression (live-probed 2026-10-01): the fire-54 neutralizer
+     * `button, [type='button'], … { background-color: transparent }` was commented
+     * as "element-level specificity (0,0,1)" — but `[type='button']` is an ATTRIBUTE
+     * selector = (0,1,0), the SAME specificity as `.bg-bolt-elements-item-contentAccent`.
+     * It loads in a LATER stylesheet (index.scss) than the UnoCSS utilities (root css),
+     * so it won the cascade tie and stripped the accent FILL from every
+     * `type="button"` — dark literal ink on the dark panel → invisible active pill
+     * (measured 1.10:1 on the live Database sub-nav while attr + ink were correct).
+     * The zero-specificity `:where(...)` wrap restores true preflight semantics:
+     * still beats the UA ButtonFace default (author origin > UA origin at ANY
+     * specificity), loses to every author rule + utility.
+     */
+    const scss = readFileSync(INDEX_SCSS, 'utf8');
+    const offenders: string[] = [];
+    const blockRe = /([^{}]+)\{([^{}]*)\}/g;
+    let m: RegExpExecArray | null;
+    let sawZeroSpecificityNeutralizer = false;
+    while ((m = blockRe.exec(scss)) !== null) {
+      const selector = m[1];
+      const body = m[2];
+      const clearsBg = /background-color\s*:\s*transparent/.test(body);
+      const targetsTypedButtons = /\[type=/.test(selector);
+      if (!clearsBg || !targetsTypedButtons) {
+        continue;
+      }
+      if (/:where\(/.test(selector)) {
+        sawZeroSpecificityNeutralizer = true;
+      } else {
+        offenders.push(selector.trim().split('\n').join(' ').slice(0, 160));
+      }
+    }
+    expect(
+      sawZeroSpecificityNeutralizer,
+      'expected the :where()-wrapped ButtonFace neutralizer to exist in index.scss',
+    ).toBe(true);
+    expect(
+      offenders,
+      `a bg-clearing rule with a raw [type=…] selector is (0,1,0) — it TIES every ` +
+        `bg-* utility class and, loading later, WINS, stripping accent fills ` +
+        `(invisible filled-pill labels). Wrap the selectors in :where(...):\n  ${offenders.join('\n  ')}`,
+    ).toEqual([]);
+  });
+
   it('filled pills keep literal dark ink (robust against token indirection)', () => {
     // Companion hardening from the same fire: accent-filled pills use the literal
     // `text-[#061018]` (≈12.5:1 on #00E5FF) rather than a themed token, so ink can

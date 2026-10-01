@@ -30,7 +30,7 @@
  *
  * @packageDocumentation
  */
-import { Component, ElementRef, ViewChild, inject, signal, computed, effect, type OnInit } from '@angular/core';
+import { Component, DestroyRef, ElementRef, ViewChild, inject, signal, computed, effect, type OnInit } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { AdminStateService } from '../admin-state.service';
 import { ApiService } from '../../../services/api.service';
@@ -128,10 +128,11 @@ const STRATEGY_LABEL: Readonly<Record<string, string>> = {
             Manage the live domain, search creative names with AI, and port any custom domain in or out.
           </p>
         </div>
-        @if (state.selectedSite()) {
-          <button class="btn-ghost" (click)="loadHostnames()" [disabled]="loadingHostnames()" [brnTooltip]="'Reload connected domains'">
-            <span class="inline-block text-center min-w-[11ch]">{{ loadingHostnames() ? 'Refreshing…' : 'Refresh' }}</span>
-          </button>
+        @if (syncHint(); as hint) {
+          <!-- Real-time doctrine: the list self-updates (visibility-aware poll +
+               refresh after every mutation) — a manual Refresh button is a defect.
+               This quiet hint is informational only; zero chrome, zero clicks. -->
+          <p class="sync-hint" data-testid="domains-synced-hint" title="This list updates itself — no refresh needed">{{ hint }}</p>
         }
       </header>
 
@@ -555,6 +556,18 @@ const STRATEGY_LABEL: Readonly<Record<string, string>> = {
         font-weight: 600;
         letter-spacing: -0.02em;
       }
+      /* Quiet auto-update hint — replaces the removed manual Refresh button.
+         Informational text only: muted mono, no border, no background. */
+      .sync-hint {
+        margin: 0;
+        font-family: 'JetBrains Mono', ui-monospace, monospace;
+        font-size: 0.68rem;
+        letter-spacing: 0.02em;
+        color: var(--ps-ink, #f4f4ff);
+        opacity: 0.45;
+        align-self: center;
+        white-space: nowrap;
+      }
       /* OKLCH status badges — perceptually-uniform color so all three tones
          carry equal visual weight at the same chroma. */
       .status-badge {
@@ -734,6 +747,86 @@ export class AdminDomainsComponent implements OnInit {
         this.hostnames.set([]);
       }
     });
+    this.startPolling();
+  }
+
+  // ─── Real-time polling (no manual refresh — doctrine) ──────
+  //
+  // Mirrors the AdminStateService pattern: a background interval that is
+  // visibility-aware — fetches are skipped while `document.hidden`, and a
+  // foreground return triggers an immediate SILENT catch-up refresh (no
+  // loading skeleton, last-known rows stay painted). Mutations
+  // (add / register / retry / make-primary / remove) already call
+  // {@link loadHostnames} on success, so the list is also fresh right after
+  // every write.
+
+  /** Background poll cadence — 45s sits inside the doctrine's 30-60s window. */
+  private static readonly POLL_MS = 45_000;
+
+  private readonly destroyRef = inject(DestroyRef);
+
+  /** Epoch ms of the most recent successful hostname sync (poll or load). */
+  readonly lastSyncedAt = signal<number | null>(null);
+
+  /**
+   * Quiet header hint replacing the old manual Refresh button. Recomputes on
+   * every successful sync (≤45s apart), so it needs no per-second ticker.
+   * Empty string (→ hidden) until the first load lands or with no site.
+   */
+  readonly syncHint = computed<string>(() => {
+    if (!this.state.selectedSite()) return '';
+    const at = this.lastSyncedAt();
+    if (!at) return '';
+    const secs = Math.max(0, Math.round((Date.now() - at) / 1000));
+    const rel = secs < 10 ? 'just now' : secs < 90 ? `${secs}s ago` : `${Math.round(secs / 60)}m ago`;
+    return `Auto-updates · synced ${rel}`;
+  });
+
+  /** Seam for tests + SSR-safety: current document visibility. */
+  protected isHidden(): boolean {
+    return typeof document !== 'undefined' && document.hidden === true;
+  }
+
+  /** Wire the visibility-aware interval + foreground catch-up listener. */
+  private startPolling(): void {
+    const timer = setInterval(() => {
+      if (this.isHidden()) return; // paused in a background tab
+      this.refreshHostnamesInBackground();
+    }, AdminDomainsComponent.POLL_MS);
+    const onVisibility = (): void => {
+      if (!this.isHidden()) this.refreshHostnamesInBackground();
+    };
+    if (typeof document !== 'undefined') {
+      document.addEventListener('visibilitychange', onVisibility);
+    }
+    this.destroyRef.onDestroy(() => {
+      clearInterval(timer);
+      if (typeof document !== 'undefined') {
+        document.removeEventListener('visibilitychange', onVisibility);
+      }
+    });
+  }
+
+  /**
+   * Silent background refresh: updates rows in place with NO loading skeleton
+   * and NO error toast/banner churn — a transient poll failure keeps the
+   * last-known rows (the loud {@link loadHostnames} path owns error UX).
+   */
+  refreshHostnamesInBackground(): void {
+    const site = this.state.selectedSite();
+    if (!site || this.loadingHostnames()) return;
+    this.api
+      .get<{ data: readonly Hostname[] }>(`/sites/${site.id}/hostnames`, undefined, { silent: true })
+      .subscribe({
+        next: (res) => {
+          this.hostnames.set(res.data ?? []);
+          this.hostnamesError.set(null);
+          this.lastSyncedAt.set(Date.now());
+        },
+        error: () => {
+          /* quiet — keep last-known data; next tick retries */
+        },
+      });
   }
 
   ngOnInit(): void {
@@ -758,6 +851,7 @@ export class AdminDomainsComponent implements OnInit {
         this.hostnames.set(res.data ?? []);
         this.hostnamesError.set(null);
         this.loadingHostnames.set(false);
+        this.lastSyncedAt.set(Date.now());
       },
       error: (err: { error?: unknown } | undefined) => {
         this.loadingHostnames.set(false);

@@ -54,11 +54,15 @@ describe('toast legibility — UA ButtonFace neutralizer (white "Loaded N files"
   it('index.scss restores the preflight button background the unocss tailwind-compat reset dropped', () => {
     /*
      * The rule must target bare buttons + button-typed inputs and set
-     * background-color: transparent, mirroring Tailwind preflight. Element-level
-     * specificity (0,0,1) so every `bg-*` utility still wins.
+     * background-color: transparent, mirroring Tailwind preflight — wrapped in
+     * zero-specificity `:where(...)` (fire-59): a raw `[type='button']` is (0,1,0),
+     * which TIED the `bg-*` utilities and, loading later, stripped accent fills
+     * (invisible filled-pill labels). :where() still beats the UA ButtonFace
+     * (author > UA) while every utility + component rule wins. Specificity side
+     * is locked by accent-pill-ink-contrast.spec.ts.
      */
-    const rule = indexScss.match(/(^|\n)button\s*,[^{]*\[type=['"]button['"]\][^{]*\[type=['"]submit['"]\][^{]*\{([^}]*)\}/);
-    expect(rule, 'expected a `button, [type=button], [type=reset], [type=submit]` rule in index.scss').toBeTruthy();
+    const rule = indexScss.match(/(^|\n):where\(\s*button\s*,[^{)]*\[type=['"]button['"]\][^{)]*\[type=['"]submit['"]\][^{)]*\)\s*\{([^}]*)\}/);
+    expect(rule, 'expected a `:where(button, [type=button], [type=reset], [type=submit])` rule in index.scss').toBeTruthy();
     expect(rule![2]).toMatch(/background-color:\s*transparent/);
   });
 });

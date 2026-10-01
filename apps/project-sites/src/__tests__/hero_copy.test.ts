@@ -2,6 +2,7 @@ import {
   categoryFromName,
   categoryPhrase,
   cityFromAddress,
+  collapseAdjacentDuplicateWords,
   heroCtasFor,
   heroHeadlineOptions,
   homepageFaq,
@@ -533,9 +534,9 @@ describe('hero_copy — heroHeadlineOptions (AL-361: grammatical for every verti
   it('is graceful on blank inputs (fallback phrasing, never throws)', () => {
     expect(() => heroHeadlineOptions('', '')).not.toThrow();
     const opts = heroHeadlineOptions('', '');
-    expect(opts.every((o) => o.includes('local business') && o.includes('your community'))).toBe(
-      true,
-    );
+    // Case-insensitive: the fire-59 dedupe guard collapses "Your your community" →
+    // "Your community", so the phrase can now be sentence-initial (capitalized).
+    expect(opts.every((o) => /local business/i.test(o) && /your community/i.test(o))).toBe(true);
   });
 });
 
@@ -575,7 +576,9 @@ describe('hero_copy — seoTaglineOptions (AL-369: vertical-specific <title> suf
     const banned = /\b(limitless|revolutionize|cutting-edge|leverage|world-class)\b/i;
     for (const o of seoTaglineOptions('steak house')) expect(banned.test(o)).toBe(false);
     expect(() => seoTaglineOptions('')).not.toThrow();
-    expect(seoTaglineOptions('').every((o) => o.includes('local business'))).toBe(true);
+    // Case-insensitive: the fire-59 dedupe guard collapses "Local local business" →
+    // "Local business", so the phrase can now be sentence-initial (capitalized).
+    expect(seoTaglineOptions('').every((o) => /local business/i.test(o))).toBe(true);
   });
 });
 
@@ -631,6 +634,137 @@ describe('hero_copy — categoryFromName (AL-377: derive vertical from NAME when
     expect(categoryPhrase('Coffee Shop' || categoryFromName('McGuckin Hardware'))).toBe(
       'coffee shop',
     );
+  });
+});
+
+/**
+ * Regression for fire-59 — adjacent-duplicate seed-token words on the FALLBACK identity.
+ * Lone Mountain Global (category-less + unparseable address → categoryPhrase('') =
+ * 'local business', cityFromAddress → 'your community') shipped LIVE:
+ *   H1      "Lone Mountain Global — Your your community local business"
+ *             (frame `Your ${city} ${cat}` + city fallback starting with "your")
+ *   <title> "Lone Mountain Global — Local local business you can trust"
+ *             (frame `Local ${cat} you can trust` + cat fallback starting with "local")
+ * The class: any frame whose literal word abuts a token value starting with the SAME
+ * word duplicates it. Guard = case-insensitive adjacent-duplicate-word collapse at the
+ * composition boundary (both-TitleCase pairs exempt — "Walla Walla" is a real city).
+ */
+describe('hero_copy — no adjacent duplicate words on fallback identity (fire-59)', () => {
+  /** Adjacent same-word pair, case-insensitive ("Your your", "local local"). */
+  const ADJ_DUP = /\b([A-Za-z'’-]+)\s+\1\b/i;
+
+  it('heroHeadlineOptions never duplicates with the fallback city "your community"', () => {
+    for (const o of heroHeadlineOptions('local business', 'your community')) {
+      expect(o).not.toMatch(ADJ_DUP); // live: "Your your community local business"
+    }
+  });
+
+  it('seoTaglineOptions never duplicates with the fallback category "local business"', () => {
+    for (const o of seoTaglineOptions('local business')) {
+      expect(o).not.toMatch(ADJ_DUP); // live: "Local local business you can trust" + "Trusted local local business"
+    }
+  });
+
+  it('reproduces the exact Lone Mountain Global H1 composition, deduped', () => {
+    const raw = heroHeadlineOptions('local business', 'your community')[2]!;
+    const h1 = leadWithBusinessName('Lone Mountain Global', raw);
+    expect(h1).toBe('Lone Mountain Global — Your community local business');
+  });
+
+  it('personaHeroCopy frames never duplicate with the fallback identity', () => {
+    for (const style of [
+      'noir',
+      'luxe',
+      'warm',
+      'bold',
+      'artisan',
+      'retro',
+      'boutique',
+      'heritage',
+      'botanical',
+      'scholarly',
+      'precision',
+      'brutalist',
+    ]) {
+      const p = personaHeroCopy(style, 'local business', 'your community');
+      if (!p) continue;
+      for (const s of [...p.headlines, ...p.subheadlines]) expect(s).not.toMatch(ADJ_DUP);
+    }
+  });
+
+  it('homepageFaq answers never duplicate with the fallback city ("so your your community order")', () => {
+    for (const mode of [
+      'quickserve',
+      'hospitality',
+      'service',
+      'retail',
+      'professional',
+      'nonprofit',
+      'gallery',
+      'general',
+    ]) {
+      const faq = homepageFaq(mode, 'Lone Mountain Global', 'local business', 'your community');
+      for (const { q, a } of faq.items) {
+        expect(q).not.toMatch(ADJ_DUP);
+        expect(a).not.toMatch(ADJ_DUP);
+      }
+    }
+  });
+
+  it('seoDescriptionFor never duplicates with the fallback identity', () => {
+    for (const mode of ['hospitality', 'service', 'retail', 'professional', 'general']) {
+      expect(
+        seoDescriptionFor(mode, 'Lone Mountain Global', 'local business', 'your community'),
+      ).not.toMatch(ADJ_DUP);
+    }
+  });
+
+  describe('collapseAdjacentDuplicateWords (the guard itself)', () => {
+    it('collapses the two live defect strings', () => {
+      expect(collapseAdjacentDuplicateWords('Your your community local business')).toBe(
+        'Your community local business',
+      );
+      expect(collapseAdjacentDuplicateWords('Local local business you can trust')).toBe(
+        'Local business you can trust',
+      );
+      expect(collapseAdjacentDuplicateWords('Trusted local local business')).toBe(
+        'Trusted local business',
+      );
+    });
+
+    it('keeps proper-noun reduplication (both TitleCase)', () => {
+      expect(collapseAdjacentDuplicateWords("Walla Walla's trusted bakery")).toBe(
+        "Walla Walla's trusted bakery",
+      );
+      expect(collapseAdjacentDuplicateWords('Your Pago Pago record store')).toBe(
+        'Your Pago Pago record store',
+      );
+      expect(collapseAdjacentDuplicateWords('New New York Deli — fresh daily')).toBe(
+        'New New York Deli — fresh daily',
+      );
+    });
+
+    it('collapses runs of 3+ and keeps the first occurrence', () => {
+      expect(collapseAdjacentDuplicateWords('Local local local business')).toBe('Local business');
+    });
+
+    it('never touches digits, punctuation-attached tokens, or non-adjacent repeats', () => {
+      expect(collapseAdjacentDuplicateWords('(555) 555-1234')).toBe('(555) 555-1234');
+      expect(collapseAdjacentDuplicateWords('local, local business')).toBe(
+        'local, local business',
+      );
+      expect(collapseAdjacentDuplicateWords('your community — your community first')).toBe(
+        'your community — your community first',
+      );
+    });
+
+    it('is graceful on empty / non-string input and idempotent', () => {
+      expect(collapseAdjacentDuplicateWords('')).toBe('');
+      // @ts-expect-error — defensive: non-string must not throw
+      expect(collapseAdjacentDuplicateWords(42)).toBe('');
+      const once = collapseAdjacentDuplicateWords('Your your community local business');
+      expect(collapseAdjacentDuplicateWords(once)).toBe(once);
+    });
   });
 });
 

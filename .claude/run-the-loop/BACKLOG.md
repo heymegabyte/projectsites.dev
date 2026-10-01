@@ -24,6 +24,15 @@
 
 > `./CONSTITUTION.md` landed 2026-09-30 and now governs the loop. These items bootstrap its
 > required core infrastructure; they lead every fire until closed.
+> **NORTH STAR (Brian 2026-10-01, through ~Oct-31): WEBSITE GENERATION SPEED + COST** —
+> every fire ranks work by its effect on time-to-live-site and $-per-build first.
+
+- [ ] Generation speed+cost instrumentation — measure p50/p95 wall-clock search→live and $-per-build (AI tokens, container minutes, CF calls) per site build; persist per-build rows; surface a trend in admin; set baseline then drive down (template fast-path, parallel passes, cache reuse, cheaper models where quality holds)
+  - cadence: every-fire · priority: highest · category: product · estimate: 2h-first-slice · depends_on: none · discovered_by: brian-north-star
+- [ ] domain-stack.component.ts still has a manual Refresh button (same doctrine class as the fixed domains.component.ts one) — replace with the visibility-aware poll pattern
+  - cadence: once · priority: medium · category: ux-a11y · estimate: 30m · depends_on: none · discovered_by: fire-59-admin-agent
+- [ ] Admin Analytics entry renders a >10s skeleton wall before first paint — add progressive/partial paint or cached-first render
+  - cadence: once · priority: medium · category: product · estimate: 1h · depends_on: none · discovered_by: fire-59-evaluator
 
 - [ ] Genome rebuild test — give a CLEAN-CONTEXT agent only the repo + `./GENOME.md` + one bootstrap prompt; it must state what the product is, how it runs/tests, what's incomplete, and what happens next; every confusion becomes a genome repair item
   - cadence: every-4-loops · priority: high · category: loop-improvement · estimate: 45m · depends_on: GENOME.md · discovered_by: constitution-bootstrap

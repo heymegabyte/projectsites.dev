@@ -235,3 +235,29 @@ git history._
 - loop improvement: wedged-agent + parallel-migration-number + prod-migration-apply protocols → OPERATING-PRINCIPLES (pushed pre-fan-out).
 - INCIDENT: adversarial reviewer unspawnable (session limit, resets 12:30am ET) — fire-58 diff review DEFERRED to next fire's reviewer (scope note: anthropic x-api-key auth order, SSE escaping, mint-UI server-revalidation, SITE_INDEPENDENT expansion data-leak check, provenance-gate crash-safety).
 - CLOSED BY BRIAN: "cancel all loops" — cron 5b233086 (7,22,37,52 * * * *) DELETED; lease released; loop halted cleanly with all slices landed + deployed + verified.
+
+## fire-59 — 2026-10-01 — CONSTITUTION BOOTSTRAP (closed)
+
+**Governance:** `CONSTITUTION.md` persisted verbatim (`eb94520c4`) per NEXT-SESSION-BOOTSTRAP;
+command file + README + OPERATING-PRINCIPLES + CLAUDE.md reconciled; memory updated.
+**Artifacts born:** GENOME.md (217L) · GOLDEN-PATHS.md (136L, 8 journeys, 18 gaps) ·
+BROWSER-OPERATING-LAYER.md (232L, slice 1 = Profile Vault) · VISUAL-COVERAGE.md (11 surfaces:
+6 CLEAN · 2 DELIGHT-DEBT · 2 DEFECT · 1 nit; evidence `visual/2026-09-30/`).
+**Reality touched (both DEFECTs fixed + prod-verified):**
+- Doubled-token hero class: `hero_copy.ts` fallback identities × frame literals → new
+  `collapseAdjacentDuplicateWords()` guard across all copy surfaces; RED→GREEN repro specs;
+  full Jest 888 suites / 14,005 tests green. Live lone-mountain-global repaired via new R2
+  version `2026-10-01T04-44-44-797Z` + manifest flip + KV/CDN purge — "Your your"/"LOCAL
+  LOCAL" gone, icon 404s now 200. Worker deployed `--env production` ver `92d95774`.
+- Domains manual-Refresh → 45s visibility-aware poll (5 Karma specs RED→GREEN; Angular R2
+  deploy hash-verified). Editor Database pill: fire-54 neutralizer `[type='button']`
+  specificity tie → `:where()` fix + 2 regression specs; Pages deploy `db5c49af`; authed
+  probe 12.47:1.
+**Policies set (Brian):** 20-min cron RE-ARMED (`13,33,53 * * * *`, harness `ed02a44b`,
+re-arm weekly — 7-day auto-expiry) · ~3M tokens/fire · delivered sites EXECUTE-SURGICAL ·
+NORTH STAR: generation speed + cost.
+**Spend:** ~1.80M subagent tokens (7 agents) + lead. **Loop self-improvements:** constitution
+install itself; cron re-arm; dedupe-guard class; `:where()` neutralizer pattern; stale-doc
+drift fixes (React 19/Tailwind v4, cron status).
+**Next wave:** gen speed+cost instrumentation (FRONTIER 0, leads) · domain-stack Refresh ·
+Analytics skeleton wall · case-001 Phase D action 38 · Profile Vault slice 1.

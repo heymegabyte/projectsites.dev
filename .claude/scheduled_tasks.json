@@ -1,3 +1,14 @@
 {
-  "tasks": []
+  "tasks": [
+    {
+      "id": "ed02a44b",
+      "cron": "13,33,53 * * * *",
+      "prompt": "/run-the-loop",
+      "createdAt": 1790830451071,
+      "recurring": true,
+      "createdBySessionId": "5e17a9f9-30ba-4ab5-999e-d19caf83c294",
+      "createdByPid": 58648,
+      "createdByProcStart": "Tue Sep 29 22:31:03 2026"
+    }
+  ]
 }

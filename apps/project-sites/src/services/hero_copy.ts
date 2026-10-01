@@ -337,6 +337,65 @@ export function indefiniteArticle(noun: string): 'a' | 'an' {
   return /^[aeiou]/i.test((noun || '').trim()) ? 'an' : 'a';
 }
 
+/** A token that is purely one word (letters + apostrophes/hyphens — no digits/punctuation). */
+const PURE_WORD = /^[A-Za-z][A-Za-z'’-]*$/;
+
+/**
+ * Collapse case-insensitive ADJACENT duplicate words at a copy-composition seam —
+ * `"Your your community local business"` → `"Your community local business"`,
+ * `"Local local business you can trust"` → `"Local business you can trust"`.
+ *
+ * WHY (fire-59, confirmed LIVE on lone-mountain-global): every seeded-copy frame that
+ * places a literal word directly before a `${city}`/`${cat}` slot duplicates that word
+ * whenever the slot's FALLBACK value starts with it — `Your ${city}` + the
+ * `cityFromAddress` fallback `'your community'` shipped the H1 **"Lone Mountain Global —
+ * Your your community local business"**, and `Local ${cat} you can trust` + the
+ * `categoryPhrase('')` fallback `'local business'` shipped the `<title>`/eyebrow
+ * **"Local local business you can trust"**. Fixing one frame string would leave the
+ * CLASS open (every current + future frame × every fallback), so the guard runs at the
+ * composition boundary: every exported copy builder maps its output through this.
+ *
+ * Safety rails:
+ * - **Both-TitleCase pairs are KEPT** — proper-noun reduplication is real ("Walla
+ *   Walla", "Pago Pago", "New New York Deli"). The defect class always has at least one
+ *   lowercase member because category phrases + the city fallback are lowercase.
+ * - Only PURE alphabetic tokens collapse; digits ("555 555") and punctuation-attached
+ *   tokens ("local, local") never do, and any non-word token breaks adjacency.
+ * - Keeps the FIRST occurrence (preserves sentence-initial capitalization); collapses
+ *   runs of 3+ in one pass. Pure; never throws.
+ *
+ * @param text - A composed copy string (any seeded headline/tagline/answer/description).
+ * @returns The string with seam-duplicated words collapsed; non-strings yield `''`.
+ *
+ * @example collapseAdjacentDuplicateWords('Your your community local business')
+ * // → 'Your community local business'
+ * @example collapseAdjacentDuplicateWords("Your Walla Walla record store")
+ * // → 'Your Walla Walla record store'  (proper-noun reduplication kept)
+ */
+export function collapseAdjacentDuplicateWords(text: string): string {
+  if (typeof text !== 'string' || !text) return typeof text === 'string' ? text : '';
+  const tokens = text.split(/(\s+)/); // keep separators so spacing/punctuation survive
+  const out: string[] = [];
+  let prevWord = '';
+  for (const token of tokens) {
+    if (/^\s+$/.test(token)) {
+      out.push(token);
+      continue;
+    }
+    if (PURE_WORD.test(token) && prevWord && token.toLowerCase() === prevWord.toLowerCase()) {
+      const bothTitleCase = /^[A-Z]/.test(token) && /^[A-Z]/.test(prevWord);
+      if (!bothTitleCase) {
+        // Drop this duplicate AND the whitespace separator just pushed before it.
+        if (out.length > 0 && /^\s+$/.test(out[out.length - 1]!)) out.pop();
+        continue; // prevWord stays — a 3rd duplicate collapses too
+      }
+    }
+    prevWord = PURE_WORD.test(token) ? token : ''; // punctuation/mixed tokens break adjacency
+    out.push(token);
+  }
+  return out.join('');
+}
+
 export function heroHeadlineOptions(catPhrase: string, cityPhrase: string): readonly string[] {
   const cat = (catPhrase || 'local business').trim();
   const city = (cityPhrase || 'your community').trim();
@@ -350,7 +409,7 @@ export function heroHeadlineOptions(catPhrase: string, cityPhrase: string): read
     // A clean relative-clause frame keeps the cat+city SEO keywords + the trust sentiment without
     // the generic opener: "The cocktail bar Portland counts on".
     `The ${cat} ${city} counts on`,
-  ];
+  ].map(collapseAdjacentDuplicateWords);
 }
 
 /**
@@ -385,7 +444,9 @@ export function leadWithBusinessName(
   businessName: string | null | undefined,
   headline: string,
 ): string {
-  const h = (headline || '').trim();
+  // fire-59: collapse seam-duplicated words so a caller passing a raw (unguarded) frame
+  // still ships a clean H1 — "Your your community local business" → "Your community …".
+  const h = collapseAdjacentDuplicateWords((headline || '').trim());
   if (!h) return h;
   // Strip trailing legal suffixes (LLC / Inc / Co / Ltd / …) + surrounding punctuation, collapse
   // whitespace, and clamp to a hero-sane length so a verbose registered name never bloats the H1.
@@ -814,7 +875,14 @@ export function personaHeroCopy(
     },
   };
 
-  return key in map ? map[key]! : null;
+  if (!(key in map)) return null;
+  // fire-59: collapse seam-duplicated words (`Your ${city}` × the 'your community'
+  // fallback shipped "Your your community …" live) at the composition boundary.
+  const chosen = map[key]!;
+  return {
+    headlines: chosen.headlines.map(collapseAdjacentDuplicateWords),
+    subheadlines: chosen.subheadlines.map(collapseAdjacentDuplicateWords),
+  };
 }
 
 /**
@@ -838,7 +906,11 @@ export function personaHeroCopy(
  */
 export function seoTaglineOptions(catPhrase: string): readonly string[] {
   const cat = (catPhrase || 'local business').trim();
-  return [`Trusted local ${cat}`, `Your neighborhood ${cat}`, `Local ${cat} you can trust`];
+  // fire-59: the collapse guard keeps the 'local business' fallback from duplicating the
+  // literal "local" — "Local local business you can trust" shipped as a LIVE <title>.
+  return [`Trusted local ${cat}`, `Your neighborhood ${cat}`, `Local ${cat} you can trust`].map(
+    collapseAdjacentDuplicateWords,
+  );
 }
 
 /** One homepage FAQ entry. */
@@ -1078,7 +1150,13 @@ export function homepageFaq(
     typeof mode === 'string' && mode.trim().toLowerCase() in sets
       ? mode.trim().toLowerCase()
       : 'general';
-  return { headline: 'Questions, answered', items: sets[key]! };
+  // fire-59: collapse seam-duplicated words — "so your ${city}" × the 'your community'
+  // fallback composed "so your your community order" in the quickserve answer.
+  const items = sets[key]!.map((e) => ({
+    q: collapseAdjacentDuplicateWords(e.q),
+    a: collapseAdjacentDuplicateWords(e.a),
+  })) as unknown as HomepageFaq['items'];
+  return { headline: 'Questions, answered', items };
 }
 
 /**
@@ -1297,5 +1375,7 @@ export function seoDescriptionFor(
     typeof mode === 'string' && mode.trim().toLowerCase() in templates
       ? mode.trim().toLowerCase()
       : 'general';
-  return clampSeoDesc(templates[key]!, city);
+  // fire-59: collapse seam-duplicated words BEFORE the length clamp so the dedupe can
+  // never push a clamped description back out of the 120-156 window.
+  return clampSeoDesc(collapseAdjacentDuplicateWords(templates[key]!), city);
 }

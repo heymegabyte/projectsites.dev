@@ -1610,10 +1610,16 @@ button:not(:disabled):not([class*='ResizeHandle']):not([data-panel-resize-handle
    rendered "Loaded 49 files" as #f4f4ff ink on a white UA pill (WCAG 1.4.3
    fail). Element-level specificity (0,0,1): every `bg-*` utility, component
    rule, and the class-based defensive net below still win. */
-button,
-[type='button'],
-[type='reset'],
-[type='submit'] {
+/* :where() = ZERO specificity (fire-59): the original flat list was commented as
+   "element-level (0,0,1)" but `[type='button']` is an ATTRIBUTE selector — (0,1,0),
+   the SAME specificity as any `bg-*` utility class. This stylesheet loads AFTER the
+   UnoCSS utilities, so the neutralizer won the cascade tie and stripped the accent
+   fill from every `type="button"` (live-probed: the Database sub-nav's active pill
+   measured 1.10:1 — dark literal ink on a transparent fill over the dark panel).
+   Zero-specificity :where() restores true preflight semantics: still beats the UA
+   ButtonFace default (author > UA at any specificity), loses to every utility and
+   component rule. Locked by accent-pill-ink-contrast.spec.ts. */
+:where(button, [type='button'], [type='reset'], [type='submit']) {
   background-color: transparent;
 }
 
