@@ -20,6 +20,30 @@
 
 ---
 
+## FRONTIER 0 — Constitution bootstrap (fire-59 opened)
+
+> `./CONSTITUTION.md` landed 2026-09-30 and now governs the loop. These items bootstrap its
+> required core infrastructure; they lead every fire until closed.
+
+- [ ] Genome rebuild test — give a CLEAN-CONTEXT agent only the repo + `./GENOME.md` + one bootstrap prompt; it must state what the product is, how it runs/tests, what's incomplete, and what happens next; every confusion becomes a genome repair item
+  - cadence: every-4-loops · priority: high · category: loop-improvement · estimate: 45m · depends_on: GENOME.md · discovered_by: constitution-bootstrap
+- [ ] Behavior coverage map — seed the STATE → ACTION → RESULTING-STATE graph for admin + editor (routes, menus, dialogs, tables, forms, keyboard); generate golden paths that traverse untouched areas
+  - cadence: once · priority: high · category: testing · estimate: 90m · depends_on: none · discovered_by: constitution-bootstrap
+- [ ] Browser Operating Layer slice 1 — Agent Browser Profile Vault schema (profile per account/site/integration/purpose; Freeze Profile capture + restore/reset/revoke/audit; encrypted + tenant-isolated) per `./BROWSER-OPERATING-LAYER.md`
+  - cadence: once · priority: high · category: architecture · estimate: 2h · depends_on: BROWSER-OPERATING-LAYER.md · discovered_by: constitution-bootstrap
+- [ ] Visual coverage rotation — first rotation pass through `./VISUAL-COVERAGE.md` debt: open, screenshot, vision-critique the least-recently-inspected significant surfaces/states; log verdicts + extract design principles
+  - cadence: every-loop · priority: high · category: ux · estimate: 45m · depends_on: VISUAL-COVERAGE.md · discovered_by: constitution-bootstrap
+- [ ] Golden-path gp-01..gp-08 activation — run the eight journeys in `./GOLDEN-PATHS.md` against prod; record every missing capability as a CAPABILITY GAP item (never shrink a journey to make it pass)
+  - cadence: every-loop · priority: high · category: testing · estimate: 90m · depends_on: GOLDEN-PATHS.md · discovered_by: constitution-bootstrap
+- [ ] Org observability dashboard concept — make autonomy legible: agents/work-in-progress, browser sessions + screenshots/recordings, golden-path failures, visual/stub/delight debt, token-yield trends, pending human interventions (concept + data sources first, UI later)
+  - cadence: once · priority: medium · category: product · estimate: 2h · depends_on: none · discovered_by: constitution-bootstrap
+- [ ] Champion/challenger design reviews — pilot on ONE high-value surface: render the champion (current) + a deliberately improved challenger, use both in a real browser, keep the winner; record the verdict in VISUAL-COVERAGE
+  - cadence: every-2-loops · priority: medium · category: ux · estimate: 60m · depends_on: none · discovered_by: constitution-bootstrap
+- [ ] Constitution champion/challenger evaluation — after ~4 fires, evaluate whether the constitution-governed loop beats the pre-fire-59 model (completion rate, defect escape, visual quality, token yield); fold evidence back into `./CONSTITUTION.md` per its § Recursive Improvement
+  - cadence: every-4-loops · priority: medium · category: loop-improvement · estimate: 45m · depends_on: 4 fires of LEDGER data · discovered_by: constitution-bootstrap
+
+---
+
 ## money-path (Brian #1 — HIGH)
 
 - [~] Backfill WfP slots for all existing sites (batched, idempotent) — fire-51: script `scripts/backfill-wfp-slots.mjs` shipped (`5676c8329`), proven on search-verify (both slots `ok:true`); cross-org sweep needs the internal super-admin endpoint (see § fire-51 replenish)

@@ -5,9 +5,13 @@
 >
 > **Template repo:** https://github.com/HeyMegabyte/template.projectsites.dev
 
-## ⟳ Loop Charter (READ on EVERY `/loop` fire)
+## ⟳ Loop Charter (READ on EVERY `/run-the-loop` fire)
 
-Every scheduled `/loop` cron MUST obey **`apps/project-sites/_LOOP_CHARTER.md`** — the SSOT
+> Scheduled loop CRONS are **CANCELLED** (fire-58, `044ac0ebc`, Brian directive) — fires are
+> MANUAL, governed by `.claude/run-the-loop/CONSTITUTION.md` (fire-59). The charter mandates
+> below still bind each manual fire.
+
+Every loop fire MUST obey **`apps/project-sites/_LOOP_CHARTER.md`** — the SSOT
 for all loops. Three mandates, every fire: (1) prove the touched surface through a **complete
 real-user journey** covering all its sub-actions; (2) **progressively enhance** — advance
 several of {polished feature · enhancement · debugging · hardened error-handling · structured
@@ -203,8 +207,8 @@ When `DEEPSEEK_API_KEY` is set in the Worker env AND `BUILD_LLM_PROVIDER` is NOT
 
 **Template stack:**
 - **Vite** — build tool
-- **React 18+** — UI framework  
-- **Tailwind CSS 3+** — utility-first CSS
+- **React 19** — UI framework (client drops inline `<style>{string}` — scoped CSS lives in linked stylesheets)
+- **Tailwind CSS v4** — utility-first CSS
 - **shadcn/ui** — accessible component library (Radix UI primitives)
 - **Inter / Satoshi** — typography (Google Fonts)
 

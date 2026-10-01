@@ -325,3 +325,44 @@ fleet, one deploy stream, no conflicting commits.
 ## Prod D1 migrations apply (standing)
 
 - `wrangler d1 migrations apply` on prod is BLOCKED by ancient untracked backlog (references dropped tables, e.g. ai_endpoints). Apply new migrations via targeted `wrangler d1 execute --file=migrations/<new>.sql --remote`, then verify via `SELECT name FROM sqlite_master WHERE name IN (...)`. Do NOT attempt to bulk-reconcile the historical migration ledger mid-fire.
+
+## Constitution era (fire-59, 2026-09-30)
+
+`./CONSTITUTION.md` now GOVERNS the loop. Where it conflicts with this file or `./README.md`,
+the constitution wins; where it is silent on an operational safety fact, these principles
+bind unchanged. The old README lifecycle → CONSTITUTION § The 15-Minute Heartbeat.
+
+- **Three nested loops** — MICRO (create → render → experience → critique → modify →
+  compare, on the thing in front of you) · PRODUCT (make the surrounding workflow simpler/
+  clearer/more beautiful — removing the thing just polished is a valid outcome) ·
+  ORGANIZATION (ask why the system produced something inferior; improve prompt / Skill /
+  agent / golden path / the loop itself — a local improvement teaches the whole org).
+- **Default ten-pass rule** — important artifacts (major UI, components, prompts, Skills,
+  plans, architecture, golden paths, agent definitions) get ~10 substantive improvement
+  rounds under DIFFERENT lenses; stop when marginal value drops below improving another
+  part of the product.
+- **Standing artifacts** — Visual Coverage (`./VISUAL-COVERAGE.md`), Stub Debt
+  (ABSENT → VISUALIZED → SIMULATED → … → OPERATED; SIMULATED is never "done"), Delight
+  Debt, and the Completion Frontier are maintained continuously. Golden paths
+  (`./GOLDEN-PATHS.md`) are executable product design — a journey may demand capabilities
+  that don't exist yet (record CAPABILITY GAP; never shrink the journey to pass).
+- **Every worker = BUILDER + REVIEWER + SCOUT + LEARNER** — complete the work, critique
+  what it produced, report nearby/systemic opportunities, return durable lessons.
+- **Creator ≠ final judge** — significant changes get independent evaluation (functional /
+  visual / human-simulator / business / security, chosen intelligently); champion/
+  challenger applies to designs, prompts, plans, and this constitution itself.
+- **Each cycle must touch reality AND learn** — a cycle ending with only analysis, or with
+  only code and no promoted lesson, is incomplete.
+- **Anti-stagnation circuit breaker** — enormous effort + little observable product
+  progress = STOP; audit the improvement system (premature micro-polish, repeated
+  research, context pollution, duplicate agents, too much factory-building) before
+  pouring more intelligence through it.
+- **Harness subtraction** — periodically delete loop scaffolding (roles, prompt
+  instructions, review stages, context docs, routing) that no longer increases quality;
+  the organization gets more capable while its operating system gets simpler.
+
+**Still binding from this file (unchanged by the constitution):** § Fire mutual exclusion
+(the lease), § Failure taxonomy vs HARD-STOP (worker attrition ≠ lead saturation),
+worktree isolation + main-only shipping (§ Git & shipping), category budgets
+(§ Convergence discipline), § Wedged-agent protocol, § Parallel-migration numbering,
+§ Prod D1 migrations apply, and § Deep UI Explorer invariants.

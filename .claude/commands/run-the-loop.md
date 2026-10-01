@@ -5,6 +5,18 @@ argument-hint: "[role/lane name, category, or 'all' (default)]"
 
 # Run The Loop
 
+> **⚖️ GOVERNED BY `.claude/run-the-loop/CONSTITUTION.md` (fire-59, 2026-09-30).**
+> The Autonomous Visual Product Organization constitution supersedes this file wherever they
+> conflict: optimize VERIFIED HUMAN DELIGHT × CAPABILITY × COMPLETENESS × BUSINESS VALUE ×
+> LEARNING RATE; run the constitution's 15-minute-heartbeat stages (ORIENT → LOOK → EXPERIENCE →
+> MEASURE → RESEARCH → IMAGINE → PRIORITIZE → PLAN → FAN OUT → BUILD → RENDER → ITERATE VISUALLY →
+> TEST → EXPLORE → EVALUATE → REPAIR → SIMPLIFY → VERIFY → LEARN → META-IMPROVE → COMPRESS → HAND
+> OFF); visual inspection IS implementation; every cycle touches reality AND learns. What REMAINS
+> binding from this file: the fire-lease mutex (§0), worker-vs-lead failure taxonomy, worktree
+> isolation, category budgets, deploy + prod-verify gates, LEDGER close-out. Standing artifacts
+> live beside the constitution: `GENOME.md` · `GOLDEN-PATHS.md` · `VISUAL-COVERAGE.md` ·
+> `BROWSER-OPERATING-LAYER.md`.
+
 One deliberate fire of the ProjectSites convergence loop. Advance the **frontier** in
 `.claude/run-the-loop/BACKLOG.md` by one coherent, verified slice per active workstream (default
 `all`; or scope to `$ARGUMENTS`). **One coherent slice per role per fire** — never split a slice
