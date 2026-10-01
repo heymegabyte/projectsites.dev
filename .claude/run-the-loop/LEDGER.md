@@ -318,3 +318,27 @@ on cost. Gaps queued: container-internal token metering 0/0 · eager per-site D1
 served-sites PROD-absolute URLs · editor stale-claimer eviction.
 **Spend:** ~2.13M subagent (6 lanes) + lead. **Loop improvement:** self-arming semantics +
 the stale-hostname forensic chain (CNAME → project domains API → deactivated re-validate).
+
+## fire-62 — 2026-10-01 — scheduler of record + editor-proxy truth (closed)
+
+**Trigger:** Brian "why didn't it run" — harness cron silently skipped 7 armed ticks
+(12:34–2:04 PM). **Fix: macOS launchd is the scheduler of record** (900s headless
+`claude -p "/run-the-loop"`, log cron-runs.log, lease-coalesced; `d907ca541`); harness
+cron demoted to fallback; GHA remains the sleep-proof rail (token pending).
+**Lanes (3/3 green):**
+- editor hostname TRUE root cause: not a stale project — the project-sites worker's
+  `*.projectsites.dev/*` route out-ranks Pages and its editor-proxy OVERWROTE CSP with a
+  stale literal. Drift test now binds worker↔ALLOWED_ORIGINS↔_headers (`c1782f4ad`,
+  deployed `6123224b`); localhost parents LIVE; case-001 D-boot unblocked in prod.
+- container AI usage → build_metrics (stream-json → _usage.json → HMAC heartbeat → Zod
+  ingest; containerLlmUsd; 14,088 green; `c0083b595`); image `3847a81e` live via
+  `1f590b23` (first rollout: transient "Request timeout" — retry clean).
+- gp-09 cycle 2: slug RESTORED via preferred_slug; delete+purge 4.9s; create→published
+  5m26s (+16% vs c1), $0.0757; teardown CF-clean. NEW DEFECT CLASS: destructive
+  `purge_resources` opt-in SILENTLY downgraded when request body lost
+  (`c.req.json().catch(()=>({}))`) — fail-closed but unreported. Vision 7/10 (wordmark
+  dark-on-dark, garbled GLOBAL glyphs, eyebrow AA fail, pack H1 + stock). WebGL absent —
+  only 3 packs carry webgl blocks.
+**Spend:** ~0.89M subagent (3 lanes) + lead. **Loop improvement:** launchd rail + the
+"deploy output piped to head SIGPIPEs wrangler mid-rollout" lesson (always log-file +
+exit-code deploys).

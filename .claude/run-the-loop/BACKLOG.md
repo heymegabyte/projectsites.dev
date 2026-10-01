@@ -35,12 +35,19 @@
 - [ ] Intent-first chat edit rail — "What do you want to change?" chat performs site edits (AI does, owner confirms, undo always); bolt.diy editor demoted to Advanced tab via progressive disclosure; editor investment only where it feeds this rail
   - cadence: every-2-fires · priority: high · category: product · estimate: multi-fire · depends_on: none · discovered_by: edit-surface-decision
 
-- [ ] Evict stale editor hostname claimer — editor.projectsites.dev still routes to the OLD bolt-diy.pages.dev project despite active re-attach + DNS repoint; enumerate /pages/projects/*/domains, remove the stale registration, verify localhost CSP + admin embed live
+- [x] (fire-62 c1782f4ad/6123224b — true cause was worker editor-proxy CSP literal, drift-test locked) Evict stale editor hostname claimer — editor.projectsites.dev still routes to the OLD bolt-diy.pages.dev project despite active re-attach + DNS repoint; enumerate /pages/projects/*/domains, remove the stale registration, verify localhost CSP + admin embed live
   - cadence: next-fire · priority: high · category: architecture · estimate: 20m · discovered_by: fire-61
-- [ ] Container-internal AI token metering — build_metrics rows show tokens 0/0 (orchestrator-side calls unmetered inside container); bridge usage out to the finalize row so $-per-build includes model spend
+- [x] (fire-62 c0083b595 + image 3847a81e via 1f590b23) Container-internal AI token metering — build_metrics rows show tokens 0/0 (orchestrator-side calls unmetered inside container); bridge usage out to the finalize row so $-per-build includes model spend
   - cadence: next-fire · priority: high · category: product · estimate: 1h · discovered_by: gp-09-cycle-1
 - [ ] Eager per-site D1 provisioning on create-from-search (today lazy on first Data-tab GET) + gp-09 cycle-2 with preferred_slug:"lone-mountain-global" to restore fixture slug
   - cadence: next-2-fires · priority: medium · category: product · estimate: 1h · discovered_by: gp-09-cycle-1
+
+- [ ] Destructive-opt-in silent downgrade class — purge_resources (and audit siblings) must NEVER silently downgrade when the body is lost: body-parse failure on a destructive flag → 400, and every destructive response echoes `{purged:true|false}` for caller assertion (gp-09 cycle-2 incident)
+  - cadence: next-fire · priority: high · category: architecture · estimate: 45m · discovered_by: gp-09-cycle-2
+- [ ] WebGL block coverage — wire `webgl` blocks into the remaining 7 vertical.json packs (local-service first: gp-09 fixture classifies there) so generated sites actually carry the tuned heroes
+  - cadence: next-fire · priority: high · category: product · estimate: 30m · discovered_by: gp-09-cycle-2
+- [ ] Generated-brand quality cluster (vision 7/10): wordmark dark-on-dark + garbled glyph render, eyebrow AA fail, pack-default H1, irrelevant stock hero — root-cause in logo/theme/copy pipeline; ties to LB-2 gallery bar
+  - cadence: next-2-fires · priority: high · category: product · estimate: 1-2 fires · discovered_by: gp-09-cycle-2
 
 ## FRONTIER 0 — Constitution bootstrap (fire-59 opened)
 
