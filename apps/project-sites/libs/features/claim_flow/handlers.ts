@@ -94,12 +94,16 @@ claimFlowRoutes.post('/api/sites/:siteId/claim/checkout', async (c) => {
     [userId],
   );
 
+  // Default return routes = the dedicated owner-side surfaces at
+  // /admin/claim/{success,cancel} (fire-61). `{CHECKOUT_SESSION_ID}` is a
+  // Stripe template literal — Stripe substitutes the real `cs_…` id at
+  // redirect time, so it MUST stay un-encoded.
   const successUrl =
     parsed.data.success_url ??
-    `https://projectsites.dev/admin/billing?claim=success&site=${encodeURIComponent(siteId)}`;
+    `https://projectsites.dev/admin/claim/success?site=${encodeURIComponent(siteId)}&session_id={CHECKOUT_SESSION_ID}`;
   const cancelUrl =
     parsed.data.cancel_url ??
-    `https://projectsites.dev/admin/billing?claim=cancelled&site=${encodeURIComponent(siteId)}`;
+    `https://projectsites.dev/admin/claim/cancel?site=${encodeURIComponent(siteId)}`;
 
   const result = await createClaimCheckoutSession(c.env.DB, c.env, {
     orgId,

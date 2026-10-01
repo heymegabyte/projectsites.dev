@@ -36,6 +36,7 @@ import { AdminStateService } from '../admin-state.service';
 import { MiniEmptyComponent } from '../../../components/mini-empty/mini-empty.component';
 import { ErrorCardComponent } from '../../../components/states';
 import { downloadText, toCsv } from '../../../utils/csv-export';
+import { copyToClipboard } from '../../../utils/clipboard';
 import { RevealDirective } from '../../../directives/reveal.directive';
 import { ReadinessBadgeComponent } from './readiness-badge.component';
 import { SiteDataBrowserComponent } from './site-data-browser.component';
@@ -109,6 +110,31 @@ const VALID_TABS: readonly Tab[] = ['logs', 'snapshots', 'data', 'sql', 'schema'
           <!-- Site didn't fully resolve (GET can 200 with site:null) — fall back to
                the URL slug so the host is meaningful, never a bare ".projectsites.dev". -->
           <p class="site-detail__subtitle">{{ siteId() ? siteId() + '.projectsites.dev' : 'Site overview' }}</p>
+        }
+        <!-- Claim status (claim_flow) — reads the existing plan field; renders
+             nothing when the plan is unknown. Unclaimed sites get ONE primary
+             affordance: Share preview (copies the live subdomain URL). -->
+        @if (claimState(); as claim) {
+          <div class="site-detail__claim" data-testid="sd-claim">
+            <span
+              class="site-detail__claim-chip"
+              [class.is-claimed]="claim.claimed"
+              data-testid="sd-claim-chip"
+            >
+              <span class="site-detail__claim-dot" aria-hidden="true"></span>{{ claim.label }}
+            </span>
+            @if (!claim.claimed) {
+              <button
+                type="button"
+                class="site-detail__share-btn"
+                (click)="sharePreview()"
+                data-testid="sd-share-preview"
+                aria-label="Copy this site's preview link"
+              >
+                Share preview
+              </button>
+            }
+          </div>
         }
         <!-- Production-readiness grade (#9) — renders nothing until the site has
              a scored build, so it never adds noise to an unbuilt site. -->
@@ -522,6 +548,13 @@ const VALID_TABS: readonly Tab[] = ['logs', 'snapshots', 'data', 'sql', 'schema'
     a.site-detail__subtitle--link { display: inline-block; text-decoration: none; transition: color 0.333s ease; }
     a.site-detail__subtitle--link:hover { color: var(--ps-accent, #00E5FF); }
     a.site-detail__subtitle--link:focus-visible { outline: 2px solid var(--ps-accent, #00E5FF); outline-offset: 2px; border-radius: 4px; }
+    .site-detail__claim { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-top: 0.6rem; }
+    .site-detail__claim-chip { display: inline-flex; align-items: center; gap: 6px; min-height: 24px; padding: 2px 10px; border-radius: 999px; font-size: 0.7rem; font-weight: 600; letter-spacing: 0.03em; color: color-mix(in oklch, var(--ps-ink, #f4f4ff) 78%, transparent); background: rgba(255, 255, 255, 0.05); border: 1px solid rgba(255, 255, 255, 0.14); }
+    .site-detail__claim-chip.is-claimed { color: var(--ps-success, #4dffb5); background: rgba(77, 255, 181, 0.08); border-color: rgba(77, 255, 181, 0.3); }
+    .site-detail__claim-dot { width: 6px; height: 6px; border-radius: 50%; background: currentColor; flex-shrink: 0; }
+    .site-detail__share-btn { display: inline-flex; align-items: center; gap: 6px; min-height: 30px; padding: 0 13px; border-radius: 999px; font: inherit; font-size: 0.76rem; font-weight: 600; color: var(--ps-accent, #00E5FF); background: rgba(0, 229, 255, 0.06); border: 1px solid rgba(0, 229, 255, 0.35); cursor: pointer; transition: border-color 0.333s ease, background 0.333s ease, transform 0.333s ease; }
+    .site-detail__share-btn:hover { transform: translateY(-1px); border-color: var(--ps-accent, #00E5FF); background: rgba(0, 229, 255, 0.12); }
+    .site-detail__share-btn:focus-visible { outline: 2px solid var(--ps-accent, #00E5FF); outline-offset: 2px; }
     .site-detail__tabs { display: flex; gap: 0.25rem; border-bottom: 1px solid var(--ps-edge, rgba(255,255,255,0.08)); margin-bottom: 1.25rem; }
     .site-detail__tabs button { background: transparent; border: none; color: inherit; padding: 0.6rem 1rem; font: inherit; cursor: pointer; border-bottom: 2px solid transparent; }
     .site-detail__tabs button.active { border-bottom-color: var(--ps-accent, #00e5ff); color: var(--ps-accent, #00e5ff); }
@@ -668,7 +701,38 @@ export class AdminSiteDetailComponent {
   private readonly adminState = inject(AdminStateService);
 
   readonly siteId = signal<string>('');
-  readonly site = signal<{ id: string; slug: string; name: string } | null>(null);
+  /** `plan` rides along from the existing `/sites/:id` payload (claim_flow chip);
+   *  `null` = unknown (degraded fallback record) — the chip renders nothing. */
+  readonly site = signal<{ id: string; slug: string; name: string; plan: string | null } | null>(null);
+
+  /**
+   * Claim chip state (claim_flow, fire-61) derived from the existing `plan`
+   * field: `paid` → Claimed; any other KNOWN plan → "Unclaimed — preview live".
+   * Unknown plan (null) → null → no chip at all, never a guessed state.
+   */
+  readonly claimState = computed<{ claimed: boolean; label: string } | null>(() => {
+    const s = this.site();
+    if (!s?.plan) return null;
+    const claimed = s.plan === 'paid';
+    return { claimed, label: claimed ? 'Claimed' : 'Unclaimed — preview live' };
+  });
+
+  /**
+   * ONE primary affordance for an unclaimed site: copy the live preview URL so
+   * the owner can send it to anyone. Uses the best-effort `copyToClipboard`
+   * util (never rejects) — a denied/unavailable clipboard surfaces the link in
+   * the toast instead of a dead-end error.
+   */
+  sharePreview(): void {
+    const slug = this.site()?.slug || this.siteId();
+    if (!slug) return;
+    const url = `https://${slug}.projectsites.dev`;
+    void copyToClipboard(url).then((ok) =>
+      ok
+        ? this.toast.success('Preview link copied — send it to anyone.')
+        : this.toast.error(`Couldn’t copy automatically. Your link: ${url}`),
+    );
+  }
   readonly tab = signal<Tab>('logs');
 
   /**
@@ -1039,7 +1103,7 @@ export class AdminSiteDetailComponent {
       // res.site key always yielded undefined → site() stayed null → the h1 fell back
       // to siteId() (the raw UUID). Read res.data and map business_name → the signal's
       // `name` field so the title shows the real business name.
-      .get<{ data: { id: string; slug: string; business_name: string } }>(`/sites/${id}`, undefined, { silent: true })
+      .get<{ data: { id: string; slug: string; business_name: string; plan?: string | null } }>(`/sites/${id}`, undefined, { silent: true })
       .pipe(
         // On failure, fall back to a slug-only record (slug = the URL id) — never
         // inject a misleading "Site" name literal (the h1 + subtitle derive a
@@ -1048,7 +1112,18 @@ export class AdminSiteDetailComponent {
         takeUntilDestroyed(this.destroyRef),
       )
       .subscribe((res) =>
-        this.site.set(res.data ? { id: res.data.id, slug: res.data.slug, name: res.data.business_name } : null),
+        this.site.set(
+          res.data
+            ? {
+                id: res.data.id,
+                slug: res.data.slug,
+                name: res.data.business_name,
+                // Claim chip reads the EXISTING plan column; absent (degraded
+                // fallback / older payloads) stays null → no chip, never a guess.
+                plan: (res.data as { plan?: string | null }).plan ?? null,
+              }
+            : null,
+        ),
       );
   }
 

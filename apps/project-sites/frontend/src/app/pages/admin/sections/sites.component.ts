@@ -28,6 +28,8 @@ import { AdminStateService } from '../admin-state.service';
 import { RevealDirective } from '../../../directives/reveal.directive';
 import { CmdGlyphComponent } from '../../../components/cmd-glyph/cmd-glyph.component';
 import { ReadinessBadgeComponent } from './readiness-badge.component';
+import { ToastService } from '../../../services/toast.service';
+import { copyToClipboard } from '../../../utils/clipboard';
 import type { Site } from '../../../services/api.service';
 
 /** Status filter buckets — mirror `AdminStateService.getStatusClass` tones. */
@@ -227,14 +229,42 @@ interface StatusPill {
                     {{ displayDomain(site) }}
                   </span>
 
+                  @if (claimLabel(site); as claim) {
+                    <!-- Claim status from the EXISTING sites.plan field — chip only
+                         when the payload actually carries a plan (never a guess). -->
+                    <span
+                      class="claim-chip"
+                      [class.is-claimed]="isClaimed(site)"
+                      [attr.data-testid]="'site-claim-' + site.slug"
+                    >
+                      <span class="claim-dot" aria-hidden="true"></span>{{ claim }}
+                    </span>
+                  }
+
                   <span class="card-foot">
                     <span class="card-meta">
                       <app-cmd-glyph name="clock" aria-hidden="true" />
                       {{ lastBuildLabel(site) }}
                     </span>
-                    <span class="card-open" aria-hidden="true">Open →</span>
+                    @if (!isUnclaimed(site)) {
+                      <span class="card-open" aria-hidden="true">Open →</span>
+                    }
                   </span>
                 </a>
+                @if (isUnclaimed(site)) {
+                  <!-- ONE primary affordance for an unclaimed site: share the live
+                       preview. A SIBLING of the card anchor (a button inside a link
+                       is invalid HTML), overlaid on the card's footer corner. -->
+                  <button
+                    type="button"
+                    class="share-preview-btn"
+                    (click)="copyPreviewLink(site)"
+                    [attr.data-testid]="'site-share-' + site.slug"
+                    [attr.aria-label]="'Copy the preview link for ' + site.business_name"
+                  >
+                    <app-cmd-glyph name="share" aria-hidden="true" /> Share preview
+                  </button>
+                }
               </li>
             }
           </ul>
@@ -527,6 +557,7 @@ interface StatusPill {
         gap: 14px;
       }
       .grid-cell {
+        position: relative;
         animation: cardIn 0.333s cubic-bezier(0.16, 1, 0.3, 1) both;
       }
       @keyframes cardIn {
@@ -622,6 +653,70 @@ interface StatusPill {
         flex-shrink: 0;
         opacity: 0.8;
       }
+      /* ── Claim status + share preview ── */
+      .claim-chip {
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        align-self: flex-start;
+        min-height: 24px;
+        padding: 2px 10px;
+        border-radius: 999px;
+        font-size: 0.68rem;
+        font-weight: 600;
+        letter-spacing: 0.03em;
+        color: color-mix(in oklch, var(--ps-ink, #f4f4ff) 78%, transparent);
+        background: rgba(255, 255, 255, 0.05);
+        border: 1px solid rgba(255, 255, 255, 0.14);
+      }
+      .claim-chip.is-claimed {
+        color: var(--ps-success, #4dffb5);
+        background: rgba(77, 255, 181, 0.08);
+        border-color: rgba(77, 255, 181, 0.3);
+      }
+      .claim-dot {
+        width: 6px;
+        height: 6px;
+        border-radius: 50%;
+        background: currentColor;
+        flex-shrink: 0;
+      }
+      .share-preview-btn {
+        position: absolute;
+        right: 13px;
+        bottom: 13px;
+        z-index: 2;
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        min-height: 32px;
+        padding: 0 12px;
+        border-radius: 999px;
+        font: inherit;
+        font-size: 0.76rem;
+        font-weight: 600;
+        color: var(--ps-accent, #00e5ff);
+        background: color-mix(in oklch, var(--ps-bg, #060610) 82%, transparent);
+        border: 1px solid rgba(0, 229, 255, 0.35);
+        cursor: pointer;
+        transition:
+          border-color 0.333s ease,
+          background 0.333s ease,
+          transform 0.333s ease;
+      }
+      .share-preview-btn:hover {
+        transform: translateY(-1px);
+        border-color: var(--ps-accent, #00e5ff);
+        background: rgba(0, 229, 255, 0.1);
+      }
+      .share-preview-btn:focus-visible {
+        outline: 2px solid var(--ps-accent, #00e5ff);
+        outline-offset: 2px;
+      }
+      .share-preview-btn app-cmd-glyph {
+        font-size: 0.85rem;
+      }
+
       .card-foot {
         display: flex;
         align-items: center;
@@ -779,6 +874,7 @@ interface StatusPill {
         .dot.is-live,
         .skel-card,
         .pill,
+        .share-preview-btn,
         .cta {
           animation: none !important;
           transition: none !important;
@@ -789,6 +885,7 @@ interface StatusPill {
 })
 export class AdminSitesComponent {
   private readonly state = inject(AdminStateService);
+  private readonly toast = inject(ToastService);
 
   /** 8 skeleton cells while the first load is in flight. */
   readonly skeletonRows = Array.from({ length: 8 }, (_, i) => i);
@@ -888,6 +985,42 @@ export class AdminSitesComponent {
   /** Prefer the custom hostname; fall back to the default subdomain. */
   displayDomain(site: Site): string {
     return site.primary_hostname || `${site.slug}.projectsites.dev`;
+  }
+
+  // ── Claim status (claim_flow, fire-61) ───────────────────────────────
+
+  /**
+   * Chip label from the EXISTING `sites.plan` field. `null` when the payload
+   * carries no plan — the chip renders nothing rather than guessing a state.
+   */
+  claimLabel(site: Site): string | null {
+    if (!site.plan) return null;
+    return this.isClaimed(site) ? 'Claimed' : 'Unclaimed — preview live';
+  }
+
+  /** A site is claimed once the claim webhook flips `plan` to `paid`. */
+  isClaimed(site: Site): boolean {
+    return site.plan === 'paid';
+  }
+
+  /** Known-plan, not-yet-claimed — the only state that gets the share affordance. */
+  isUnclaimed(site: Site): boolean {
+    return !!site.plan && site.plan !== 'paid';
+  }
+
+  /**
+   * ONE primary affordance for an unclaimed site: copy the live preview URL
+   * so the owner can send it to anyone. Uses the best-effort `copyToClipboard`
+   * util (never rejects) — a denied/unavailable clipboard surfaces the link in
+   * the toast instead of a dead-end error.
+   */
+  copyPreviewLink(site: Site): void {
+    const url = `https://${site.slug}.projectsites.dev`;
+    void copyToClipboard(url).then((ok) =>
+      ok
+        ? this.toast.success('Preview link copied — send it to anyone.')
+        : this.toast.error(`Couldn’t copy automatically. Your link: ${url}`),
+    );
   }
 
   private buildTime(site: Site): number {

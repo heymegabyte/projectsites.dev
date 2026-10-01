@@ -1115,3 +1115,67 @@ describe('AdminSiteDetailComponent (SQL tab gated on super-admin)', () => {
     expect(post).withContext('a site owner must not reach /sql/exec').not.toHaveBeenCalled();
   });
 });
+
+/**
+ * Claim-status chip + Share-preview affordance in the detail header
+ * (claim_flow, fire-61). The header reads the EXISTING `plan` field from the
+ * `GET /sites/:id` payload: `paid` → "Claimed" chip; any other known plan →
+ * "Unclaimed — preview live" chip + ONE primary affordance (Share preview,
+ * copies the subdomain URL). Plan missing (degraded fallback record) → NO
+ * chip — never guess a claim state.
+ */
+describe('AdminSiteDetailComponent (claim status + share preview)', () => {
+  afterEach(() => { try { localStorage.clear(); } catch { /* */ } TestBed.resetTestingModule(); });
+
+  function renderWithPlan(plan?: string) {
+    const api = {
+      get: jasmine.createSpy('get').and.returnValue(
+        of({ data: { id: 'site-1', slug: 'vito', business_name: 'Vito', ...(plan ? { plan } : {}) }, logs: [] }),
+      ),
+      post: jasmine.createSpy('post'),
+    };
+    TestBed.configureTestingModule({
+      imports: [AdminSiteDetailComponent],
+      providers: [
+        provideRouter([]),
+        { provide: ApiService, useValue: api },
+        { provide: AdminStateService, useValue: superAdminState(false) },
+        { provide: ActivatedRoute, useValue: { paramMap: of({ get: () => 'site-1' }), queryParamMap: of({ get: () => null }) } },
+      ],
+    });
+    const f = TestBed.createComponent(AdminSiteDetailComponent);
+    f.detectChanges();
+    return f;
+  }
+
+  it('shows a "Claimed" chip for a paid site and no share button', () => {
+    const host = renderWithPlan('paid').nativeElement as HTMLElement;
+    const chip = host.querySelector('[data-testid="sd-claim-chip"]');
+    expect(chip).withContext('claimed chip renders in the header').not.toBeNull();
+    expect(chip?.textContent).toContain('Claimed');
+    expect(chip?.textContent).not.toContain('Unclaimed');
+    expect(host.querySelector('[data-testid="sd-share-preview"]')).toBeNull();
+  });
+
+  it('shows "Unclaimed — preview live" + Share preview for a free site; the button copies the subdomain URL', async () => {
+    const f = renderWithPlan('free');
+    const host = f.nativeElement as HTMLElement;
+    expect(host.querySelector('[data-testid="sd-claim-chip"]')?.textContent).toContain('Unclaimed — preview live');
+    // House clipboard stub (defineProperty wholesale, per clipboard.spec.ts):
+    // spyOn(navigator.clipboard, 'writeText') is order-fragile in the full
+    // suite — an earlier suite's replacement carries a permanent spy.
+    const writeText = jasmine.createSpy('writeText').and.resolveTo(undefined);
+    Object.defineProperty(navigator, 'clipboard', { value: { writeText }, configurable: true });
+    const toastSuccess = spyOn(TestBed.inject(ToastService), 'success');
+    host.querySelector<HTMLButtonElement>('[data-testid="sd-share-preview"]')?.click();
+    expect(writeText).toHaveBeenCalledWith('https://vito.projectsites.dev');
+    await new Promise((r) => setTimeout(r)); // flush copyToClipboard → toast chain
+    expect(toastSuccess).withContext('owner-grade confirmation toast').toHaveBeenCalled();
+  });
+
+  it('renders NO claim chip when the payload carries no plan (degraded fallback record)', () => {
+    const host = renderWithPlan(undefined).nativeElement as HTMLElement;
+    expect(host.querySelector('[data-testid="sd-claim"]')).withContext('unknown plan → no chip, never a guess').toBeNull();
+    expect(host.querySelector('[data-testid="sd-share-preview"]')).toBeNull();
+  });
+});

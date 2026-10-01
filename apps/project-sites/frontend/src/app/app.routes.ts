@@ -556,6 +556,27 @@ export const routes: Routes = [
         loadComponent: () =>
           import('./pages/admin/sections/site-dna.component').then((m) => m.AdminSiteDnaComponent),
       },
+      // ─── Claim checkout returns (claim_flow, fire-61) ─────────────
+      // Stripe redirects owners here after the $29/mo claim checkout.
+      // Deep-linkable (cold SPA boot): `?site=` carries the site id and
+      // `?session_id=` the checkout session — both optional; missing or
+      // malformed params render graceful generic copy, never an error.
+      // The backend `claim_flow` flag is globally dark; these routes are
+      // inert chrome until it's enabled (they never call the API).
+      {
+        path: 'claim/success',
+        loadComponent: () =>
+          import('./pages/admin/sections/claim-return.component').then(
+            (m) => m.ClaimSuccessComponent,
+          ),
+      },
+      {
+        path: 'claim/cancel',
+        loadComponent: () =>
+          import('./pages/admin/sections/claim-return.component').then(
+            (m) => m.ClaimCancelComponent,
+          ),
+      },
       {
         // Super-admin — gated server-side on `users.is_super_admin = 1` (the
         // worker routes return 403 to non-super-admins; the component shows a
