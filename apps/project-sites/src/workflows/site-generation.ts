@@ -38,6 +38,11 @@ import {
 import { postAskUser } from '../services/task_inbox.js';
 import { appendBuildEvent, type BuildEvent } from '../services/build_events.js';
 import { checkBudget, recordSpend } from '../services/build_budget.js';
+import {
+  initBuildMetrics,
+  markBuildPhase,
+  finalizeBuildMetrics,
+} from '../services/build_metrics.js';
 import { resolveActiveOrgPlan } from '../services/build_limits.js';
 import { isFlagOn } from '../modules/feature_flags/services.js';
 import { tryEmitEvent } from '../services/emit_event.js';
@@ -546,6 +551,16 @@ export class SiteGenerationWorkflow extends WorkflowEntrypoint<Env, SiteGenerati
 
     await updateSiteStatus(env.DB, params.siteId, 'generating');
 
+    // fire-60 generation metrics — replay-safe (buildId = the stable workflow
+    // instance id; init is first-write-wins, so hibernation replays keep the
+    // original marks/counters). Fire-and-forget: never blocks the build.
+    await initBuildMetrics(env, {
+      siteId: params.siteId,
+      buildId: event.instanceId,
+      orgId: params.orgId,
+      startedAtMs: new Date(event.timestamp).getTime(),
+    });
+
     await emitBuildEvent(env, params.siteId, {
       type: 'build.started',
       prompt: `${params.businessName} (${params.slug})`,
@@ -554,6 +569,7 @@ export class SiteGenerationWorkflow extends WorkflowEntrypoint<Env, SiteGenerati
     // ── Validate container binding ──
     if (!env.SITE_BUILDER) {
       await updateSiteStatus(env.DB, params.siteId, 'error');
+      await finalizeBuildMetrics(env, params.siteId, 'error');
       throw new Error('SITE_BUILDER container not configured');
     }
     // Capture the narrowed (non-optional) binding once — the getContainer closure below loses the
@@ -630,9 +646,11 @@ export class SiteGenerationWorkflow extends WorkflowEntrypoint<Env, SiteGenerati
       });
       if (parsed.ok) {
         await updateSiteStatus(env.DB, params.siteId, 'published');
+        await finalizeBuildMetrics(env, params.siteId, 'published');
         return { ok: true, mode: 'minimal', uploaded: parsed.uploadResult?.uploaded };
       }
       await updateSiteStatus(env.DB, params.siteId, 'error');
+      await finalizeBuildMetrics(env, params.siteId, 'error');
       throw new Error('minimal build failed: ' + (parsed.stdoutTail || 'unknown'));
     }
 
@@ -1244,6 +1262,7 @@ export class SiteGenerationWorkflow extends WorkflowEntrypoint<Env, SiteGenerati
       // nothing and never burns a build.
       if (approvalChoice === 'Use my own') {
         await updateSiteStatus(env.DB, params.siteId, 'collecting');
+        await finalizeBuildMetrics(env, params.siteId, 'halted');
         await wfLog('workflow.halted_for_upload', {
           message: 'Build halted — awaiting custom-logo upload from user',
         });
@@ -1261,6 +1280,7 @@ export class SiteGenerationWorkflow extends WorkflowEntrypoint<Env, SiteGenerati
       }
       if (approvalChoice === 'Regenerate') {
         await updateSiteStatus(env.DB, params.siteId, 'collecting');
+        await finalizeBuildMetrics(env, params.siteId, 'halted');
         await wfLog('workflow.logo_regenerate_requested', {
           message:
             'Logo regeneration requested — build halted, status collecting so the next run re-picks the logo',
@@ -1311,6 +1331,7 @@ export class SiteGenerationWorkflow extends WorkflowEntrypoint<Env, SiteGenerati
             `$${meter.capUsd === Infinity ? '∞' : meter.capUsd.toFixed(2)} used. ` +
             'Upgrade your plan or wait for the monthly reset to build again.';
           await updateSiteStatus(env.DB, params.siteId, 'error');
+          await finalizeBuildMetrics(env, params.siteId, 'error');
           await wfLog('workflow.budget_blocked', {
             spent_usd: meter.spentUsd,
             cap_usd: meter.capUsd,
@@ -1386,6 +1407,7 @@ export class SiteGenerationWorkflow extends WorkflowEntrypoint<Env, SiteGenerati
         const credit = await checkBuildLlmCredit(env as unknown as BuildLlmCreditEnv);
         if (!credit.ok) {
           await updateSiteStatus(env.DB, params.siteId, 'error');
+          await finalizeBuildMetrics(env, params.siteId, 'error');
           await wfLog('workflow.build_llm_no_credit', {
             provider: credit.provider,
             reason: credit.reason,
@@ -1437,6 +1459,11 @@ export class SiteGenerationWorkflow extends WorkflowEntrypoint<Env, SiteGenerati
     // 2026-08-20 — the exact stranded-state class that blocked rebuilds).
     // Flip to error BEFORE rethrowing so the site reaches terminal and the
     // user can retry immediately.
+    // fire-60 metrics — the container build (the 'generating' phase) starts
+    // here; everything before this mark is 'collecting' prep. First-write-wins,
+    // so replay re-marks are no-ops.
+    await markBuildPhase(env, params.siteId, 'generating');
+
     let jobId: string;
     try {
       jobId = await step.do(
@@ -1516,6 +1543,7 @@ export class SiteGenerationWorkflow extends WorkflowEntrypoint<Env, SiteGenerati
       );
     } catch (err) {
       await updateSiteStatus(env.DB, params.siteId, 'error');
+      await finalizeBuildMetrics(env, params.siteId, 'error');
       await wfLog('workflow.start_build_failed', {
         error: err instanceof Error ? err.message : String(err),
         message: 'Container build failed to start — site flipped to error so the user can retry',
@@ -1962,6 +1990,7 @@ export class SiteGenerationWorkflow extends WorkflowEntrypoint<Env, SiteGenerati
 
     if (!finalStatus) {
       await updateSiteStatus(env.DB, params.siteId, 'error');
+      await finalizeBuildMetrics(env, params.siteId, 'error');
       await wfLog('workflow.timeout', {
         message: `Build timed out after ${MAX_POLLS} polls (${MAX_POLLS * 30}s)`,
       });
@@ -1982,6 +2011,9 @@ export class SiteGenerationWorkflow extends WorkflowEntrypoint<Env, SiteGenerati
 
     if (finalStatus.status === 'error') {
       await updateSiteStatus(env.DB, params.siteId, 'error');
+      await finalizeBuildMetrics(env, params.siteId, 'error', {
+        containerSeconds: finalStatus.elapsed || 0,
+      });
       await wfLog('workflow.build_error', {
         error: finalStatus.error,
         elapsed_seconds: finalStatus.elapsed,
@@ -2011,6 +2043,9 @@ export class SiteGenerationWorkflow extends WorkflowEntrypoint<Env, SiteGenerati
       },
       async () => {
         const fileCount = finalStatus?.fileCount || 0;
+        // fire-60 metrics — 'publishing' phase begins (container done, R2
+        // verify + publish flip ahead). First-write-wins across step retries.
+        await markBuildPhase(env, params.siteId, 'publishing');
         // Prefer in-memory record from heartbeat poll. If missing or empty, re-read
         // KV — the container's HMAC-protected callback always writes the canonical
         // uploadResult to `build:${jobId}` regardless of which path saw terminal status first.
@@ -2028,6 +2063,9 @@ export class SiteGenerationWorkflow extends WorkflowEntrypoint<Env, SiteGenerati
 
         if (uploadCount === 0) {
           await updateSiteStatus(env.DB, params.siteId, 'error');
+          await finalizeBuildMetrics(env, params.siteId, 'error', {
+            containerSeconds: finalStatus?.elapsed || 0,
+          });
           await wfLog('workflow.upload_failed', {
             file_count: fileCount,
             upload_result: uploadResult,
@@ -2265,6 +2303,9 @@ export class SiteGenerationWorkflow extends WorkflowEntrypoint<Env, SiteGenerati
             ];
             if (brandViolations.length > 0) {
               await updateSiteStatus(env.DB, params.siteId, 'error');
+              await finalizeBuildMetrics(env, params.siteId, 'error', {
+                containerSeconds: finalStatus?.elapsed || 0,
+              });
               await wfLog('workflow.brand_gate_failed', {
                 violations: brandViolations.slice(0, 10),
                 message: `Brand gate failed — refusing to publish: ${brandViolations[0]?.message ?? 'unknown'}`,
@@ -2450,6 +2491,13 @@ export class SiteGenerationWorkflow extends WorkflowEntrypoint<Env, SiteGenerati
         } catch {
           // metering must never break the build
         }
+
+        // fire-60 metrics — terminal row (idempotent upsert on build_id; a
+        // premature error row from a retried step is overwritten). Fire-and-
+        // forget safe: finalizeBuildMetrics never throws.
+        await finalizeBuildMetrics(env, params.siteId, 'published', {
+          containerSeconds: finalStatus?.elapsed || 0,
+        });
 
         return JSON.stringify({ fileCount, version });
       },

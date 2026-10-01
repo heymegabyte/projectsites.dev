@@ -15,6 +15,7 @@ import { withRetry, classifyError } from './retry.js';
 import { captureLLMCall } from './analytics.js';
 import { log } from '../lib/log.js';
 import { meterAiTokens } from './usage_metering.js';
+import { accumulateBuildModelCallFromTrace } from './build_metrics.js';
 import {
   gatewayBaseUrl,
   gatewayFetch,
@@ -51,6 +52,12 @@ export interface TraceContext {
   traceId?: string;
   /** Prompt id (e.g. `research_brand`, `generate_website`) for cost-per-prompt rollups. */
   promptId?: string;
+  /**
+   * Site whose in-flight BUILD this call belongs to — when set, token usage
+   * accumulates into the build's `build_metrics` row (fire-60 generation
+   * speed/cost instrument). No-op outside an active build.
+   */
+  siteId?: string;
 }
 
 /**
@@ -876,6 +883,8 @@ export async function callExternalLLM(
       });
 
       void meterAiTokensForCall(env, options, inputTokens, outputTokens, model);
+      // fire-60 build metrics — per-build token counters (no-op without siteId).
+      accumulateBuildModelCallFromTrace(env, options.traceContext, model, inputTokens, outputTokens);
 
       return {
         output: result.text,
@@ -1043,6 +1052,9 @@ export async function callExternalLLMWithVision(
         cacheHit,
         gatewayUsed,
       });
+
+      // fire-60 build metrics — per-build token counters (no-op without siteId).
+      accumulateBuildModelCallFromTrace(env, options.traceContext, model, inputTokens, outputTokens);
 
       return {
         output: result.text,
