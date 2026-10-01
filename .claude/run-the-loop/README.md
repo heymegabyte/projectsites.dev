@@ -91,11 +91,14 @@
 
 ## Standing invariants
 
-- **Cadence: 15 minutes via macOS launchd (scheduler of record, 2026-10-01-pm).**
-  `space.megabyte.projectsites.run-the-loop` → headless `claude -p "/run-the-loop"` every
-  900s, log `cron-runs.log`, lease-coalesced. Harness cron
-  `4,19,34,49 * * * *` → `/run-the-loop` (durable). EVERY `/run-the-loop` invocation
-  re-arms it first (see the command file banner) — the 7-day harness expiry is self-healed. The lease (overlap coalescing) is what makes 20m safe; it still binds.
+- **Cadence: THIS Claude Code session's harness cron (interim, Brian 2026-10-01 pm).**
+  Job `589089ab` @ `4,19,34,49` fires `/run-the-loop` INTO the open interactive session when
+  idle — visible, zero local daemon, zero new auth. NO launchd/plist/cron on the Mac (removed:
+  it fired invisibly + locally, both rejected). Limitation accepted: only while this session is
+  open + the Mac awake. **DOGFOOD PLAN: migrate to ProjectSites' OWN agent runner once the
+  Browser Operating Layer / autonomous-operations rail ships** (`./BROWSER-OPERATING-LAYER.md`) —
+  "we'll dogfood our own service once it's ready." Cloud interim (GHA `run-the-loop.yml` OR a
+  CF Cron-Triggered container) stays dark until `CLAUDE_CODE_OAUTH_TOKEN` is minted.
 - **Fire budget ~3M subagent tokens (heavy roster)** — Brian 2026-10-01. Evaluator sweep +
   builders + champion/challenger + multi-critic vision allowed every fire; report spend in
   the LEDGER entry.

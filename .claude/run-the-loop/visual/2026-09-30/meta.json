@@ -1,0 +1,230 @@
+{
+  "startedAt": "2026-10-01T04:19:29.120Z",
+  "provider": "cloudflare-browser-run",
+  "identity": {
+    "status": 200,
+    "email": "brian@megabyte.space",
+    "orgId": "org-brian-001",
+    "superAdmin": true
+  },
+  "shots": [
+    {
+      "file": "01-public-home-1280.png",
+      "label": "Public homepage @1280",
+      "url": "https://projectsites.dev/",
+      "title": "ProjectSites — AI Website Builder, Live in 4 Minutes",
+      "h1": [
+        "Tell us your business. We'll build your website."
+      ],
+      "textLen": 2847,
+      "firstText": "Project Sites builds and deploys complete AI-generated websites for small business in under 15 minutes on Cloudflare Workers. The AI gateway routes each prompt to the right model by complexity — instant responses via Workers AI (free), routine generation via DeepSeek, premium reasoning via Anthropic Claude or OpenAI. Every publish runs an axe-core accessibility gate at six viewports and a Lighthouse Core Web Vitals gate, blocking deploys that fai",
+      "consoleErrors": [],
+      "failedRequests": [],
+      "ts": "2026-10-01T04:19:38.708Z"
+    },
+    {
+      "file": "02-public-home-390.png",
+      "label": "Public homepage @390",
+      "url": "https://projectsites.dev/",
+      "title": "ProjectSites — AI Website Builder, Live in 4 Minutes",
+      "h1": [
+        "Tell us your business. We'll build your website."
+      ],
+      "textLen": 2792,
+      "firstText": "Project Sites builds and deploys complete AI-generated websites for small business in under 15 minutes on Cloudflare Workers. The AI gateway routes each prompt to the right model by complexity — instant responses via Workers AI (free), routine generation via DeepSeek, premium reasoning via Anthropic Claude or OpenAI. Every publish runs an axe-core accessibility gate at six viewports and a Lighthouse Core Web Vitals gate, blocking deploys that fai",
+      "consoleErrors": [],
+      "failedRequests": [],
+      "ts": "2026-10-01T04:19:40.358Z"
+    },
+    {
+      "file": "03-admin-dashboard-1280.png",
+      "label": "Admin dashboard @1280",
+      "url": "https://projectsites.dev/admin",
+      "title": "Dashboard · ProjectSites",
+      "h1": [
+        "Dashboard"
+      ],
+      "textLen": 3974,
+      "firstText": "Project Sites builds and deploys complete AI-generated websites for small business in under 15 minutes on Cloudflare Workers. The AI gateway routes each prompt to the right model by complexity — instant responses via Workers AI (free), routine generation via DeepSeek, premium reasoning via Anthropic Claude or OpenAI. Every publish runs an axe-core accessibility gate at six viewports and a Lighthouse Core Web Vitals gate, blocking deploys that fai",
+      "consoleErrors": [],
+      "failedRequests": [],
+      "ts": "2026-10-01T04:19:48.042Z"
+    },
+    {
+      "file": "04-admin-dashboard-390.png",
+      "label": "Admin dashboard @390",
+      "url": "https://projectsites.dev/admin",
+      "title": "Dashboard · ProjectSites",
+      "h1": [
+        "Dashboard"
+      ],
+      "textLen": 4217,
+      "firstText": "Project Sites builds and deploys complete AI-generated websites for small business in under 15 minutes on Cloudflare Workers. The AI gateway routes each prompt to the right model by complexity — instant responses via Workers AI (free), routine generation via DeepSeek, premium reasoning via Anthropic Claude or OpenAI. Every publish runs an axe-core accessibility gate at six viewports and a Lighthouse Core Web Vitals gate, blocking deploys that fai",
+      "consoleErrors": [],
+      "failedRequests": [],
+      "ts": "2026-10-01T04:19:50.035Z"
+    },
+    {
+      "file": "05-admin-sites-1280.png",
+      "label": "Sites list @1280",
+      "url": "https://projectsites.dev/admin/sites",
+      "title": "Sites · ProjectSites",
+      "h1": [
+        "Sites"
+      ],
+      "textLen": 925,
+      "firstText": "Project Sites builds and deploys complete AI-generated websites for small business in under 15 minutes on Cloudflare Workers. The AI gateway routes each prompt to the right model by complexity — instant responses via Workers AI (free), routine generation via DeepSeek, premium reasoning via Anthropic Claude or OpenAI. Every publish runs an axe-core accessibility gate at six viewports and a Lighthouse Core Web Vitals gate, blocking deploys that fai",
+      "consoleErrors": [],
+      "failedRequests": [],
+      "navMethod": "goto",
+      "ts": "2026-10-01T04:20:07.855Z"
+    },
+    {
+      "file": "06-admin-editor-shell-1280.png",
+      "label": "Editor shell booted (workbench tabs visible)",
+      "url": "https://projectsites.dev/admin/editor",
+      "title": "Editor · ProjectSites",
+      "h1": [
+        "Site editor"
+      ],
+      "textLen": 900,
+      "firstText": "Project Sites builds and deploys complete AI-generated websites for small business in under 15 minutes on Cloudflare Workers. The AI gateway routes each prompt to the right model by complexity — instant responses via Workers AI (free), routine generation via DeepSeek, premium reasoning via Anthropic Claude or OpenAI. Every publish runs an axe-core accessibility gate at six viewports and a Lighthouse Core Web Vitals gate, blocking deploys that fai",
+      "consoleErrors": [],
+      "failedRequests": [],
+      "navMethod": "click",
+      "workbenchBooted": true,
+      "ts": "2026-10-01T04:20:25.516Z"
+    },
+    {
+      "file": "07-admin-editor-data-tab-1280.png",
+      "label": "Editor › Database/Data tab",
+      "url": "https://projectsites.dev/admin/editor",
+      "title": "Editor · ProjectSites",
+      "h1": [
+        "Site editor"
+      ],
+      "textLen": 900,
+      "firstText": "Project Sites builds and deploys complete AI-generated websites for small business in under 15 minutes on Cloudflare Workers. The AI gateway routes each prompt to the right model by complexity — instant responses via Workers AI (free), routine generation via DeepSeek, premium reasoning via Anthropic Claude or OpenAI. Every publish runs an axe-core accessibility gate at six viewports and a Lighthouse Core Web Vitals gate, blocking deploys that fai",
+      "consoleErrors": [],
+      "failedRequests": [],
+      "ts": "2026-10-01T04:20:34.329Z"
+    },
+    {
+      "file": "08-admin-analytics-1280.png",
+      "label": "Analytics @1280",
+      "url": "https://projectsites.dev/admin/analytics",
+      "title": "Analytics · ProjectSites",
+      "h1": [
+        "Analytics"
+      ],
+      "textLen": 6354,
+      "firstText": "Project Sites builds and deploys complete AI-generated websites for small business in under 15 minutes on Cloudflare Workers. The AI gateway routes each prompt to the right model by complexity — instant responses via Workers AI (free), routine generation via DeepSeek, premium reasoning via Anthropic Claude or OpenAI. Every publish runs an axe-core accessibility gate at six viewports and a Lighthouse Core Web Vitals gate, blocking deploys that fai",
+      "consoleErrors": [],
+      "failedRequests": [],
+      "navMethod": "click",
+      "ts": "2026-10-01T04:20:38.235Z"
+    },
+    {
+      "file": "09-admin-domains-1280.png",
+      "label": "Domains @1280",
+      "url": "https://projectsites.dev/admin/settings#domains",
+      "title": "Settings · ProjectSites",
+      "h1": [
+        "Settings"
+      ],
+      "textLen": 1625,
+      "firstText": "Project Sites builds and deploys complete AI-generated websites for small business in under 15 minutes on Cloudflare Workers. The AI gateway routes each prompt to the right model by complexity — instant responses via Workers AI (free), routine generation via DeepSeek, premium reasoning via Anthropic Claude or OpenAI. Every publish runs an axe-core accessibility gate at six viewports and a Lighthouse Core Web Vitals gate, blocking deploys that fai",
+      "consoleErrors": [],
+      "failedRequests": [],
+      "navMethod": "goto",
+      "ts": "2026-10-01T04:20:56.644Z"
+    },
+    {
+      "file": "10-admin-settings-1280.png",
+      "label": "Settings @1280",
+      "url": "https://projectsites.dev/admin/settings",
+      "title": "ProjectSites — AI Website Builder, Live in 4 Minutes",
+      "h1": [
+        "Settings"
+      ],
+      "textLen": 1882,
+      "firstText": "Project Sites builds and deploys complete AI-generated websites for small business in under 15 minutes on Cloudflare Workers. The AI gateway routes each prompt to the right model by complexity — instant responses via Workers AI (free), routine generation via DeepSeek, premium reasoning via Anthropic Claude or OpenAI. Every publish runs an axe-core accessibility gate at six viewports and a Lighthouse Core Web Vitals gate, blocking deploys that fai",
+      "consoleErrors": [],
+      "failedRequests": [],
+      "navMethod": "click",
+      "ts": "2026-10-01T04:20:59.005Z"
+    },
+    {
+      "file": "11-admin-feature-flags-1280.png",
+      "label": "Feature Flags @1280",
+      "url": "https://projectsites.dev/admin/feature-flags",
+      "title": "Feature Flags · ProjectSites",
+      "h1": [
+        "Feature Flags"
+      ],
+      "textLen": 71009,
+      "firstText": "Project Sites builds and deploys complete AI-generated websites for small business in under 15 minutes on Cloudflare Workers. The AI gateway routes each prompt to the right model by complexity — instant responses via Workers AI (free), routine generation via DeepSeek, premium reasoning via Anthropic Claude or OpenAI. Every publish runs an axe-core accessibility gate at six viewports and a Lighthouse Core Web Vitals gate, blocking deploys that fai",
+      "consoleErrors": [],
+      "failedRequests": [],
+      "navMethod": "click",
+      "ts": "2026-10-01T04:21:04.443Z"
+    },
+    {
+      "file": "12-admin-apps-1280.png",
+      "label": "Apps @1280",
+      "url": "https://projectsites.dev/admin/apps",
+      "title": "Apps · ProjectSites",
+      "h1": [
+        "Apps 9 apps"
+      ],
+      "textLen": 2366,
+      "firstText": "Project Sites builds and deploys complete AI-generated websites for small business in under 15 minutes on Cloudflare Workers. The AI gateway routes each prompt to the right model by complexity — instant responses via Workers AI (free), routine generation via DeepSeek, premium reasoning via Anthropic Claude or OpenAI. Every publish runs an axe-core accessibility gate at six viewports and a Lighthouse Core Web Vitals gate, blocking deploys that fai",
+      "consoleErrors": [],
+      "failedRequests": [],
+      "navMethod": "click",
+      "ts": "2026-10-01T04:21:07.292Z"
+    },
+    {
+      "file": "13-customer-site-1280.png",
+      "label": "Customer site lone-mountain-global @1280",
+      "url": "https://lone-mountain-global.projectsites.dev/",
+      "title": "Lone Mountain Global — Local local business you can trust",
+      "h1": [
+        "Lone Mountain Global — Your your community local business"
+      ],
+      "textLen": 4766,
+      "firstText": "Skip to main content Lone Mountain Global Home About Services Contact Search Ctrl K Get in Touch LOCAL LOCAL BUSINESS YOU CAN TRUST Lone Mountain Global — Your your community local business Trusted local business in your community — clear answers, no surprises, and work we stand behind. Get in touch Learn more Trusted locally Friendly service Quality guaranteed Trusted by our community Experienced & professional Responsive support Client-first se",
+      "consoleErrors": [
+        "Failed to load resource: the server responded with a status of 404 (Not Found)",
+        "Failed to load resource: the server responded with a status of 404 (Not Found)",
+        "Failed to load resource: the server responded with a status of 404 (Not Found)",
+        "Failed to load resource: the server responded with a status of 404 (Not Found)",
+        "Error while trying to use the following icon from the Manifest: https://lone-mountain-global.projectsites.dev/apple-touch-icon.png (Download error or resource isn't a valid image)"
+      ],
+      "failedRequests": [
+        "HTTP 404 GET https://lone-mountain-global.projectsites.dev/logo-wordmark.png",
+        "HTTP 404 HEAD https://lone-mountain-global.projectsites.dev/logo-wordmark.png",
+        "HTTP 404 GET https://lone-mountain-global.projectsites.dev/apple-touch-icon.png"
+      ],
+      "slug": "lone-mountain-global",
+      "ts": "2026-10-01T04:21:23.343Z"
+    },
+    {
+      "file": "14-customer-site-390.png",
+      "label": "Customer site lone-mountain-global @390",
+      "url": "https://lone-mountain-global.projectsites.dev/",
+      "title": "Lone Mountain Global — Local local business you can trust",
+      "h1": [
+        "Lone Mountain Global — Your your community local business"
+      ],
+      "textLen": 4723,
+      "firstText": "Skip to main content Lone Mountain Global LOCAL LOCAL BUSINESS YOU CAN TRUST Lone Mountain Global — Your your community local business Trusted local business in your community — clear answers, no surprises, and work we stand behind. Get in touch Learn more Trusted locally Friendly service Quality guaranteed Trusted by our community Experienced & professional Responsive support Client-first service Listen to this page An AI summary of this page, r",
+      "consoleErrors": [],
+      "failedRequests": [],
+      "slug": "lone-mountain-global",
+      "ts": "2026-10-01T04:21:27.807Z"
+    }
+  ],
+  "status": "DONE",
+  "finishedAt": "2026-10-01T04:21:28.227Z"
+}
