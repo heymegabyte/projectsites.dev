@@ -1406,3 +1406,177 @@ describe('AdminAnalyticsComponent (drilldown filter — AN-FILTER)', () => {
     expect(c.isFiltered()).toBeTrue();
   });
 });
+
+/**
+ * Cached-first progressive paint (fire-60). The section's old forkJoin held
+ * FIRST PAINT hostage to the SLOWEST of its three requests — a 10s CF-aggregate
+ * timeout meant a >10s skeleton wall on every entry. These specs lock the fix:
+ *  - a re-entry paints the last-known view INSTANTLY from the root-scoped
+ *    AnalyticsViewCache (no skeleton once ANY data exists; quiet "updating…"
+ *    hint + card shimmer are the only loading affordance);
+ *  - the three sources stream independently — the fast first-party D1 summary
+ *    paints the cards while the CF aggregate is still in flight, and the CF
+ *    data refines them in place when it finally lands;
+ *  - a first-ever visit's skeleton is BOUNDED: past 3s, whatever responded is
+ *    painted (even honest zeros) while the rest keep streaming.
+ */
+describe('AdminAnalyticsComponent (cached-first progressive paint — fire-60)', () => {
+  let fixture: ComponentFixture<AdminAnalyticsComponent>;
+  let selectedSite: WritableSignal<{ id: string } | null>;
+  let getAnalytics: jasmine.Spy;
+  let getSite: jasmine.Spy;
+  let getDaily: jasmine.Spy;
+
+  /** A realistic CF edge envelope with the given pageview count. */
+  const cfEnv = (pageviews: number) =>
+    ({
+      range_days: 7,
+      urls_included: [{ resolved_zone: true }],
+      pageviews,
+      uniques: 200,
+      total_requests: pageviews,
+      series: [],
+      top_pages: [],
+      top_countries: [],
+      top_referrers: [],
+      any_real_data: true,
+    }) as never;
+
+  function configure(siteId: string): void {
+    selectedSite = signal<{ id: string } | null>({ id: siteId });
+    getAnalytics = jasmine
+      .createSpy('getMultiUrlAnalytics')
+      .and.returnValue(of({ data: cfEnv(777) }));
+    getSite = jasmine.createSpy('getSiteAnalytics').and.returnValue(of(null));
+    getDaily = jasmine.createSpy('getSiteAnalyticsDaily').and.returnValue(of({ days: [] }));
+    TestBed.configureTestingModule({
+      imports: [AdminAnalyticsComponent],
+      providers: [
+        {
+          provide: ApiService,
+          useValue: {
+            getMultiUrlAnalytics: getAnalytics,
+            getSiteAnalytics: getSite,
+            getSiteAnalyticsDaily: getDaily,
+            listSiteUrls: jasmine.createSpy('listSiteUrls').and.returnValue(of({ data: [] })),
+            getCloudflareCredentialStatus: jasmine
+              .createSpy('getCloudflareCredentialStatus')
+              .and.returnValue(of({ data: null })),
+            addSiteUrl: jasmine.createSpy('addSiteUrl').and.returnValue(of({})),
+            getNetworkAnalytics: jasmine
+              .createSpy('getNetworkAnalytics')
+              .and.returnValue(of({ data: null })),
+            get: jasmine.createSpy('get').and.returnValue(of({ available: false })),
+          },
+        },
+        { provide: ToastService, useValue: { error: jasmine.createSpy('error'), success: jasmine.createSpy('success') } },
+        { provide: PromptService, useValue: { prompt: jasmine.createSpy('prompt').and.resolveTo(null) } },
+        { provide: Router, useValue: { navigateByUrl: jasmine.createSpy('navigateByUrl'), navigate: jasmine.createSpy('navigate').and.resolveTo(true) } },
+        { provide: ActivatedRoute, useValue: { snapshot: { queryParamMap: { get: () => null } } } },
+        { provide: AdminStateService, useValue: { selectedSite } },
+      ],
+    });
+  }
+
+  function create(): void {
+    fixture = TestBed.createComponent(AdminAnalyticsComponent);
+    fixture.detectChanges(); // first effect flush → reload()
+  }
+
+  afterEach(() => TestBed.resetTestingModule());
+
+  it('cached-data-instant-render: a re-entry paints the last-known view instantly — no skeleton wall', () => {
+    configure('s-cache');
+    create();
+    const first = fixture.componentInstance;
+    expect(first.envelope()?.pageviews).withContext('first visit settles normally').toBe(777);
+    expect(first.loading()).withContext('first visit fully settled').toBeFalse();
+    fixture.destroy();
+
+    // Second entry: every source now HANGS — only the root-scoped cache can paint.
+    getAnalytics.and.returnValue(NEVER);
+    getSite.and.returnValue(NEVER);
+    getDaily.and.returnValue(NEVER);
+    create();
+    const c = fixture.componentInstance;
+    expect(c.envelope()?.pageviews)
+      .withContext('cache seeded the envelope synchronously on entry')
+      .toBe(777);
+    expect(c.loading()).withContext('background refresh is in flight').toBeTrue();
+    expect(c.isUpdatingStale()).withContext('stale-refresh state active').toBeTrue();
+    fixture.detectChanges();
+    const host = fixture.nativeElement as HTMLElement;
+    expect(host.querySelector('[data-testid="kpi-pageviews"] .skel'))
+      .withContext('NEVER a skeleton once any data exists')
+      .toBeNull();
+    expect(host.querySelector('[data-testid="analytics-updating-hint"]'))
+      .withContext('quiet updating hint is the only loading affordance')
+      .not.toBeNull();
+  });
+
+  it('per-card independent loading: the fast first-party summary paints while the slow CF aggregate streams; CF refines in place', () => {
+    configure('s-decouple');
+    const cf$ = new Subject<{ data: unknown }>();
+    getAnalytics.and.returnValue(cf$);
+    getSite.and.returnValue(
+      of({
+        traffic: { pageviews: 109, uniqueSessions: 42, topPaths: [], byCountry: [] },
+        appliedFilter: null,
+      }),
+    );
+    create();
+    const c = fixture.componentInstance;
+    // The D1 summary answered first → cards paint IMMEDIATELY (109 beacon
+    // pageviews) while the CF aggregate is still in flight.
+    expect(c.envelope()?.pageviews).withContext('fast source painted first').toBe(109);
+    expect(c.trafficSource()).withContext('traffic-derived envelope is beacon-sourced').toBe('beacon');
+    expect(c.loading()).withContext('slowest card still streaming').toBeTrue();
+    fixture.detectChanges();
+    const host = fixture.nativeElement as HTMLElement;
+    expect(host.querySelector('[data-testid="kpi-pageviews"] .skel'))
+      .withContext('no skeleton behind painted data')
+      .toBeNull();
+    expect(host.querySelector('[data-testid="analytics-updating-hint"]')).not.toBeNull();
+    // The slow CF aggregate lands LAST → upgrades the view in place + settles.
+    cf$.next({ data: cfEnv(5000) });
+    expect(c.envelope()?.pageviews).withContext('slowest card refined the view on arrival').toBe(5000);
+    expect(c.trafficSource()).withContext('real edge data upgrades the source label').toBe('edge');
+    expect(c.loading()).withContext('all sources settled').toBeFalse();
+  });
+
+  it('first-ever visit bounds the skeleton at 3s, then paints whatever responded (honest zeros)', () => {
+    jasmine.clock().install();
+    try {
+      configure('s-bound');
+      getAnalytics.and.returnValue(NEVER); // CF aggregate crawls toward its 10s timeout
+      getSite.and.returnValue(
+        of({
+          traffic: { pageviews: 0, uniqueSessions: 0, topPaths: [], byCountry: [] },
+          appliedFilter: null,
+        }),
+      );
+      create();
+      const c = fixture.componentInstance;
+      expect(c.envelope())
+        .withContext('a zero-traffic summary alone does not pre-empt CF before the bound')
+        .toBeNull();
+      fixture.detectChanges();
+      expect((fixture.nativeElement as HTMLElement).querySelector('[data-testid="kpi-pageviews"] .skel'))
+        .withContext('bounded skeleton while nothing paintable has arrived')
+        .not.toBeNull();
+      jasmine.clock().tick(3001);
+      fixture.detectChanges();
+      expect(c.envelope())
+        .withContext('past the bound, the responded source paints even at zero')
+        .not.toBeNull();
+      expect(c.envelope()?.pageviews).toBe(0);
+      expect(
+        (fixture.nativeElement as HTMLElement).querySelector('[data-testid="kpi-pageviews"] .skel'),
+      )
+        .withContext('skeleton released at the bound')
+        .toBeNull();
+    } finally {
+      jasmine.clock().uninstall();
+    }
+  });
+});

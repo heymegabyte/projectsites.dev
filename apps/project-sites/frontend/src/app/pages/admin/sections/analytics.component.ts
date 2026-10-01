@@ -1,5 +1,6 @@
 import {
   Component,
+  Injectable,
   inject,
   signal,
   computed,
@@ -10,7 +11,7 @@ import {
 import { DatePipe, DecimalPipe } from '@angular/common';
 import { ActivatedRoute, Router } from '@angular/router';
 import { timeout, catchError } from 'rxjs/operators';
-import { forkJoin, of, Subscription, TimeoutError } from 'rxjs';
+import { of, Subscription, TimeoutError } from 'rxjs';
 import { AdminStateService } from '../admin-state.service';
 import { HlmTablistDirective } from '../../../ui';
 import {
@@ -74,6 +75,42 @@ export interface AnalyticsDrill {
 
 /** Auto-refresh cadence in seconds — surfaced in the header countdown. */
 const REFRESH_INTERVAL_SEC = 60;
+
+/**
+ * First-ever-visit skeleton bound (fire-60). With the per-card decoupled fetch,
+ * the skeleton normally clears the instant the FIRST source answers; past this
+ * bound, whatever HAS responded is painted — even an honest all-zero first-party
+ * summary — with the quiet updating hint covering the still-streaming rest.
+ */
+const FIRST_PAINT_BOUND_MS = 3_000;
+
+/** One cached, fully-settled analytics view (see {@link AnalyticsViewCache}). */
+interface AnalyticsViewCacheEntry {
+  envelope: MultiUrlAnalyticsEnvelope;
+  siteTraffic: SiteTrafficSummary | null;
+  trafficSource: 'edge' | 'beacon';
+  refreshedAt: Date | null;
+}
+
+/**
+ * Injector-scoped stale-while-revalidate cache for the analytics view
+ * (fire-60; mirrors the AppsInstancesCache SWR pattern from the frontend
+ * perf doctrine). The component is recreated on every route entry, so without
+ * this each visit re-paid a full skeleton wall while the fan-in refetched.
+ * Keyed per (site, range, exclusions, window) so a re-entry paints its
+ * last-known numbers INSTANTLY and the background refresh streams fresh ones
+ * in. Unfiltered views only — drilldown filters are transient.
+ */
+@Injectable({ providedIn: 'root' })
+export class AnalyticsViewCache {
+  private readonly entries = new Map<string, AnalyticsViewCacheEntry>();
+  get(key: string): AnalyticsViewCacheEntry | undefined {
+    return this.entries.get(key);
+  }
+  set(key: string, entry: AnalyticsViewCacheEntry): void {
+    this.entries.set(key, entry);
+  }
+}
 
 /**
  * Format a count compactly: 999 → "999", 1_240 → "1.2K", 1_400_000 → "1.4M".
@@ -531,7 +568,19 @@ function sparklinePath(
         <!-- ─────────────────── HIGHLIGHTS — evidence-backed "so what" ─────────────────── -->
         <app-insights-strip appReveal [insights]="insights()" (drill)="applyDrill($event)" />
         <!-- ─────────────────── KPI TILES ─────────────────── -->
-        <div class="grid gap-3 grid-cols-4 max-lg:grid-cols-2 max-md:grid-cols-1">
+        @if (isUpdatingStale()) {
+          <!-- Cached-first progressive paint (fire-60): last-known numbers are
+               already on screen; this quiet hint plus a subtle card shimmer is
+               the ONLY loading affordance — never a skeleton wall once any data
+               exists. Fresh numbers stream in per card as each source lands. -->
+          <p class="updating-hint" data-testid="analytics-updating-hint" role="status">
+            updating…
+          </p>
+        }
+        <div
+          class="grid gap-3 grid-cols-4 max-lg:grid-cols-2 max-md:grid-cols-1"
+          [class.cards-updating]="isUpdatingStale()"
+        >
           <div
             class="card kpi"
             appReveal
@@ -2023,6 +2072,28 @@ function sparklinePath(
         color: rgba(255, 255, 255, 0.55);
         border-left: 1px solid rgba(255, 255, 255, 0.1);
       }
+      /* Quiet stale-refresh affordance (fire-60): shown only while last-known
+         data is painted AND a refresh streams in — never a skeleton wall. */
+      .updating-hint {
+        margin: 0 0 -6px;
+        font-family: 'JetBrains Mono', ui-monospace, monospace;
+        font-size: 0.66rem;
+        letter-spacing: 0.04em;
+        color: var(--ps-accent, #00e5ff);
+        opacity: 0.6;
+      }
+      .cards-updating .card {
+        animation: cardUpdating 1.6s ease-in-out infinite;
+      }
+      @keyframes cardUpdating {
+        0%,
+        100% {
+          opacity: 1;
+        }
+        50% {
+          opacity: 0.84;
+        }
+      }
       .dots {
         display: inline-flex;
         gap: 3px;
@@ -2057,7 +2128,8 @@ function sparklinePath(
         .skel::after,
         .empty-glyph,
         .dots span,
-        .rm-spin {
+        .rm-spin,
+        .cards-updating .card {
           animation: none;
         }
         .sparkline path,
@@ -2079,6 +2151,8 @@ export class AdminAnalyticsComponent implements OnInit, OnDestroy {
   state = inject(AdminStateService);
   private api = inject(ApiService);
   private toast = inject(ToastService);
+  /** Root-scoped SWR cache — survives route re-entry (component recreation). */
+  private readonly viewCache = inject(AnalyticsViewCache);
   private router = inject(Router);
   private route = inject(ActivatedRoute);
 
@@ -2130,6 +2204,13 @@ export class AdminAnalyticsComponent implements OnInit, OnDestroy {
    */
   readonly notAvailable = signal(false);
   loading = signal(false);
+  /**
+   * True while a refresh is in flight BEHIND already-painted data (a cached
+   * seed on re-entry, or a fast partial source while slower cards stream in) —
+   * drives the quiet "updating…" hint + subtle card shimmer. The full skeleton
+   * is reserved for loading-with-NOTHING-painted (first-ever visit, bounded).
+   */
+  readonly isUpdatingStale = computed(() => this.loading() && this.envelope() !== null);
   /** Consecutive failed auto-loads. After MAX, the 60s auto-refresh PAUSES so it
    *  stops re-hammering a persistently-failing endpoint ([[error-recovery]]
    *  "retry with backoff, max 3"). The manual Retry/Refresh always works and a
@@ -2157,10 +2238,11 @@ export class AdminAnalyticsComponent implements OnInit, OnDestroy {
   private refreshTimer?: ReturnType<typeof setInterval>;
   private countdownTimer?: ReturnType<typeof setInterval>;
   /**
-   * In-flight analytics forkJoin. `reload()` is fired by the constructor effect,
-   * the 60s poll, `setRange`, exclusion toggles, and Retry — all writing the
-   * shared `envelope()` signal. Cancelled before each new reload so a slower
-   * earlier response (e.g. a bigger 90d query, or a poll) can't resolve LAST and
+   * In-flight analytics fan-in (parent Subscription over the three decoupled
+   * per-card fetches). `reload()` is fired by the constructor effect, the 60s
+   * poll, `setRange`, exclusion toggles, and Retry — all writing the shared
+   * `envelope()` signal. Cancelled before each new reload so a slower earlier
+   * response (e.g. a bigger 90d query, or a poll) can't resolve LAST and
    * clobber a newer range's data (last-write-wins). Verified live: the daily
    * responses for two ranges resolve in nondeterministic order with no guard.
    */
@@ -3121,9 +3203,22 @@ export class AdminAnalyticsComponent implements OnInit, OnDestroy {
       return;
     }
     if (this.lastSiteId !== site.id) {
-      this.envelope.set(null);
       this.lastSiteId = site.id;
       this.excluded.set(new Set());
+      // Cached-first progressive paint (fire-60): seed the last-known SETTLED
+      // view for this exact (site, range, window) so re-entering the section
+      // renders data INSTANTLY — the refresh below streams fresh numbers in
+      // behind the quiet updating hint, never a skeleton wall. Cache miss
+      // (first-ever visit / params never seen) keeps the bounded skeleton.
+      const cached = this.filter() === null ? this.viewCache.get(this.cacheKeyFor(site.id)) : undefined;
+      if (cached) {
+        this.envelope.set(cached.envelope);
+        this.siteTraffic.set(cached.siteTraffic);
+        this.trafficSource.set(cached.trafficSource);
+        this.refreshedAt.set(cached.refreshedAt);
+      } else {
+        this.envelope.set(null);
+      }
       this.loadUrls();
     }
     this.loading.set(true);
@@ -3148,36 +3243,142 @@ export class AdminAnalyticsComponent implements OnInit, OnDestroy {
     // or the 60s poll) can't resolve last and clobber this reload's data on the
     // shared envelope() signal (last-write-wins).
     this.reloadSub?.unsubscribe();
-    this.reloadSub = forkJoin({
-      analytics: this.api.getMultiUrlAnalytics(site.id, cfRange, excludeArr, this.rangeDays()).pipe(
-        timeout(AdminAnalyticsComponent.FETCH_TIMEOUT_MS),
-        catchError((err: unknown) => {
-          // A 404 = the analytics route isn't registered for this site/env —
-          // PERMANENT (it won't fix itself). Show the calm "not available" notice
-          // instead of a red "usually temporary, retry" card, and let
-          // autoRefreshPaused stop the 60s re-poll (never hammer a 404 forever).
-          const status = (err as { status?: number } | undefined)?.status;
-          if (status === 404) {
-            this.notAvailable.set(true);
-            this.loadErrorRef.set('');
+    // ── Per-card decoupled fan-in (fire-60) ──────────────────────────────────
+    // The previous forkJoin held FIRST PAINT hostage to the SLOWEST of the three
+    // requests: when the CF edge aggregate ran to its 10s timeout the whole
+    // section sat on a skeleton wall even though the fast first-party D1 summary
+    // had answered in under a second. Each request now streams into a shared
+    // merge as it arrives — the fastest usable source paints the cards, slower
+    // sources refine them in place, and loading stays true (driving the quiet
+    // updating hint) until every source settles.
+    const sub = new Subscription();
+    this.reloadSub = sub;
+    const got: {
+      analytics?: MultiUrlAnalyticsEnvelope | null;
+      site?: SiteAnalyticsSummary | null;
+      daily?: {
+        days: { day: string; pageviews: number; uniqueSessions: number; conversions: number }[];
+      } | null;
+    } = {};
+    let pastBound = false;
+    let settledCount = 0;
+
+    const merge = (): void => {
+      const traffic = got.site?.traffic ?? null;
+      if ('site' in got) {
+        // Keep the raw traffic block so the bounce KPI can prefer the true
+        // session-depth bounce (bounceRatePercent) over the edge proxy.
+        this.siteTraffic.set(traffic);
+        // AN-FILTER — reflect the filter the SERVER confirmed it applied (drives
+        // the chip). Null when unfiltered or the server didn't honor one.
+        this.appliedFilter.set(got.site?.appliedFilter ?? null);
+      }
+      const filtered = this.filter() !== null;
+      const daily = got.daily?.days ?? [];
+      let env = got.analytics ?? null;
+      // A drilldown filter restricts ONLY the first-party summary — the CF edge
+      // dataset can't be filtered by these first-party dimensions, so a filtered
+      // view renders from the FILTERED traffic (honest: first-party audience
+      // only). Otherwise the traffic fallback fixes the subdomain "never had any
+      // traffic" lying-empty — and, decoupled, paints real first-party numbers
+      // BEFORE the CF aggregate resolves. Past the first-paint bound, a
+      // zero-traffic summary paints too (honest zeros + updating hint beat a
+      // skeleton wall while the CF aggregate crawls to its timeout).
+      if (filtered && traffic) {
+        env = this.envelopeFromTraffic(traffic, this.rangeDays(), daily);
+      } else if ((!env || !env.any_real_data) && traffic && traffic.pageviews > 0) {
+        env = this.envelopeFromTraffic(traffic, this.rangeDays(), daily);
+        this.notAvailable.set(false);
+        this.error.set(null);
+      } else if (!env && pastBound && !('analytics' in got) && traffic) {
+        env = this.envelopeFromTraffic(traffic, this.rangeDays(), daily);
+      }
+      if (env) {
+        this.envelope.set(env);
+        // Beacon vs edge is driven by whether ANY included host resolved a CF
+        // zone. A subdomain of projectsites.dev never resolves a zone, so the
+        // worker backfills D1 visitor_events with total_requests == pageviews —
+        // the KPI labels must then say "beacon", NOT "All HTTP requests at the
+        // edge". Traffic-derived envelopes (urls_included empty) and filtered
+        // views are likewise beacon-sourced by construction.
+        this.trafficSource.set(
+          !filtered && env.urls_included?.some((u) => u.resolved_zone) ? 'edge' : 'beacon',
+        );
+        this.error.set(null);
+      }
+    };
+
+    const settle = (): void => {
+      settledCount += 1;
+      merge();
+      if (settledCount < 3) return;
+      clearTimeout(boundTimer); // fully settled — the first-paint bound is moot
+      // Count ONLY genuine load errors (catchError set error() + returned null)
+      // toward the auto-retry cap — a successful empty response (data null, no
+      // error: a site with no traffic yet) must NOT pause auto-refresh.
+      this.consecutiveErrors.set(this.error() ? this.consecutiveErrors() + 1 : 0);
+      this.refreshedAt.set(new Date());
+      this.loading.set(false);
+      // Persist the fully-settled view so the NEXT entry to this section paints
+      // it instantly (cached-first). Unfiltered views only — drilldowns are
+      // transient restrictions, not the section's resting state.
+      const env = this.envelope();
+      if (env && this.filter() === null) {
+        this.viewCache.set(this.cacheKeyFor(site.id), {
+          envelope: env,
+          siteTraffic: this.siteTraffic(),
+          trafficSource: this.trafficSource(),
+          refreshedAt: this.refreshedAt(),
+        });
+      }
+    };
+
+    // First-ever visit (no cache): bound the skeleton — past this, merge() may
+    // paint the first-party summary even at zero traffic. Cleared on cancel.
+    const boundTimer = setTimeout(() => {
+      pastBound = true;
+      merge();
+    }, FIRST_PAINT_BOUND_MS);
+    sub.add(() => clearTimeout(boundTimer));
+
+    sub.add(
+      this.api
+        .getMultiUrlAnalytics(site.id, cfRange, excludeArr, this.rangeDays())
+        .pipe(
+          timeout(AdminAnalyticsComponent.FETCH_TIMEOUT_MS),
+          catchError((err: unknown) => {
+            // A 404 = the analytics route isn't registered for this site/env —
+            // PERMANENT (it won't fix itself). Show the calm "not available" notice
+            // instead of a red "usually temporary, retry" card, and let
+            // autoRefreshPaused stop the 60s re-poll (never hammer a 404 forever).
+            const status = (err as { status?: number } | undefined)?.status;
+            if (status === 404) {
+              this.notAvailable.set(true);
+              this.loadErrorRef.set('');
+              return of({ data: null as MultiUrlAnalyticsEnvelope | null });
+            }
+            // The shared error card owns the Retry affordance, so the message no
+            // longer says "Retry below"; capture the worker request_id for support.
+            const msg =
+              err instanceof TimeoutError
+                ? 'Analytics request timed out after 10 s — this is usually temporary.'
+                : "Couldn't reach the analytics service — this is usually temporary.";
+            this.error.set(msg);
+            this.loadErrorRef.set(this.requestIdFrom(err));
             return of({ data: null as MultiUrlAnalyticsEnvelope | null });
-          }
-          // The shared error card owns the Retry affordance, so the message no
-          // longer says "Retry below"; capture the worker request_id for support.
-          const msg =
-            err instanceof TimeoutError
-              ? 'Analytics request timed out after 10 s — this is usually temporary.'
-              : "Couldn't reach the analytics service — this is usually temporary.";
-          this.error.set(msg);
-          this.loadErrorRef.set(this.requestIdFrom(err));
-          return of({ data: null as MultiUrlAnalyticsEnvelope | null });
+          }),
+        )
+        .subscribe((r) => {
+          got.analytics = r.data;
+          settle();
         }),
-      ),
-      // AUTHORITATIVE per-site pageviews from the D1 `visitor_events` store,
-      // recorded on every site-serve. The CF-zone dataset above is empty for
-      // `*.projectsites.dev` subdomains, so a real site showed "No traffic yet"
-      // while it had hundreds of recorded pageviews. Never throws (404/off → null).
-      site: this.api
+    );
+    // AUTHORITATIVE per-site pageviews from the D1 `visitor_events` store,
+    // recorded on every site-serve. The CF-zone dataset above is empty for
+    // `*.projectsites.dev` subdomains, so a real site showed "No traffic yet"
+    // while it had hundreds of recorded pageviews. Never throws (404/off → null).
+    sub.add(
+      this.api
         .getSiteAnalytics(
           site.id,
           this.rangeDays(),
@@ -3188,11 +3389,17 @@ export class AdminAnalyticsComponent implements OnInit, OnDestroy {
         .pipe(
           timeout(AdminAnalyticsComponent.FETCH_TIMEOUT_MS),
           catchError(() => of(null as SiteAnalyticsSummary | null)),
-        ),
-      // Daily rollup for the chart series — empty when the site has no rollup yet. Threads the
-      // active drilldown filter so the chart line matches the filtered KPIs (re-fetches with the
-      // summary whenever the filter changes, since both live in this one reload block).
-      daily: this.api
+        )
+        .subscribe((r) => {
+          got.site = r;
+          settle();
+        }),
+    );
+    // Daily rollup for the chart series — empty when the site has no rollup yet. Threads the
+    // active drilldown filter so the chart line matches the filtered KPIs (re-fetches with the
+    // summary whenever the filter changes, since both live in this one reload block).
+    sub.add(
+      this.api
         .getSiteAnalyticsDaily(
           site.id,
           this.rangeDays(),
@@ -3212,52 +3419,27 @@ export class AdminAnalyticsComponent implements OnInit, OnDestroy {
               }[],
             }),
           ),
-        ),
-    }).subscribe({
-      next: (r) => {
-        let env = r.analytics.data;
-        const traffic = r.site?.traffic;
-        // Keep the raw traffic block so the bounce KPI can prefer the true
-        // session-depth bounce (`bounceRatePercent`) over the edge proxy.
-        this.siteTraffic.set(traffic ?? null);
-        // AN-FILTER — reflect the filter the SERVER confirmed it applied (drives the chip).
-        // Null when unfiltered or the server didn't honor one.
-        this.appliedFilter.set(r.site?.appliedFilter ?? null);
-        const filtered = this.filter() !== null;
-        // A drilldown filter restricts ONLY the first-party summary — the CF edge dataset
-        // (getMultiUrlAnalytics) can't be filtered by these first-party dimensions. So when
-        // a filter is active, render the envelope from the FILTERED traffic rather than mix
-        // filtered cards with an unfiltered CF top-pages/countries envelope (honest: a
-        // filtered view is first-party audience only). Otherwise keep the existing fallback
-        // that fixes the subdomain "never had any traffic" lying-empty.
-        if (filtered && traffic) {
-          env = this.envelopeFromTraffic(traffic, this.rangeDays(), r.daily?.days ?? []);
-        } else if ((!env || !env.any_real_data) && traffic && traffic.pageviews > 0) {
-          env = this.envelopeFromTraffic(traffic, this.rangeDays(), r.daily?.days ?? []);
-          this.notAvailable.set(false);
-          this.error.set(null);
-        }
-        if (env) {
-          this.envelope.set(env);
-          // Beacon vs edge is driven by whether ANY included host resolved a CF zone.
-          // A `*.projectsites.dev` subdomain never resolves a zone, so the worker
-          // backfills D1 visitor_events with total_requests == pageviews — the KPI
-          // labels must then say "beacon", NOT "All HTTP requests at the edge". The
-          // frontend fallback overlay (urls_included:[]) is likewise beacon-sourced.
-          // A filtered view is always first-party (beacon) by construction above.
-          this.trafficSource.set(
-            !filtered && env.urls_included?.some((u) => u.resolved_zone) ? 'edge' : 'beacon',
-          );
-          this.error.set(null);
-        }
-        // Count ONLY genuine load errors (catchError set error() + returned null)
-        // toward the auto-retry cap — a successful empty response (data null, no
-        // error: a site with no traffic yet) must NOT pause auto-refresh.
-        this.consecutiveErrors.set(this.error() ? this.consecutiveErrors() + 1 : 0);
-        this.refreshedAt.set(new Date());
-        this.loading.set(false);
-      },
-    });
+        )
+        .subscribe((r) => {
+          got.daily = r;
+          settle();
+        }),
+    );
+  }
+
+  /**
+   * Cache key for the SWR view cache — one settled view per (site, range,
+   * effective day-span, host exclusions, absolute window). The drilldown filter
+   * is deliberately excluded: filtered views are never cached.
+   */
+  private cacheKeyFor(siteId: string): string {
+    return [
+      siteId,
+      this.range(),
+      this.rangeDays(),
+      Array.from(this.excluded()).sort().join(','),
+      JSON.stringify(this.customWindow() ?? null),
+    ].join('|');
   }
 
   /** Human label for a drilldown dimension — for the filter chip + aria copy. */

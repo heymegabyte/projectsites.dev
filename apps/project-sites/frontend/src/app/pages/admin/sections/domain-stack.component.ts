@@ -20,7 +20,7 @@
  * @packageDocumentation
  */
 import {
-  Component, inject, signal, computed, effect, OnDestroy,
+  Component, DestroyRef, inject, signal, computed, effect, OnDestroy,
 } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { RouterLink } from '@angular/router';
@@ -83,9 +83,12 @@ interface StackAdvanceResponse {
               {{ advancing() ? 'Running…' : 'Advance' }}
             </button>
           }
-          @if (runId()) {
-            <button class="btn-ghost text-xs ds-focus" type="button" (click)="refresh()" [disabled]="loading()"
-                    [attr.aria-busy]="loading()" aria-label="Refresh stack status"><span class="inline-block text-center min-w-[11ch]">{{ loading() ? 'Refreshing…' : 'Refresh' }}</span></button>
+          @if (syncHint(); as hint) {
+            <!-- Real-time doctrine: the board self-updates (4s active poll while a
+                 step runs, 45s visibility-aware idle poll otherwise, refresh after
+                 every Advance) — a manual Refresh button is a defect. This quiet
+                 hint is informational only; zero chrome, zero clicks. -->
+            <p class="sync-hint" data-testid="domain-stack-synced-hint" title="This board updates itself — no refresh needed">{{ hint }}</p>
           }
         </div>
       </header>
@@ -253,6 +256,19 @@ interface StackAdvanceResponse {
       letter-spacing: .02em;
     }
 
+    /* Quiet auto-update hint — replaces the removed manual Refresh button.
+       Informational text only: muted mono, no border, no background. */
+    .sync-hint {
+      margin: 0;
+      font-family: 'JetBrains Mono', ui-monospace, monospace;
+      font-size: 0.68rem;
+      letter-spacing: 0.02em;
+      color: var(--ps-ink, #f4f4ff);
+      opacity: 0.45;
+      align-self: center;
+      white-space: nowrap;
+    }
+
     /* Cyan focus ring — WCAG 2.4.11/2.4.7, ≥3:1 */
     .ds-focus:focus-visible {
       outline: 2px solid var(--ds-accent);
@@ -323,9 +339,96 @@ export class AdminDomainStackComponent implements OnDestroy {
     effect(() => {
       if (this.hostname()) this.refresh();
     });
+    this.startIdlePolling();
   }
 
   ngOnDestroy() { this.stopPoll(); }
+
+  // ─── Real-time idle polling (no manual refresh — doctrine) ──────
+  //
+  // Mirrors the AdminDomainsComponent fire-59 pattern: a background interval that
+  // is visibility-aware — fetches are skipped while `document.hidden`, and a
+  // foreground return triggers an immediate SILENT catch-up refresh (no loading
+  // flip, last-known tiles stay painted). This idle poll complements the existing
+  // 4s ACTIVE poll (which only runs while a step is in_progress) so a settled
+  // board still stays current; mutations (Advance / Start) already call
+  // {@link refresh} on success, so the board is also fresh after every write.
+
+  /** Background idle-poll cadence — 45s sits inside the doctrine's 30-60s window. */
+  private static readonly POLL_MS = 45_000;
+
+  private readonly destroyRef = inject(DestroyRef);
+
+  /** Epoch ms of the most recent successful stack-status sync (poll or load). */
+  readonly lastSyncedAt = signal<number | null>(null);
+
+  /**
+   * Quiet header hint replacing the old manual Refresh button. Recomputes on
+   * every successful sync (≤45s apart), so it needs no per-second ticker.
+   * Empty string (→ hidden) until the first load lands or with no hostname.
+   */
+  readonly syncHint = computed<string>(() => {
+    if (!this.hostname()) return '';
+    const at = this.lastSyncedAt();
+    if (!at) return '';
+    const secs = Math.max(0, Math.round((Date.now() - at) / 1000));
+    const rel = secs < 10 ? 'just now' : secs < 90 ? `${secs}s ago` : `${Math.round(secs / 60)}m ago`;
+    return `Auto-updates · synced ${rel}`;
+  });
+
+  /** Seam for tests + SSR-safety: current document visibility. */
+  protected isHidden(): boolean {
+    return typeof document !== 'undefined' && document.hidden === true;
+  }
+
+  /** Wire the visibility-aware interval + foreground catch-up listener. */
+  private startIdlePolling(): void {
+    const timer = setInterval(() => {
+      if (this.isHidden()) return; // paused in a background tab
+      this.refreshStackInBackground();
+    }, AdminDomainStackComponent.POLL_MS);
+    const onVisibility = (): void => {
+      if (!this.isHidden()) this.refreshStackInBackground();
+    };
+    if (typeof document !== 'undefined') {
+      document.addEventListener('visibilitychange', onVisibility);
+    }
+    this.destroyRef.onDestroy(() => {
+      clearInterval(timer);
+      if (typeof document !== 'undefined') {
+        document.removeEventListener('visibilitychange', onVisibility);
+      }
+    });
+  }
+
+  /**
+   * Silent background refresh: updates tiles in place with NO loading flip
+   * and NO error toast/banner churn — a transient poll failure keeps the
+   * last-known board (the loud {@link refresh} path owns error UX).
+   */
+  refreshStackInBackground(): void {
+    const hn = this.hostname();
+    if (!hn || this.loading() || this.advancing()) return;
+    this.api
+      .get<StackStatusResponse>(`/domains/${encodeURIComponent(hn)}/stack-status`, undefined, { silent: true })
+      .subscribe({
+        next: (res) => {
+          const d = res.data;
+          this.tiles.set(d.tiles ?? []);
+          this.currentState.set(d.state);
+          this.lastError.set(d.last_error);
+          this.retries.set(d.retries ?? 0);
+          this.runId.set(d.run_id);
+          this.lastSyncedAt.set(Date.now());
+          if (d.state === 'in_progress' || d.tiles.some((t) => t.status === 'in_progress')) {
+            this.startPoll();
+          }
+        },
+        error: () => {
+          /* quiet — keep last-known board; next tick retries */
+        },
+      });
+  }
 
   refresh() {
     const hn = this.hostname();
@@ -344,6 +447,7 @@ export class AdminDomainStackComponent implements OnDestroy {
         this.retries.set(d.retries ?? 0);
         this.runId.set(d.run_id);
         this.loading.set(false);
+        this.lastSyncedAt.set(Date.now());
         if (d.state === 'in_progress' || d.tiles.some((t) => t.status === 'in_progress')) {
           this.startPoll();
         } else {

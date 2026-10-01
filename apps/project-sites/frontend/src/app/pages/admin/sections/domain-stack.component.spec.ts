@@ -254,3 +254,97 @@ describe('AdminDomainStackComponent (r13 cohesion + a11y)', () => {
     expect(startBtn?.getAttribute('aria-busy')).toBe('true');
   });
 });
+
+/**
+ * Real-time doctrine (fire-60, mirrors the domains fire-59 pattern): the Domain
+ * Stack board self-updates — NO manual "Refresh" button anywhere. Beyond the
+ * existing 4s ACTIVE poll (runs only while a step is in_progress), a settled
+ * board background-polls on a 45s visibility-aware interval (paused while
+ * `document.hidden`, immediate silent catch-up on foreground return) and
+ * refreshes after every Advance/Start mutation. A quiet "synced" hint replaces
+ * the old button — informational text, zero chrome.
+ */
+describe('AdminDomainStackComponent (real-time: no manual refresh + visibility-aware poll)', () => {
+  let fixture: ComponentFixture<AdminDomainStackComponent>;
+  let selectedSite: WritableSignal<Site>;
+  let getSpy: jasmine.Spy;
+
+  // Settled board (state done, no in_progress tile) so the 4s ACTIVE poll never
+  // arms — getSpy call counts below then measure ONLY the 45s idle poll.
+  const doneTiles: Tile[] = [
+    { step: 'dns', label: 'DNS', status: 'done', error: null, data: null },
+    { step: 'ssl', label: 'SSL', status: 'done', error: null, data: null },
+  ];
+
+  function build(site: Site): void {
+    selectedSite = signal<Site>(site);
+    getSpy = jasmine.createSpy('get').and.callFake(() => statusResp(doneTiles, 'done'));
+    TestBed.configureTestingModule({
+      imports: [AdminDomainStackComponent],
+      providers: [
+        { provide: ApiService, useValue: { get: getSpy, post: jasmine.createSpy('post').and.returnValue(of({ data: {} })) } },
+        { provide: ToastService, useValue: { error: jasmine.createSpy('error'), success: jasmine.createSpy('success') } },
+        { provide: AdminStateService, useValue: { selectedSite } },
+        provideRouter([]),
+      ],
+    });
+    fixture = TestBed.createComponent(AdminDomainStackComponent);
+    fixture.detectChanges();
+  }
+
+  beforeEach(() => jasmine.clock().install());
+  afterEach(() => {
+    jasmine.clock().uninstall();
+    TestBed.resetTestingModule();
+  });
+
+  it('renders NO manual Refresh button (real-time-no-manual-refresh doctrine)', () => {
+    build({ id: 's1', primary_hostname: 'acme.dev' });
+    const buttons = Array.from((fixture.nativeElement as HTMLElement).querySelectorAll('button'));
+    const refreshButtons = buttons.filter((b) => /refresh/i.test(b.textContent ?? ''));
+    expect(refreshButtons.length)
+      .withContext('a manual Refresh control violates the real-time doctrine')
+      .toBe(0);
+  });
+
+  it('background-polls the stack status on the 45s idle interval while visible', () => {
+    build({ id: 's1', primary_hostname: 'acme.dev' });
+    const initial = getSpy.calls.count();
+    jasmine.clock().tick(45_001);
+    expect(getSpy.calls.count()).withContext('first poll tick').toBe(initial + 1);
+    jasmine.clock().tick(45_001);
+    expect(getSpy.calls.count()).withContext('second poll tick').toBe(initial + 2);
+  });
+
+  it('pauses the poll while hidden and silently catches up on foreground return', () => {
+    build({ id: 's1', primary_hostname: 'acme.dev' });
+    const c = fixture.componentInstance as unknown as { isHidden(): boolean };
+    const hiddenSpy = spyOn(c, 'isHidden').and.returnValue(true);
+    const initial = getSpy.calls.count();
+    jasmine.clock().tick(45_001);
+    expect(getSpy.calls.count()).withContext('no fetch while hidden').toBe(initial);
+    hiddenSpy.and.returnValue(false);
+    document.dispatchEvent(new Event('visibilitychange'));
+    expect(getSpy.calls.count()).withContext('immediate catch-up on return').toBe(initial + 1);
+    // The catch-up is a BACKGROUND refresh — it must not flash the loading card.
+    expect(fixture.componentInstance.loading()).toBeFalse();
+  });
+
+  it('shows the quiet synced hint instead of a button after data lands', () => {
+    build({ id: 's1', primary_hostname: 'acme.dev' });
+    fixture.detectChanges();
+    const hint = (fixture.nativeElement as HTMLElement).querySelector(
+      '[data-testid="domain-stack-synced-hint"]',
+    );
+    expect(hint).withContext('quiet auto-update hint replaces the Refresh button').not.toBeNull();
+    expect(hint!.textContent).toContain('synced');
+  });
+
+  it('stops polling after destroy (no timer leak)', () => {
+    build({ id: 's1', primary_hostname: 'acme.dev' });
+    const afterInit = getSpy.calls.count();
+    fixture.destroy();
+    jasmine.clock().tick(140_000);
+    expect(getSpy.calls.count()).withContext('destroyed component must not fetch').toBe(afterInit);
+  });
+});
