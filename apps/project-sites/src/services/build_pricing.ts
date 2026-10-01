@@ -39,11 +39,27 @@ export const MODEL_PRICES_PER_MTOK: Record<string, { input: number; output: numb
   'claude-fable-5': { input: 10, output: 50 },
   'claude-haiku-4-5': { input: 1, output: 5 },
   'claude-opus-4-7': { input: 15, output: 75 },
+  'claude-sonnet-4-5': { input: 3, output: 15 },
   'claude-sonnet-4-6': { input: 3, output: 15 },
   'deepseek-chat': { input: 0.27, output: 1.1 },
+  'deepseek-reasoner': { input: 0.55, output: 2.19 },
   'gpt-4o': { input: 2.5, output: 10 },
   'gpt-4o-mini': { input: 0.15, output: 0.6 },
 };
+
+/**
+ * Price rows that exist ONLY for the container build's Claude Code usage
+ * (fire-62): the orchestrator runs DeepSeek-primary (`deepseek-chat`, with
+ * `deepseek-reasoner` for higher-order prompts) and Anthropic-fallback (full
+ * dated ids like `claude-sonnet-4-5-20250929`, matched by the shorter
+ * substring row). `external_llm.ts` never calls these models worker-side, so
+ * the parity lock against `estimateCostPrecise` skips them — everything else
+ * in {@link MODEL_PRICES_PER_MTOK} stays parity-locked.
+ */
+export const CONTAINER_ONLY_PRICE_KEYS: ReadonlySet<string> = new Set([
+  'claude-sonnet-4-5',
+  'deepseek-reasoner',
+]);
 
 /**
  * Container build compute, USD per minute.
@@ -96,6 +112,36 @@ export function modelCostUsd(model: string, tokensIn: number, tokensOut: number)
 export function containerCostUsd(containerMs: number): number {
   if (!Number.isFinite(containerMs) || containerMs <= 0) return 0;
   return (containerMs / 60_000) * CONTAINER_USD_PER_MINUTE;
+}
+
+/**
+ * Price the container orchestrator's Claude Code LLM spend (fire-62).
+ *
+ * Prefers the CLI's OWN `total_cost_usd` from its final `--output-format
+ * stream-json` result event — that number is cache-aware (0.1× cache reads,
+ * 1.25× cache writes) and therefore more honest than any flat re-pricing.
+ * When the CLI can't price the run (DeepSeek-routed builds report 0/absent),
+ * falls back to Σ {@link modelCostUsd} over the per-model aggregates. Cache
+ * READ tokens are intentionally excluded from the fallback (flat-pricing them
+ * at 1× would overstate ~10×; excluding understates slightly — documented in
+ * `docs/build-cost-metering.md`).
+ *
+ * @param totalCostUsd - The CLI-reported total, when present and positive.
+ * @param models       - Per-model token aggregates from the container.
+ * @returns USD rounded to 6 decimal places.
+ */
+export function containerLlmCostUsd(
+  totalCostUsd: number | null | undefined,
+  models: Record<string, { tokens_in: number; tokens_out: number }>,
+): number {
+  if (typeof totalCostUsd === 'number' && Number.isFinite(totalCostUsd) && totalCostUsd > 0) {
+    return Math.round(totalCostUsd * 1_000_000) / 1_000_000;
+  }
+  let usd = 0;
+  for (const [model, agg] of Object.entries(models)) {
+    usd += modelCostUsd(model, agg.tokens_in, agg.tokens_out);
+  }
+  return Math.round(usd * 1_000_000) / 1_000_000;
 }
 
 /**

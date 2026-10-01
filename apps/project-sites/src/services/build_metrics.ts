@@ -44,7 +44,7 @@ import { z } from 'zod';
 
 import type { Env } from '../types/env.js';
 
-import { estimateBuildCostUsd, type ModelCallAgg } from './build_pricing.js';
+import { containerLlmCostUsd, estimateBuildCostUsd, type ModelCallAgg } from './build_pricing.js';
 import { dbExecute } from './db.js';
 
 /** Minimal env surface — keeps the module trivially testable with harness doubles. */
@@ -63,17 +63,61 @@ export const BuildOutcomeSchema = z.enum(['published', 'error', 'halted']);
 /** Terminal build outcome. */
 export type BuildOutcome = z.infer<typeof BuildOutcomeSchema>;
 
-/** Aggregated usage for one model within a build. */
+/**
+ * Aggregated usage for one model within a build. `source: 'container_json'`
+ * marks entries ingested from the build container's Claude Code result JSON
+ * (fire-62); absence = worker-side accumulation. The row-level `usage_source`
+ * is DERIVED at read time: any tagged entry → `container_json`, else `none`
+ * (additive JSON key — no migration).
+ */
 export const ModelCallAggSchema = z.object({
   calls: z.number().int().nonnegative(),
+  source: z.literal('container_json').optional(),
   tokens_in: z.number().int().nonnegative(),
   tokens_out: z.number().int().nonnegative(),
 });
+
+/**
+ * The container build's Claude Code usage, as carried on the HMAC-signed
+ * `POST /api/internal/build-status` callback (`payload.usage`, additive).
+ * Produced container-side by `scripts/container-server.mjs#parseClaudeUsage`
+ * from the CLI's final `--output-format stream-json` result event. Old images
+ * simply omit the key → fallback honesty (row keeps 0s, `usage_source` none).
+ */
+export const ContainerUsageSchema = z.object({
+  /** Cache-creation input tokens (≈ full-price input; folded into per-model tokens_in container-side). */
+  cache_creation_tokens: z.number().int().nonnegative().default(0),
+  /** Cache-READ input tokens — kept separate (0.1× price class; never flat-priced). */
+  cache_read_tokens: z.number().int().nonnegative().default(0),
+  /** Per-model aggregates (empty on old CLIs without `modelUsage` → synthetic entry). */
+  models: z
+    .record(
+      z.string(),
+      z.object({
+        calls: z.number().int().nonnegative().default(1),
+        tokens_in: z.number().int().nonnegative().default(0),
+        tokens_out: z.number().int().nonnegative().default(0),
+      }),
+    )
+    .default({}),
+  num_turns: z.number().int().nonnegative().nullish(),
+  source: z.literal('container_json'),
+  /** Non-cache input tokens from the result event's `usage.input_tokens`. */
+  tokens_in: z.number().int().nonnegative().default(0),
+  tokens_out: z.number().int().nonnegative().default(0),
+  /** The CLI's own cache-aware cost — preferred over table re-pricing when positive. */
+  total_cost_usd: z.number().nonnegative().nullish(),
+});
+
+/** Inferred container-usage payload type. */
+export type ContainerUsage = z.infer<typeof ContainerUsageSchema>;
 
 /** In-flight KV state for one build (schema-validated on every read). */
 export const BuildMetricsStateSchema = z.object({
   /** Replay-stable run id (Workflow `event.instanceId`). */
   buildId: z.string().min(1),
+  /** Container Claude Code LLM spend in USD, accumulated at usage ingest (fire-62). */
+  containerLlmUsd: z.number().nonnegative().default(0),
   /** Container build duration in ms when known. */
   containerMs: z.number().int().nonnegative().default(0),
   /** First-write-wins phase start stamps, epoch ms. */
@@ -84,6 +128,8 @@ export const BuildMetricsStateSchema = z.object({
   siteId: z.string().min(1),
   /** Epoch ms the run started (Workflow `event.timestamp` — replay-stable). */
   startedAtMs: z.number().int().positive(),
+  /** Container jobIds whose usage is already folded in (heartbeat-replay idempotency). */
+  usageJobIds: z.array(z.string()).default([]),
 });
 
 /** Inferred in-flight state type. */
@@ -172,12 +218,14 @@ export async function initBuildMetrics(
     const startedAtMs = opts.startedAtMs ?? Date.now();
     await writeState(env, {
       buildId: opts.buildId,
+      containerLlmUsd: 0,
       containerMs: 0,
       marks: { collecting: startedAtMs },
       modelCalls: {},
       orgId: opts.orgId ?? null,
       siteId: opts.siteId,
       startedAtMs,
+      usageJobIds: [],
     });
   } catch (err) {
     warn('initBuildMetrics failed', {
@@ -263,6 +311,95 @@ export function accumulateBuildModelCallFromTrace(
 }
 
 /**
+ * Fold the container orchestrator's Claude Code usage into the in-flight
+ * build (fire-62 — closes gp-09: `build_metrics` rows recorded 0/0 tokens
+ * because the container's model spend never reached the worker).
+ *
+ * Called from the `POST /api/internal/build-status` ingestion endpoint when
+ * the HMAC-verified callback carries a `usage` key. Semantics:
+ *
+ * - **Validated**: `ContainerUsageSchema.safeParse` — a malformed payload is
+ *   warn-logged and dropped (fail-soft; never breaks the callback).
+ * - **Site-resolved**: the callback's `jobId` is the CONTAINER job id; the
+ *   workflow's `job2site:{jobId}` KV mapping resolves the site (falling back
+ *   to `jobId` itself for claim builds where jobId == siteId).
+ * - **Idempotent per jobId**: the container re-sends `usage` on every
+ *   post-terminal heartbeat (npm-build → r2-upload → done) — only the first
+ *   per jobId folds in. A RETRIED container step gets a NEW jobId and
+ *   accumulates, correctly, since a retry genuinely re-spends.
+ * - **Tagged**: merged entries carry `source: 'container_json'` so finalize
+ *   can exclude them from flat token re-pricing (the cost rides
+ *   `containerLlmUsd`, preferring the CLI's cache-aware `total_cost_usd`)
+ *   and so `usage_source` is derivable from the row JSON.
+ *
+ * @param env   - Worker env (`DB` + `CACHE_KV`).
+ * @param jobId - Container job id from the callback payload.
+ * @param raw   - The unvalidated `payload.usage` value.
+ */
+export async function ingestContainerBuildUsage(
+  env: BuildMetricsEnv,
+  jobId: string,
+  raw: unknown,
+): Promise<void> {
+  try {
+    const parsed = ContainerUsageSchema.safeParse(raw);
+    if (!parsed.success) {
+      warn('container usage payload rejected', {
+        issues: parsed.error.issues.slice(0, 3).map((i) => `${i.path.join('.')}: ${i.message}`),
+        jobId,
+      });
+      return;
+    }
+    const usage = parsed.data;
+    let siteId = jobId;
+    try {
+      siteId = (await env.CACHE_KV.get(`job2site:${jobId}`)) || jobId;
+    } catch {
+      /* mapping read is best-effort — claim builds use jobId == siteId */
+    }
+    const state = await readState(env, siteId);
+    if (!state) {
+      warn('container usage without in-flight metrics state — dropped', { jobId, siteId });
+      return;
+    }
+    if (state.usageJobIds.includes(jobId)) return; // post-terminal heartbeat replay
+    const entries: Record<string, { calls: number; tokens_in: number; tokens_out: number }> =
+      Object.keys(usage.models).length > 0
+        ? usage.models
+        : {
+            'container:claude-code': {
+              calls: Math.max(1, usage.num_turns ?? 1),
+              // Cache READS excluded (separate 0.1× price class); creation ≈ full price.
+              tokens_in: usage.tokens_in + usage.cache_creation_tokens,
+              tokens_out: usage.tokens_out,
+            },
+          };
+    for (const [model, agg] of Object.entries(entries)) {
+      if (agg.calls <= 0 && agg.tokens_in <= 0 && agg.tokens_out <= 0) continue;
+      const prev = state.modelCalls[model] ?? { calls: 0, tokens_in: 0, tokens_out: 0 };
+      state.modelCalls[model] = {
+        calls: prev.calls + agg.calls,
+        source: 'container_json',
+        tokens_in: prev.tokens_in + agg.tokens_in,
+        tokens_out: prev.tokens_out + agg.tokens_out,
+      };
+    }
+    state.containerLlmUsd =
+      Math.round(
+        (state.containerLlmUsd + containerLlmCostUsd(usage.total_cost_usd ?? null, entries)) *
+          1_000_000,
+      ) / 1_000_000;
+    state.usageJobIds.push(jobId);
+    await writeState(env, state);
+  } catch (err) {
+    warn('ingestContainerBuildUsage failed', {
+      error: err instanceof Error ? err.message : String(err),
+      jobId,
+    });
+  }
+}
+
+/**
  * Compute per-phase durations from first-write-wins start marks. A recorded
  * phase runs until the NEXT recorded phase's mark (in canonical order), the
  * last recorded phase until `endMs`. Unrecorded phases are 0 (e.g. `imaging`
@@ -321,17 +458,22 @@ export async function finalizeBuildMetrics(
     const phaseMs = computePhaseMs(state.marks, endMs);
     let tokensIn = 0;
     let tokensOut = 0;
-    for (const agg of Object.values(state.modelCalls)) {
+    // Container-tagged entries are EXCLUDED from flat token re-pricing — their
+    // cost already rides `containerLlmUsd` (CLI cache-aware total preferred);
+    // re-pricing them here would double-count. Token TOTALS still include them.
+    const workerCalls: Record<string, ModelCallAgg> = {};
+    for (const [model, agg] of Object.entries(state.modelCalls)) {
       tokensIn += agg.tokens_in;
       tokensOut += agg.tokens_out;
+      if (agg.source !== 'container_json') workerCalls[model] = agg;
     }
     const row = BuildMetricsRowSchema.safeParse({
       build_id: state.buildId,
       container_ms: containerMs,
-      est_cost_usd: estimateBuildCostUsd(
-        state.modelCalls as Record<string, ModelCallAgg>,
-        containerMs,
-      ),
+      est_cost_usd:
+        Math.round(
+          (estimateBuildCostUsd(workerCalls, containerMs) + state.containerLlmUsd) * 1_000_000,
+        ) / 1_000_000,
       model_calls: state.modelCalls,
       org_id: state.orgId,
       outcome,

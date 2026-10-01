@@ -175,6 +175,7 @@ function pushStatus(jobId) {
     error: j.error ? String(j.error).slice(0, 500) : null,
     uploadResult: j.uploadResult || null,
     functionsBuild: j.functionsBuild ?? null,
+    usage: j.usage || null, // fire-62: Claude Code spend → worker build_metrics
   };
   const body = JSON.stringify(payload);
   const sig = crypto.createHmac('sha256', j.callbackSecret).update(body).digest('hex');
@@ -1022,6 +1023,100 @@ function distUnfilledTokens(distDir) {
   return [...set].sort();
 }
 
+// ── CLAUDE USAGE CAPTURE (fire-62 — honest $/build) ──────────────────────────
+// `claude -p --output-format stream-json --verbose` emits one JSON event per
+// stdout line; the FINAL {"type":"result"} event carries authoritative usage
+// totals (+ a per-model `modelUsage` map on newer CLIs) and the CLI's own
+// cache-aware `total_cost_usd`. This scans the captured stdout AFTER exit
+// (decoupled from the live theater, so it works even with no callback URL) and
+// distills the compact `usage` object that rides every post-terminal
+// /build-status callback → worker `build_metrics` (tokens_in/out + est_cost).
+// Fail-soft: any parse fault returns null → the worker records usage_source
+// none (old-image fallback honesty, same as before this existed).
+function parseClaudeUsage(allOut) {
+  if (!allOut) return null;
+  let result = null;
+  const callCounts = {}; // real per-model assistant-turn counts (modelUsage has none)
+  for (const line of allOut.split(/\r?\n/)) {
+    const t = line.trim();
+    if (!t.startsWith('{')) continue;
+    let ev;
+    try { ev = JSON.parse(t); } catch { continue; }
+    if (!ev || typeof ev !== 'object') continue;
+    if (ev.type === 'assistant') {
+      const m = ev.message && ev.message.model;
+      if (m) callCounts[m] = (callCounts[m] || 0) + 1;
+    } else if (ev.type === 'result') {
+      result = ev; // last one wins
+    }
+  }
+  if (!result) return null;
+  const u = result.usage || {};
+  const n = (x) => (Number.isFinite(x) && x > 0 ? Math.floor(x) : 0);
+  const models = {};
+  if (result.modelUsage && typeof result.modelUsage === 'object') {
+    for (const [model, mu] of Object.entries(result.modelUsage)) {
+      if (!mu || typeof mu !== 'object') continue;
+      models[model] = {
+        calls: callCounts[model] || 1,
+        // cacheCreation ≈ full-price input, folded in; cacheRead (0.1× class)
+        // intentionally EXCLUDED here — it rides cache_read_tokens below.
+        tokens_in: n(mu.inputTokens) + n(mu.cacheCreationInputTokens),
+        tokens_out: n(mu.outputTokens),
+      };
+    }
+  } else if (Object.keys(callCounts).length === 1) {
+    // Older CLI without modelUsage: attribute the run's totals to the one
+    // observed model. Multi-model runs without modelUsage leave models empty →
+    // the worker falls back to a synthetic container:claude-code entry.
+    const only = Object.keys(callCounts)[0];
+    models[only] = {
+      calls: callCounts[only],
+      tokens_in: n(u.input_tokens) + n(u.cache_creation_input_tokens),
+      tokens_out: n(u.output_tokens),
+    };
+  }
+  return {
+    source: 'container_json',
+    total_cost_usd:
+      Number.isFinite(result.total_cost_usd) && result.total_cost_usd > 0
+        ? result.total_cost_usd
+        : null,
+    tokens_in: n(u.input_tokens),
+    tokens_out: n(u.output_tokens),
+    cache_read_tokens: n(u.cache_read_input_tokens),
+    cache_creation_tokens: n(u.cache_creation_input_tokens),
+    num_turns: n(result.num_turns),
+    models,
+  };
+}
+
+// stream-json → human lines for the live /waiting terminal: assistant text and
+// tool names stream through; system/user/tool-result/result events are noise
+// (the result event is captured separately by parseClaudeUsage at exit).
+// Non-JSON lines (stderr, npm output) pass through untouched, so the theater
+// keeps working for every non-Claude phase of the job.
+function renderStreamLine(raw) {
+  const t = raw.trim();
+  if (!t.startsWith('{')) return t ? [raw] : [];
+  let ev;
+  try { ev = JSON.parse(t); } catch { return [raw]; }
+  if (!ev || typeof ev !== 'object' || !ev.type) return [raw];
+  if (ev.type === 'assistant' && ev.message && Array.isArray(ev.message.content)) {
+    const out = [];
+    for (const block of ev.message.content) {
+      if (block && block.type === 'text' && block.text) {
+        for (const l of String(block.text).split(/\r?\n/)) if (l.trim()) out.push(l.slice(0, 400));
+      } else if (block && block.type === 'tool_use' && block.name) {
+        const target = block.input && block.input.file_path ? ` ${String(block.input.file_path).slice(-80)}` : '';
+        out.push(`→ ${block.name}${target}`);
+      }
+    }
+    return out;
+  }
+  return [];
+}
+
 function runJob(jobId, dir, prompt, envVars, timeoutMin, callbackUrl, callbackSecret, skipBuild) {
   jobs[jobId] = {
     jobId,
@@ -1048,7 +1143,11 @@ function runJob(jobId, dir, prompt, envVars, timeoutMin, callbackUrl, callbackSe
   envLines.push(`export SKILLS_DIR=${SKILLS_DIR}`);
   envLines.push(`export TEMPLATE_DIR=${TEMPLATE_DIR}`);
   envLines.push(`cd ${dir}`);
-  envLines.push(`${CP} --dangerously-skip-permissions -p < ${pf}`);
+  // fire-62: stream-json emits per-turn JSON events + a final {"type":"result"}
+  // carrying authoritative usage + total_cost_usd (parsed post-exit by
+  // parseClaudeUsage; re-rendered live by renderStreamLine). --verbose is
+  // REQUIRED by the CLI for stream-json in -p mode.
+  envLines.push(`${CP} --dangerously-skip-permissions -p --output-format stream-json --verbose < ${pf}`);
   const sf = `/tmp/run_${jobId}.sh`;
   fs.writeFileSync(sf, envLines.join('\n'));
   try { x(`chmod +x ${sf}`, { stdio: 'pipe' }); } catch {}
@@ -1135,7 +1234,14 @@ function runJob(jobId, dir, prompt, envVars, timeoutMin, callbackUrl, callbackSe
     if (!buildLogUrl) return;
     const parts = (_blCarry + chunk).split(/\r?\n/);
     _blCarry = parts.pop() ?? '';
-    for (const raw of parts) { const l = raw.replace(/\s+$/, ''); if (l.trim()) _blBuf.push(l); }
+    for (const raw of parts) {
+      // fire-62: stdout is now stream-json — extract the human-readable lines
+      // (assistant text + tool names); non-JSON lines pass through unchanged.
+      for (const rendered of renderStreamLine(raw)) {
+        const l = rendered.replace(/\s+$/, '');
+        if (l.trim()) _blBuf.push(l);
+      }
+    }
     if (_blBuf.length > STREAM_BUF_CAP) _blBuf = _blBuf.slice(-STREAM_BUF_CAP);
     if (!_blTimer) _blTimer = setTimeout(flushBuildLog, STREAM_INTERVAL_MS);
   }
@@ -1163,6 +1269,25 @@ function runJob(jobId, dir, prompt, envVars, timeoutMin, callbackUrl, callbackSe
     if (_blCarry.trim()) { _blBuf.push(_blCarry.replace(/\s+$/, '')); _blCarry = ''; }
     flushBuildLog();
     console.warn(`[${jobId}] Claude Code exited code=${code} stdout=${stdout.length}b stderr=${stderr.length}b elapsed=${((Date.now() - jobs[jobId].startTime) / 1000) | 0}s`);
+
+    // fire-62: distill the stream-json result into the usage object. Stashed on
+    // the job BEFORE npm-build so EVERY subsequent status push (npm-build →
+    // r2-upload → done, success or error) carries it to the worker; also written
+    // as a _usage.json artifact beside the build output (underscore prefix →
+    // never collected/uploaded) for post-mortem debugging.
+    try {
+      const usage = parseClaudeUsage(stdout);
+      if (usage && jobs[jobId]) {
+        jobs[jobId].usage = usage;
+        saveJob(jobId);
+        try { fs.writeFileSync(path.join(dir, '_usage.json'), JSON.stringify(usage, null, 2)); } catch { /* artifact is best-effort */ }
+        console.warn(`[${jobId}] Claude usage: turns=${usage.num_turns} in=${usage.tokens_in} out=${usage.tokens_out} cacheRead=${usage.cache_read_tokens} cost=$${usage.total_cost_usd ?? 'n/a'} models=${Object.keys(usage.models).join(',') || 'none'}`);
+      } else {
+        console.warn(`[${jobId}] Claude usage: no result event parsed (usage_source=none)`);
+      }
+    } catch (ue) {
+      console.warn(`[${jobId}] Claude usage parse failed: ${ue.message.slice(0, 200)}`);
+    }
 
     setStatus(jobId, { step: 'npm-build' });
 
@@ -1463,6 +1588,7 @@ http.createServer((q, r) => {
         fileCount: j.files ? j.files.length : 0,
         error: j.error ? j.error.slice(0, 500) : null,
         uploadResult: j.uploadResult || null,
+        usage: j.usage || null, // fire-62: visible to workflow polls too
       };
     };
 

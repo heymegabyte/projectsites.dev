@@ -227,6 +227,7 @@ function payloadAssetContentType(path: string): string {
 }
 import { dbQueryOne, dbUpdate } from './services/db.js';
 import { writeAuditLog } from './services/audit.js';
+import { ingestContainerBuildUsage } from './services/build_metrics.js';
 import { prepareBuildLogLines, detectBuildLlmDegraded } from './services/build_log.js';
 import { deploySiteFunctions, type FunctionsBuildResult } from './services/functions_deploy.js';
 import {
@@ -1310,6 +1311,8 @@ app.post('/api/internal/build-status', async (c) => {
     status?: string;
     step?: string;
     functionsBuild?: FunctionsBuildResult;
+    /** fire-62: the container's Claude Code usage (Zod-validated inside the ingest). */
+    usage?: unknown;
   };
   try {
     payload = JSON.parse(body);
@@ -1347,6 +1350,26 @@ app.post('/api/internal/build-status', async (c) => {
   });
   if (ec) ec.waitUntil(finalize);
   else await finalize;
+
+  // fire-62 — honest $/build: the container parses its Claude Code stream-json
+  // result and rides `usage` on every post-terminal heartbeat. Fold it into the
+  // in-flight build_metrics KV state (idempotent per jobId; Zod-validated;
+  // fail-soft — a metrics fault never breaks the callback). Old images omit the
+  // key → rows keep 0s with no container-tagged model_calls (usage_source none).
+  if (payload.usage !== undefined && payload.usage !== null) {
+    const usageIngest = ingestContainerBuildUsage(c.env, jobId, payload.usage).catch((e) => {
+      console.warn(
+        JSON.stringify({
+          level: 'warn',
+          service: 'build_usage_ingest',
+          job_id: jobId,
+          message: e instanceof Error ? e.message : String(e),
+        }),
+      );
+    });
+    if (ec) ec.waitUntil(usageIngest);
+    else await usageIngest;
+  }
 
   // Functions (Stage 2.2a): the container bundles the site's functions/ folder and carries
   // the result here. Deploy (or remove) the site's WfP functions worker — deploySiteFunctions
