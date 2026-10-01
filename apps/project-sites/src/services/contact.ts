@@ -19,7 +19,7 @@ import type { ContactForm } from '@project-sites/shared';
 import type { Env } from '../types/env.js';
 import { getEmailProvider } from '../platform/email-router.js';
 import { hasDeliverableMx } from './email_deliverability.js';
-import { dbInsert } from './db.js';
+import { upsertContact } from './contacts.js';
 import { log } from '../lib/log.js';
 
 const contactLog = log.child('contact');
@@ -183,8 +183,12 @@ export async function handleContactForm(env: Env, input: unknown): Promise<void>
   // convention this route's audit log already uses) with no owning site.
   // Best-effort: log a drop but keep going — the team-email below is a second
   // capture channel, and we honest-fail only if BOTH miss (guard after Email 1).
+  // UPSERT, not blind insert (fire-61): a REPEAT submitter used to die on the
+  // (org_id, lower(email)) dedupe index — swallowed into a log, leaving
+  // `persisted=false` so a coincident email-rail failure hard-errored an
+  // innocent visitor. Locked by src/__tests__/contacts_upsert.test.ts.
   let persisted = false;
-  const { error: contactErr } = await dbInsert(env.DB, 'contacts', {
+  const { error: contactErr } = await upsertContact(env.DB, {
     id: crypto.randomUUID(),
     org_id: 'system',
     site_id: null,

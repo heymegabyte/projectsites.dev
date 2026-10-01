@@ -1,0 +1,12 @@
+-- 0652: align sites with prod — add the contact_email column that prod carries
+-- but NO migration ever defined (verified against prod pragma 2026-10-01; the
+-- chain only adds contact_email to ai_site_settings in 0013/0015). Discovered
+-- fire-61 when a migration-built local D1 404'd EVERY public contact-form
+-- submission: libs/features/contact_newsletter/handlers.ts SELECTs
+-- `id, org_id, business_name, contact_email FROM sites`, the missing column
+-- throws, dbQueryOne swallows the SQL error into null, and the handler answers
+-- a lying "Site not found" (the swallowed-sql-error-masks-schema-drift-as-404
+-- class — same shape as 0651 team_invites.deleted_at).
+-- PROD ALREADY HAS THIS COLUMN — do NOT apply remotely (duplicate-column error);
+-- this exists so migration-built local/fresh databases match prod schema.
+ALTER TABLE sites ADD COLUMN contact_email TEXT;

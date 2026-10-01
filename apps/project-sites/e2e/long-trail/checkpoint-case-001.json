@@ -1,25 +1,25 @@
 {
   "case_id": "case-001-money-path",
   "title": "Money Path — search → sign in → create → edit → publish → verify → clean up",
-  "updated_at": "2026-10-01T07:25:00Z",
+  "updated_at": "2026-10-01T16:25:00Z",
   "slice": "LIVE (real local stack + real browser + real test-login)",
-  "status": "phase_d_green_except_iframe_boot",
-  "runId": "fire-60",
+  "status": "phase_e_green_full_replay_7pass_2pending",
+  "runId": "fire-61",
   "resourcePrefix": "ltt-e2e-",
   "heartbeat": null,
-  "last_completed_action": 49,
+  "last_completed_action": 59,
   "next_action": {
-    "number": 50,
-    "description": "Phase D iframe legs (case #43-45, #53-55: PS_BOLT_READY, Code edit, Preview live-reload, persistent-iframe nav) — UNBLOCKED once editor.projectsites.dev redeploys with the fire-60 public/_headers frame-ancestors (verify: curl -sI https://editor.projectsites.dev | grep -i frame-ancestors shows http://localhost:4200; then delete the test.fixme line in D-boot). If the deploy hasn't landed, advance Phase E prep instead (promote/publish flow needs a build — decide seed-vs-build strategy for the ltt site)."
+    "number": 60,
+    "description": "Phase F (case #79-96: disposable app install/remove → site survives → tenant isolation #90 → full cleanup #91-96). Also: D-boot iframe legs remain blocked-on-deploy — verify first (curl -sI https://editor.projectsites.dev | grep -i frame-ancestors must show http://localhost:4200; fire-61 re-verified it does NOT — the orchestrator's 'deployed 5b23e8bd' was a PREVIEW whose _headers evaluate to frame-ancestors 'none'; prod alias + custom domain still pre-fix). When it lands: delete the one test.fixme in D-boot + the 4 'Framing' allowlist entries, then iframe legs #43-45/#53-55 go live."
   },
   "ports": {
     "worker_wrangler_dev": 8787,
     "angular_ng_serve": 4200,
-    "note": "Worker runs from the MAIN checkout (has .dev.vars + migrated local D1). ng serve runs from the WORKTREE (main checkout frontend had a concurrent agent's uncommitted broken analytics.component.ts edit). Angular proxy forwards /api,/health,/webhooks -> :8787."
+    "note": "Worker runs from the MAIN checkout (has .dev.vars + migrated local D1 incl. fire-61's 0651+0652 applied). ng serve :4200 from the WORKTREE (two-boot warm cache). Angular proxy forwards /api,/health,/webhooks -> :8787."
   },
-  "worktree_path": ".claude/worktrees/agent-a81c395b01fefae64 (detached @ ac1e74b3a; node_modules SYMLINKED from main checkout: root + apps/project-sites + apps/project-sites/frontend)",
+  "worktree_path": ".claude/worktrees/agent-a81c395b01fefae64 (frontend serve only; all fire-61 edits live in the MAIN checkout)",
   "browser": {
-    "engine": "LOCAL Chromium (Playwright) — a remote/cloud browser cannot reach localhost",
+    "engine": "LOCAL Chromium (Playwright, channel=chrome) — a remote/cloud browser cannot reach localhost",
     "profile_dir": "(default playwright context)",
     "screenshots_local_dir": "apps/project-sites/e2e/long-trail/screenshots-local"
   },
@@ -29,110 +29,118 @@
     "identity": "brian@megabyte.space",
     "oracle": "GET /api/auth/me -> 200 { email: brian@megabyte.space, org_id present, is_super_admin: true }",
     "resolved_user_id": "3064239f-2f59-45fd-961f-d42ef4185806",
-    "resolved_org_id_note": "current local-DB org owning the ltt site: d35866da-8624-4b58-9375-890f5418acbf (differs from the fire-55 checkpoint value — local DB evolved; causal checks pass against the CURRENT session org)"
+    "resolved_org_id_note": "org owning the ltt site locally: d35866da-8624-4b58-9375-890f5418acbf"
   },
   "test_resources": {
     "site": {
       "id": "eb4a7994-fecb-4dd5-b4f5-3550e664dd69",
       "slug": "ltt-e2e-vitos",
-      "status": "draft",
+      "status": "published (fire-61 zip deploy; current_build_version set; fixture rev-2)",
       "org_id": "d35866da-8624-4b58-9375-890f5418acbf",
-      "note": "KEPT deliberately for Phases D(iframe)/E — the stateful trail needs it; cleanup is Phase F actions 91-93. Specs are state-aware so replays are green with or without it."
-    }
+      "note": "KEPT for Phase F; cleanup is case #91-93. R2 holds sites/ltt-e2e-vitos/{vN}/ fixture bundles + _manifest.json; site_snapshots rows accrued per redeploy (bounded by FIXTURE_REV bumps, not per-run). form_submissions/contacts/visitor_events rows accumulate per run — ALL spec oracles are delta/state-aware so replays stay green."
+    },
+    "build_seed_decision": "Phase E seeds the build through the REAL POST /api/sites/:id/deploy zip endpoint (deterministic 3-file bundle, FIXTURE_REV marker drives idempotent redeploys). Rationale + rejected alternatives recorded in case-001-money-path.md § PHASE E header."
   },
-  "real_actions_run": 49,
+  "real_actions_run": 59,
   "executable_spec": {
     "path": "apps/project-sites/e2e/long-trail/case-001-money-path.e2e.ts",
     "config": "apps/project-sites/e2e/long-trail/playwright.longtrail.config.ts",
     "run_from": "apps/project-sites (worker package — single @playwright/test)",
-    "result": "FULL REPLAY fire-60: 6 passed / 3 honestly-pending (D-boot fixme blocked-on-deploy + E + F) in 19.3s. Phase D journey test: 7.1s green.",
-    "phase_d_coverage": "actions 38-49 — real-API site create (check-first idempotent) + visible host-pill oracle; nav-away/back selection retention; Editor open + iframe mount (src=editor.projectsites.dev) + PRECISE frame-ancestors refusal capture ('Framing … violates CSP'); per-site-data honest dark-404 envelope; readiness honest dark-404 envelope; Hosting render; KV/R2/Vectorize/Queues inspectors render (screenshots); Logs render + CAUSAL audit check (auth.test_login found via /api/audit-logs = this session's login in the store); console gate 0 unexpected (refusal + team-500 + dark-404s precisely allowlisted)"
+    "result": "FULL REPLAY fire-61: 7 passed / 2 honestly-pending (D-boot blocked-on-deploy fixme + F future) in 46.3s. Phase E journey: 12.7s green.",
+    "phase_e_coverage": "actions 50-59 (case rows 59-78 minus the F-phase rows) — REAL zip deploy + store/audit oracles; Hosting gate flip (no-build -> WFP DISPATCH card + Promote CTA); published site served via whole-prod-origin proxy-fulfill shim (Host header via Node request context — Chromium forbids route.continue host); platform-form-contract submit success + honest server-side invalid-email error; form_submissions + contacts + visitor_events reconciled store-vs-display (Forms inbox headline+detail; Analytics 23 views/8 visits); form_start/form_submit beacons captured + re-delivered locally; nav-away/back clean form"
   },
   "unit_regressions": {
     "env": "src/__tests__/env_local_dev.test.ts — GREEN (unchanged).",
-    "frame_ancestors": "src/__tests__/editor_frame_ancestors.test.ts — NEW fire-60. Derives editor ALLOWED_ORIGINS (app/lib/embed/embedded-mode.ts) + frame-ancestors (public/_headers) from the REAL files and asserts superset + prod parents + localhost parents. RED observed pre-fix (missing :4200/:4300) -> GREEN post-fix. 3/3."
+    "frame_ancestors": "src/__tests__/editor_frame_ancestors.test.ts — GREEN (unchanged; deploy still pending).",
+    "contacts_upsert": "src/__tests__/contacts_upsert.test.ts — NEW fire-61. Real-SQLite (node:sqlite harness) lock of upsertContact: first-touch insert, REPEAT-submitter update (lower(email) dedupe, latest metadata, last_seen advance), enrich-never-erase, org-scoped identities. RED (module missing) -> GREEN 4/4.",
+    "full_suite": "npm test: 895 suites / 14072 tests GREEN after retargeting the moved seam in contact.test.ts + api_routes.test.ts (mock upsertContact instead of dbInsert-for-contacts). tsc --noEmit clean."
   },
-  "reds_found_and_fixed_fire60": [
+  "reds_found_and_fixed_fire61": [
     {
-      "red": "Action-38 blocker (fire-59 gap): editor iframe never boots in the local composition. Live browser evidence: console 'Framing https://editor.projectsites.dev/ violates the following Content Security Policy' + frame absent from page.frames() for 20s (D-boot RED).",
-      "root_cause": "One-sided origin drift: public/_headers CSP frame-ancestors lists only prod parents, while the editor's own app/lib/embed/embedded-mode.ts ALLOWED_ORIGINS (line ~2215) includes http://localhost:4200 + :4300 — the editor code supports a localhost parent its OWN headers forbid.",
-      "fix": "public/_headers:5 — frame-ancestors += http://localhost:4200 http://localhost:4300 (now a superset of ALLOWED_ORIGINS). file:line — public/_headers:5; evidence anchor app/lib/embed/embedded-mode.ts:2215.",
-      "regression": "src/__tests__/editor_frame_ancestors.test.ts (RED->GREEN this fire).",
-      "residual": "LOCAL iframe boot still refused until editor.projectsites.dev Pages redeploys the fixed _headers — D-boot is test.fixme('blocked-on-deploy…') with full body retained; journey allowlists exactly this refusal."
+      "red": "route.continue({headers:{host}}) -> 'Unsafe header: host' — the planned Host-mapped published-site visit crashed.",
+      "fix": "Proxy-fulfill the worker origin through the Node-side request context (host override allowed there); strip content-encoding/length on fulfill. Harness class.",
+      "file_line": "e2e/long-trail/case-001-money-path.e2e.ts (openPublished route handler)"
     },
     {
-      "red": "ng serve (fresh cache, first boot) persistently 504s 'Outdated Optimize Dep' on Logs/Settings lazy chunks; GlobalErrorHandler bounces SPA to '/' — nav-logs click 'does nothing'.",
-      "root_cause": "First boot on an empty .angular/cache discovers deps mid-flight; its optimizer state stays stale for those chunks (does NOT self-heal with page retries).",
-      "fix": "Composition recipe (NOT product): warm lazy routes once, restart ng serve on the populated cache — second boot stable, 0 errors. Documented in docs/local-dev-longtrail.md § Gotchas.",
-      "verdict": "NOT_A_PRODUCT_DEFECT (dev-server artifact; prod serves hashed static chunks)"
+      "red": "Form submit did NOTHING visibly: the worker SHADOWS /app.js with the platform unified client which owns every <form> and writes into its own [data-ps-form-status] element; the fixture's custom form JS never ran and its status element sat outside the form.",
+      "fix": "Fixture conforms to the platform form contract (status element inside the form carrying data-ps-form-status + the testid; data-slug on the script tag; FIXTURE_REV marker + served-rev check drives idempotent redeploy). Platform behavior documented, not changed.",
+      "file_line": "case-001-money-path.e2e.ts FIXTURE_* + ensureLttBuild"
     },
     {
-      "red": "Main-checkout ng serve unbootable: NG5002 template errors in analytics.component.ts (lines ~580/820/1358).",
-      "root_cause": "CONCURRENT agent's uncommitted in-flight edit in the shared checkout (git status ' M'). Not ours; must not stash/overwrite.",
-      "fix": "Serve frontend from clean detached worktree @ HEAD with symlinked node_modules; worker + specs stay on main checkout. Documented in recipe.",
-      "verdict": "NOT_OURS — concurrent-dirty-tree isolation"
+      "red": "Submit then showed 'Site not found' — local POST /api/contact-form/ltt-e2e-vitos 404'd for an EXISTING site: SELECT includes sites.contact_email, which NO migration defines (prod has it out-of-band); the thrown SQL error was swallowed by dbQueryOne into null -> lying 404 (swallowed-sql-error-masks-schema-drift-as-404, instance #2 after 0651).",
+      "fix": "migrations/0652_sites_contact_email.sql (local-align; PROD ALREADY HAS IT — never apply remotely) + applied to local D1.",
+      "file_line": "migrations/0652_sites_contact_email.sql:13"
     },
     {
-      "red": "Replay drift: A#15 'No sites yet' + C#36 editor onboarding failed once the trail's own Phase D created a site.",
-      "root_cause": "First-run assertions in a STATEFUL journey; also role-name nav lookups broke on the new icon-rail sidebar HEAD.",
-      "fix": "State-aware dual assertions (empty launchpad OR real-store cockpit/iframe) + collapse-proof data-testid nav (nav-<id> default discovered at admin.component.ts navTestId). Spec-precision; product correct."
+      "red": "form_submissions row landed but the contacts CRM row silently did NOT: blind dbInsert vs the uniq_contacts_org_email dedupe index — EVERY repeat submitter's CRM write was swallowed (stale last_seen_at, lost latest message; handleContactForm's persisted=false could hard-error a visitor on a coincident email outage).",
+      "fix": "src/services/contacts.ts upsertContact (ON CONFLICT target matches the PARTIAL unique index; COALESCE enrich-never-erase; immutable id/first_seen_at) wired into BOTH writers. Failing regression first (module-missing RED -> 4/4 GREEN); contract suites retargeted to the new seam; full suite green.",
+      "file_line": "src/services/contacts.ts + libs/features/contact_newsletter/handlers.ts:96 + src/services/contact.ts:187"
     },
     {
-      "red": "Journey console gate tripped on MY OWN probes: duplicate-create 400 on resume; readiness expected 200 but is flag-gated 404.",
-      "root_cause": "ensureLttSite posted before checking; readiness is prod_readiness_score flag-gated (dark locally) per libs/features/prod_readiness_score/handlers.ts:31-32.",
-      "fix": "Check-first idempotent create; readiness assertion pins honest dark-404 envelope (or 200+data). Test-precision; product correct."
+      "red": "Vision-caught evidence defects: shots 21/28 mid view-transition cross-fade; shot 22 BLANK with the no-build-gate-GONE assertion passing VACUOUSLY against an unrendered lazy pane; form-status below the fold in 25/27; shot 23 mid entrance-fade.",
+      "fix": "settleShot helper (h1 + 300ms); Analytics leg anchored to its NAMED h1 (both views' h1s coexist mid-fade); POSITIVE Hosting content awaited before the absence oracle; scrollIntoViewIfNeeded for status evidence; 350ms entrance settle.",
+      "file_line": "case-001-money-path.e2e.ts settleShot + action 52/53/55/57/58b blocks"
     }
+  ],
+  "environment_leak_findings": [
+    "Served sites are PROD-absolute in three places (site_serving.ts:1859 injected app.js src; client API default; tracker beacon endpoint) — local compositions leak form posts + events to prod unless shimmed. Phase E proxies the WHOLE https://projectsites.dev origin to the local worker (answers CORS preflights itself; sendBeacon disabled so the fetch-keepalive fallback is interceptable). Recorded as gp-01 CAPABILITY GAP (inject data-api derived from serving host)."
   ],
   "known_defects_not_fixed_this_fire": [
     {
-      "defect": "team_invites.deleted_at column missing -> /api/team 500s on Settings loads (pre-existing, allowlisted-by-count). NOTE: fire-58 shipped migration 0651 per main-branch log — local DB may predate it; re-verify before deleting the allowlist.",
-      "class": "swallowed-sql-error-masks-schema-drift"
+      "defect": "Flag-dark background 404s raise user-facing red toasts ('That resource wasn't found.') — still visible on Analytics in shot 28. Frontend lane (ApiService toast policy) — OUT OF SCOPE (frontend dashboard excluded this fire).",
+      "class": "api-service-toast-swallows-server-specific-message / dark-route-404-UX"
     },
     {
-      "defect": "Flag-dark background 404s raise repeated user-facing red toasts 'That resource wasn't found.' on Hosting/Inspector views (screenshots 16/20). Frontend lane (ApiService toast policy) — OUT OF SCOPE this fire (frontend/ excluded).",
-      "class": "api-service-toast-swallows-server-specific-message / dark-route-404-UX"
+      "defect": "team_invites.deleted_at RESOLVED locally this fire (0651 applied; /api/team 200s; spec comment updated, counting tolerance kept as a canary).",
+      "class": "resolved"
     }
   ],
   "blockers_for_later_phases": [
-    "Phase D iframe legs (#43-45,#53-55): editor.projectsites.dev must redeploy with fire-60 public/_headers (orchestrator folds + deploys; this fire was no-deploy). Then un-fixme D-boot (delete one test.fixme line) and drop the refusal allowlist entries (4 places in the spec, grep 'Framing').",
-    "Phase E promote/publish: ltt-e2e-vitos has NO build (current_build_version null) — publishing/serving needs either a seeded R2 build artifact or a real (costly, container-gated) build; decide next session.",
-    "Local feature flags are ALL dark (local feature_flags table has legacy per-org schema: flag_name column, no key/registry seeds) — flag-gated surfaces (per_site_data, prod_readiness_score) assert honest dark-404 locally.",
-    "Screenshots during Angular View Transitions catch cross-fades — settle on target h1 (+250ms) before page.screenshot next fire."
+    "D-boot iframe legs (#43-45,#53-55): editor.projectsites.dev STILL serves pre-fire-60 frame-ancestors (fire-61 re-verified: prod alias + custom domain lack localhost:4200; the cited Pages deploy 5b23e8bd is a PREVIEW serving frame-ancestors 'none'). Needs a real editor Pages PRODUCTION deploy of public/_headers; this fire was no-deploy by constraint.",
+    "Phase F needs the Apps surface driven live (install/remove a disposable app) + tenant-isolation probe (#90) + full ltt-e2e-* cleanup (#91-96).",
+    "Local feature flags remain ALL dark (legacy per-org schema, no registry seeds) — per_site_data / prod_readiness_score legs stay honest dark-404 locally."
   ],
   "screenshot_findings": [
-    { "file": "13-dashboard-with-site.png", "ai_vision": "Auto-selected host pill ltt-e2e-vitos.projectsites.dev; cockpit reflects store (Total sites 1, Sites live 0, 1 Draft); LIVE/auto-refresh copy honors no-manual-refresh; icon-rail nav. >=8/10, no in-scope fix." },
-    { "file": "14-editor-iframe-blocked.png", "ai_vision": "Caught mid view-transition (Editor breadcrumb cross-fade). Iframe mount + refusal proven by assertions, not pixels. Evidence-quality note recorded." },
-    { "file": "15-hosting.png", "ai_vision": "(same-chrome class, render-asserted)" },
-    { "file": "16-kv-inspector.png", "ai_vision": "Cross-fade reveals Hosting: honest R2 STATIC card, PREVIEW/PRODUCTION URLs + Copy, 'Publish to preview' honestly gated ('no build yet — open the editor'). FINDING: red toast 'That resource wasn't found.' from background flag-dark 404 (frontend-lane wart)." },
-    { "file": "17-r2-inspector.png", "ai_vision": "(render-asserted; vision-sampled class)" },
-    { "file": "18-vectorize-inspector.png", "ai_vision": "(render-asserted; vision-sampled class)" },
-    { "file": "19-queues-inspector.png", "ai_vision": "(render-asserted; vision-sampled class)" },
-    { "file": "20-logs.png", "ai_vision": "Cross-fade reveals Queues Inspector: honest degraded card 'Could not load Cloudflare Queues' + Retry (no CF creds locally — correct). FINDING: TWO stacked dark-404 toasts (dedupe window exceeded) — reinforces the toast wart." }
+    { "file": "21-hosting-prebuild.png", "ai_vision": "Settled (replay = post-build state; state-aware leg). Earlier capture proved the cockpit reflects the published store (Sites live 1)." },
+    { "file": "22-hosting-postbuild.png", "ai_vision": "Hosting fully rendered: WFP DISPATCH pill, PREVIEW preview--ltt-e2e-vitos + PRODUCTION URLs with Copy, 'Promote to production' CTA, LIVE/AUTO-REFRESHED copy. No-build gate GONE — the causal flip is visual. >=9/10." },
+    { "file": "23-published-site.png", "ai_vision": "Fixture serves: brand header, H1, services, contact form, platform chat bubble. First capture was mid entrance-fade (fixed with settle)." },
+    { "file": "25-published-form-success.png", "ai_vision": "Form reset post-success (platform form.reset()); success status now scrolled into frame on replays." },
+    { "file": "26-admin-forms-lead.png", "ai_vision": "Forms inbox: '5 SUBMISSIONS' pill + tabs reconcile the store; expanded FIELDS JSON shows the EXACT typed name/email/message token; honest 'No AI trace yet'. >=9/10." },
+    { "file": "27-published-form-error.png", "ai_vision": "Invalid-email probe filled; server-message error asserted in #dc2626 (status scrolled into frame on replays)." },
+    { "file": "28-admin-analytics.png", "ai_vision": "Analytics settled: 23 page views / 8 visits / 23 requests for ltt-e2e-vitos — display reconciles the local visitor_events store (NOT lying-empty). FINDING: the known flag-dark red toast persists (frontend lane)." }
   ],
-  "files_touched_fire60": {
+  "files_touched_fire61": {
     "owned_e2e": [
-      "apps/project-sites/e2e/long-trail/case-001-money-path.e2e.ts (Phase D journey + D-boot; state-aware A#15/C#36; testid nav; refusal allowlists)",
-      "apps/project-sites/e2e/long-trail/case-001-money-path.md (fire-60 RED/fix + UX findings)",
-      "apps/project-sites/e2e/long-trail/checkpoint-case-001.json (this file)",
-      "apps/project-sites/docs/local-dev-longtrail.md (two-boot warm + worktree + frame-ancestors gotchas)"
+      "apps/project-sites/e2e/long-trail/case-001-money-path.e2e.ts (Phase E journey + fixture + proxy shim + settleShot; C-phase comment refresh)",
+      "apps/project-sites/e2e/long-trail/case-001-money-path.md (Phase E decision block + fire-61 REDs/action log)",
+      "apps/project-sites/e2e/long-trail/checkpoint-case-001.json (this file)"
     ],
     "product_minimal": [
-      "public/_headers:5 (frame-ancestors += http://localhost:4200 http://localhost:4300 — the action-38 root-cause fix)",
-      "apps/project-sites/src/__tests__/editor_frame_ancestors.test.ts (NEW regression lock, RED->GREEN)"
-    ]
+      "apps/project-sites/migrations/0652_sites_contact_email.sql (NEW — schema-parity align, local-only apply)",
+      "apps/project-sites/src/services/contacts.ts (NEW — upsertContact, the dedupe-honoring CRM write)",
+      "apps/project-sites/libs/features/contact_newsletter/handlers.ts (contacts write -> upsertContact)",
+      "apps/project-sites/src/services/contact.ts (contacts write -> upsertContact; dbInsert import dropped)",
+      "apps/project-sites/src/__tests__/contacts_upsert.test.ts (NEW regression lock, RED->GREEN 4/4)",
+      "apps/project-sites/src/__tests__/contact.test.ts (seam retarget: mock upsertContact)",
+      "apps/project-sites/src/__tests__/api_routes.test.ts (seam mock added)"
+    ],
+    "loop_docs": [
+      ".claude/run-the-loop/GOLDEN-PATHS.md (gp-01 prod-absolute-client gap; gp-04 status: causal loop codified locally by Phase E)"
+    ],
+    "local_db_state": "migrations 0651 + 0652 applied to the local D1 (store fixes, not repo-only)"
   },
-  "servers_state_at_checkpoint": "worker wrangler dev :8787 UP (main checkout, PID file none — long-lived from prior session); ng serve :4200 UP from WORKTREE (pid in /tmp/ltt-ng.pid, log /tmp/ltt-ng-wt2.log, second-boot warm cache). On resume: if either is down, recipe docs/local-dev-longtrail.md; remember the two-boot ng serve warm + worktree serve if main frontend is still dirty.",
-  "resume_recipe": "1) Check servers (curl :8787/health, :4200/). 2) If editor deploy landed (curl -sI https://editor.projectsites.dev | grep -i frame-ancestors has localhost:4200): remove D-boot test.fixme + the 4 'Framing' allowlist entries, run full case — iframe legs go live (actions 50+: PS_BOLT_READY, Code edit, Preview, Data tab THROUGH the UI, persistent-iframe nav). 3) Else advance Phase E prep (build/seed decision for ltt-e2e-vitos). 4) Full replay before marking anything done: npx playwright test e2e/long-trail/case-001-money-path.e2e.ts --config e2e/long-trail/playwright.longtrail.config.ts (expect >=6 passed).",
+  "servers_state_at_checkpoint": "worker wrangler dev :8787 UP (main checkout, hot-reloaded the fire-61 handler edits); ng serve :4200 UP from WORKTREE (warm cache). On resume: docs/local-dev-longtrail.md recipe; remember two-boot ng serve warm.",
+  "resume_recipe": "1) Check servers (curl :8787/health, :4200/). 2) Re-check the editor deploy (curl -sI https://editor.projectsites.dev | grep -i frame-ancestors): if localhost:4200 present, un-fixme D-boot + drop the 4 'Framing' allowlist entries and drive iframe legs live. 3) Else drive Phase F (apps install/remove + isolation + cleanup, case #79-96). 4) Full replay before marking anything done: npx playwright test e2e/long-trail/case-001-money-path.e2e.ts --config e2e/long-trail/playwright.longtrail.config.ts (expect >=7 passed; Phase E is state-aware + rev-idempotent).",
   "safety": {
     "recipient_allowlist": "email ONLY brian@megabyte.space; SMS ONLY the E2E cell (never committed); payments TEST MODE",
     "test_resource_prefix": "ltt-e2e-",
-    "tenant_isolation": "action 90 asserts cross-org read is denied",
+    "tenant_isolation": "action 90 (Phase F) asserts cross-org read is denied",
+    "prod_residue": "ZERO — the whole-prod-origin proxy keeps every served-site call local; the only prod touches were read-only pragma/header checks",
     "dev_vars": "apps/project-sites/.dev.vars is git-ignored and holds the only local secret; delete on teardown"
   },
   "vite_confound_verdict": {
     "class": "shared-dev-server-concurrent-edit-vite-cache-confound",
     "date_discovered": "fire-58",
-    "fire60_extension": "A FRESH cache's FIRST boot is also unstable (Outdated Optimize Dep persists on cold lazy chunks); the stable state is the SECOND boot on a populated cache. Plus: a concurrent agent's uncommitted broken edit in the shared checkout is served live by ng serve — isolate via worktree serve, never stash their work.",
-    "verdict": "NOT_A_PRODUCT_DEFECT"
+    "verdict": "NOT_A_PRODUCT_DEFECT (unchanged fire-61; worktree-serve + two-boot warm recipe held)"
   }
 }

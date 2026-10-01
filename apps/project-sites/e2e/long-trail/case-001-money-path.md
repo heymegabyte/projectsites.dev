@@ -126,6 +126,36 @@ the worker) · 7. Data stores reconciled directly (D1 `form_submissions`, `visit
 
 ## PHASE E — Promote → visit published → submit form → reconcile (actions 59–78)
 
+> **BUILD/SEED DECISION (fire-61, made autonomously per the case-design contract):** the
+> `ltt-e2e-vitos` build is seeded through the **REAL `POST /api/sites/:id/deploy` ZIP endpoint**
+> (the manual deploy path bolt.diy + CLI/SDK clients use) with a small deterministic hand-authored
+> bundle (`dist/index.html` + `styles.css` + `app.js` with a real contact form POSTing to
+> `/api/contact-form/:slug`). **Rationale:** (a) keeps the journey REAL — real authed product
+> endpoint, real R2 writes under `sites/{slug}/{version}/`, real D1 flip `draft→published` +
+> `current_build_version`, real `site.deploy_started`/`site.deployed` audit rows, real
+> `site_snapshots` row — every effect store-assertable; (b) deterministic + instant vs the
+> container AI build (25-40 min, ~$5-15, and the `SITE_BUILDER` DO is production-only, so a local
+> AI build isn't even possible — API-credit discipline forbids it anyway); (c) resettable — Phase F
+> deletes the site; R2 keys are enumerable under the slug prefix. The REJECTED alternatives:
+> real container build (cost/latency/non-determinism/impossible locally) and direct R2 poking
+> (bypasses the product surface — store effects would be manufactured, not earned).
+>
+> **As-run adaptations (fire-61):**
+> - Served-site visits go to the local worker (`:8787`) with the Host header mapped to
+>   `ltt-e2e-vitos.projectsites.dev` via Playwright route interception (the case row 61 sanctioned
+>   exactly this). Pre-build, that host serves an honest "Building…" interstitial (200, noindex) —
+>   the deploy's causal flip is asserted as interstitial→real-content.
+> - **Environment-leak finding:** the serve-time analytics tracker (`buildAnalyticsTracker`,
+>   `site_serving.ts:1859`) defaults its beacon to PROD `https://projectsites.dev/api/events` even
+>   for locally-served sites (`analytics_tracker.ts` `DEFAULT_ENDPOINT`). The journey intercepts
+>   that prod-bound beacon and re-delivers the page's REAL payload to the LOCAL `/api/events`
+>   (zero test residue in prod ingestion; the local store still receives what prod would have).
+> - Pageviews land in `visitor_events` SERVER-side per serve (`recordPageviewFromRequest`), not
+>   via the beacon (beacon mirrors only `form_start`/`form_submit`/`conversion`) — the pageview
+>   oracle is a before/after delta on the authoritative store.
+> - Shot numbering continues the on-disk sequence (21+); the table's `16-promote`-style names map
+>   to `21-hosting-prebuild` … `28-admin-analytics`.
+
 | # | Start | Action + locator | See | Effect | Shot |
 |---|-------|------------------|-----|--------|------|
 | 59 | /admin | on the `ltt-e2e-` site, trigger Promote/Publish (discover real control) | publish confirms | `POST /api/sites/:id/publish-bolt` (or deploy) → status `published`, `serving_sha` set | Y `16-promote` |
@@ -234,6 +264,64 @@ the worker) · 7. Data stores reconciled directly (D1 `form_submissions`, `visit
    (`prod_readiness_score`) → honest dark-404 locally, spec now pins the envelope either way;
    `ensureLttSite` is check-first so resumed runs don't fire an expected-4xx into the
    console-error gate.
+
+## RED found + fixed in fire-61 (Phase E live drive — checkpoint actions 50-59)
+
+9. **Chromium forbids a `Host` override via `route.continue`** (`Fetch.continueRequest: Unsafe
+   header: host`) — the case row 61 "worker + Host header" plan needs PROXY-FULFILL: re-issue each
+   worker-origin request through Playwright's Node-side request context (which MAY set Host) and
+   fulfill the browser with the real response (encoding/length headers stripped). Harness class,
+   product correct.
+10. **The worker SHADOWS `/app.js` on served sites** with the ProjectSites unified client, which
+    OWNS every `<form>` (capture-phase submit, field-name serialization, `[data-ps-form-status]`
+    status element INSIDE the form, "Thanks! Your message has been sent." / server-error copy).
+    A site bundle's own form JS never runs. Fixture rewritten to CONFORM (rev-2, redeployed via
+    the rev-marker check). Platform behavior, not a defect — now documented here.
+11. **Served-site client is PROD-absolute in three places** (injected
+    `<script src="https://projectsites.dev/app.js">` at `site_serving.ts:1859`, client `API`
+    default, tracker beacon endpoint) — a locally-served page posts forms + events to PROD. The
+    journey proxies the WHOLE prod origin to the local worker (answering CORS preflights itself):
+    real payloads, local stores, zero prod residue. Recorded as a gp-01 CAPABILITY GAP.
+12. **`sites.contact_email` missing from every migration-built DB** (prod carries it out-of-band;
+    verified via prod pragma) → the public contact-form handler's SELECT threw, `dbQueryOne`
+    swallowed, and EVERY submission 404'd "Site not found" — the
+    swallowed-sql-error-masks-schema-drift-as-404 class, second instance after 0651. Fix:
+    migration `0652_sites_contact_email.sql` (local-align, never apply remotely) — file:line
+    `migrations/0652_sites_contact_email.sql:13`.
+13. **`contacts` CRM write was a BLIND INSERT against a dedupe table** — `uniq_contacts_org_email`
+    UNIQUE (org_id, lower(email)) rejected every REPEAT submitter; both writers swallowed the
+    error (log-only), losing last_seen_at/latest-message, and `handleContactForm`'s
+    `persisted=false` could hard-error an innocent visitor on a coincident email-rail failure.
+    Fix at root: `src/services/contacts.ts` `upsertContact` (conflict-target matches the PARTIAL
+    index; enrich-never-erase COALESCE semantics) wired into BOTH writers —
+    `libs/features/contact_newsletter/handlers.ts:96` + `src/services/contact.ts:187`. Regression
+    lock: `src/__tests__/contacts_upsert.test.ts` (real-SQLite, RED→GREEN, 4/4); seam-moved
+    contract suites retargeted (`contact.test.ts`, `api_routes.test.ts`) — full worker suite
+    895/14072 green.
+14. **Evidence-quality (vision-caught):** Angular view-transition cross-fades blurred shots 21/28
+    (fixed: `settleShot` helper — h1 + 300ms, Analytics anchored to its NAMED h1 since both
+    views' h1s coexist mid-fade); post-reload Hosting shot was BLANK and the "no-build-gate
+    GONE" assertion was passing VACUOUSLY against an unrendered lazy pane (fixed: positive
+    content wait before the absence oracle); published-site form-status sat below the fold in
+    evidence shots (fixed: scrollIntoViewIfNeeded); shot 23 caught the entrance fade mid-dim
+    (fixed: 350ms settle).
+
+### Fire-61 Phase E as-run action log (checkpoint actions 50-59)
+
+- 50 (case #59-pre) Hosting honest no-build gate (state-aware) · 51 (#59) REAL zip deploy →
+  store oracle (status published + build version + `site.deployed` audit) · 52 (#60) reload →
+  gate flipped, WFP DISPATCH card + PREVIEW/PRODUCTION URLs + Promote CTA · 53 (#61-62)
+  published site via Host-proxied worker — "Building…" interstitial REPLACED by real content ·
+  54 (#63-66) form filled (allowlist email) · 55 (#67-69) submit → platform success contract
+  (copy + #16a34a) + `form_submissions` AND `contacts` rows carry the exact token + form_start/
+  form_submit beacons observed · 56 (#71-72) admin Forms: headline counts the store's rows,
+  newest row expanded via the "Open" label (bare row.click lands on the stopPropagation email
+  cell), FIELDS JSON shows the typed name/message · 57 (#75-77) invalid email through the UI →
+  server message in #dc2626, store count UNCHANGED, exactly one counted 400 · 58 (#70/73-74)
+  reload+revisit pageviews → `visitor_events` delta ≥ +3; Analytics displays the reconciled
+  count (23 views / 8 visits — NOT lying-empty) · 59 (#78) nav-away/back → clean form.
+- Evidence: `screenshots-local/21-28` (settled; inspected). Known fire-60 toast wart ("That
+  resource wasn't found." on flag-dark 404s) still visible on Analytics — frontend lane.
 
 ### Fire-60 UX findings (frontend lane — NOT fixed this fire, out of scope)
 
