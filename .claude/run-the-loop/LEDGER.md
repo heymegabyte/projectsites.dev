@@ -385,3 +385,16 @@ exit-code deploys).
   Flag DARK by default — card hidden until promoted at /admin/feature-flags.
 - Note: the SLICE was ~95% pre-built across fires 60/61/62; this fire delivered the remaining full-arc
   requirement (flag-gating + feature module + docs + inventory), per predictive-completeness.
+
+## fire-63 — convergence close-out (2026-10-01) — worker v757adf12 + frontend R2
+8 roles fanned out → convergence → adversarial-review → deploy → prod-verify. All green.
+- **A Feature Delivery (north-star):** `build_metrics` flag-gate + feature module `libs/features/build_metrics/` (750ab3138). Prod: `GET /api/admin/build-metrics/summary` 401 unauth (auth→flag→superadmin order).
+- **B correctness:** `DELETE /api/sites/:id` (`purge_resources`) 400s on garbled body + echoes `{purged}` (461e339ad). Prod: route 403 unauth (live + authz-gated). jest 51/51.
+- **C Template Evolution:** 7 WebGL vertical packs — plumbing/logistics/restaurant/saas/medical/retail/professional-services (5dab7662d); static fallback + reduced-motion preserved.
+- **D Architecture:** `scripts/reconcile-migration-tracking.mjs` (8c7aa5b66). Finding: prod `d1_migrations` ALREADY reconciled (fire-61, 189 rows, 0 untracked) — durable audit tool banked.
+- **G Deep UI Explorer (STANDING):** CF Browser Run CDP, editor Database-subtree, 15 states, ledger 43→57 (718e8bc1e). Caught the A regression live.
+- **reg-fix (adversarial):** `build_metrics` card now gates fetch on `GET /api/feature-flags/:key` (enabled&&rollout>0, mirrors worker isFlagOn) → killed the dark-404 console error on every /admin load (aafdb4dba). Prod contract `/api/feature-flags/build_metrics` 200 dark; frontend R2 300/300 purged (main-O5RDMGZT.js).
+- **E/F (STANDING role 16 + role 4):** attrition — never pushed; salvaged uncommitted work: E's case-001 spec improvement (82+/29-) + checkpoint, F's authored admin-ops journey (280 lines, not yet green — d1Count cwd) (deb70c8c2). Re-queued in BACKLOG.
+- **H Security:** per-site + admin surface CLEAN; finding → IDOR CI gates don't scan src/index.ts (DISCOVERIES).
+- **Loop-improvement:** role-17 specialist mapping (visual-qa has no Write → general-purpose/test-writer). Memory `loop-role-17-needs-write-capable-specialist` + DISCOVERIES; command-file edit permission-blocked → BACKLOG.
+- **Journey this fire:** Deep UI Explorer editor Database-subtree (SQL/KV subnav + Schema/AI-Seed/Import overlays). Vary next: finish admin-ops (F) OR money-path build.
