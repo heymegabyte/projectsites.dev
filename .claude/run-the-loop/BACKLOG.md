@@ -65,10 +65,10 @@
 
 **P0 — broken paths + intake (implement first, §4 order):**
 - [x] WLK-01 absorb: upgrade loop + persist spec + merge ledger + next-select reads it — fire-67 (this)
-- [ ] WLK-03 editable table cells: edit→save→reload reads same value from correct DB; errors preserve failed edits
+- [x] (fire-67 `2200d5fd3`+Pages `5654158a`; live-embed verify pending) WLK-03 editable table cells: edit→save→reload reads same value from correct DB; errors preserve failed edits
 - [ ] WLK-04 one **AI** action (replace AI Column/Filter split); repro+fix the "3 attempts / bad gateway"
-- [ ] WLK-08 Lone Mountain Global KV purchase→provision→open "failed to load resource"; no duplicate charge
-- [ ] WLK-09 Lone Mountain Global Hosting→Preview link (investigate double-dash route/TLS/redirect/load)
+- [x] (fire-67 `ad5715a7d`+worker `88388709`; not-billing, opaque-err+retry) WLK-08 Lone Mountain Global KV purchase→provision→open "failed to load resource"; no duplicate charge
+- [x] (fire-67 `f3e31adf6`+worker `88388709`; PROD 404→200) WLK-09 Lone Mountain Global Hosting→Preview link (investigate double-dash route/TLS/redirect/load)
 - [ ] WLK-02 one-click "Use AI to load sample data" creates tables when absent + seeds synthetic rows (no dead-end)
 - [ ] WLK-05 SQL readability: presets visibly populate SQL before run; fix unreadable-contrast cases
 - [ ] WLK-28 real error details + useful log rows (stack/resource context/trace nav), not empty/generic

@@ -477,3 +477,26 @@ dead-toggle gate into the `check` chain (lane D rec) + prod-verify purge echo on
 - **Verify:** tsc 0 · jest 155/155 (5 suites) · validate:features 0 WARN. **Deploy:** Worker Version
   `6918fd09` · push `1c4c556dd`. **Prod:** /health 200 · / 200 · 404→404 · lone-mountain `x-ps-serve: wfp`
   200 · 404 app.js=0.
+
+## fire-67-walkthrough — 2026-10-01 — ABSORB STT walkthrough + 3 P0 repairs (closed)
+
+**Absorb (WLK-01, `457221f0a`):** persisted Brian's STT walkthrough verbatim →
+`.claude/run-the-loop/WALKTHROUGH-SPEC.md`; merged 45 WLK items into BACKLOG (8 P0 / 33 P1 /
+4 P2 + 2 deferred); added §6 feedback-intake behavior to the loop command + corrected the stale
+launchd banner → in-session cron. Next task-selection now reads the merged frontier.
+**P0 repairs shipped + verified:**
+- WLK-09 (`f3e31adf6`, worker `88388709`): Hosting→Preview link. Double-dash `preview--{slug}`
+  is INTENTIONAL (branch separator); bug was resolveSite 404ing with no `preview` branch row →
+  now reserved preview name serves current prod build. **PROD-VERIFIED preview--lone-mountain-global
+  404→200.** 150/150 tests.
+- WLK-03 (`2200d5fd3`, editor Pages `5654158a`): editable-cell lost-edit — writeCell treated
+  rowsWritten:0 as success (lying-success class); now 0-match = failed edit, editor stays open +
+  error, typed value preserved. 40 app + 29 worker tests.
+- WLK-08 (`ad5715a7d`, worker `88388709` + frontend R2): KV "failed to load resource" — NOT
+  billing (provision has no charge, already idempotent); opaque error swallowed worker message +
+  no read-after-write grace on fresh-namespace list. resourceErrMessage forwards real message +
+  transient-only retry (3x/150ms). 437/437 + 5/5.
+**Deploys:** worker `88388709` · frontend R2 (purged) · editor Pages `5654158a`. Gates green all lanes.
+**Rate-limit discipline held:** fan-out capped at 3 (not 6) per fire-63 lesson — zero rate-limit deaths this fire.
+**Residual (orchestrator → next fire):** live authed-embed browser-verify of WLK-03 cell round-trip
++ WLK-08 KV open; then WLK-04 (AI action, shares WLK-03 files), WLK-02/05/28 remaining P0s.
