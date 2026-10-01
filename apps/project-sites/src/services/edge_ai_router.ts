@@ -36,6 +36,59 @@ export type AiTier = 'instant' | 'standard' | 'premium';
 const INSTANT_MODEL = '@cf/meta/llama-3.3-70b-instruct-fp8-fast' as const;
 
 /**
+ * Bounded retry budget for TRANSIENT upstream failures (a Workers-AI throw, an
+ * AI-Gateway/vendor 5xx). This is the real fix for the "3 attempts / bad
+ * gateway" the editor Data-tab "Ask AI" hit: a single cold/transient 5xx used
+ * to produce an IMMEDIATE bare 502, forcing the user to manually retry. We now
+ * retry up to {@link MAX_UPSTREAM_ATTEMPTS} times with short backoff before
+ * surfacing a TYPED error — never a swallowed, message-less 502.
+ *
+ * A 4xx is NOT retried (bad key / malformed body is terminal — the direct URL
+ * would reject it too); only 5xx + thrown network errors are transient.
+ */
+const MAX_UPSTREAM_ATTEMPTS = 3;
+const RETRY_BACKOFF_MS = [150, 400] as const; // backoff before attempt 2, attempt 3
+
+/** Typed, non-swallowed error code every exhausted-retry path surfaces. */
+const AI_UPSTREAM_ERROR_CODE = 'AI_UPSTREAM_UNAVAILABLE' as const;
+const AI_UPSTREAM_ERROR_MESSAGE =
+  'The AI service is temporarily unavailable. Please try again in a moment.';
+
+/** Sleep helper (no-op at 0ms) for backoff between retry attempts. */
+function delay(ms: number): Promise<void> {
+  return ms > 0 ? new Promise((resolve) => setTimeout(resolve, ms)) : Promise.resolve();
+}
+
+/**
+ * The single typed error envelope for an exhausted-retry upstream failure.
+ * Shape matches the OpenAI-style `{error:{code,message}}` the frontend parses
+ * (`callAi` reads `body.message` / `error.message`), so the user sees a real
+ * sentence, never "AI is unavailable (HTTP 502)".
+ *
+ * @param stream - true → an SSE error frame + `[DONE]` (200, so the SDK reader
+ *   closes cleanly); false → a JSON 502 the `generateText` path reads.
+ */
+function upstreamUnavailableResponse(stream: boolean): Response {
+  if (stream) {
+    return new Response(
+      `data: {"error":{"code":"${AI_UPSTREAM_ERROR_CODE}","message":${sseEscapeJson(
+        AI_UPSTREAM_ERROR_MESSAGE,
+      )}}}\n\ndata: [DONE]\n\n`,
+      { status: 200, headers: { 'Content-Type': 'text/event-stream; charset=utf-8' } },
+    );
+  }
+  return Response.json(
+    { error: { code: AI_UPSTREAM_ERROR_CODE, message: AI_UPSTREAM_ERROR_MESSAGE } },
+    { status: 502 },
+  );
+}
+
+/** `JSON.stringify` a string WITH its surrounding quotes, for an SSE `data:` frame. */
+function sseEscapeJson(s: string): string {
+  return JSON.stringify(s);
+}
+
+/**
  * Chat models per provider + tier (all OpenAI-compat wire format). When a
  * tier's preferred provider lacks its key, `chooseProviderForTier` falls back
  * to OpenAI — the models below cover both providers at both tiers.
@@ -137,27 +190,32 @@ async function workersAiToOpenAiJson(
   env: Env,
   messages: { role: string; content: string }[],
 ): Promise<Response> {
-  try {
-    const ai = env.AI as unknown as {
-      run: (
-        model: string,
-        opts: unknown,
-      ) => Promise<{ response?: string } | ReadableStream<string>>;
-    };
-    const out = await ai.run(INSTANT_MODEL, { messages, max_tokens: 1024 });
-    const text = typeof out === 'object' && out && 'response' in out ? (out.response ?? '') : '';
-    return Response.json({
-      id: `wa-${Date.now()}`,
-      object: 'chat.completion',
-      model: INSTANT_MODEL,
-      choices: [{ index: 0, message: { role: 'assistant', content: text }, finish_reason: 'stop' }],
-    });
-  } catch {
-    return Response.json(
-      { error: { code: 'INSTANT_AI_FAILED', message: 'Workers AI unavailable' } },
-      { status: 502 },
-    );
+  const ai = env.AI as unknown as {
+    run: (
+      model: string,
+      opts: unknown,
+    ) => Promise<{ response?: string } | ReadableStream<string>>;
+  };
+
+  // Bounded retry: a transient Workers-AI throw used to 502 on the first try.
+  for (let attempt = 0; attempt < MAX_UPSTREAM_ATTEMPTS; attempt++) {
+    if (attempt > 0) await delay(RETRY_BACKOFF_MS[attempt - 1] ?? 0);
+    try {
+      const out = await ai.run(INSTANT_MODEL, { messages, max_tokens: 1024 });
+      const text = typeof out === 'object' && out && 'response' in out ? (out.response ?? '') : '';
+      return Response.json({
+        id: `wa-${Date.now()}`,
+        object: 'chat.completion',
+        model: INSTANT_MODEL,
+        choices: [
+          { index: 0, message: { role: 'assistant', content: text }, finish_reason: 'stop' },
+        ],
+      });
+    } catch {
+      // swallow + retry; the typed error surfaces only after the budget is spent.
+    }
   }
+  return upstreamUnavailableResponse(false);
 }
 
 /**
@@ -172,19 +230,23 @@ async function workersAiToOpenAiSse(
   // it (instead of a non-null `!` at read time) keeps the instant router fail-soft:
   // a Workers-AI hiccup degrades to a clean [DONE] frame, never a crash inside the
   // ReadableStream `start()` closure below.
-  const aiUnavailable = (): Response =>
-    new Response(
-      `data: {"error":{"code":"INSTANT_AI_FAILED","message":"Workers AI unavailable"}}\n\ndata: [DONE]\n\n`,
-      { status: 200, headers: { 'Content-Type': 'text/event-stream; charset=utf-8' } },
-    );
+  const aiUnavailable = (): Response => upstreamUnavailableResponse(true);
+  const ai = env.AI as unknown as {
+    run: (model: string, opts: unknown) => Promise<ReadableStream<string>>;
+  };
+
+  // Bounded retry on a transient throw while ACQUIRING the stream (before any
+  // frame is sent). Once bytes are flowing, a mid-stream error degrades to a
+  // clean error frame inside the reader loop below — it cannot be retried.
   let stream: ReadableStream<string> | null = null;
-  try {
-    const ai = env.AI as unknown as {
-      run: (model: string, opts: unknown) => Promise<ReadableStream<string>>;
-    };
-    stream = await ai.run(INSTANT_MODEL, { messages, stream: true, max_tokens: 1024 });
-  } catch {
-    return aiUnavailable();
+  for (let attempt = 0; attempt < MAX_UPSTREAM_ATTEMPTS; attempt++) {
+    if (attempt > 0) await delay(RETRY_BACKOFF_MS[attempt - 1] ?? 0);
+    try {
+      stream = await ai.run(INSTANT_MODEL, { messages, stream: true, max_tokens: 1024 });
+      if (stream) break;
+    } catch {
+      stream = null; // retry
+    }
   }
   if (!stream) return aiUnavailable();
   const readable = stream;
@@ -240,6 +302,40 @@ async function workersAiToOpenAiSse(
 }
 
 /**
+ * {@link gatewayFetch} with a bounded retry on TRANSIENT upstream 5xx. The
+ * underlying `gatewayFetch` already falls back gateway→direct ONCE; this adds
+ * the retry budget ON TOP so a cold/transient 5xx (which hit BOTH the gateway
+ * and the direct vendor) is re-attempted with backoff instead of becoming an
+ * immediate 502. A 4xx (bad key / malformed body) is terminal — returned as-is,
+ * never retried (the direct URL would reject it identically). A thrown network
+ * error is also transient and retried.
+ *
+ * @returns the last {@link gatewayFetch} result (a 5xx response after the budget
+ *   is spent, which {@link gatewayResponse} converts to the typed error).
+ */
+async function gatewayFetchWithRetry(
+  env: Env,
+  provider: Parameters<typeof gatewayFetch>[1],
+  pathSuffix: string,
+  init: RequestInit,
+): Promise<Awaited<ReturnType<typeof gatewayFetch>>> {
+  let last: Awaited<ReturnType<typeof gatewayFetch>> | null = null;
+  for (let attempt = 0; attempt < MAX_UPSTREAM_ATTEMPTS; attempt++) {
+    if (attempt > 0) await delay(RETRY_BACKOFF_MS[attempt - 1] ?? 0);
+    try {
+      last = await gatewayFetch(env, provider, pathSuffix, init);
+    } catch {
+      last = null; // network throw → transient, retry
+      continue;
+    }
+    const status = last.response.status;
+    if (status < 500) return last; // 2xx success OR 4xx terminal — don't retry
+    // 5xx → transient; loop to retry (unless budget exhausted).
+  }
+  return last ?? { response: new Response(null, { status: 502 }), gatewayUsed: false };
+}
+
+/**
  * Route a bolt-chat request: classify at the edge → Workers AI when instant,
  * else the tier model through the (conditional) Cloudflare AI Gateway.
  *
@@ -280,7 +376,7 @@ export async function routeBoltChat(
   if (provider === 'fable' || provider === 'anthropic') {
     // Anthropic-protocol premium rung (Fable 5). The gateway speaks the
     // anthropic slug natively; model is the anthropic-native name.
-    const upstream = await gatewayFetch(env, 'anthropic', '/v1/messages', {
+    const upstream = await gatewayFetchWithRetry(env, 'anthropic', '/v1/messages', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -302,7 +398,7 @@ export async function routeBoltChat(
 
   const gatewayProvider: 'deepseek' | 'openai' | 'kimi' =
     provider === 'deepseek' ? 'deepseek' : provider === 'kimi' ? 'kimi' : 'openai';
-  const upstream = await gatewayFetch(env, gatewayProvider, '/v1/chat/completions', {
+  const upstream = await gatewayFetchWithRetry(env, gatewayProvider, '/v1/chat/completions', {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
@@ -317,17 +413,19 @@ export async function routeBoltChat(
   return gatewayResponse(upstream, tier, stream);
 }
 
-/** Wrap a gatewayFetch result as the SSE response (502 JSON on upstream failure). */
+/**
+ * Wrap a (post-retry) gatewayFetch result as the client response. On a failed
+ * upstream, surface the TYPED, non-swallowed {@link AI_UPSTREAM_ERROR_CODE}
+ * envelope the frontend reads — a 502 JSON for non-stream callers, an SSE error
+ * frame for streaming ones.
+ */
 function gatewayResponse(
   upstream: Awaited<ReturnType<typeof gatewayFetch>>,
   tier: Exclude<AiTier, 'instant'>,
   stream: boolean,
 ): Response {
   if (!upstream.response.ok) {
-    return Response.json(
-      { error: 'upstream_error', status: upstream.response.status },
-      { status: 502 },
-    );
+    return upstreamUnavailableResponse(stream);
   }
   return new Response(upstream.response.body, {
     status: 200,

@@ -135,6 +135,7 @@ import { FIELD_TYPES, fieldTypeFor, type FieldKind } from './field-types';
 import { classifyCell } from './data-cell-format';
 import { quoteIdent } from './schema-ddl';
 import { formatSchemaForPrompt, extractSqlFromModel } from './sql-ask-logic';
+import { buildAskSystemPrompt, parseAskPlan } from './ai-ask-logic';
 import { CellEditor } from './CellEditor';
 import { ErdView } from './ErdView';
 import type { ErdSchemaTable } from './data-panel-logic';
@@ -2249,34 +2250,71 @@ export const SiteTablesPanel = memo(
       ]);
     }, [rows]);
 
-    /** One `/api/llmcall` round-trip returning the model text, or throwing a human error. */
+    /**
+     * One `/api/llmcall` round-trip returning the model text, or throwing a human error.
+     *
+     * Defense-in-depth retry (the worker edge-router already retries upstream 5xx): a
+     * transient 502/`AI_UPSTREAM_UNAVAILABLE` bad-gateway is re-attempted up to 3× with
+     * short backoff BEFORE surfacing — so the editor's "Ask AI" no longer needs the user
+     * to manually try 3 times. A 4xx (bad request) is terminal and surfaces immediately.
+     */
     const callAi = useCallback(async (system: string, message: string): Promise<string> => {
       if (!isEmbedded) {
         throw new Error('Open this from the ProjectSites admin to use AI.');
       }
 
-      const res = await fetch('/api/llmcall', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ system, message, model: DEFAULT_MODEL, provider: DEFAULT_PROVIDER, streamOutput: false }),
-      });
+      const MAX_ATTEMPTS = 3;
+      const BACKOFF_MS = [200, 500];
+      let lastErr = 'AI is unavailable.';
 
-      if (!res.ok) {
-        const body = (await res.json().catch(() => ({}))) as { message?: string };
-        throw new Error(body.message ?? `AI is unavailable (HTTP ${res.status}).`);
+      for (let attempt = 0; attempt < MAX_ATTEMPTS; attempt++) {
+        if (attempt > 0) {
+          await new Promise((r) => setTimeout(r, BACKOFF_MS[attempt - 1] ?? 0));
+        }
+
+        let res: Response;
+        try {
+          res = await fetch('/api/llmcall', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ system, message, model: DEFAULT_MODEL, provider: DEFAULT_PROVIDER, streamOutput: false }),
+          });
+        } catch {
+          lastErr = 'AI is temporarily unreachable. Please try again.';
+          continue; // network blip → retry
+        }
+
+        if (!res.ok) {
+          const body = (await res.json().catch(() => ({}))) as {
+            message?: string;
+            error?: { code?: string; message?: string };
+          };
+          lastErr = body.error?.message ?? body.message ?? `AI is unavailable (HTTP ${res.status}).`;
+          // 5xx (incl. AI_UPSTREAM_UNAVAILABLE bad-gateway) is transient → retry; 4xx is terminal.
+          if (res.status >= 500) continue;
+          throw new Error(lastErr);
+        }
+
+        const data = (await res.json().catch(() => ({}))) as {
+          text?: string;
+          error?: boolean | { code?: string; message?: string };
+          message?: string;
+        };
+
+        const errObj = typeof data.error === 'object' ? data.error : null;
+        if (errObj || data.error === true || typeof data.text !== 'string') {
+          lastErr = errObj?.message ?? data.message ?? 'AI did not return a result.';
+          continue; // malformed/empty answer → retry
+        }
+
+        return data.text;
       }
 
-      const data = (await res.json()) as { text?: string; error?: boolean; message?: string };
-
-      if (data.error || typeof data.text !== 'string') {
-        throw new Error(data.message ?? 'AI did not return a result.');
-      }
-
-      return data.text;
+      throw new Error(lastErr);
     }, []);
 
-    const [aiBusy, setAiBusy] = useState<null | 'filter' | 'column' | 'fill'>(null);
-    const [aiPanel, setAiPanel] = useState<null | 'filter' | 'column' | 'fill'>(null);
+    const [aiBusy, setAiBusy] = useState<null | 'ask' | 'filter' | 'column' | 'fill'>(null);
+    const [aiPanel, setAiPanel] = useState<null | 'ask' | 'filter' | 'column' | 'fill'>(null);
     const [aiError, setAiError] = useState('');
 
     /**
@@ -2498,6 +2536,68 @@ export const SiteTablesPanel = memo(
       [aiBusy, rows, pkCols, selectedRowKeys, callAi, execSql, loadRows],
     );
 
+    /**
+     * Unified "Ask AI" (WLK-04): ONE box that replaced the split "AI filter" + "AI column" actions.
+     * The model classifies the plain-English request into filter / column / fill (grounded on the real
+     * schema + current selection), then we dispatch to the EXISTING resilient handler — so the three
+     * powerful actions stay, behind one obvious, embarrassingly-easy entry point. A flaky classification
+     * degrades to `filter` (never a dead-end), and the underlying handlers own their own busy/error state.
+     */
+    const askAi = useCallback(
+      async (request: string) => {
+        const q = request.trim();
+
+        if (!q || aiBusy || rows.status !== 'ready') {
+          return;
+        }
+
+        setAiBusy('ask');
+        setAiError('');
+
+        const hasSelection = selectedRowKeys.size > 0;
+
+        let plan: ReturnType<typeof parseAskPlan>;
+
+        try {
+          const text = await callAi(buildAskSystemPrompt(gatherSchemaOutline(), hasSelection), q);
+          plan = parseAskPlan(text, q, hasSelection);
+        } catch (err) {
+          setAiError(err instanceof Error ? err.message : 'AI could not understand that request.');
+          setAiBusy(null);
+          return;
+        }
+
+        // Hand off to the chosen action's handler (each manages its own busy flag + toast).
+        setAiBusy(null);
+
+        if (plan.action === 'column') {
+          await aiGenerateColumn(plan.instruction);
+        } else if (plan.action === 'fill') {
+          const col = plan.column && allColumnNames.includes(plan.column) ? plan.column : '';
+
+          if (!col) {
+            setAiError('Name the column to fill (e.g. "fill the notes column"), with rows selected.');
+            return;
+          }
+
+          await aiFillColumn(col, plan.instruction);
+        } else {
+          await aiFilter(plan.instruction);
+        }
+      },
+      [
+        aiBusy,
+        rows,
+        selectedRowKeys,
+        allColumnNames,
+        callAi,
+        gatherSchemaOutline,
+        aiFilter,
+        aiGenerateColumn,
+        aiFillColumn,
+      ],
+    );
+
     const rowHeight = ROW_HEIGHT_FOR[density];
     const selectedOnPage = pageRows.filter((r) => {
       const k = rowPkKey(r, pkCols);
@@ -2708,6 +2808,7 @@ export const SiteTablesPanel = memo(
               setAiPanel(which);
             }}
             onCloseAi={() => setAiPanel(null)}
+            onAsk={askAi}
             onAiFilter={aiFilter}
             onAiGenerateColumn={aiGenerateColumn}
             onAiFillColumn={aiFillColumn}
@@ -3884,8 +3985,8 @@ interface BrowseViewProps extends EditProps {
   fillBusy: boolean;
   addingRow: boolean;
   addColOpen: boolean;
-  aiPanel: null | 'filter' | 'column' | 'fill';
-  aiBusy: null | 'filter' | 'column' | 'fill';
+  aiPanel: null | 'ask' | 'filter' | 'column' | 'fill';
+  aiBusy: null | 'ask' | 'filter' | 'column' | 'fill';
   aiError: string;
   generatedCols: Set<string>;
   onBack: () => void;
@@ -3929,8 +4030,9 @@ interface BrowseViewProps extends EditProps {
   onDropColumn: (col: string) => void;
   onRenameColumn: (from: string, to: string) => Promise<{ ok: boolean; error?: string }>;
   onExport: (format: 'csv' | 'tsv' | 'json') => void;
-  onOpenAi: (which: 'filter' | 'column' | 'fill') => void;
+  onOpenAi: (which: 'ask' | 'filter' | 'column' | 'fill') => void;
   onCloseAi: () => void;
+  onAsk: (request: string) => void;
   onAiFilter: (question: string) => void;
   onAiGenerateColumn: (description: string) => void;
   onAiFillColumn: (column: string, instruction: string) => void;
@@ -4012,6 +4114,7 @@ const BrowseView = memo((props: BrowseViewProps) => {
     onExport,
     onOpenAi,
     onCloseAi,
+    onAsk,
     onAiFilter,
     onAiGenerateColumn,
     onAiFillColumn,
@@ -4257,11 +4360,14 @@ const BrowseView = memo((props: BrowseViewProps) => {
 
         <div className="w-px h-4 bg-bolt-elements-borderColor mx-0.5" aria-hidden />
 
-        {/* AI actions */}
-        <ToolbarButton testId="sitedb-ai-filter" icon="i-ph:sparkle" label="AI filter" accent onClick={() => onOpenAi('filter')} />
-        <ToolbarButton testId="sitedb-ai-column" icon="i-ph:magic-wand" label="AI column" accent onClick={() => onOpenAi('column')} />
+        {/* Unified AI action (WLK-04): ONE "Ask AI" box replaces the split AI-filter/AI-column/AI-fill
+            buttons — the model classifies the request (filter · add column · fill selected cells) and
+            dispatches. One obvious entry point; the three powerful actions all live behind it. */}
+        <ToolbarButton testId="sitedb-ask-ai" icon="i-ph:sparkle" label="Ask AI" accent onClick={() => onOpenAi('ask')} />
         {selectedRowKeys.size > 0 && (
-          <ToolbarButton testId="sitedb-ai-fill" icon="i-ph:pen-nib" label="AI fill" accent onClick={() => onOpenAi('fill')} />
+          <span className="text-[10px] text-bolt-elements-textTertiary hidden sm:inline" aria-hidden>
+            · try “summarize the selected rows”
+          </span>
         )}
 
         <div className="ml-auto flex items-center gap-1.5">
@@ -4345,6 +4451,7 @@ const BrowseView = memo((props: BrowseViewProps) => {
           columns={allColumns.filter((c) => !generatedCols.has(c.name) && !pkCols.includes(c.name))}
           selectedCount={selectedRowKeys.size}
           onClose={onCloseAi}
+          onAsk={onAsk}
           onFilter={onAiFilter}
           onGenerateColumn={onAiGenerateColumn}
           onFillColumn={onAiFillColumn}
@@ -5037,34 +5144,49 @@ const AiPanel = memo(
     columns,
     selectedCount,
     onClose,
+    onAsk,
     onFilter,
     onGenerateColumn,
     onFillColumn,
   }: {
-    mode: 'filter' | 'column' | 'fill';
-    busy: null | 'filter' | 'column' | 'fill';
+    mode: 'ask' | 'filter' | 'column' | 'fill';
+    busy: null | 'ask' | 'filter' | 'column' | 'fill';
     error: string;
     columns: ColumnInfo[];
     selectedCount: number;
     onClose: () => void;
+    onAsk: (request: string) => void;
     onFilter: (q: string) => void;
     onGenerateColumn: (d: string) => void;
     onFillColumn: (col: string, instruction: string) => void;
   }) => {
     const [text, setText] = useState('');
     const [fillCol, setFillCol] = useState(columns[0]?.name ?? '');
-    const isBusy = busy === mode;
+    // The unified "Ask AI" box is busy during its own classification OR while the
+    // action it dispatched to runs — so the single box reflects the whole operation.
+    const isBusy = mode === 'ask' ? busy !== null : busy === mode;
 
-    const title = mode === 'filter' ? 'AI filter' : mode === 'column' ? 'AI generate column' : 'AI fill selected cells';
+    const title =
+      mode === 'ask'
+        ? 'Ask AI'
+        : mode === 'filter'
+          ? 'AI filter'
+          : mode === 'column'
+            ? 'AI generate column'
+            : 'AI fill selected cells';
     const placeholder =
-      mode === 'filter'
-        ? 'e.g. orders over $100 in the last week, newest first'
-        : mode === 'column'
-          ? 'e.g. a "status" column: active if last_seen within 30 days'
-          : 'e.g. write a friendly one-line summary from the other fields';
+      mode === 'ask'
+        ? 'Ask anything — e.g. "orders over $100 newest first", "add a status column", "summarize the selected rows"'
+        : mode === 'filter'
+          ? 'e.g. orders over $100 in the last week, newest first'
+          : mode === 'column'
+            ? 'e.g. a "status" column: active if last_seen within 30 days'
+            : 'e.g. write a friendly one-line summary from the other fields';
 
     const submit = () => {
-      if (mode === 'filter') {
+      if (mode === 'ask') {
+        onAsk(text);
+      } else if (mode === 'filter') {
         onFilter(text);
       } else if (mode === 'column') {
         onGenerateColumn(text);

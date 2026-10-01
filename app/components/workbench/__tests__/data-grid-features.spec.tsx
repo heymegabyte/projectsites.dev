@@ -828,16 +828,24 @@ describe('Grid ↔ Gallery view toggle', () => {
 // ─── AI-native panels ────────────────────────────────────────────────────────
 
 describe('AI-native features', () => {
-  it('AI filter panel opens and applies a model-returned filter plan', async () => {
-    (globalThis.fetch as unknown as ReturnType<typeof vi.fn>).mockResolvedValue({
-      ok: true,
-      json: async () => ({ text: '{"conditions":[{"col":"views","op":"gt","val":"50"}],"combinator":"AND","sorts":[]}' }),
-    });
+  it('unified "Ask AI" classifies a request as filter → applies the model filter plan', async () => {
+    // WLK-04: the ONE "Ask AI" box makes TWO /api/llmcall round-trips — first to
+    // classify the request into an action, then to run that action. The filter
+    // request classifies to {action:'filter'}, then returns the conditions plan.
+    (globalThis.fetch as unknown as ReturnType<typeof vi.fn>)
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({ text: '{"action":"filter","instruction":"views over 50"}' }),
+      })
+      .mockResolvedValue({
+        ok: true,
+        json: async () => ({ text: '{"conditions":[{"col":"views","op":"gt","val":"50"}],"combinator":"AND","sorts":[]}' }),
+      });
 
     await openRichTable();
 
     await act(async () => {
-      screen.getByTestId('sitedb-ai-filter').click();
+      screen.getByTestId('sitedb-ask-ai').click();
     });
     expect(screen.getByTestId('sitedb-ai-panel')).toBeTruthy();
 
@@ -859,16 +867,22 @@ describe('AI-native features', () => {
     expect(globalThis.fetch).toHaveBeenCalledWith('/api/llmcall', expect.objectContaining({ method: 'POST' }));
   });
 
-  it('AI generate-column panel opens, calls /api/llmcall, then adds the column via the bridge + backfills', async () => {
-    (globalThis.fetch as unknown as ReturnType<typeof vi.fn>).mockResolvedValue({
-      ok: true,
-      json: async () => ({ text: '{"name":"score","type":"INTEGER","expr":"views * 2"}' }),
-    });
+  it('unified "Ask AI" classifies a request as column → adds the column via the bridge + backfills', async () => {
+    // Classify → {action:'column'}, then the generate-column call returns the column plan.
+    (globalThis.fetch as unknown as ReturnType<typeof vi.fn>)
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({ text: '{"action":"column","instruction":"double the views"}' }),
+      })
+      .mockResolvedValue({
+        ok: true,
+        json: async () => ({ text: '{"name":"score","type":"INTEGER","expr":"views * 2"}' }),
+      });
 
     await openRichTable();
 
     await act(async () => {
-      screen.getByTestId('sitedb-ai-column').click();
+      screen.getByTestId('sitedb-ask-ai').click();
     });
     const input = screen.getByTestId('sitedb-ai-input') as HTMLInputElement;
     await act(async () => {
@@ -926,18 +940,25 @@ describe('AI-native features', () => {
     });
   });
 
-  it('AI fill appears only when rows are selected', async () => {
+  it('the single "Ask AI" button is always present (fill is reachable through it when rows are selected)', async () => {
+    // WLK-04: the split AI-filter/AI-column/AI-fill toolbar buttons were unified into ONE
+    // "Ask AI" that is ALWAYS available — the old per-action buttons no longer exist, and
+    // "fill" is now reached by asking (e.g. "summarize the selected rows") with a selection.
     await openRichTable();
 
-    // No selection → no AI-fill button.
+    expect(screen.getByTestId('sitedb-ask-ai')).toBeTruthy();
+    expect(screen.queryByTestId('sitedb-ai-filter')).toBeNull();
+    expect(screen.queryByTestId('sitedb-ai-column')).toBeNull();
     expect(screen.queryByTestId('sitedb-ai-fill')).toBeNull();
 
+    // Selecting rows doesn't add a separate fill button — the unified box still handles it.
     const selects = screen.getAllByTestId('sitedb-row-select');
     await act(async () => {
       selects[0].click();
     });
 
-    expect(screen.getByTestId('sitedb-ai-fill')).toBeTruthy();
+    expect(screen.getByTestId('sitedb-ask-ai')).toBeTruthy();
+    expect(screen.queryByTestId('sitedb-ai-fill')).toBeNull();
   });
 });
 
