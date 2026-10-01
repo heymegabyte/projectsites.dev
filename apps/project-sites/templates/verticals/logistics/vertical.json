@@ -1,0 +1,31 @@
+{
+  "slug": "logistics",
+  "name": "Logistics / Freight + Supply Chain",
+  "industry": "transportation_logistics",
+  "default_service_pages": [
+    { "slug": "freight-forwarding", "title": "Freight Forwarding", "intent": "service" },
+    { "slug": "warehousing", "title": "Warehousing + Distribution", "intent": "service" },
+    { "slug": "ltl-ftl-shipping", "title": "LTL + FTL Shipping", "intent": "service" },
+    { "slug": "customs-brokerage", "title": "Customs Brokerage", "intent": "service" },
+    { "slug": "last-mile-delivery", "title": "Last-Mile Delivery", "intent": "service" },
+    { "slug": "cold-chain", "title": "Cold-Chain + Temperature-Controlled", "intent": "service" },
+    { "slug": "tracking", "title": "Shipment Tracking", "intent": "diagnostic" },
+    { "slug": "request-a-quote", "title": "Request a Freight Quote", "intent": "conversion" }
+  ],
+  "webgl": {
+    "variant": "grid",
+    "background": "#f7f5ef",
+    "palette": ["#1d3557", "#c9a227", "#e8e4d8"],
+    "speed": 0.5,
+    "intensity": 0.85,
+    "density": 6,
+    "grain": 0.012
+  },
+  "jsonld_presets": ["Organization", "LocalBusiness", "Service", "BreadcrumbList", "FAQPage"],
+  "trust_signals": ["FMCSA-registered carrier", "C-TPAT certified", "ISO 9001 quality", "Fully bonded + insured"],
+  "lead_magnets": [
+    "Incoterms 2020 quick-reference PDF",
+    "Freight-class + NMFC lookup guide",
+    "Supply-chain cost-reduction checklist"
+  ]
+}

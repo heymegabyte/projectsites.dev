@@ -1,0 +1,31 @@
+{
+  "slug": "professional-services",
+  "name": "Professional Services / Accounting + Consulting",
+  "industry": "professional_services",
+  "default_service_pages": [
+    { "slug": "services", "title": "Services", "intent": "service" },
+    { "slug": "industries", "title": "Industries We Serve", "intent": "service" },
+    { "slug": "about", "title": "About the Firm", "intent": "trust" },
+    { "slug": "team", "title": "Our Team", "intent": "trust" },
+    { "slug": "case-studies", "title": "Case Studies", "intent": "trust" },
+    { "slug": "pricing", "title": "Engagement + Pricing", "intent": "pricing" },
+    { "slug": "resources", "title": "Resources + Insights", "intent": "educational" },
+    { "slug": "book-consultation", "title": "Book a Consultation", "intent": "conversion" }
+  ],
+  "webgl": {
+    "variant": "grid",
+    "background": "#f7f5ef",
+    "palette": ["#1d3557", "#c9a227", "#e8e4d8"],
+    "speed": 0.5,
+    "intensity": 0.85,
+    "density": 6,
+    "grain": 0.012
+  },
+  "jsonld_presets": ["ProfessionalService", "Organization", "Service", "BreadcrumbList", "FAQPage"],
+  "trust_signals": ["Licensed + credentialed", "Years in practice", "Client-first engagements", "Confidential + insured"],
+  "lead_magnets": [
+    "Free initial consultation",
+    "Industry benchmark + planning guide",
+    "Year-end / quarterly readiness checklist"
+  ]
+}

@@ -1,0 +1,31 @@
+{
+  "slug": "retail",
+  "name": "Retail / Shop + E-commerce",
+  "industry": "retail",
+  "default_service_pages": [
+    { "slug": "shop", "title": "Shop All", "intent": "service" },
+    { "slug": "new-arrivals", "title": "New Arrivals", "intent": "service" },
+    { "slug": "best-sellers", "title": "Best Sellers", "intent": "service" },
+    { "slug": "collections", "title": "Collections", "intent": "service" },
+    { "slug": "sale", "title": "Sale", "intent": "pricing" },
+    { "slug": "shipping-returns", "title": "Shipping + Returns", "intent": "trust" },
+    { "slug": "about", "title": "About the Shop", "intent": "trust" },
+    { "slug": "contact", "title": "Contact + Store Hours", "intent": "trust" }
+  ],
+  "webgl": {
+    "variant": "glint",
+    "background": "#171a1e",
+    "palette": ["#ff7a1a", "#ffd9a8", "#3a4450"],
+    "speed": 0.8,
+    "intensity": 1.0,
+    "density": 10,
+    "grain": 0.03
+  },
+  "jsonld_presets": ["Store", "LocalBusiness", "Product", "AggregateRating", "BreadcrumbList"],
+  "trust_signals": ["Free shipping over threshold", "Easy 30-day returns", "Secure checkout", "Locally owned"],
+  "lead_magnets": [
+    "First-order discount for the email list",
+    "Seasonal lookbook / buying guide",
+    "Size + fit guide PDF"
+  ]
+}

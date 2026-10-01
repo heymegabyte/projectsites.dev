@@ -1,0 +1,31 @@
+{
+  "slug": "restaurant",
+  "name": "Restaurant / Cafe + Dining",
+  "industry": "food_service",
+  "default_service_pages": [
+    { "slug": "menu", "title": "Menu", "intent": "service" },
+    { "slug": "reservations", "title": "Reservations", "intent": "conversion" },
+    { "slug": "order-online", "title": "Order Online", "intent": "conversion" },
+    { "slug": "catering", "title": "Catering + Private Events", "intent": "conversion" },
+    { "slug": "about", "title": "Our Story", "intent": "trust" },
+    { "slug": "hours-location", "title": "Hours + Location", "intent": "trust" },
+    { "slug": "gift-cards", "title": "Gift Cards", "intent": "pricing" },
+    { "slug": "specials", "title": "Daily Specials", "intent": "service" }
+  ],
+  "webgl": {
+    "variant": "ember",
+    "background": "#1a0f0a",
+    "palette": ["#c2572b", "#f0a850", "#6b5a42"],
+    "speed": 0.55,
+    "intensity": 1.0,
+    "density": 8,
+    "grain": 0.025
+  },
+  "jsonld_presets": ["Restaurant", "LocalBusiness", "Menu", "AggregateRating", "FAQPage"],
+  "trust_signals": ["Locally sourced", "Family owned", "Reservations recommended", "Dietary options available"],
+  "lead_magnets": [
+    "Seasonal menu preview",
+    "Private-events + catering packet",
+    "Join the regulars list for weekly specials"
+  ]
+}

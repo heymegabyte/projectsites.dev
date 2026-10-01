@@ -1,0 +1,37 @@
+{
+  "slug": "plumbing",
+  "name": "Plumbing / Drain + Water",
+  "industry": "residential_services",
+  "default_service_pages": [
+    { "slug": "drain-cleaning", "title": "Drain Cleaning", "intent": "service" },
+    { "slug": "water-heater-repair", "title": "Water Heater Repair", "intent": "diagnostic" },
+    { "slug": "water-heater-installation", "title": "Water Heater Installation", "intent": "service" },
+    { "slug": "leak-detection", "title": "Leak Detection + Repair", "intent": "diagnostic" },
+    { "slug": "sewer-line-repair", "title": "Sewer Line Repair", "intent": "service" },
+    { "slug": "emergency-plumbing", "title": "24/7 Emergency Plumbing", "intent": "emergency" },
+    { "slug": "repiping", "title": "Repiping + Pipe Replacement", "intent": "service" },
+    { "slug": "fixture-installation", "title": "Faucet + Fixture Installation", "intent": "service" }
+  ],
+  "webgl": {
+    "variant": "grid",
+    "background": "#f3f6f9",
+    "palette": ["#1f5fa8", "#e8650f", "#d3dfe9"],
+    "speed": 0.6,
+    "intensity": 0.95,
+    "density": 9,
+    "grain": 0.015
+  },
+  "jsonld_presets": ["LocalBusiness", "Plumber", "Service", "AggregateRating", "FAQPage"],
+  "trust_signals": ["Licensed master plumber", "Bonded + insured", "BBB accredited", "Upfront flat-rate pricing"],
+  "seasonal_cta": {
+    "winter": "frozen pipe repair",
+    "spring": "sump pump check",
+    "summer": "water heater flush",
+    "fall": "pre-winter pipe inspection"
+  },
+  "lead_magnets": [
+    "What to do in a plumbing emergency PDF",
+    "Water-heater lifespan + replacement checklist",
+    "Hidden-leak warning-signs guide"
+  ]
+}

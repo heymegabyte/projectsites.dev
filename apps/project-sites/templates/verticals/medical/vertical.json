@@ -1,0 +1,36 @@
+{
+  "slug": "medical",
+  "name": "Medical / Clinic + Practice",
+  "industry": "healthcare",
+  "default_service_pages": [
+    { "slug": "services", "title": "Services + Specialties", "intent": "service" },
+    { "slug": "providers", "title": "Our Providers", "intent": "trust" },
+    { "slug": "new-patients", "title": "New Patients", "intent": "conversion" },
+    { "slug": "book-appointment", "title": "Book an Appointment", "intent": "conversion" },
+    { "slug": "insurance", "title": "Insurance + Billing", "intent": "pricing" },
+    { "slug": "patient-portal", "title": "Patient Portal", "intent": "service" },
+    { "slug": "telehealth", "title": "Telehealth Visits", "intent": "service" },
+    { "slug": "contact", "title": "Contact + Locations", "intent": "trust" }
+  ],
+  "webgl": {
+    "variant": "rays",
+    "background": "#f2f9fa",
+    "palette": ["#ffffff", "#0a8cad", "#cfe9ef"],
+    "speed": 0.38,
+    "intensity": 0.9,
+    "density": 5,
+    "grain": 0.01
+  },
+  "jsonld_presets": ["MedicalBusiness", "Physician", "MedicalClinic", "FAQPage", "BreadcrumbList"],
+  "trust_signals": ["Board-certified providers", "Accepting new patients", "Most insurance accepted", "HIPAA-compliant"],
+  "compliance_notes": [
+    "No treatment-outcome guarantees; general health info only, not medical advice.",
+    "HIPAA: never surface real patient data or identifiable testimonials without written authorization.",
+    "Section 1557 / ADA accessibility applies to healthcare — WCAG 2.1 AA minimum."
+  ],
+  "lead_magnets": [
+    "New-patient intake + what-to-bring checklist",
+    "Insurance + coverage FAQ",
+    "Preventive-care schedule by age PDF"
+  ]
+}

@@ -1,0 +1,31 @@
+{
+  "slug": "saas",
+  "name": "SaaS / Software Product",
+  "industry": "software",
+  "default_service_pages": [
+    { "slug": "product", "title": "Product", "intent": "service" },
+    { "slug": "features", "title": "Features", "intent": "service" },
+    { "slug": "pricing", "title": "Pricing", "intent": "pricing" },
+    { "slug": "integrations", "title": "Integrations", "intent": "service" },
+    { "slug": "docs", "title": "Documentation", "intent": "educational" },
+    { "slug": "changelog", "title": "Changelog", "intent": "trust" },
+    { "slug": "security", "title": "Security + Compliance", "intent": "trust" },
+    { "slug": "start-free-trial", "title": "Start Free Trial", "intent": "conversion" }
+  ],
+  "webgl": {
+    "variant": "grid",
+    "background": "#0b0a1a",
+    "palette": ["#00e5ff", "#7c3aed", "#1b1838"],
+    "speed": 0.8,
+    "intensity": 1.0,
+    "density": 9,
+    "grain": 0.02
+  },
+  "jsonld_presets": ["Organization", "SoftwareApplication", "Product", "BreadcrumbList", "FAQPage"],
+  "trust_signals": ["SOC 2 Type II", "99.9% uptime SLA", "GDPR compliant", "SSO + SAML available"],
+  "lead_magnets": [
+    "Product tour / interactive demo",
+    "ROI calculator",
+    "Migration + onboarding guide"
+  ]
+}

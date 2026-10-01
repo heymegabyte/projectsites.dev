@@ -342,3 +342,14 @@ cron demoted to fallback; GHA remains the sleep-proof rail (token pending).
 **Spend:** ~0.89M subagent (3 lanes) + lead. **Loop improvement:** launchd rail + the
 "deploy output piped to head SIGPIPEs wrangler mid-rollout" lesson (always log-file +
 exit-code deploys).
+
+- fire-63 Template Evolution (role 18): WebGL block coverage closed — created the 7
+  missing `templates/verticals/<slug>/vertical.json` packs (local-service FIRST: plumbing,
+  logistics; then restaurant, saas, medical, retail, professional-services) so generated
+  sites carry a tuned WebGL hero. Each pack's `webgl` block references its DISTINCT
+  presets.mjs theme (grid blueprint / ember hearth / rays clinical / glint retail /
+  grid navy-gold) — no recolored siblings. WebGLHero block already satisfies role-18
+  invariants (static CSS gradient fallback always painted, prefers-reduced-motion → no GL,
+  no-WebGL → graceful fallback, deferred rIC init so never LCP, low-power ctx + DPR cap).
+  Only 3 packs carried webgl before → now 10 archetypes have packs. No fake provenance.
+  Gates: 7/7 JSON.parse OK, 7/7 validateWebGLConfig clean, site-gen `tsc --noEmit` exit 0.

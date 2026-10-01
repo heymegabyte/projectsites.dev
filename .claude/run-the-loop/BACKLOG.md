@@ -44,7 +44,7 @@
 
 - [ ] Destructive-opt-in silent downgrade class — purge_resources (and audit siblings) must NEVER silently downgrade when the body is lost: body-parse failure on a destructive flag → 400, and every destructive response echoes `{purged:true|false}` for caller assertion (gp-09 cycle-2 incident)
   - cadence: next-fire · priority: high · category: architecture · estimate: 45m · discovered_by: gp-09-cycle-2
-- [ ] WebGL block coverage — wire `webgl` blocks into the remaining 7 vertical.json packs (local-service first: gp-09 fixture classifies there) so generated sites actually carry the tuned heroes
+- [x] (fire-63: created 7 new vertical.json packs — plumbing·logistics·restaurant·saas·medical·retail·professional-services — each carrying a `webgl` block tuned to its distinct presets.mjs theme; validateWebGLConfig clean, tsc 0; local-service first) WebGL block coverage — wire `webgl` blocks into the remaining 7 vertical.json packs (local-service first: gp-09 fixture classifies there) so generated sites actually carry the tuned heroes
   - cadence: next-fire · priority: high · category: product · estimate: 30m · discovered_by: gp-09-cycle-2
 - [ ] Generated-brand quality cluster (vision 7/10): wordmark dark-on-dark + garbled glyph render, eyebrow AA fail, pack-default H1, irrelevant stock hero — root-cause in logo/theme/copy pipeline; ties to LB-2 gallery bar
   - cadence: next-2-fires · priority: high · category: product · estimate: 1-2 fires · discovered_by: gp-09-cycle-2
