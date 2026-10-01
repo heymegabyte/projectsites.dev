@@ -1237,8 +1237,19 @@ export class AdminSettingsComponent implements OnInit {
     // read left them dead — the URL switched to #env-vars but the tab stayed put (confirmed
     // in a real browser, AL-044). This subscription switches the tab on any valid fragment
     // change; setTab's own fragment navigation re-emits harmlessly (guarded by tab()!==frag).
+    //
+    // fire-65: a navigation to NO fragment (null/empty) — i.e. the plain "Settings" nav
+    // entry (`go('/admin/settings')`, no #) — must RESET the active tab to General. Angular
+    // reuses this live component when only the fragment changes, so ngOnInit does NOT re-run;
+    // without this, re-entering Settings kept whatever tab (e.g. Domains) was last open. A
+    // present+valid fragment still selects its own tab (deep-links / standalone-route
+    // redirects); an unknown fragment is ignored (never blanks the panel).
     this.route.fragment.pipe(takeUntilDestroyed(this.destroyRef)).subscribe((frag) => {
-      if (frag && this.tab() !== frag && TABS.some((t) => t.id === frag)) this.tab.set(frag as Tab);
+      if (!frag) {
+        if (this.tab() !== 'general') this.tab.set('general');
+      } else if (this.tab() !== frag && TABS.some((t) => t.id === frag)) {
+        this.tab.set(frag as Tab);
+      }
     });
     this.loadProfile();
     this.loadGeneral();

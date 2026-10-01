@@ -446,6 +446,44 @@ describe('AdminSettingsComponent (cyan/black cohesion + a11y)', () => {
     expect(fixture.componentInstance.tab()).withContext('unknown fragment ignored').toBe('env-vars');
   });
 
+  // fire-65 (real-time-data sibling UX defect): clicking the plain "Settings" nav
+  // (which navigates to /admin/settings with NO #fragment) must land on General —
+  // NOT whatever tab (e.g. Domains) was last open. Angular reuses the live
+  // AdminSettingsComponent when only the fragment changes, so ngOnInit does NOT
+  // re-run; the fragment subscription is the sole reset point. A null/empty
+  // fragment nav now resets the active tab to 'general'. Deep-link fragments
+  // (#mcp / #domains / #api-tokens — the standalone-route redirects + cross-tab
+  // links) still select their own tab (asserted above), so this reset is scoped
+  // to the bare "Settings" entry only.
+  it('resets the active tab to General when Settings is (re)entered with NO fragment', () => {
+    const frag = new Subject<string | null>();
+    selectedSite = signal({ id: 's', slug: 'demo' });
+    TestBed.configureTestingModule({
+      imports: [AdminSettingsComponent],
+      providers: [
+        { provide: ApiService, useValue: { get: () => of({ data: null }), put: () => of({}), post: () => of({}), delete: () => of({}) } },
+        { provide: ToastService, useValue: { error: () => 0, success: () => 0, info: () => 0, warning: () => 0 } },
+        { provide: ConfirmService, useValue: { confirm: () => Promise.resolve(false) } },
+        { provide: Router, useValue: { navigate: jasmine.createSpy('navigate') } },
+        { provide: ActivatedRoute, useValue: { firstChild: null, fragment: frag.asObservable(), snapshot: { fragment: null, url: [] } } },
+        { provide: AdminStateService, useValue: { selectedSite, loadData: () => undefined, orgId: () => 'org-1' } },
+      ],
+    });
+    fixture = TestBed.createComponent(AdminSettingsComponent);
+    fixture.detectChanges(); // ngOnInit subscribes; starts on 'general'
+    // A deep-link (standalone-route redirect) lands on its own tab…
+    frag.next('domains');
+    expect(fixture.componentInstance.tab()).withContext('deep-link selects its tab').toBe('domains');
+    // …then the plain "Settings" nav (no #fragment) must snap back to General.
+    frag.next(null);
+    expect(fixture.componentInstance.tab()).withContext('bare Settings entry resets to General').toBe('general');
+    // An empty-string fragment is equivalent to no fragment — also resets.
+    frag.next('mcp');
+    expect(fixture.componentInstance.tab()).toBe('mcp');
+    frag.next('');
+    expect(fixture.componentInstance.tab()).withContext('empty fragment also resets to General').toBe('general');
+  });
+
 });
 
 /**
