@@ -1142,3 +1142,27 @@
 - **[standing] Deep UI Explorer — settle Database action overlays** (schema/seed/import: open→fill→submit→capture) + Settings API Tokens mint. Re-queued (fire-64 BLOCKED on auto-worktree). Acceptance: coverage-ledger 43→≥46 settled states + vision verdicts.
 - **[standing] Long-Trail TDD case-001 Phase F** (#79-96: apps install/remove → site survives → tenant-isolation #90 → cleanup #91-96). Lease stale/reclaimable; needs editor-CSP iframe unblock for iframe legs. Acceptance: Phase F green, checkpoint advanced.
 - **[arch] Flag-gate OR allowlist voice_insights + cloudflare_rum** (D-64-3) — one coherent decision; convert cloudflare_rum `days` to Zod. Acceptance: validate:features 0 WARN.
+
+## fire-65 replenish + re-queue (appended 2026-10-01)
+
+### Re-queued from fire-65 (attrition / deferred — not failures)
+- [ ] **Dead-Code/Hygiene — worker `src/services`+`routes`** — role 10 `code-simplifier` (NOT `dead-code-remover`; unavailable this session). knip/ts-prune verified-dead only (`knip-unused-not-always-dead`); exclude build_validators/site_generation/hero_copy + the 2 forbidden gen files. Acceptance: net-deletion, `tsc` + full jest green. Cleanup starved 2 fires — over-weight.
+- [ ] **Long-Trail case-001 Phase F (actions 60→96)** — role 16, MAIN checkout per § Browser-role execution contract (assert node_modules + `.dev.vars` FIRST). Resume checkpoint action 59; app install/remove → site survives → tenant isolation #90 → cleanup #91-96. iframe legs #43-45/#53-55 still deploy-blocked (editor frame-ancestors) — verify before un-fixme.
+- [ ] **Deep UI Explorer standing sweep** — role 17, MAIN checkout, Write-capable specialist, CF Browser Run CDP honest coverage. Rotate underexplored admin branches.
+
+### Product Discovery — money-path / launch-bar (rank 1)
+- [ ] **Readiness-F dead-end → explainable + one-click "Fix with AI"** — role 1/4. Acc: Playwright authed → `/admin/sites` → click Readiness badge → report drawer lists failing `build_validators` checks + a non-doomed "Fix with AI" CTA (disabled-with-reason when no AI budget). Ev: VISUAL-COVERAGE #3 / `05-admin-sites`.
+- [ ] **Analytics stale-while-revalidate KV cache → KPIs paint first frame** — role 5/4. Acc: headless prod `/admin/analytics` → KPI numbers in FIRST paint (<500ms, no skeleton), `data-cache` marks cached-first, reconcile vs D1 `visitor_events`. Ev: #4 (`08` vs `15`); NARROWER than closed line-75.
+- [ ] **Billing panel visual + causal verdict (gp-05 pre-checkout)** — role 17. Acc: explorer super-admin → `/admin/billing` → vision ≥8 + plan/status render from `/api/billing/entitlements` (not skeleton), portal CTA non-doomed, response keys match component. Ev: not-yet-inspected; gp-05 15-18.
+- [ ] **Delivered-site post-publish console-error GATE + re-heal corpus** — role 3/4 (complements A1's build validators). Acc: publish step loads `{slug}.projectsites.dev` via CF Browser Run, FAILS publish on any console error / asset 404; `e2e/gen-site/post-publish-console.spec.ts` asserts 0 errors + 0 failed requests on a fresh fixture; one-shot re-heal of the live corpus. Ev: #5 (`meta.json` shot 13).
+
+### Product Discovery — objective admin UX (rank 2)
+- [ ] **Labeled admin nav rail at ≥lg (icon-soup → legible IA)** — role 4/17. Acc: @1280 every primary nav item resolves by accessible NAME (visible label); @768 collapses to icon+`aria-label`; axe-clean both. Ev: #6 (`03`,`05`,`11`).
+- [ ] **Owner-language tabs + real app logos** — role 4. Acc: no settings tab label matches `/\b(MCP|AI Env Vars|org|entitlement|manifest)\b/`; Apps grid renders `<img>` logos not emoji. Ev: #10 (`10`,`12`).
+- [x] ~~Nav "Settings" resets to General tab~~ — SHIPPED fire-65 (A2, `d493e45b9`).
+
+### Product Discovery — not-yet-inspected surfaces (rank 3, first visual verdict)
+- [ ] **Deep UI sweep: Forms · Logs · Leads** — role 17. Acc: vision ≥8, 0 dead controls, 0 console errors; reconcile Forms↔`form_submissions` / Leads↔store (`verify-against-source-of-truth`); append to coverage-ledger. Ev: not-yet-inspected.
+- [ ] **Deep UI sweep: Voice · SEO · Super Admin** — role 17. Acc: vision ≥8, 0 dead controls; Super Admin asserts every action gated-with-reason (never a bare destructive button). Ev: not-yet-inspected.
+- [ ] **Cmd+K palette: first verdict + reach-every-section** — role 17/6. Acc: `Cmd+K` opens (focus-trap, Esc, focus-return), type-ahead navigates each primary section; vision ≥8. Ev: not-yet-inspected; gp-06 gap.
+- [ ] **Mobile @390 sweep: Sites · Analytics · Settings · Feature Flags · Apps · Editor** — role 17/4. Acc: 0 horizontal overflow (`scrollWidth<=clientWidth`), 0 console errors, axe-clean, vision ≥8 per surface. Ev: not-yet-inspected mobile; `04` misalignment.
