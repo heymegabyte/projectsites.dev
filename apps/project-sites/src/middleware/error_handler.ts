@@ -24,7 +24,8 @@ import type { Env, Variables } from '../types/env.js';
 import * as posthog from '../lib/posthog.js';
 import { captureException } from '../lib/sentry.js';
 import { createLogger } from '../observability/index.js';
-import { brandedErrorPage, buildErrorEnvelope, prefersHtml } from './error_render.js';
+import { brandedErrorPage } from '../lib/branded_error_page.js';
+import { buildErrorEnvelope, prefersHtml } from './error_render.js';
 import { isMalformedJsonBody, isStorageUnavailable, isZodErrorLike } from './error_taxonomy.js';
 
 /**
