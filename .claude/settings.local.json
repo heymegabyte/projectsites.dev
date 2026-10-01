@@ -117,7 +117,12 @@
       "Bash(cp ~/.claude/skills/long-trail-tdd/SKILL.md /Users/Apple/emdash/repositories/projectsites.dev/.claude/worktrees/agent-abe9ed7b4d4fa642e/apps/project-sites/.claude/skills/long-trail-tdd/SKILL.md)",
       "Read(//Users/Apple/.claude/skills/long-trail-tdd/**)",
       "Bash(cat and for any other question ever. There should be no interaction with the user in run-the-loop)",
-      "Bash(python3 -)"
+      "Bash(python3 -)",
+      "Bash(kill 62474 67192)",
+      "Bash(pkill -f \"claude -p /run-the-loop\")",
+      "Bash(rm -f .claude/run-the-loop/.fire-lease.json)",
+      "Bash(git worktree *)",
+      "Bash(git branch *)"
     ],
     "defaultMode": "bypassPermissions"
   },
