@@ -5,7 +5,7 @@ import {
   GenerationMetricsCardComponent,
   type BuildMetricsSummary,
 } from './generation-metrics-card.component';
-import { ApiService } from '../../../../services/api.service';
+import { ApiService, type ResolvedFlagResponse } from '../../../../services/api.service';
 
 /**
  * "Generation speed + cost" dashboard card (fire-61 — the north-star surface
@@ -14,7 +14,12 @@ import { ApiService } from '../../../../services/api.service';
  *    (<5min speed · ≤$1 cost), 4-phase breakdown row, sparkline points;
  *  - over-target branch: chips flip to the warning state;
  *  - empty branch: builds:0 renders the honest baseline copy, never zeros;
- *  - error branch: the card hides itself entirely (403/network → no broken UI).
+ *  - error branch: the card hides itself entirely (403/network → no broken UI);
+ *  - fire-63 FLAG GATE: the `build_metrics` endpoint 404s when its flag is OFF
+ *    (dark default), so the card resolves the flag FIRST and only fetches the
+ *    summary when ON. OFF / dark / errored → renders NOTHING and issues ZERO
+ *    summary requests (no console 404). Per repo rules
+ *    flag-gated-fetch-gate-on-ison-not-silent + flag-off-frontend-must-match-worker-404.
  */
 const POPULATED: BuildMetricsSummary = {
   windowDays: 30,
@@ -43,30 +48,46 @@ const EMPTY: BuildMetricsSummary = {
   series: [],
 };
 
-function make(result: BuildMetricsSummary | 'error') {
+/** A `GET /api/feature-flags/build_metrics` body with the given resolved state. */
+function flagResponse(enabled: boolean, rollout_percent = enabled ? 100 : 0): ResolvedFlagResponse {
+  return {
+    definition: { key: 'build_metrics' },
+    resolved: { enabled, rollout_percent, stage: 'experimental', source: 'registry' },
+    docs: null,
+  };
+}
+
+/**
+ * Build the card with a mocked ApiService.
+ * @param result the summary payload, or 'error' to make the summary fetch fail.
+ * @param flag how `getFeatureFlag` resolves: ON (default, so the summary branch
+ *   runs), a specific ResolvedFlagResponse, or 'error' to fail resolution.
+ */
+function make(
+  result: BuildMetricsSummary | 'error',
+  flag: ResolvedFlagResponse | 'error' = flagResponse(true),
+): { fixture: ReturnType<typeof TestBed.createComponent<GenerationMetricsCardComponent>>; getSpy: jasmine.Spy } {
   TestBed.resetTestingModule();
+  const getSpy = jasmine.createSpy('get').and.callFake(() =>
+    result === 'error' ? throwError(() => new Error('403')) : of(result),
+  );
+  const getFeatureFlag = jasmine
+    .createSpy('getFeatureFlag')
+    .and.callFake(() => (flag === 'error' ? throwError(() => new Error('404')) : of(flag)));
   TestBed.configureTestingModule({
     imports: [GenerationMetricsCardComponent],
-    providers: [
-      {
-        provide: ApiService,
-        useValue: {
-          get: () =>
-            result === 'error' ? throwError(() => new Error('403')) : of(result),
-        },
-      },
-    ],
+    providers: [{ provide: ApiService, useValue: { get: getSpy, getFeatureFlag } }],
   });
   const fixture = TestBed.createComponent(GenerationMetricsCardComponent);
   fixture.detectChanges();
-  return fixture;
+  return { fixture, getSpy };
 }
 
 describe('GenerationMetricsCardComponent', () => {
   afterEach(() => TestBed.resetTestingModule());
 
   it('renders the formatted p50 headline + builds context (populated)', () => {
-    const fixture = make(POPULATED);
+    const { fixture } = make(POPULATED);
     const el: HTMLElement = fixture.nativeElement;
     expect(el.querySelector('[data-testid="gen-metrics-card"]')).toBeTruthy();
     expect(el.querySelector('[data-testid="gen-p50"]')?.textContent).toContain('2.8min');
@@ -77,7 +98,7 @@ describe('GenerationMetricsCardComponent', () => {
   });
 
   it('shows GREEN under-target delta chips when p50 < 5min and avg cost ≤ $1', () => {
-    const fixture = make(POPULATED);
+    const { fixture } = make(POPULATED);
     const el: HTMLElement = fixture.nativeElement;
     const speedChip = el.querySelector('[data-testid="gen-speed-chip"]');
     const costChip = el.querySelector('[data-testid="gen-cost-chip"]');
@@ -89,7 +110,7 @@ describe('GenerationMetricsCardComponent', () => {
   });
 
   it('flips the delta chips to the warning state when over target', () => {
-    const fixture = make({
+    const { fixture } = make({
       ...POPULATED,
       p50_ms: 360_000, // 6min — 1min over
       avg_cost_usd: 1.4, // $0.40 over
@@ -105,7 +126,7 @@ describe('GenerationMetricsCardComponent', () => {
   });
 
   it('renders the 4-phase breakdown row with honest values (0 is data, null is —)', () => {
-    const fixture = make(POPULATED);
+    const { fixture } = make(POPULATED);
     const el: HTMLElement = fixture.nativeElement;
     const phases = el.querySelectorAll('[data-testid="gen-phases"] li');
     expect(phases.length).toBe(4);
@@ -118,7 +139,7 @@ describe('GenerationMetricsCardComponent', () => {
   });
 
   it('builds sparkline points from the non-null series values', () => {
-    const fixture = make(POPULATED);
+    const { fixture } = make(POPULATED);
     const c = fixture.componentInstance;
     const pts = c.sparkPoints();
     expect(pts).toBeTruthy();
@@ -129,7 +150,7 @@ describe('GenerationMetricsCardComponent', () => {
   });
 
   it('renders the honest empty state when zero builds are measured', () => {
-    const fixture = make(EMPTY);
+    const { fixture } = make(EMPTY);
     const el: HTMLElement = fixture.nativeElement;
     const empty = el.querySelector('[data-testid="gen-empty"]');
     expect(empty?.textContent).toContain(
@@ -140,10 +161,49 @@ describe('GenerationMetricsCardComponent', () => {
   });
 
   it('hides the whole card when the summary fetch fails (never a broken card)', () => {
-    const fixture = make('error');
+    const { fixture } = make('error');
     const el: HTMLElement = fixture.nativeElement;
     expect(el.querySelector('[data-testid="gen-metrics-card"]')).toBeNull();
     expect((el.textContent ?? '').trim()).toBe('');
     fixture.destroy();
+  });
+
+  // ── fire-63 flag gate ──────────────────────────────────────────────────
+  describe('build_metrics flag gate (no 404 console error when dark)', () => {
+    it('when the flag resolves OFF: renders NOTHING and NEVER requests the summary endpoint', () => {
+      const { fixture, getSpy } = make(EMPTY, flagResponse(false));
+      const el: HTMLElement = fixture.nativeElement;
+      // The whole point of the fix — zero summary calls when dark.
+      expect(getSpy).not.toHaveBeenCalled();
+      expect(fixture.componentInstance.hidden()).toBeTrue();
+      expect(el.querySelector('[data-testid="gen-metrics-card"]')).toBeNull();
+      expect((el.textContent ?? '').trim()).toBe('');
+      fixture.destroy();
+    });
+
+    it('treats enabled-but-0%-rollout (dark) as OFF: no summary request, hidden', () => {
+      const { fixture, getSpy } = make(EMPTY, flagResponse(true, 0));
+      expect(getSpy).not.toHaveBeenCalled();
+      expect(fixture.componentInstance.hidden()).toBeTrue();
+      expect((fixture.nativeElement as HTMLElement).querySelector('[data-testid="gen-metrics-card"]')).toBeNull();
+      fixture.destroy();
+    });
+
+    it('when flag resolution fails (e.g. 404 unregistered flag): fails safe to hidden, no summary request', () => {
+      const { fixture, getSpy } = make(EMPTY, 'error');
+      expect(getSpy).not.toHaveBeenCalled();
+      expect(fixture.componentInstance.hidden()).toBeTrue();
+      expect((fixture.nativeElement as HTMLElement).querySelector('[data-testid="gen-metrics-card"]')).toBeNull();
+      fixture.destroy();
+    });
+
+    it('when the flag resolves ON: fetches the summary (one call) and reveals the card', () => {
+      const { fixture, getSpy } = make(POPULATED, flagResponse(true));
+      expect(getSpy).toHaveBeenCalledTimes(1);
+      expect(getSpy).toHaveBeenCalledWith('/admin/build-metrics/summary', undefined, { silent: true });
+      expect(fixture.componentInstance.hidden()).toBeFalse();
+      expect((fixture.nativeElement as HTMLElement).querySelector('[data-testid="gen-metrics-card"]')).toBeTruthy();
+      fixture.destroy();
+    });
   });
 });

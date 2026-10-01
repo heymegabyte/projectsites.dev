@@ -464,6 +464,19 @@ export class ApiService {
     return this.get(`/feature-flags`);
   }
 
+  /**
+   * Resolve ONE flag's final enabled state (caller-scoped) from
+   * `GET /api/feature-flags/:key` → `{ definition, resolved, docs }`.
+   * `silent` by default — a client gating a dark endpoint on the flag must
+   * NEVER toast on a transport hiccup; it fails safe to hidden. An unknown
+   * flag returns 404 (the registry fail-closes), which surfaces as an error
+   * the caller treats as "off". Use `flagEnabled()` to collapse the shape to a
+   * boolean with rollout honored.
+   */
+  getFeatureFlag(key: string): Observable<ResolvedFlagResponse> {
+    return this.get<ResolvedFlagResponse>(`/feature-flags/${key}`, undefined, { silent: true });
+  }
+
   /** List the org's API keys (session-scoped; prefixes only, never full secret) */
   getApiKeys(): Observable<{ data: ApiKey[] }> {
     return this.get(`/admin/api-keys`);
@@ -1372,6 +1385,33 @@ export interface FeatureFlag {
   stage: 'experimental' | 'beta' | 'stable' | 'deprecated' | 'killswitch' | string;
   owner_email: string;
   has_docs?: boolean;
+}
+
+/** A single flag's resolved state (mirror of the worker's `FlagState`). */
+export interface ResolvedFlag {
+  enabled: boolean;
+  rollout_percent: number;
+  stage: string;
+  source: 'registry' | 'global' | 'org' | 'tenant' | string;
+}
+
+/** Response of `GET /api/feature-flags/:key`. */
+export interface ResolvedFlagResponse {
+  definition: unknown;
+  resolved: ResolvedFlag;
+  docs: unknown | null;
+}
+
+/**
+ * Collapse a resolved flag to a boolean "is this on for everyone" — mirrors the
+ * worker's `isFlagOn` without the per-user rollout hash (which a client can't
+ * compute): a flag is ON only when `enabled` AND `rollout_percent > 0`. A
+ * dark/default flag (`enabled:false` or `rollout_percent:0`) is OFF, so a
+ * dashboard-wide operator surface gated on this NEVER fetches a dark endpoint.
+ */
+export function flagEnabled(r: ResolvedFlagResponse | null | undefined): boolean {
+  const resolved = r?.resolved;
+  return !!resolved && resolved.enabled === true && resolved.rollout_percent > 0;
 }
 
 /** Self-documenting API-surface stats from `/admin/docs/stats`. */
