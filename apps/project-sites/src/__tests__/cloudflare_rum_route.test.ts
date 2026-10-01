@@ -8,7 +8,7 @@ jest.mock('../services/cloudflare_rum.js', () => ({ getCachedCloudflareRum: jest
 
 import { Hono } from 'hono';
 import type { Env, Variables } from '../types/env.js';
-import { cloudflareRum } from '../routes/cloudflare_rum.js';
+import { cloudflareRum, RumQuerySchema } from '../routes/cloudflare_rum.js';
 import { dbQueryOne } from '../services/db.js';
 import { getCachedCloudflareRum } from '../services/cloudflare_rum.js';
 
@@ -113,4 +113,39 @@ it('clamps days to the 1..30 window', async () => {
   const res = await get(makeApp(AUTH), makeEnv(), `${PATH}?days=999`);
   const json = (await res.json()) as { days: number };
   expect(json.days).toBe(30);
+});
+
+// ─── RumQuerySchema (the Zod `days` clamp) — unit coverage in isolation ──────
+describe('RumQuerySchema.days clamp', () => {
+  const clamp = (raw: string | undefined) => RumQuerySchema.parse({ days: raw }).days;
+
+  it('defaults to 7 when days is absent', () => {
+    expect(clamp(undefined)).toBe(7);
+  });
+
+  it('defaults to 7 for a non-numeric value', () => {
+    expect(clamp('abc')).toBe(7);
+  });
+
+  it('clamps above-max (999) down to 30 (RUM retention ceiling)', () => {
+    expect(clamp('999')).toBe(30);
+  });
+
+  it('clamps below-min (0 and negative) up to 1', () => {
+    expect(clamp('0')).toBe(1);
+    expect(clamp('-5')).toBe(1);
+  });
+
+  it('floors fractional values', () => {
+    expect(clamp('7.9')).toBe(7);
+  });
+
+  it('passes an in-range value through unchanged', () => {
+    expect(clamp('14')).toBe(14);
+  });
+
+  it('accepts the exact boundaries 1 and 30', () => {
+    expect(clamp('1')).toBe(1);
+    expect(clamp('30')).toBe(30);
+  });
 });

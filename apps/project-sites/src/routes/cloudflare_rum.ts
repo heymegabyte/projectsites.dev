@@ -10,19 +10,33 @@
  * Fails SOFT: CF error / missing creds → `{ available: false }` (200), never a 500 or a fake 0.
  */
 import { Hono } from 'hono';
+import { z } from 'zod';
 import type { Env, Variables } from '../types/env.js';
 import { dbQueryOne } from '../services/db.js';
 import { getCachedCloudflareRum } from '../services/cloudflare_rum.js';
 
 const cloudflareRum = new Hono<{ Bindings: Env; Variables: Variables }>();
 
-/** RUM retention is ~30d; bound the window to keep query cost + honesty in check. */
+/**
+ * Query-param schema for the RUM window.
+ *
+ * `days` arrives as a raw query string (or absent). CF Web Analytics RUM retention is ~30d, so the
+ * authoritative ceiling is 30 — a larger window would return empty tails (dishonest), not more data.
+ * Zod coerces → floors → clamps to the sane [1, 30] range, defaulting to a 7-day window when the
+ * param is missing or non-numeric (`z.coerce.number()` yields NaN for junk → `.catch(7)` kicks in).
+ *
+ * Exported for direct unit testing of the clamp in isolation.
+ */
+export const RumQuerySchema = z.object({
+  days: z.coerce
+    .number()
+    .transform((n) => Math.min(30, Math.max(1, Math.floor(n))))
+    .catch(7),
+});
+
+/** Parse + clamp the `days` query param to the sane [1, 30] RUM window (default 7). */
 function clampDays(raw: string | undefined): number {
-  const n = Number(raw);
-  if (!Number.isFinite(n)) {
-    return 7;
-  }
-  return Math.min(30, Math.max(1, Math.floor(n)));
+  return RumQuerySchema.parse({ days: raw }).days;
 }
 
 cloudflareRum.get('/api/sites/:siteId/cloudflare-rum', async (c) => {

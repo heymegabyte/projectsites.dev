@@ -452,6 +452,18 @@ async function isHandlerFlagGated(handlerName, indexSrc) {
     // extracted to its own module from search.ts (route-decomposition installment 28). Core, un-gated,
     // PUBLIC — same class as the others.
     'conversionCheckout',
+    // voiceInsightsRoutes — GET /api/voice/insights (org-scoped aggregate KPIs over voice_calls:
+    // total_calls, by_direction, avg_duration, sentiment breakdown, cost). Core OBSERVABILITY read,
+    // un-gated, org-scoped (requireAuth → orgId), fail-soft (returns zeros on empty/DB-failure) — same
+    // always-on read class as 'analytics'/'adminAnalytics'/'siteUrls'/'logsRoutes'/'costForecast'; a
+    // feature flag on an org-scoped KPI read would only hide the owner's own numbers. (fire-66)
+    'voiceInsightsRoutes',
+    // cloudflareRum — GET /api/sites/:siteId/cloudflare-rum (owner-scoped Cloudflare Web Analytics RUM:
+    // CF-measured Core Web Vitals + Navigation Timing for a site's OWNED host, a second source to the
+    // first-party beacon). Core OBSERVABILITY read, un-gated, owner-scoped (site resolved by id/slug AND
+    // org_id = caller — non-owned 404s), fail-soft (available:false, never 500/fake-0) — same always-on
+    // read class as 'analytics'/'siteUrls'/'adminAnalytics'. (fire-66)
+    'cloudflareRum',
   ]);
 
   if (ALLOWLIST.has(handlerName)) return true;
