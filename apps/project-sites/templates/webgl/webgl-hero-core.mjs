@@ -137,13 +137,19 @@ vec3 glint(vec2 uv, vec2 asp, float t){
   return col;
 }
 
-/* grid (3): calm perspective floor grid, gentle swell, warm horizon glow. */
+/* grid (3): calm perspective floor grid, gentle swell, warm horizon glow.
+   Horizon glow is LUMINANCE-AWARE: additive bloom on dark backgrounds, but a light
+   background clamps additive color to white — there we MIX toward the accent instead
+   (safety-orange horizon on blueprint paper stays orange, not a white band). */
 vec3 grid(vec2 uv, vec2 asp, float t){
   vec3 col = u_bg;
   float horizon = 0.62;
   float glow = exp(-pow((uv.y - horizon) * 7.0, 2.0));
   float glowLine = exp(-pow((uv.y - horizon) * 36.0, 2.0));
-  col += u_colB * (glow * 0.30 + glowLine * 0.22) * u_intensity;
+  float bgLum = dot(u_bg, vec3(0.2126, 0.7152, 0.0722));
+  vec3 addGlow = col + u_colB * (glow * 0.30 + glowLine * 0.22) * u_intensity;
+  vec3 mixGlow = mix(col, u_colB, clamp((glow * 0.14 + glowLine * 0.26) * u_intensity, 0.0, 1.0));
+  col = mix(addGlow, mixGlow, smoothstep(0.45, 0.7, bgLum));
   if(uv.y < horizon){
     float depth = (horizon - uv.y) / horizon;
     float z = 1.0 / max(depth, 0.012);

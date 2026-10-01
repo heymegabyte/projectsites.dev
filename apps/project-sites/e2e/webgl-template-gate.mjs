@@ -23,9 +23,16 @@ const __dirname = dirname(fileURLToPath(import.meta.url));
 const WEBGL_DIR = resolve(__dirname, '../templates/webgl');
 const REPO_ROOT = resolve(__dirname, '../../..');
 const SHOT_DIR = join(REPO_ROOT, '.claude/run-the-loop/visual/webgl-presets');
-const PRESETS = ['restaurant', 'nonprofit', 'retail', 'professional-services'];
-/** Deterministic shader-time (s) for each preset's screenshot — retail catches the sweep mid-pass. */
-const SHOT_TIMES = { restaurant: 6.0, nonprofit: 5.0, retail: 3.9, 'professional-services': 4.0 };
+const PRESETS = [
+  'restaurant', 'nonprofit', 'retail', 'professional-services',
+  'medical', 'wellness', 'saas', 'agency', 'portfolio', 'local-service',
+];
+/** Deterministic shader-time (s) per screenshot — glint presets catch the sweep mid-pass
+ *  (shader_t = s × speed; phase = fract(shader_t / (4.5/speed)) ≈ 0.5). */
+const SHOT_TIMES = {
+  restaurant: 6.0, nonprofit: 5.0, retail: 3.9, 'professional-services': 4.0,
+  medical: 5.0, wellness: 6.0, saas: 4.0, agency: 5.6, portfolio: 6.25, 'local-service': 4.0,
+};
 
 const MIME = {
   '.html': 'text/html; charset=utf-8',

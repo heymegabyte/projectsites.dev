@@ -3,27 +3,79 @@
   "name": "HVAC / Heating + Cooling",
   "industry": "residential_services",
   "default_service_pages": [
-    { "slug": "ac-repair", "title": "AC Repair", "intent": "diagnostic" },
-    { "slug": "ac-installation", "title": "AC Installation", "intent": "service" },
-    { "slug": "furnace-repair", "title": "Furnace Repair", "intent": "diagnostic" },
-    { "slug": "heat-pump-installation", "title": "Heat Pump Installation", "intent": "service" },
-    { "slug": "duct-cleaning", "title": "Duct Cleaning", "intent": "service" },
-    { "slug": "emergency-hvac", "title": "24/7 Emergency HVAC", "intent": "emergency" },
-    { "slug": "maintenance-plans", "title": "Maintenance Plans", "intent": "pricing" },
-    { "slug": "indoor-air-quality", "title": "Indoor Air Quality", "intent": "educational" }
+    {
+      "slug": "ac-repair",
+      "title": "AC Repair",
+      "intent": "diagnostic"
+    },
+    {
+      "slug": "ac-installation",
+      "title": "AC Installation",
+      "intent": "service"
+    },
+    {
+      "slug": "furnace-repair",
+      "title": "Furnace Repair",
+      "intent": "diagnostic"
+    },
+    {
+      "slug": "heat-pump-installation",
+      "title": "Heat Pump Installation",
+      "intent": "service"
+    },
+    {
+      "slug": "duct-cleaning",
+      "title": "Duct Cleaning",
+      "intent": "service"
+    },
+    {
+      "slug": "emergency-hvac",
+      "title": "24/7 Emergency HVAC",
+      "intent": "emergency"
+    },
+    {
+      "slug": "maintenance-plans",
+      "title": "Maintenance Plans",
+      "intent": "pricing"
+    },
+    {
+      "slug": "indoor-air-quality",
+      "title": "Indoor Air Quality",
+      "intent": "educational"
+    }
   ],
   "webgl": {
     "variant": "grid",
-    "background": "#10243a",
-    "palette": ["#3f7fbf", "#ff7a1a", "#1c3a5a"],
-    "speed": 0.65,
-    "intensity": 0.9,
-    "density": 7,
-    "grain": 0.02
+    "background": "#f3f6f9",
+    "palette": [
+      "#1f5fa8",
+      "#e8650f",
+      "#d3dfe9"
+    ],
+    "speed": 0.6,
+    "intensity": 0.95,
+    "density": 9,
+    "grain": 0.015
   },
-  "jsonld_presets": ["LocalBusiness", "HVACBusiness", "Service", "AggregateRating", "FAQPage"],
-  "trust_signals": ["EPA 608 certified", "NATE certified", "BBB accredited", "Licensed + insured"],
-  "seasonal_cta": { "spring": "AC tune-up", "fall": "furnace check", "summer": "AC repair", "winter": "furnace repair" },
+  "jsonld_presets": [
+    "LocalBusiness",
+    "HVACBusiness",
+    "Service",
+    "AggregateRating",
+    "FAQPage"
+  ],
+  "trust_signals": [
+    "EPA 608 certified",
+    "NATE certified",
+    "BBB accredited",
+    "Licensed + insured"
+  ],
+  "seasonal_cta": {
+    "spring": "AC tune-up",
+    "fall": "furnace check",
+    "summer": "AC repair",
+    "winter": "furnace repair"
+  },
   "lead_magnets": [
     "Annual HVAC maintenance schedule PDF",
     "Symptoms-to-cause diagnostic flowchart",
