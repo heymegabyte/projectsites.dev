@@ -411,6 +411,26 @@ export const APP_JS = `/*! ProjectSites unified client — analytics + forms + u
     if (document.getElementById('ps-upgrade-bar')) return;
     var editUrl = 'https://' + BOLT_BASE + '/?slug=' + encodeURIComponent(SLUG);
     var buildUrl = 'https://' + SITES_BASE + '/?ref=preview';
+    // claim_flow pitch (fire-60): the server appends data-claim="1" + data-business
+    // to this script tag ONLY when the claim_flow flag is ON and the site is
+    // unclaimed. Attrs absent / flag off -> CLAIM=false -> the generic register
+    // bar below, byte-identical to before. getAttribute returns the DECODED
+    // value, so re-escape before any innerHTML concatenation.
+    var CLAIM = attr('data-claim', '') === '1';
+    var BIZ = attr('data-business', '') || 'your business';
+    var escH = function (s) {
+      return String(s).replace(/[&<>"']/g, function (ch) {
+        return ch === '&'
+          ? '&amp;'
+          : ch === '<'
+            ? '&lt;'
+            : ch === '>'
+              ? '&gt;'
+              : ch === '"'
+                ? '&quot;'
+                : '&#39;';
+      });
+    };
 
     var css =
       '#ps-upgrade-bar{position:fixed;left:0;right:0;bottom:0;z-index:99998;transform:translateY(110%);' +
@@ -444,7 +464,7 @@ export const APP_JS = `/*! ProjectSites unified client — analytics + forms + u
 
     var bar = document.createElement('aside');
     bar.id = 'ps-upgrade-bar';
-    bar.setAttribute('aria-label', 'Register this website');
+    bar.setAttribute('aria-label', CLAIM ? 'Claim this website' : 'Register this website');
     bar.innerHTML =
       '<div id="ps-ub-inner">' +
       '<div id="ps-ub-left">' +
@@ -455,11 +475,17 @@ export const APP_JS = `/*! ProjectSites unified client — analytics + forms + u
       editUrl +
       '" data-ps-cta="edit_with_ai">Edit with AI</a>' +
       '</div>' +
-      '<p id="ps-ub-msg"><strong>This website is yours</strong> — make it official</p>' +
+      '<p id="ps-ub-msg">' +
+      (CLAIM
+        ? 'This site was built for <strong>' + escH(BIZ) + '</strong>. Claim it — $29/mo.'
+        : '<strong>This website is yours</strong> — make it official') +
+      '</p>' +
       '<div id="ps-ub-right">' +
       '<a id="ps-ub-claim" href="' +
       editUrl +
-      '" data-ps-cta="claim">Register Now</a>' +
+      '" data-ps-cta="claim">' +
+      (CLAIM ? 'Claim this site — $29/mo' : 'Register Now') +
+      '</a>' +
       '<button id="ps-ub-x" aria-label="Dismiss">&times;</button>' +
       '</div></div>';
     document.body.appendChild(bar);

@@ -1889,7 +1889,32 @@ async function buildSiteResponse(
                 : '&#39;',
       );
       const paid = site.plan === 'paid' ? 'true' : 'false';
-      const appScript = `<script defer src="https://${DOMAINS.SITES_BASE}/app.js" data-slug="${safeSlug}" data-paid="${paid}"></script>`;
+      // claim_flow (fire-60, flag DARK): when ON and the site is unclaimed, pass
+      // data-claim + data-business so /app.js renders the $29/mo claim pitch
+      // instead of the generic register bar. Resolved AFTER the edge-cache miss
+      // (cache hits never pay the flag read); a flag flip propagates within the
+      // edge TTL (≤1h) or on the next rebuild. Fail-soft: any error serves the
+      // standard bar — the pitch is enhancement, serving never depends on it.
+      let claimAttrs = '';
+      if (site.plan !== 'paid' && env?.DB) {
+        try {
+          const { isFlagOn } = await import('../modules/feature_flags/services.js');
+          if (await isFlagOn(env, 'claim_flow', { siteId: site.site_id })) {
+            const bizRow = await dbQueryOne<{ business_name: string }>(
+              env.DB,
+              'SELECT business_name FROM sites WHERE id = ? AND deleted_at IS NULL',
+              [site.site_id],
+            ).catch(() => null);
+            const { claimPitchScriptAttrs } = await import(
+              '../../libs/features/claim_flow/service.js'
+            );
+            claimAttrs = claimPitchScriptAttrs(bizRow?.business_name ?? site.slug);
+          }
+        } catch {
+          /* claim pitch is an enhancement — never block serving */
+        }
+      }
+      const appScript = `<script defer src="https://${DOMAINS.SITES_BASE}/app.js" data-slug="${safeSlug}" data-paid="${paid}"${claimAttrs}></script>`;
       html = /<\/body>/i.test(html)
         ? html.replace(/<\/body>/i, `${appScript}\n</body>`)
         : html + appScript;

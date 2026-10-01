@@ -67,6 +67,24 @@ export const FLAG_DOCS: Record<string, FlagDocs> = {
       'Off → /api/sites/:id/review-links 404s and the dialog stays gated',
     ],
   },
+  claim_flow: {
+    checklist: [
+      '$0 preview → $29/mo claim: free subdomain preview IS the pitch',
+      'POST /api/sites/:siteId/claim/checkout — Stripe subscription checkout (assertSiteOwned-guarded)',
+      'Price lookup-or-create by lookup_key (KV-cached, test-mode-only create; live falls back to inline price_data)',
+      'Existing checkout.session.completed webhook marks the site claimed — zero new webhook code',
+      'Unpaid top-bar swaps to the claim pitch via data-claim attrs on /app.js',
+      'Off → route 404s dark + the generic register bar serves unchanged',
+    ],
+    explanation:
+      'The paid-claim funnel (fire-60): a generated site stays viewable free on its subdomain, and claiming it is a $29/mo Stripe subscription that unlocks custom domain, edits, AI ops, and email. The checkout session carries metadata[site_id] + metadata[org_id] — the exact keys the existing webhook path (handleCheckoutCompleted) reads to flip sites.plan=paid and activate the org subscription, so entitlement gates that route through resolveActiveOrgPlan (active OR trialing) pass automatically. The "ProjectSites Claim" price is never hardcoded: resolved by stable lookup_key, cached in KV, created only in Stripe test mode (or with CLAIM_PRICE_AUTOCREATE=true); live mode uses the same inline price_data mechanism as the Pro checkout.',
+    smoke_test: [
+      'Enable the flag → as a site owner: curl -X POST https://projectsites.dev/api/sites/<siteId>/claim/checkout -H "Authorization: Bearer $TOKEN" → 200 {data:{checkout_url}} reaching checkout.stripe.com (do NOT complete in live mode)',
+      'Visit the unclaimed site → the bottom bar reads "This site was built for {business}. Claim it — $29/mo."',
+      'Off → the same POST 404s and the bar shows the generic "Register Now" copy',
+    ],
+    e2e_tests: [],
+  },
   cinematic_scroll_reveals: {
     checklist: [
       'Native CSS scroll-driven homepage section reveals (animation-timeline: view())',

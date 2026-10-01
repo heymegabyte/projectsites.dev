@@ -14,6 +14,15 @@
     { "slug": "events", "title": "Events", "intent": "pricing" },
     { "slug": "press", "title": "Press + News", "intent": "trust" }
   ],
+  "webgl": {
+    "variant": "rays",
+    "background": "#f3f6ee",
+    "palette": ["#ffffff", "#2e7d4f", "#dce8d4"],
+    "speed": 0.45,
+    "intensity": 0.9,
+    "density": 7,
+    "grain": 0.015
+  },
   "jsonld_presets": ["NGO", "Organization", "DonateAction", "Event", "FAQPage", "BreadcrumbList"],
   "trust_signals": ["501(c)(3) verified", "Charity Navigator", "GuideStar Platinum", "BBB Wise Giving"],
   "payment_routing": "square_donate_button_or_pp_giving_fund_per_payments-routing_rule",

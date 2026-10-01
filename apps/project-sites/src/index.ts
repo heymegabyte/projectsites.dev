@@ -62,6 +62,7 @@ import { dataResourceReset } from '../libs/features/data_resource_registry/reset
 import { containerProxy } from '../libs/features/container_proxy/handlers.js'; // build-container callbacks (PUT /api/container-upload/*, POST /api/container-query, GET /api/container-script — shared-secret auth) — extracted from search.ts (route-decomposition installment 22)
 import { contactNewsletter } from '../libs/features/contact_newsletter/handlers.js'; // public form ingest (POST /api/contact-form/:slug + POST /api/newsletter/subscribe) — extracted from search.ts (route-decomposition installment 23)
 import { placesSearch } from '../libs/features/places_search/handlers.js'; // public Google Places search (GET /api/search/businesses + GET /api/search/address) — extracted from search.ts (route-decomposition installment 25)
+import { claimFlowRoutes } from '../libs/features/claim_flow/handlers.js'; // paid-claim checkout (POST /api/sites/:siteId/claim/checkout — $29/mo Stripe sub; flag claim_flow, DARK; fire-60)
 import { mediaAi } from '../libs/features/media_ai/handlers.js'; // AI media pipeline (GET /api/image-proxy + POST /api/ai/{discover-images,discover-videos,edit-image}) — extracted from search.ts (route-decomposition installment 26)
 import { siteCreation } from '../libs/features/site_creation/handlers.js'; // AI site-creation cluster (POST /api/sites/{create-from-search,improve-prompt,generate-prompt} + POST /api/ai/categorize) — extracted from search.ts (route-decomposition installment 27)
 import { sitePreview } from '../libs/features/site_preview/handlers.js'; // GET /api/sites/:slug/preview — R2 index.html preview serve — extracted from search.ts (route-decomposition installment 28)
@@ -635,6 +636,7 @@ app.route('/', adminOutbox); // /api/admin/outbox — Super-Admin event-bus DLQ 
 app.route('/', adminFunnel); // /api/admin/activation-funnel — Super-Admin revenue-funnel rollup (Tinybird, read-only)
 app.route('/', adminAnalytics); // /api/admin/analytics/* — Super-Admin events-daily + publishes-by-source + claims-by-source rollups (Tinybird, read-only)
 app.route('/', claimRoutes); // /api/claim/:shortlink — claimyour.site funnel: resolve→click→session START→redirect /create
+app.route('/', claimFlowRoutes); // POST /api/sites/:siteId/claim/checkout — paid-claim ($29/mo) Stripe checkout; existing checkout.session.completed webhook marks the site claimed (flag claim_flow, DARK)
 app.route('/', siteRollbackRoutes); // /api/sites/:id/history + /api/sites/:id/rollback — GitHub repo rollback (flag: github_repo_sync)
 
 // ── PostHog same-origin reverse proxy (/ingest/*) ──────────────────────────

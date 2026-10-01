@@ -12,6 +12,15 @@
     { "slug": "maintenance-plans", "title": "Maintenance Plans", "intent": "pricing" },
     { "slug": "indoor-air-quality", "title": "Indoor Air Quality", "intent": "educational" }
   ],
+  "webgl": {
+    "variant": "grid",
+    "background": "#10243a",
+    "palette": ["#3f7fbf", "#ff7a1a", "#1c3a5a"],
+    "speed": 0.65,
+    "intensity": 0.9,
+    "density": 7,
+    "grain": 0.02
+  },
   "jsonld_presets": ["LocalBusiness", "HVACBusiness", "Service", "AggregateRating", "FAQPage"],
   "trust_signals": ["EPA 608 certified", "NATE certified", "BBB accredited", "Licensed + insured"],
   "seasonal_cta": { "spring": "AC tune-up", "fall": "furnace check", "summer": "AC repair", "winter": "furnace repair" },

@@ -46,6 +46,15 @@ export const FLAG_REGISTRY: Record<string, FlagDefinition> = {
     owner_email: 'brian@megabyte.space',
     stage: 'experimental',
   },
+  claim_flow: {
+    default_enabled: false,
+    default_rollout_percent: 0,
+    description:
+      'Paid-claim funnel (fire-60): $0 preview → $29/mo claim. A generated site stays viewable FREE on its subdomain; claiming is a $29/mo Stripe subscription unlocking custom domain + edits + AI ops + email.\n\n• On: POST /api/sites/:siteId/claim/checkout (libs/features/claim_flow, assertSiteOwned-guarded) creates a subscription-mode checkout for the "ProjectSites Claim" price — lookup-or-create by lookup_key projectsites_claim_29_monthly, KV-cached, test-mode-only creation; live mode falls back to inline price_data (never a hardcoded price id). The session carries metadata[site_id]+[org_id] so the EXISTING checkout.session.completed webhook marks the site claimed (sites.plan=paid) with zero new webhook code. The served unpaid top-bar swaps to the claim pitch ("This site was built for {business}. Claim it — $29/mo.") via data-claim attrs on the /app.js tag.\n• Off (default, DARK): the route 404s (never 403), zero Stripe traffic, and the generic register bar serves unchanged.\n• Acceptance: flag on → checkout 200 {checkout_url → checkout.stripe.com}; completing it flips sites.plan=paid; custom-domain + AI-ops entitlements pass via resolveActiveOrgPlan (active OR trialing).',
+    key: 'claim_flow',
+    owner_email: 'brian@megabyte.space',
+    stage: 'experimental',
+  },
   pricing_engine: {
     default_enabled: false,
     default_rollout_percent: 0,

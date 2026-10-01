@@ -12,6 +12,15 @@
     { "slug": "wrongful-death", "title": "Wrongful Death Claims", "intent": "diagnostic" },
     { "slug": "free-consultation", "title": "Free Case Evaluation", "intent": "conversion" }
   ],
+  "webgl": {
+    "variant": "grid",
+    "background": "#f7f5ef",
+    "palette": ["#1d3557", "#c9a227", "#e8e4d8"],
+    "speed": 0.5,
+    "intensity": 0.85,
+    "density": 6,
+    "grain": 0.012
+  },
   "jsonld_presets": ["LegalService", "Attorney", "FAQPage", "BreadcrumbList", "Person"],
   "trust_signals": ["State Bar verified", "Super Lawyers", "AV Preeminent", "Million Dollar Advocates Forum"],
   "compliance_notes": [

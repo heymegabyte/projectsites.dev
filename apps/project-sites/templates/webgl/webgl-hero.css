@@ -1,0 +1,40 @@
+/**
+ * webgl-hero.css — linked styles for the ambient WebGL hero layer.
+ * The layer is decorative: absolutely fills its positioned hero parent at z-index 0;
+ * hero content must sit at z-index >= 1. The static gradient fallback is ALWAYS
+ * painted underneath (it is the whole treatment for reduced-motion / no-WebGL),
+ * themed via --webgl-hero-{bg,a,b} custom properties set by the wrapper.
+ */
+
+.webgl-hero-layer {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  overflow: hidden;
+  pointer-events: none;
+  /* Static themed fallback: soft radial glows over the preset background. */
+  background-color: var(--webgl-hero-bg, #060610);
+  background-image:
+    radial-gradient(120% 90% at 78% -10%, color-mix(in oklab, var(--webgl-hero-a, #00e5ff) 26%, transparent), transparent 60%),
+    radial-gradient(90% 70% at 12% 110%, color-mix(in oklab, var(--webgl-hero-b, #7c3aed) 20%, transparent), transparent 55%);
+}
+
+.webgl-hero-layer .webgl-hero-canvas {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  display: block;
+  opacity: 0;
+  transition: opacity 900ms ease;
+}
+
+.webgl-hero-layer .webgl-hero-canvas.is-live {
+  opacity: 1;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .webgl-hero-layer .webgl-hero-canvas {
+    display: none;
+  }
+}

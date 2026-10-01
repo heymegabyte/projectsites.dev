@@ -1,0 +1,76 @@
+<!doctype html>
+<!-- harness.html — minimal hero page for the WebGL preset gate (e2e/webgl-template-gate.mjs).
+     Mirrors how the template hero layers content OVER the ambient canvas. ?preset=<key> -->
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>WebGL Hero Harness</title>
+  <link rel="stylesheet" href="./webgl-hero.css" />
+  <style>
+    * { margin: 0; box-sizing: border-box; }
+    body { font-family: -apple-system, 'Helvetica Neue', Arial, sans-serif; }
+    .hero { position: relative; height: 100vh; overflow: hidden; display: grid; place-items: center; }
+    .hero-content { position: relative; z-index: 1; text-align: center; max-width: 720px; padding: 2rem; }
+    .hero-content h1 { font-size: clamp(2rem, 5vw, 3.4rem); letter-spacing: -0.02em; line-height: 1.08; }
+    .hero-content p { margin-top: 1rem; font-size: 1.1rem; opacity: 0.82; }
+    .hero-content .cta { display: inline-block; margin-top: 1.75rem; padding: 0.8rem 1.6rem; border-radius: 10px; font-weight: 600; text-decoration: none; }
+    .light h1, .light p { color: #16211c; }
+    .dark h1, .dark p { color: #f3f4f6; }
+  </style>
+</head>
+<body>
+  <main class="hero" id="hero">
+    <div class="hero-content" id="content">
+      <h1 id="h1">Industry Hero</h1>
+      <p id="sub">Ambient WebGL treatment themed to the vertical.</p>
+      <a class="cta" id="cta" href="#">Primary Action</a>
+    </div>
+  </main>
+  <script type="module">
+    import { createWebGLHero } from './webgl-hero-core.mjs';
+    import { resolveWebGLPreset, WEBGL_PRESETS } from './presets.mjs';
+
+    const params = new URLSearchParams(location.search);
+    const key = params.get('preset') || 'professional-services';
+    const preset = resolveWebGLPreset(key);
+
+    const hero = document.getElementById('hero');
+    const layer = document.createElement('div');
+    layer.className = 'webgl-hero-layer';
+    layer.setAttribute('aria-hidden', 'true');
+    layer.style.setProperty('--webgl-hero-bg', preset.background);
+    layer.style.setProperty('--webgl-hero-a', preset.palette[0]);
+    layer.style.setProperty('--webgl-hero-b', preset.palette[1]);
+    hero.prepend(layer);
+
+    // Light/dark copy treatment matching the preset background luminance.
+    const n = parseInt(preset.background.slice(1), 16);
+    const lum = (0.2126 * ((n >> 16) & 255) + 0.7152 * ((n >> 8) & 255) + 0.0722 * (n & 255)) / 255;
+    document.getElementById('content').className = 'hero-content ' + (lum > 0.5 ? 'light' : 'dark');
+    const cta = document.getElementById('cta');
+    cta.style.background = preset.palette[lum > 0.5 ? 1 : 0];
+    cta.style.color = lum > 0.5 ? '#ffffff' : '#101014';
+
+    const names = {
+      restaurant: ['Wood-Fired, Every Night', 'Seasonal plates from the hearth — reserve your table.', 'Reserve a Table'],
+      nonprofit: ['Small Acts, Lasting Change', 'Join the neighbors funding meals, shelter, and second chances.', 'Donate Now'],
+      retail: ['Gear That Outworks You', 'Field-tested goods, straight from the floor.', 'Shop the Collection'],
+      'professional-services': ['Counsel You Can Build On', 'Clear advice, steady hands, decades of practice.', 'Book a Consultation'],
+    };
+    const copy = names[key] || names['professional-services'];
+    document.getElementById('h1').textContent = copy[0];
+    document.getElementById('sub').textContent = copy[1];
+    cta.textContent = copy[2];
+
+    const reduced = matchMedia('(prefers-reduced-motion: reduce)').matches;
+    let handle = { ok: false, reason: 'reduced-motion' };
+    if (!reduced) handle = createWebGLHero(layer, { ...preset, maxDpr: 1 });
+
+    window.__hero = handle;
+    window.__preset = { key, ...preset };
+    window.__presetKeys = Object.keys(WEBGL_PRESETS);
+    window.__ready = true;
+  </script>
+</body>
+</html>
