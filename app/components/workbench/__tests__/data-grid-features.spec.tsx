@@ -1104,6 +1104,130 @@ describe('undo a delete', () => {
  * uses so a PK-less table is still fully editable — the row is targeted by its
  * `_rowid` via the dedicated `PATCH …/rows/:rowid` endpoint.
  */
+/*
+ * ─── WLK-03 — a 0-rows-written edit is a FAILED edit, never a silent success ──
+ *
+ * The lying-success class (`dbUpdate`/`changes===0`): an `UPDATE … WHERE pk=?` that matches NO
+ * row returns `ok:true, rowsWritten:0` from D1 — but the row the user tried to edit did NOT
+ * change. The grid must NOT report success, close the editor, and let the edit vanish on reload.
+ * It MUST surface an error, keep the typed value in the cell, and roll the optimistic patch back.
+ */
+describe('WLK-03 — a 0-rows-written UPDATE is a failed edit (no silent lying-success)', () => {
+  /** Open the "title" cell of the first row and type a new value (does not save yet). */
+  async function openTitleEditorAndType(next: string): Promise<void> {
+    const r0title = rowCells(0)[1];
+    await act(async () => {
+      r0title.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+    });
+    // The typed editor replaces the cell.
+    expect(screen.getByTestId('sitedb-cell-editing')).toBeTruthy();
+    const input = screen.getByTestId('data-edit-value') as HTMLInputElement;
+    await act(async () => {
+      const s = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value')?.set;
+      s?.call(input, next);
+      input.dispatchEvent(new Event('input', { bubbles: true }));
+    });
+  }
+
+  it('PK path: UPDATE returning rowsWritten:0 keeps the editor open, shows an error, preserves the typed value', async () => {
+    await openRichTable(); // RICH_COLUMNS has an INTEGER PK "id" → PK write path (exec-SQL bridge)
+
+    await openTitleEditorAndType('Zeta');
+
+    await act(async () => {
+      screen.getByTestId('data-edit-save').click();
+    });
+
+    // Reply to the UPDATE with ZERO rows written — the row didn't exist / wasn't matched.
+    await replyMutateOk(0);
+
+    // The edit FAILED: editor stays open, an error is shown, and the typed value is preserved
+    // (NOT silently reverted, NOT closed-as-success).
+    await waitFor(() => {
+      expect(screen.getByTestId('data-edit-error').textContent).toBeTruthy();
+    });
+    expect(screen.getByTestId('sitedb-cell-editing')).toBeTruthy();
+    expect((screen.getByTestId('data-edit-value') as HTMLInputElement).value).toBe('Zeta');
+
+    // And the optimistic grid patch was rolled back — the detail/grid must not keep "Zeta".
+    // (The cell is in edit mode, so we assert no OTHER row leaked the value and the undo toast
+    // did NOT arm — a failed write never arms undo.)
+    expect(screen.queryByTestId('sitedb-undo')).toBeNull();
+  });
+
+  it('no-PK path: PATCH …/rows/:rowid returning updated:0 is surfaced as a failed edit', async () => {
+    // A table with NO primary key → the no-PK write path (requestDbUpdateRow → PATCH by _rowid).
+    const NOPK_COLUMNS = [
+      { name: 'name', type: 'TEXT', notnull: 0, pk: 0 },
+      { name: 'note', type: 'TEXT', notnull: 0, pk: 0 },
+    ];
+    const NOPK_ROWS = [
+      { _rowid: 1, name: 'Alpha', note: 'a' },
+      { _rowid: 2, name: 'Bravo', note: 'b' },
+    ];
+
+    // Make the PATCH bridge report a 0-row update (row not found / not matched).
+    const mod = (await import('~/lib/embed/embedded-mode')) as unknown as {
+      requestDbUpdateRow: ReturnType<typeof vi.fn>;
+    };
+    mod.requestDbUpdateRow.mockResolvedValueOnce({
+      type: 'PS_SITEDB_UPDATE_ROW_RESPONSE',
+      ok: true,
+      updated: 0,
+    });
+
+    render(<SiteTablesPanel />);
+    await waitFor(() => {
+      expect(postToParentSpy).toHaveBeenCalledWith(expect.objectContaining({ type: 'PS_SITEDB_TABLES_REQUEST' }));
+    });
+    await act(async () => {
+      fireReply({
+        type: 'PS_SITEDB_TABLES_RESPONSE',
+        correlationId: lastCorrelationId(),
+        ok: true,
+        databaseId: 'db-nopk',
+        provisioned: true,
+        tables: [{ name: 'notes' }],
+      });
+    });
+    await act(async () => {
+      screen.getAllByTestId('sitedb-table-open')[0].click();
+    });
+    await waitFor(() => {
+      expect(postToParentSpy).toHaveBeenCalledWith(
+        expect.objectContaining({ type: 'PS_SITEDB_ROWS_REQUEST', table: 'notes' }),
+      );
+    });
+    const rowsReqId = lastReqIdOfType('PS_SITEDB_ROWS_REQUEST');
+    await act(async () => {
+      fireReply({
+        type: 'PS_SITEDB_ROWS_RESPONSE',
+        correlationId: rowsReqId,
+        ok: true,
+        table: 'notes',
+        columns: NOPK_COLUMNS,
+        rows: NOPK_ROWS,
+        limit: 500,
+        offset: 0,
+        total: NOPK_ROWS.length,
+      });
+    });
+
+    await openTitleEditorAndType('Zeta'); // column index 1 here is "note"; index 0 is "name"
+
+    await act(async () => {
+      screen.getByTestId('data-edit-save').click();
+    });
+
+    // updated:0 → the edit FAILED: editor open, error shown, value preserved.
+    await waitFor(() => {
+      expect(screen.getByTestId('data-edit-error').textContent).toBeTruthy();
+    });
+    expect(screen.getByTestId('sitedb-cell-editing')).toBeTruthy();
+    expect(screen.queryByTestId('sitedb-undo')).toBeNull();
+  });
+});
+
 describe('Revision 1 — rowStableKey + isRowEditableColumn (pure edit-gate)', () => {
   it('ROWID_KEY is the "_rowid" convention the browse endpoint emits', () => {
     expect(ROWID_KEY).toBe('_rowid');

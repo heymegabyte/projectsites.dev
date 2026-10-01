@@ -239,6 +239,14 @@ const REQUEST_TIMEOUT_MS = 20_000;
  */
 const POLL_INTERVAL_MS = 30_000;
 const DISABLED_404 = 'Per-site data is not enabled';
+/**
+ * Shown when a row-edit write succeeds at the SQL level but changes ZERO rows (the `changes===0`
+ * lying-success class): the targeted row no longer exists / wasn't matched, so the edit did NOT
+ * persist. Actionable: tell the owner their copy is stale and to refresh. Kept in sync with the
+ * `data-grid-features` WLK-03 regression spec.
+ */
+const NO_ROW_MATCHED_MESSAGE =
+  'This row no longer exists or was changed elsewhere, so the edit wasn’t saved. Refresh and try again.';
 const UNDO_WINDOW_MS = 8000;
 const DEFAULT_PAGE_SIZE = 50;
 
@@ -1327,7 +1335,24 @@ export const SiteTablesPanel = memo(
             return { ok: false, error: e instanceof RowMutationError ? e.message : 'Could not build the statement.' };
           }
 
-          return execSql(stmt.sql, stmt.params, true);
+          const res = await execSql(stmt.sql, stmt.params, true);
+
+          if (!res.ok) {
+            return res;
+          }
+
+          /*
+           * `ok:true` with ZERO rows written is a LYING-SUCCESS (the `changes===0` class): the
+           * `UPDATE … WHERE pk=?` matched NO row, so the value was NOT saved and would vanish on
+           * reload. The row went stale under the editor (deleted/renamed in another tab, or the
+           * grid is holding a pre-mutation copy). Surface it as a real failure so the caller rolls
+           * back + keeps the edit, instead of closing the editor on a change that never landed.
+           */
+          if ((res.rowsWritten ?? 0) === 0) {
+            return { ok: false, error: NO_ROW_MATCHED_MESSAGE };
+          }
+
+          return { ok: true };
         }
 
         // No-PK path (Revision 1): target the row by its stable `_rowid` via PATCH …/rows/:rowid.
@@ -1346,6 +1371,12 @@ export const SiteTablesPanel = memo(
 
           if (!reply.ok) {
             return { ok: false, error: reply.error || 'The edit could not be saved.' };
+          }
+
+          // Same lying-success guard for the PATCH bridge: `updated:0` means the `_rowid` matched
+          // no row (stale/deleted) — the edit did NOT persist, so report a failure, never success.
+          if ((reply.updated ?? 0) === 0) {
+            return { ok: false, error: NO_ROW_MATCHED_MESSAGE };
           }
 
           return { ok: true };

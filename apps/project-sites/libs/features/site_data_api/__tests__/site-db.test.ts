@@ -17,18 +17,23 @@ jest.mock('../../../../src/modules/feature_flags/services.js', () => ({
 jest.mock('../../../../src/services/db.js', () => ({
   dbQueryOne: jest.fn(),
 }));
-jest.mock('../../../../src/services/site_data_db.js', () => ({
-  buildCreateTableSql: jest.fn(),
-  createSampleData: jest.fn(),
-  insertSeedRows: jest.fn(),
-  introspectColumns: jest.fn(),
-  isSafeIdent: (s: unknown) =>
-    typeof s === 'string' && /^[A-Za-z_][A-Za-z0-9_]{0,62}$/.test(s),
-  listSiteTables: jest.fn(),
-  quoteIdent: (s: string) => `"${s.replace(/"/g, '""')}"`,
-  resolveSiteDataDb: jest.fn(),
-  SiteDataD1Error: class SiteDataD1Error extends Error {},
-}));
+jest.mock('../../../../src/services/site_data_db.js', () => {
+  // The row-write path uses the REAL SQL builder so the WLK-03 PATCH test asserts the genuine
+  // parameterized `UPDATE … WHERE rowid=?` (bound value, never interpolated), not a fake.
+  const actual = jest.requireActual('../../../../src/services/site_data_db.js');
+  return {
+    buildCreateTableSql: jest.fn(),
+    buildUpdateRowSql: actual.buildUpdateRowSql,
+    createSampleData: jest.fn(),
+    insertSeedRows: jest.fn(),
+    introspectColumns: jest.fn(),
+    isSafeIdent: (s: unknown) => typeof s === 'string' && /^[A-Za-z_][A-Za-z0-9_]{0,62}$/.test(s),
+    listSiteTables: jest.fn(),
+    quoteIdent: (s: string) => `"${s.replace(/"/g, '""')}"`,
+    resolveSiteDataDb: jest.fn(),
+    SiteDataD1Error: class SiteDataD1Error extends Error {},
+  };
+});
 
 // eslint-disable-next-line import/first -- imports must follow jest.mock (swc hoists the mocks)
 import { siteDbApi } from '../site_db_handlers';
@@ -227,6 +232,79 @@ describe('GET /api/sites/:siteId/db/tables/:table', () => {
     const selectCall = query.mock.calls.find((c) => /FROM "customers" LIMIT \? OFFSET \?/.test(c[0] as string));
     expect(selectCall?.[0]).toMatch(/SELECT rowid AS _rowid, \* FROM "customers"/);
     expect(selectCall?.[1]).toEqual([10, 0]);
+  });
+});
+
+/** PATCH helper — JSON body + content-type header. */
+function patch(body: unknown = {}) {
+  return {
+    body: JSON.stringify(body),
+    headers: { 'content-type': 'application/json' },
+    method: 'PATCH',
+  };
+}
+
+/*
+ * WLK-03 — the per-site row-edit write. The grid's inline edit (no-PK path) targets a row by its
+ * stable SQLite `rowid` via this endpoint. The response MUST report the HONEST rows-written count
+ * (`updated`) so the client can distinguish a real save (`updated>=1`) from a no-match
+ * lying-success (`updated:0`, the `changes===0` class) and surface an error instead of silently
+ * accepting an edit that never landed.
+ */
+describe('PATCH /api/sites/:siteId/db/tables/:table/rows/:rowid (per-site row edit)', () => {
+  function resolveWith(query: jest.Mock) {
+    mockFlag.mockResolvedValue(true);
+    mockResolve.mockResolvedValue({ databaseId: 'db1', db: { databaseId: 'db1', query }, ok: true, provisioned: false });
+    mockListTables.mockResolvedValue(['customers']);
+    mockIntrospect.mockResolvedValue([
+      { name: 'id', notnull: 0, pk: 1, type: 'INTEGER' },
+      { name: 'name', notnull: 0, pk: 0, type: 'TEXT' },
+    ]);
+  }
+
+  it('200 + updated:1 with a param-bound UPDATE … WHERE rowid=? when the row matches (round-trip)', async () => {
+    const query = jest.fn(async () => ({ meta: { rows_written: 1 }, results: [] }));
+    resolveWith(query);
+    const res = await authed().request(
+      '/api/sites/s1/db/tables/customers/rows/7',
+      patch({ values: { name: 'Zeta' } }),
+      mockEnv(),
+    );
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { ok: boolean; data: { table: string; updated: number } };
+    expect(body.ok).toBe(true);
+    expect(body.data.updated).toBe(1);
+    // The value is BOUND and the row targeted by its rowid (never interpolated).
+    const upd = query.mock.calls.find((c) => /^UPDATE "customers" SET/.test(c[0] as string));
+    expect(upd?.[0]).toBe('UPDATE "customers" SET "name" = ? WHERE rowid = ?');
+    expect(upd?.[1]).toEqual(['Zeta', 7]);
+  });
+
+  it('reports updated:0 (HONEST no-match count) when the rowid matches no row — never a lying positive', async () => {
+    const query = jest.fn(async () => ({ meta: { rows_written: 0 }, results: [] }));
+    resolveWith(query);
+    const res = await authed().request(
+      '/api/sites/s1/db/tables/customers/rows/999',
+      patch({ values: { name: 'Zeta' } }),
+      mockEnv(),
+    );
+    // The endpoint is single-source honest: it returns the real count so the client can treat
+    // `updated:0` as a failed edit (the frontend guard keys off this).
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { data: { updated: number } };
+    expect(body.data.updated).toBe(0);
+  });
+
+  it('400 for an invalid row id (never reaches SQL)', async () => {
+    const query = jest.fn();
+    resolveWith(query);
+    const res = await authed().request(
+      '/api/sites/s1/db/tables/customers/rows/not-a-number',
+      patch({ values: { name: 'Zeta' } }),
+      mockEnv(),
+    );
+    expect(res.status).toBe(400);
+    expect(query).not.toHaveBeenCalled();
   });
 });
 
