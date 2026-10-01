@@ -91,10 +91,9 @@
 
 ## Standing invariants
 
-- **Cadence: 20-minute cron, RE-ARMED (Brian, 2026-10-01, supersedes fire-58 cancel).**
-  Harness cron `13,33,53 * * * *` → `/run-the-loop` (durable, `.claude/scheduled_tasks.json`).
-  The harness auto-expires recurring jobs after 7 days — re-arm via CronCreate each week /
-  session restart. The lease (overlap coalescing) is what makes 20m safe; it still binds.
+- **Cadence: 15-minute cron, SELF-ARMING (Brian, 2026-10-01).** Harness cron
+  `4,19,34,49 * * * *` → `/run-the-loop` (durable). EVERY `/run-the-loop` invocation
+  re-arms it first (see the command file banner) — the 7-day harness expiry is self-healed. The lease (overlap coalescing) is what makes 20m safe; it still binds.
 - **Fire budget ~3M subagent tokens (heavy roster)** — Brian 2026-10-01. Evaluator sweep +
   builders + champion/challenger + multi-critic vision allowed every fire; report spend in
   the LEDGER entry.

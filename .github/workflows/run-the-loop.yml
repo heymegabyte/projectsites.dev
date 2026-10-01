@@ -15,7 +15,7 @@ name: run-the-loop
 
 on:
   schedule:
-    - cron: "13,33,53 * * * *" # 20-min cadence (Brian 2026-10-01), off-:00 minutes
+    - cron: "4,19,34,49 * * * *" # 15-min cadence (Brian 2026-10-01), off-:00 minutes
   workflow_dispatch: {}
 
 concurrency:
@@ -29,7 +29,7 @@ permissions:
 jobs:
   fire:
     runs-on: ubuntu-latest
-    timeout-minutes: 18 # under the cadence so fires never stack
+    timeout-minutes: 14 # under the 15m cadence so fires never stack
     steps:
       - name: Check OAuth token present
         id: gate

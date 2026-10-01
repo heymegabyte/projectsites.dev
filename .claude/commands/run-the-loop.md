@@ -5,6 +5,14 @@ argument-hint: "[role/lane name, category, or 'all' (default)]"
 
 # Run The Loop
 
+> **🔁 SELF-ARMING SCHEDULER (Brian directive 2026-10-01 — do this FIRST, every invocation).**
+> `/run-the-loop` means CONTINUOUS operation, not one fire: (1) `CronList` — if no recurring
+> `/run-the-loop` job exists, `CronCreate` cron `4,19,34,49 * * * *` (15-min cadence),
+> `durable: true` (harness auto-expires recurring jobs after ~7 days — this self-arm step IS
+> the re-arm); (2) then run ONE fire per this file. Overlapping ticks coalesce via the fire
+> lease (exit 3 = a live fire holds it → end the tick silently). Never end an invocation
+> with no armed cron.
+
 > **⚖️ GOVERNED BY `.claude/run-the-loop/CONSTITUTION.md` (fire-59, 2026-09-30).**
 > The Autonomous Visual Product Organization constitution supersedes this file wherever they
 > conflict: optimize VERIFIED HUMAN DELIGHT × CAPABILITY × COMPLETENESS × BUSINESS VALUE ×
