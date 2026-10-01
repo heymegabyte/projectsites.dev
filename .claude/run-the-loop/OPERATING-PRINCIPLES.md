@@ -17,6 +17,20 @@
   irreversible: drop tables, bulk data mutation, secret rotation, mass outreach,
   billing/pricing.
 
+## Canonical paths (do-not-hunt cheatsheet)
+
+> Verified 2026-10-01. Don't re-discover these — `loop-fire-lock.mjs` lives at REPO-ROOT
+> `scripts/`, NOT `apps/project-sites/scripts/` (a prior fire burned 3 tool calls finding that).
+> Paths are repo-relative from the repo root.
+
+- **fire lock** — repo-root `scripts/loop-fire-lock.mjs` (claim/heartbeat/release)
+- **recipient allowlist** — `apps/project-sites/scripts/recipient-allowlist.mjs` (+ `.recipient-allowlist.local.json` (verify) — local override not present in a clean tree)
+- **deep UI explorer** — `apps/project-sites/e2e/deep-ui-explorer/` (`explorer.mjs` · `vision-review.mjs` · `coverage-ledger.json`)
+- **long-trail checkpoint** — `apps/project-sites/e2e/long-trail/checkpoint-case-001.json`
+- **canonical home** — `.claude/run-the-loop/` (`README` · `OPERATING-PRINCIPLES` · `BACKLOG` · `LEDGER` · `DISCOVERIES` · `ARCHITECTURE` · `CONSTITUTION` · `GENOME` · `GOLDEN-PATHS` · `VISUAL-COVERAGE` · `BROWSER-OPERATING-LAYER`)
+- **worker deploy** — `cd apps/project-sites && npx wrangler deploy --env production`
+- **prod D1** — `project-sites-db-production` (`ea3e839a-c641-4861-ae30-dfc63bff8032`)
+
 ## Prime directive (coding & delivery)
 
 - Every fire's PRIMARY deliverable is a COMPLETE, REAL, end-to-end user journey proven on
