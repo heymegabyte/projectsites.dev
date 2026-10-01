@@ -25,6 +25,7 @@ import { resolve } from 'node:path';
 const REPO_ROOT = resolve(__dirname, '..', '..', '..', '..');
 const HEADERS_PATH = resolve(REPO_ROOT, 'public', '_headers');
 const EMBEDDED_MODE_PATH = resolve(REPO_ROOT, 'app', 'lib', 'embed', 'embedded-mode.ts');
+const WORKER_INDEX_PATH = resolve(__dirname, '..', 'index.ts');
 
 /** Extract the frame-ancestors source list from the editor's `_headers` CSP. */
 function readFrameAncestors(): string[] {
@@ -39,6 +40,20 @@ function readFrameAncestors(): string[] {
     .find((d) => d.startsWith('frame-ancestors'));
   if (!directive) throw new Error('CSP has no frame-ancestors directive');
   return directive.replace(/^frame-ancestors\s+/, '').split(/\s+/);
+}
+
+/**
+ * Extract the frame-ancestors source list from the WORKER's editor-proxy CSP
+ * (`src/index.ts`). In production the `*.projectsites.dev/*` Worker route wins
+ * over the Pages custom domain, and the proxy middleware OVERWRITES the Pages
+ * `_headers` CSP with this literal — so `_headers` being in sync is NOT enough
+ * (fire-61/62: `_headers` carried localhost:4200 while the live host did not).
+ */
+function readWorkerProxyFrameAncestors(): string[] {
+  const src = readFileSync(WORKER_INDEX_PATH, 'utf-8');
+  const m = src.match(/"frame-ancestors ([^"]+)"/);
+  if (!m) throw new Error(`No frame-ancestors literal found in ${WORKER_INDEX_PATH}`);
+  return [`'self'`, ...m[1].replace(/^'self'\s*/, '').split(/\s+/)];
 }
 
 /** Extract the editor's inbound parent-origin allowlist (absolute origins only). */
@@ -72,5 +87,31 @@ describe('editor frame-ancestors ↔ ALLOWED_ORIGINS sync (long-trail case-001 f
     expect(ancestors).toEqual(
       expect.arrayContaining(['http://localhost:4200', 'http://localhost:4300']),
     );
+  });
+});
+
+describe('WORKER editor-proxy CSP ↔ ALLOWED_ORIGINS sync (fire-62)', () => {
+  // The live editor.projectsites.dev response is produced by the Worker proxy
+  // in src/index.ts (route `*.projectsites.dev/*` beats the Pages custom
+  // domain), which SETS its own CSP — overwriting `_headers`. Both copies must
+  // cover the editor's inbound-message allowlist, or the local admin embed
+  // breaks in prod while every `_headers`-based gate stays green.
+  it('worker-proxy frame-ancestors covers every editor ALLOWED_ORIGINS entry', () => {
+    const ancestors = readWorkerProxyFrameAncestors();
+    const allowed = readEditorAllowedOrigins();
+    const missing = allowed.filter((origin) => !ancestors.includes(origin));
+    expect(missing).toEqual([]);
+  });
+
+  it('worker-proxy frame-ancestors keeps the production parents', () => {
+    const ancestors = readWorkerProxyFrameAncestors();
+    expect(ancestors).toEqual(expect.arrayContaining(["'self'", 'https://projectsites.dev']));
+    expect(ancestors.some((a) => a === 'https://*.projectsites.dev')).toBe(true);
+  });
+
+  it('worker-proxy and _headers frame-ancestors agree (no one-sided drift)', () => {
+    const fromWorker = [...readWorkerProxyFrameAncestors()].sort();
+    const fromHeaders = [...readFrameAncestors()].sort();
+    expect(fromWorker).toEqual(fromHeaders);
   });
 });
