@@ -205,6 +205,46 @@ the worker) · 7. Data stores reconciled directly (D1 `form_submissions`, `visit
 4. **Missing Angular↔worker proxy** — `ng serve` had no proxy, so the SPA couldn't reach `/api/*`
    in dev. Fix: `frontend/proxy.conf.json` + wired into `angular.json serve.options`.
 
+## RED found + fixed in fire-60 (Phase D live drive — checkpoint actions 38-49)
+
+5. **Editor iframe un-bootable in the local composition (the fire-59 action-38 blocker) — ROOT
+   CAUSE: one-sided origin drift.** The deployed editor's CSP (`public/_headers`) ships
+   `frame-ancestors 'self' https://projectsites.dev https://*.projectsites.dev …` with NO
+   localhost entries, while the editor's own inbound-message allowlist
+   (`app/lib/embed/embedded-mode.ts` `ALLOWED_ORIGINS`) explicitly includes
+   `http://localhost:4200` + `http://localhost:4300`. The local admin (`:4200`) therefore mounts
+   the iframe and Chromium refuses the document — observed live as
+   `Framing 'https://editor.projectsites.dev/' violates the following Content Security Policy`
+   (note: NOT the older "Refused to frame" wording). Fix: `public/_headers` frame-ancestors +=
+   both localhost parents (now a superset of `ALLOWED_ORIGINS`). Regression:
+   `src/__tests__/editor_frame_ancestors.test.ts` (derives BOTH sides from the real files; RED
+   observed pre-fix → GREEN post-fix). Local GREEN for the iframe legs lands when
+   `editor.projectsites.dev` redeploys — until then `D-boot` is `test.fixme` (blocked-on-deploy)
+   and the journey allowlists exactly that refusal.
+6. **ng serve first-boot optimizer staleness** — cold `.angular/cache` → `504 Outdated Optimize
+   Dep` on the Logs/Settings lazy chunks, `GlobalErrorHandler` bounces the SPA to `/` (nav
+   "click does nothing" symptom). NOT a product defect. Recipe fix: warm the lazy routes once,
+   then restart `ng serve` on the populated cache (see `docs/local-dev-longtrail.md`).
+7. **Journey-state drift in earlier phases** — A#15 (honest "No sites yet") + C#36 (editor
+   onboarding empty state) were authored at 0-sites state; Phase D's seeded `ltt-e2e-vitos` makes
+   both stale on replay. Specs made STATE-AWARE (empty launchpad OR real-store cockpit/iframe) so
+   the complete stateful journey replays green at any checkpoint state. Nav assertions moved to
+   collapse-proof `data-testid` (`nav-<id>`) — current HEAD renders an icon rail at 1280px.
+8. **Test-precision fixes (product correct):** `GET /api/sites/:id/readiness` is flag-gated
+   (`prod_readiness_score`) → honest dark-404 locally, spec now pins the envelope either way;
+   `ensureLttSite` is check-first so resumed runs don't fire an expected-4xx into the
+   console-error gate.
+
+### Fire-60 UX findings (frontend lane — NOT fixed this fire, out of scope)
+
+- Background admin calls to flag-dark endpoints surface repeated red toasts
+  ("That resource wasn't found.") on Hosting/Inspector views — expected-dark 404s should not
+  toast as user-facing errors (seen in `16-kv-inspector.png`, `20-logs.png`).
+- Evidence-capture note: screenshots taken immediately post-nav catch Angular View-Transition
+  cross-fades; settle on the target h1 (+~250ms) before `page.screenshot` next fire.
+- Positive: Hosting honestly gates "Publish to preview" with "This site has no build yet";
+  Queues Inspector degrades to an honest error card + Retry when CF creds are absent locally.
+
 ## Ramp-up plan (skill §Ramp-up)
 
 - **Now (this case):** ONE desktop viewport, inspect-then-proceed, LOCAL evidence in

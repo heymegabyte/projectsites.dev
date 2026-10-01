@@ -1,146 +1,138 @@
 {
   "case_id": "case-001-money-path",
   "title": "Money Path — search → sign in → create → edit → publish → verify → clean up",
-  "updated_at": "2026-09-30T00:00:00Z",
+  "updated_at": "2026-10-01T07:25:00Z",
   "slice": "LIVE (real local stack + real browser + real test-login)",
-  "status": "phase_c_green",
-  "runId": null,
-  "resourcePrefix": "ltt-case001-",
+  "status": "phase_d_green_except_iframe_boot",
+  "runId": "fire-60",
+  "resourcePrefix": "ltt-e2e-",
   "heartbeat": null,
-  "last_completed_action": 37,
+  "last_completed_action": 49,
   "next_action": {
-    "number": 38,
-    "description": "Phase D — Bolt editor: Code edit + Preview live-reload + per-site D1 Data tab isolation. Requires the bolt.diy iframe (editor.projectsites.dev) running locally."
+    "number": 50,
+    "description": "Phase D iframe legs (case #43-45, #53-55: PS_BOLT_READY, Code edit, Preview live-reload, persistent-iframe nav) — UNBLOCKED once editor.projectsites.dev redeploys with the fire-60 public/_headers frame-ancestors (verify: curl -sI https://editor.projectsites.dev | grep -i frame-ancestors shows http://localhost:4200; then delete the test.fixme line in D-boot). If the deploy hasn't landed, advance Phase E prep instead (promote/publish flow needs a build — decide seed-vs-build strategy for the ltt site)."
   },
   "ports": {
     "worker_wrangler_dev": 8787,
     "angular_ng_serve": 4200,
-    "note": "Angular proxy (frontend/proxy.conf.json) forwards /api,/health,/webhooks -> :8787. Static e2e_server :4300 is NOT used for long-trail (no worker proxy)."
+    "note": "Worker runs from the MAIN checkout (has .dev.vars + migrated local D1). ng serve runs from the WORKTREE (main checkout frontend had a concurrent agent's uncommitted broken analytics.component.ts edit). Angular proxy forwards /api,/health,/webhooks -> :8787."
   },
-  "worktree_path": null,
+  "worktree_path": ".claude/worktrees/agent-a81c395b01fefae64 (detached @ ac1e74b3a; node_modules SYMLINKED from main checkout: root + apps/project-sites + apps/project-sites/frontend)",
   "browser": {
     "engine": "LOCAL Chromium (Playwright) — a remote/cloud browser cannot reach localhost",
-    "profile_dir": ".ltt-browser-profile (under worktree)",
+    "profile_dir": "(default playwright context)",
     "screenshots_local_dir": "apps/project-sites/e2e/long-trail/screenshots-local"
   },
   "auth": {
     "seam": "POST /api/auth/test-login (gated on E2E_TEST_PASSWORD, present len 48)",
-    "ui_entry": "/signin?test=1 -> [data-testid=test-signin-panel] (wired into SERVED pages/auth/sign-in.component.ts this slice)",
+    "ui_entry": "/signin?test=1 -> [data-testid=test-signin-panel]",
     "identity": "brian@megabyte.space",
-    "oracle": "GET /api/auth/me -> 200 { email: brian@megabyte.space, org_id present, is_super_admin: true } (verified headless AND in-browser)",
+    "oracle": "GET /api/auth/me -> 200 { email: brian@megabyte.space, org_id present, is_super_admin: true }",
     "resolved_user_id": "3064239f-2f59-45fd-961f-d42ef4185806",
-    "resolved_org_id": "b6da6c8e-476f-4517-b508-2943d0526c4a"
+    "resolved_org_id_note": "current local-DB org owning the ltt site: d35866da-8624-4b58-9375-890f5418acbf (differs from the fire-55 checkpoint value — local DB evolved; causal checks pass against the CURRENT session org)"
   },
-  "real_actions_run": 37,
+  "test_resources": {
+    "site": {
+      "id": "eb4a7994-fecb-4dd5-b4f5-3550e664dd69",
+      "slug": "ltt-e2e-vitos",
+      "status": "draft",
+      "org_id": "d35866da-8624-4b58-9375-890f5418acbf",
+      "note": "KEPT deliberately for Phases D(iframe)/E — the stateful trail needs it; cleanup is Phase F actions 91-93. Specs are state-aware so replays are green with or without it."
+    }
+  },
+  "real_actions_run": 49,
   "executable_spec": {
     "path": "apps/project-sites/e2e/long-trail/case-001-money-path.e2e.ts",
     "config": "apps/project-sites/e2e/long-trail/playwright.longtrail.config.ts",
     "run_from": "apps/project-sites (worker package — single @playwright/test)",
-    "result": "Phase A: 3 passed. Phase B: 1 passed. Phase C: 1 passed. D-F: 3 test.fixme (pending). 5 passed / 3 skipped. 15.7s.",
-    "phase_a_coverage": "homepage paint + Sign In present + hero search graceful + ?test=1 real login + /api/auth/me=brian oracle + admin cockpit full nav + super-admin gate + honest empty-state launchpad + hard-refresh session persistence",
-    "phase_b_coverage": "cockpit tour — Forms/Analytics/Feature Flags/Hosting + Cmd+K open/close + nav-away + session persistence",
-    "phase_c_coverage": "Settings nav + API Tokens tab renders + New Token dialog open (testid at-create-open) + name input visible + keyboard fill + dialog cancel + Editor nav + onboarding empty state + hard-refresh session persistence"
+    "result": "FULL REPLAY fire-60: 6 passed / 3 honestly-pending (D-boot fixme blocked-on-deploy + E + F) in 19.3s. Phase D journey test: 7.1s green.",
+    "phase_d_coverage": "actions 38-49 — real-API site create (check-first idempotent) + visible host-pill oracle; nav-away/back selection retention; Editor open + iframe mount (src=editor.projectsites.dev) + PRECISE frame-ancestors refusal capture ('Framing … violates CSP'); per-site-data honest dark-404 envelope; readiness honest dark-404 envelope; Hosting render; KV/R2/Vectorize/Queues inspectors render (screenshots); Logs render + CAUSAL audit check (auth.test_login found via /api/audit-logs = this session's login in the store); console gate 0 unexpected (refusal + team-500 + dark-404s precisely allowlisted)"
   },
   "unit_regressions": {
-    "env": "src/__tests__/env_local_dev.test.ts — 18 assertions (local-relaxed + prod-strict both pinned). GREEN.",
-    "combined_run": "env_local_dev + auth_test_login = 25 passed."
+    "env": "src/__tests__/env_local_dev.test.ts — GREEN (unchanged).",
+    "frame_ancestors": "src/__tests__/editor_frame_ancestors.test.ts — NEW fire-60. Derives editor ALLOWED_ORIGINS (app/lib/embed/embedded-mode.ts) + frame-ancestors (public/_headers) from the REAL files and asserts superset + prod parents + localhost parents. RED observed pre-fix (missing :4200/:4300) -> GREEN post-fix. 3/3."
   },
-  "screenshot_findings": [
+  "reds_found_and_fixed_fire60": [
     {
-      "file": "01-homepage.png",
-      "ai_vision": "On-brand dark+cyan, fluid hero, clear CTAs + browser mockup. Investor-demo quality. No fix."
+      "red": "Action-38 blocker (fire-59 gap): editor iframe never boots in the local composition. Live browser evidence: console 'Framing https://editor.projectsites.dev/ violates the following Content Security Policy' + frame absent from page.frames() for 20s (D-boot RED).",
+      "root_cause": "One-sided origin drift: public/_headers CSP frame-ancestors lists only prod parents, while the editor's own app/lib/embed/embedded-mode.ts ALLOWED_ORIGINS (line ~2215) includes http://localhost:4200 + :4300 — the editor code supports a localhost parent its OWN headers forbid.",
+      "fix": "public/_headers:5 — frame-ancestors += http://localhost:4200 http://localhost:4300 (now a superset of ALLOWED_ORIGINS). file:line — public/_headers:5; evidence anchor app/lib/embed/embedded-mode.ts:2215.",
+      "regression": "src/__tests__/editor_frame_ancestors.test.ts (RED->GREEN this fire).",
+      "residual": "LOCAL iframe boot still refused until editor.projectsites.dev Pages redeploys the fixed _headers — D-boot is test.fixme('blocked-on-deploy…') with full body retained; journey allowlists exactly this refusal."
     },
     {
-      "file": "02-signin-test-panel.png",
-      "ai_vision": "Test-sign-in panel renders cleanly (cyan border, prefilled email, password, button) above the normal form. AA contrast, 44px targets. No fix."
+      "red": "ng serve (fresh cache, first boot) persistently 504s 'Outdated Optimize Dep' on Logs/Settings lazy chunks; GlobalErrorHandler bounces SPA to '/' — nav-logs click 'does nothing'.",
+      "root_cause": "First boot on an empty .angular/cache discovers deps mid-flight; its optimizer state stays stale for those chunks (does NOT self-heal with page retries).",
+      "fix": "Composition recipe (NOT product): warm lazy routes once, restart ng serve on the populated cache — second boot stable, 0 errors. Documented in docs/local-dev-longtrail.md § Gotchas.",
+      "verdict": "NOT_A_PRODUCT_DEFECT (dev-server artifact; prod serves hashed static chunks)"
     },
     {
-      "file": "03-admin-dashboard.png",
-      "ai_vision": "Real authed super-admin cockpit: full left nav (WORKSPACE/CAPABILITIES/OPERATIONS/ACCOUNT incl. Super admin), honest 'No sites yet' launchpad, Cmd+K, bell. No fix."
+      "red": "Main-checkout ng serve unbootable: NG5002 template errors in analytics.component.ts (lines ~580/820/1358).",
+      "root_cause": "CONCURRENT agent's uncommitted in-flight edit in the shared checkout (git status ' M'). Not ours; must not stash/overwrite.",
+      "fix": "Serve frontend from clean detached worktree @ HEAD with symlinked node_modules; worker + specs stay on main checkout. Documented in recipe.",
+      "verdict": "NOT_OURS — concurrent-dirty-tree isolation"
     },
     {
-      "file": "08-settings.png",
-      "note": "Settings route rendered cleanly via Angular navigation."
+      "red": "Replay drift: A#15 'No sites yet' + C#36 editor onboarding failed once the trail's own Phase D created a site.",
+      "root_cause": "First-run assertions in a STATEFUL journey; also role-name nav lookups broke on the new icon-rail sidebar HEAD.",
+      "fix": "State-aware dual assertions (empty launchpad OR real-store cockpit/iframe) + collapse-proof data-testid nav (nav-<id> default discovered at admin.component.ts navTestId). Spec-precision; product correct."
     },
     {
-      "file": "09-api-tokens.png",
-      "note": "API Tokens tab visible; at-create-open button present."
-    },
-    {
-      "file": "10-api-tokens-dialog.png",
-      "note": "Mint dialog opened; at-name-input visible. Dialog cancelled (no real mint)."
-    }
-  ],
-  "reds_found_and_fixed": [
-    {
-      "red": "Local worker un-bootable: parseEnv hard-failed EVERY request (VALIDATION_ERROR) on wrangler dev — 9 integration secrets .min(1)-required + absent locally.",
-      "root_cause": "src/lib/env.ts EnvSchema made Stripe/Places/PostHog/CF secrets required unconditionally; app.use('*') runs parseEnv before every route.",
-      "fix": "buildEnvSchema(local) + isLocalDevEnv(): the 9 secrets are prod-required but optional when ENVIRONMENT in {development,dev,local,test}; prod stays fail-fast. parseEnv selects per-env.",
-      "regression": "src/__tests__/env_local_dev.test.ts (18 assertions).",
-      "verify": "/health 200; test-login mints real session."
-    },
-    {
-      "red": "Local D1 schema incomplete -> /api/auth/me 'User not found' (users.is_super_admin + audit_logs.message absent).",
-      "root_cause": "wrangler d1 migrations apply --local breaks at 0010 (builds table only in 0504); only 9 core migrations applied, leaving an ancient schema.",
-      "fix": "Documented tolerant multi-pass sqlite3 apply in docs/local-dev-longtrail.md -> ~310 tables, is_super_admin + audit_logs.message present. (Local-recipe fix, not a prod migration change.)",
-      "verify": "/api/auth/me -> brian, super-admin."
-    },
-    {
-      "red": "Orphaned test-login UI seam: ?test=1 panel lived only in unrouted pages/signin/signin.component.ts; router serves pages/auth/sign-in.component.ts (no panel) -> real-UI E2E login impossible.",
-      "root_cause": "Better Auth cutover repointed /signin to pages/auth/sign-in.component.ts; the test seam was never migrated (interconnectedness / orphaned-but-built feature; matches memory live-signin-is-auth-signin-component).",
-      "fix": "Wired the ?test=1 panel + testSignIn() into the SERVED SignInComponent (drives ApiService.testLogin -> POST /api/auth/test-login).",
-      "verify": "Panel renders at /signin?test=1; real login lands on /admin; spec green."
-    },
-    {
-      "red": "No Angular->worker proxy: ng serve couldn't reach /api in dev.",
-      "root_cause": "angular.json serve had no proxyConfig; no proxy.conf.json existed.",
-      "fix": "frontend/proxy.conf.json (/api,/health,/webhooks -> :8787) + wired into angular.json serve.options.proxyConfig.",
-      "verify": "curl :4200/api/auth/me -> worker 401 JSON (not SPA 200 shell)."
-    },
-    {
-      "red": "Spec test 1 failed on 2 locators (getByRole link 'Sign In'; ambiguous search placeholder).",
-      "root_cause": "Homepage 'Sign In' is a <button> not a <link>; two inputs share the search placeholder (hero + footer).",
-      "fix": "getByRole('button',{name:/Sign In/}) + getByTestId('hero-search-input') — discovered from the live DOM. Test-precision fix, product correct.",
-      "verify": "Phase A 3/3 green."
-    },
-    {
-      "red": "Phase C Action 27 (Settings nav) appeared to fail with redirect to /admin.",
-      "root_cause": "Vite outdated-optimize-dep confound: concurrent agent commit changed @tanstack/angular-table dep hash; stale ng serve cache returned 504, Angular GlobalErrorHandler called replaceState('/admin').",
-      "fix": "Killed ng serve, rm -rf frontend/.angular/cache, restarted. NOT a product defect.",
-      "verdict": "NOT_A_PRODUCT_DEFECT — Vite cache confound from shared dev server + concurrent agent dep-hash change.",
-      "verify": "Phase C passes after cache clear."
+      "red": "Journey console gate tripped on MY OWN probes: duplicate-create 400 on resume; readiness expected 200 but is flag-gated 404.",
+      "root_cause": "ensureLttSite posted before checking; readiness is prod_readiness_score flag-gated (dark locally) per libs/features/prod_readiness_score/handlers.ts:31-32.",
+      "fix": "Check-first idempotent create; readiness assertion pins honest dark-404 envelope (or 200+data). Test-precision; product correct."
     }
   ],
   "known_defects_not_fixed_this_fire": [
     {
-      "defect": "team_invites.deleted_at column missing",
-      "file_line": "src/routes/ai_admin.ts:73-78",
-      "symptom": "GET /api/team -> HTTP 500 'table team_invites has no column named deleted_at' x3 per Settings page load",
-      "root_cause": "Handler queries `AND deleted_at IS NULL` but migration 0013 (0013_ai_platform.sql) creates team_invites WITHOUT this column. No later migration adds it.",
-      "impact": "All /api/team requests 500. Settings page console-error gate fails if /api/team is not in the allowlist.",
-      "fix_recipe": "Add migration: ALTER TABLE team_invites ADD COLUMN deleted_at TEXT; OR remove `AND deleted_at IS NULL` from the handler if soft-delete is not implemented.",
-      "allowlist_entry": "Documented in case-001 console-error gate with correlation-by-count via srv5xxUrls response listener.",
+      "defect": "team_invites.deleted_at column missing -> /api/team 500s on Settings loads (pre-existing, allowlisted-by-count). NOTE: fire-58 shipped migration 0651 per main-branch log — local DB may predate it; re-verify before deleting the allowlist.",
       "class": "swallowed-sql-error-masks-schema-drift"
+    },
+    {
+      "defect": "Flag-dark background 404s raise repeated user-facing red toasts 'That resource wasn't found.' on Hosting/Inspector views (screenshots 16/20). Frontend lane (ApiService toast policy) — OUT OF SCOPE this fire (frontend/ excluded).",
+      "class": "api-service-toast-swallows-server-specific-message / dark-route-404-UX"
     }
   ],
   "blockers_for_later_phases": [
-    "Phase D editor Code/Preview needs the bolt.diy iframe (editor.projectsites.dev / localhost:5173) running — cold/absent locally; steps marked [iframe] skip-with-note. Data tab (worker-backed per-site D1) does not need it.",
-    "Phase C full AI build is costly + container-gated (SITE_BUILDER DO is production-only) — case seeds a disposable ltt-e2e- site row instead of awaiting a real build.",
-    "Local D1 is missing a few non-critical tables (builds-dependent, some feature_flags.key seeds) — not on the auth/editor/serving paths.",
-    "team_invites.deleted_at schema-drift: /api/team 500s (documented above). Fix before Phase D if Settings team section is part of that phase's journey."
+    "Phase D iframe legs (#43-45,#53-55): editor.projectsites.dev must redeploy with fire-60 public/_headers (orchestrator folds + deploys; this fire was no-deploy). Then un-fixme D-boot (delete one test.fixme line) and drop the refusal allowlist entries (4 places in the spec, grep 'Framing').",
+    "Phase E promote/publish: ltt-e2e-vitos has NO build (current_build_version null) — publishing/serving needs either a seeded R2 build artifact or a real (costly, container-gated) build; decide next session.",
+    "Local feature flags are ALL dark (local feature_flags table has legacy per-org schema: flag_name column, no key/registry seeds) — flag-gated surfaces (per_site_data, prod_readiness_score) assert honest dark-404 locally.",
+    "Screenshots during Angular View Transitions catch cross-fades — settle on target h1 (+250ms) before page.screenshot next fire."
   ],
-  "servers_state_at_checkpoint": "Both up at checkpoint; Phase A+B+C all passed in this session. Re-establish via docs/local-dev-longtrail.md on resume (a browser process does NOT survive between cycles). IMPORTANT: clear .angular/cache if any concurrent agent has committed new deps since last ng serve start.",
-  "resume_recipe": "1) docs/local-dev-longtrail.md Steps 1-4 (schema, .dev.vars, wrangler dev :8787, ng serve :4200). 2) Re-drive Phase A via UI (fresh browser has no session). 3) Continue at action 38 (Phase D — Bolt editor).",
+  "screenshot_findings": [
+    { "file": "13-dashboard-with-site.png", "ai_vision": "Auto-selected host pill ltt-e2e-vitos.projectsites.dev; cockpit reflects store (Total sites 1, Sites live 0, 1 Draft); LIVE/auto-refresh copy honors no-manual-refresh; icon-rail nav. >=8/10, no in-scope fix." },
+    { "file": "14-editor-iframe-blocked.png", "ai_vision": "Caught mid view-transition (Editor breadcrumb cross-fade). Iframe mount + refusal proven by assertions, not pixels. Evidence-quality note recorded." },
+    { "file": "15-hosting.png", "ai_vision": "(same-chrome class, render-asserted)" },
+    { "file": "16-kv-inspector.png", "ai_vision": "Cross-fade reveals Hosting: honest R2 STATIC card, PREVIEW/PRODUCTION URLs + Copy, 'Publish to preview' honestly gated ('no build yet — open the editor'). FINDING: red toast 'That resource wasn't found.' from background flag-dark 404 (frontend-lane wart)." },
+    { "file": "17-r2-inspector.png", "ai_vision": "(render-asserted; vision-sampled class)" },
+    { "file": "18-vectorize-inspector.png", "ai_vision": "(render-asserted; vision-sampled class)" },
+    { "file": "19-queues-inspector.png", "ai_vision": "(render-asserted; vision-sampled class)" },
+    { "file": "20-logs.png", "ai_vision": "Cross-fade reveals Queues Inspector: honest degraded card 'Could not load Cloudflare Queues' + Retry (no CF creds locally — correct). FINDING: TWO stacked dark-404 toasts (dedupe window exceeded) — reinforces the toast wart." }
+  ],
+  "files_touched_fire60": {
+    "owned_e2e": [
+      "apps/project-sites/e2e/long-trail/case-001-money-path.e2e.ts (Phase D journey + D-boot; state-aware A#15/C#36; testid nav; refusal allowlists)",
+      "apps/project-sites/e2e/long-trail/case-001-money-path.md (fire-60 RED/fix + UX findings)",
+      "apps/project-sites/e2e/long-trail/checkpoint-case-001.json (this file)",
+      "apps/project-sites/docs/local-dev-longtrail.md (two-boot warm + worktree + frame-ancestors gotchas)"
+    ],
+    "product_minimal": [
+      "public/_headers:5 (frame-ancestors += http://localhost:4200 http://localhost:4300 — the action-38 root-cause fix)",
+      "apps/project-sites/src/__tests__/editor_frame_ancestors.test.ts (NEW regression lock, RED->GREEN)"
+    ]
+  },
+  "servers_state_at_checkpoint": "worker wrangler dev :8787 UP (main checkout, PID file none — long-lived from prior session); ng serve :4200 UP from WORKTREE (pid in /tmp/ltt-ng.pid, log /tmp/ltt-ng-wt2.log, second-boot warm cache). On resume: if either is down, recipe docs/local-dev-longtrail.md; remember the two-boot ng serve warm + worktree serve if main frontend is still dirty.",
+  "resume_recipe": "1) Check servers (curl :8787/health, :4200/). 2) If editor deploy landed (curl -sI https://editor.projectsites.dev | grep -i frame-ancestors has localhost:4200): remove D-boot test.fixme + the 4 'Framing' allowlist entries, run full case — iframe legs go live (actions 50+: PS_BOLT_READY, Code edit, Preview, Data tab THROUGH the UI, persistent-iframe nav). 3) Else advance Phase E prep (build/seed decision for ltt-e2e-vitos). 4) Full replay before marking anything done: npx playwright test e2e/long-trail/case-001-money-path.e2e.ts --config e2e/long-trail/playwright.longtrail.config.ts (expect >=6 passed).",
   "safety": {
     "recipient_allowlist": "email ONLY brian@megabyte.space; SMS ONLY the E2E cell (never committed); payments TEST MODE",
     "test_resource_prefix": "ltt-e2e-",
     "tenant_isolation": "action 90 asserts cross-org read is denied",
-    "dev_vars": "apps/project-sites/.dev.vars is git-ignored (verified via git check-ignore) and holds the only local secret; delete on teardown"
+    "dev_vars": "apps/project-sites/.dev.vars is git-ignored and holds the only local secret; delete on teardown"
   },
   "vite_confound_verdict": {
     "class": "shared-dev-server-concurrent-edit-vite-cache-confound",
     "date_discovered": "fire-58",
-    "description": "Concurrent agent commit changed @tanstack/angular-table dep hash; stale ng serve returned 504 Outdated Optimize Dep; Angular GlobalErrorHandler caught the failed dynamic import and called replaceState('/admin'). Symptom: Settings navigation appeared to fail. Fix: kill ng serve + rm -rf frontend/.angular/cache + restart.",
+    "fire60_extension": "A FRESH cache's FIRST boot is also unstable (Outdated Optimize Dep persists on cold lazy chunks); the stable state is the SECOND boot on a populated cache. Plus: a concurrent agent's uncommitted broken edit in the shared checkout is served live by ng serve — isolate via worktree serve, never stash their work.",
     "verdict": "NOT_A_PRODUCT_DEFECT"
   }
 }
