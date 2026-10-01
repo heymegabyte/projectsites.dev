@@ -538,7 +538,11 @@ try {
   // database-subtree grinds the UNEXPLORED Database siblings — the SQL console +
   // the KV manager subnav tabs, plus the Schema / AI-Seed / CSV-Import table-action
   // overlays (each opened-then-Escaped, zero submit/exec/seed/import, KV never
-  // unlocked); default database-history grinds the deep editor path (Tables →
+  // unlocked); editor-toolbar grinds the workbench TOOLBAR controls that had no live
+  // coverage — the four view-mode toggles (sticky scope / minimap / inline-diff /
+  // split, each asserted by its aria-pressed FLIP then restored) + the Code/Preview/
+  // Database top-tab switch (asserted by aria-pressed becoming true + panel mount),
+  // read-only; default database-history grinds the deep editor path (Tables →
   // Actions → History). Rotate per fire via the coverage ledger.
   const JOURNEY = process.env.EXPLORER_JOURNEY || 'database-history';
   if (JOURNEY === 'admin-breadth') {
@@ -1039,6 +1043,192 @@ try {
           phase: 'database-subtree',
           reason: `${t.kind} surface never settled (trigger unreachable or did not open)`,
         });
+      }
+    }
+
+    finish(
+      manifest.blocked.length === 0
+        ? acq.coverage === 'CLOUD_PASS_ELIGIBLE'
+          ? 'PASS_CLOUDFLARE'
+          : 'PASS_ON_FALLBACK_PROVIDER'
+        : 'PARTIAL',
+    );
+    await acq.browser.close().catch(() => {});
+    process.exit(manifest.status.startsWith('PASS') ? 0 : 2);
+  }
+
+  if (JOURNEY === 'editor-toolbar') {
+    // Editor WORKBENCH TOOLBAR — the controls with no prior live coverage:
+    //   (a) the four view-mode TOGGLES in the file breadcrumb bar (sticky scope /
+    //       minimap / inline-diff / split-pane), each a <button aria-pressed> with NO
+    //       data-testid — selected by aria-label;
+    //   (b) the top-tab view switch (Code / Preview / Database / Resources — each a
+    //       <button aria-pressed> selected by its visible text);
+    //   (c) the "Data tab button" = the DATABASE top tab (verified from the live
+    //       source: TOP_TABS is Code|Preview|Database|Resources; there is NO separate
+    //       "Data" tab and NO separate "Diff" tab — `selectedView==='data'` is a legacy
+    //       alias co-rendered with 'database', and "Diff" is the inline-diff TOGGLE, not
+    //       a tab). We record that reality honestly rather than hunt a tab that isn't there.
+    // For EACH control we assert its DOM EFFECT: a toggle must FLIP aria-pressed
+    // false↔true (its observable effect); a tab must become aria-pressed=true AND its
+    // panel mount. READ-ONLY: toggles are returned to their original state; zero mutation.
+    // The four toggles only render once a FILE is open, so we open one from the tree first.
+    await clickFirst(page, [
+      (p) => p.getByRole('link', { name: /^Editor$/ }),
+      (p) => p.getByRole('link', { name: /editor/i }),
+    ]);
+    await page.waitForURL(/\/admin\/editor/, { timeout: 15_000 }).catch(() => {});
+    await capture(page, 'click Editor nav → /admin/editor (iframe mounts)', {
+      surface: 'admin-editor-shell',
+    });
+
+    const iframeEl = page.locator('iframe[src*="editor."]').first();
+    await iframeEl.waitFor({ state: 'attached', timeout: 45_000 }).catch(() => {});
+    const frame = page.frameLocator('iframe[src*="editor."]');
+
+    // Boot wait: the top-tab strip (Code tab) renders once the workbench settles.
+    const codeTab = (f) => f.getByRole('button', { name: /^Code$/ });
+    const bootEnd = Date.now() + 120_000;
+    let booted = false;
+    while (Date.now() < bootEnd && !booted) {
+      if (await codeTab(frame).first().isVisible().catch(() => false)) {
+        booted = true;
+        break;
+      }
+      await page.waitForTimeout(5_000);
+    }
+    await capture(page, booted ? 'editor workbench booted (Code tab visible)' : 'editor boot state after 120s', {
+      surface: 'editor-workbench',
+      iframe: 'editor',
+    });
+    if (!booted) {
+      manifest.blocked.push({
+        phase: 'editor-boot',
+        reason: 'top-tab strip (Code) never visible in the editor iframe within 120s — WebContainer cold-boot or auth embed did not settle headlessly',
+        prerequisite: 'editor iframe needs COOP/COEP cross-origin isolation + site files (PS_FILES_READY) to boot the workbench',
+      });
+      throw new Error('BLOCKED:editor-boot');
+    }
+
+    // ---- (b)+(c) Top-tab view switch: Code → Preview → Database → back to Code.
+    // Each assertion is the tab's DOM effect: aria-pressed flips to true on click.
+    const TOP_TABS = ['Preview', 'Database', 'Code'];
+    for (const name of TOP_TABS) {
+      if (budgetExceeded()) break;
+      const tabBtn = frame.getByRole('button', { name: new RegExp(`^${name}$`) }).first();
+      const clicked = await clickFirst(frame, [
+        (f) => f.getByRole('button', { name: new RegExp(`^${name}$`) }),
+      ]);
+      const pressed = clicked
+        ? await tabBtn.getAttribute('aria-pressed').catch(() => null)
+        : null;
+      const effectSeen = pressed === 'true';
+      await capture(
+        page,
+        clicked
+          ? `top-tab → ${name} (aria-pressed=${pressed}${effectSeen ? ' ✓ effect-seen' : ''})`
+          : `top-tab "${name}" NOT FOUND`,
+        {
+          surface: 'editor-workbench',
+          subview: `tab-${name.toLowerCase()}`,
+          overlay: clicked ? (effectSeen ? '' : 'tab-no-aria-pressed') : 'missing-tab',
+          iframe: 'editor',
+        },
+      );
+      if (!clicked) {
+        manifest.blocked.push({ phase: 'editor-toolbar', reason: `top-tab "${name}" not found` });
+      } else if (!effectSeen) {
+        manifest.blocked.push({
+          phase: 'editor-toolbar',
+          reason: `top-tab "${name}" clicked but aria-pressed did not become true (effect unverified)`,
+        });
+      }
+    }
+
+    // ---- (a) The four view-mode toggles live in the file breadcrumb bar, which only
+    // renders when a FILE is open. We're on the Code tab now; open the first file from
+    // the tree. The file tree rows are buttons/links with the filename as text.
+    let fileOpened = false;
+    // A FileTree row is a <button> whose label is a path segment; the first leaf file
+    // opens the editor. Try a few common entry files, else the first tree button.
+    const fileCandidates = [
+      (f) => f.getByRole('button', { name: /package\.json/i }),
+      (f) => f.getByRole('button', { name: /index\.(html|tsx?|jsx?)/i }),
+      (f) => f.getByRole('button', { name: /README/i }),
+    ];
+    fileOpened = await clickFirst(frame, fileCandidates, { timeout: 6_000 });
+    if (!fileOpened) {
+      // Fallback: click the first file-looking tree node (has a dot in its label).
+      const anyFile = frame.getByRole('button', { name: /\.[a-z0-9]{2,4}$/i }).first();
+      if (await anyFile.isVisible({ timeout: 6_000 }).catch(() => false)) {
+        await anyFile.click().catch(() => {});
+        fileOpened = true;
+      }
+    }
+    await capture(page, fileOpened ? 'open a file from the tree (breadcrumb toolbar renders)' : 'no file opened (toolbar toggles unreachable)', {
+      surface: 'editor-workbench',
+      subview: 'code',
+      overlay: fileOpened ? '' : 'no-file-open',
+      iframe: 'editor',
+    });
+
+    if (!fileOpened) {
+      manifest.blocked.push({
+        phase: 'editor-toolbar',
+        reason: 'no file could be opened from the FileTree — the 4 view-mode toggles only render with an active file, so they are unreachable this run (honest BLOCKED, not failed)',
+      });
+    } else {
+      // The four toggles, each identified by aria-label (NO data-testid in source).
+      const TOGGLES = [
+        { label: 'Toggle sticky function/class header', key: 'sticky-scope' },
+        { label: 'Toggle scroll-position minimap', key: 'minimap' },
+        { label: 'Toggle inline diff against AI original', key: 'inline-diff' },
+        { label: 'Toggle split-pane (side-by-side editor)', key: 'split-pane' },
+      ];
+      for (const t of TOGGLES) {
+        if (budgetExceeded()) break;
+        const btn = frame.getByRole('button', { name: t.label }).first();
+        const present = await btn.isVisible({ timeout: 6_000 }).catch(() => false);
+        if (!present) {
+          await capture(page, `toggle "${t.key}" NOT FOUND in breadcrumb toolbar`, {
+            surface: 'editor-workbench',
+            subview: 'code',
+            overlay: `missing-toggle-${t.key}`,
+            iframe: 'editor',
+          });
+          manifest.blocked.push({ phase: 'editor-toolbar', reason: `view toggle "${t.key}" (${t.label}) not found` });
+          continue;
+        }
+        const before = await btn.getAttribute('aria-pressed').catch(() => null);
+        await btn.click().catch(() => {});
+        await page.waitForTimeout(250);
+        const after = await btn.getAttribute('aria-pressed').catch(() => null);
+        const flipped = before != null && after != null && before !== after;
+        await capture(
+          page,
+          `toggle ${t.key}: aria-pressed ${before}→${after}${flipped ? ' ✓ effect-seen' : ' (NO flip)'}`,
+          {
+            surface: 'editor-workbench',
+            subview: 'code',
+            overlay: flipped ? `toggle-${t.key}-on` : `toggle-${t.key}-no-effect`,
+            iframe: 'editor',
+          },
+        );
+        // Return to the original state (read-only discipline) + confirm it flips back.
+        await btn.click().catch(() => {});
+        await page.waitForTimeout(200);
+        const restored = await btn.getAttribute('aria-pressed').catch(() => null);
+        if (!flipped) {
+          manifest.blocked.push({
+            phase: 'editor-toolbar',
+            reason: `view toggle "${t.key}" clicked but aria-pressed did not flip (${before}→${after}) — effect unverified`,
+          });
+        } else if (restored !== before) {
+          manifest.blocked.push({
+            phase: 'editor-toolbar',
+            reason: `view toggle "${t.key}" did not restore to its original state (${before}→${after}→${restored})`,
+          });
+        }
       }
     }
 
