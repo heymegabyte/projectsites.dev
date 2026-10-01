@@ -43,8 +43,45 @@ import { createHash } from 'node:crypto';
 import { resolveSecret } from '../admin-verify/_browserbase-creds.mjs';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
-const req = createRequire(resolve(__dirname, '../../frontend/'));
-const { chromium } = req('playwright-core');
+
+/**
+ * Resolve `playwright-core` from the first require-base that actually has it.
+ * A worktree checkout often lacks `frontend/node_modules` (gotcha: a worktree needs
+ * BOTH worker + frontend installs), so we walk candidate bases — this worktree's
+ * frontend, then its worker, then the main checkout's frontend/worker — instead of
+ * dying when run from an un-installed worktree. The chosen base is logged (names
+ * only) so the manifest can show where the driver came from.
+ */
+function requirePlaywright() {
+  const bases = [
+    resolve(__dirname, '../../frontend/'), // this checkout's frontend install
+    resolve(__dirname, '../../'), // this checkout's worker install
+  ];
+  // A worktree checkout usually has NO node_modules; fall back to the main checkout's
+  // installed trees. Derive the main checkout by stripping any `.claude/worktrees/<id>/`
+  // segment from this file's path, then probe its frontend + worker installs.
+  const mainRoot = __dirname.replace(/\/\.claude\/worktrees\/[^/]+(?=\/)/, '');
+  if (mainRoot !== __dirname) {
+    const mainApp = mainRoot.replace(/\/e2e\/deep-ui-explorer$/, '');
+    bases.push(resolve(mainApp, 'frontend/'), mainApp);
+  }
+  // Explicit override — point at any dir whose node_modules has playwright-core.
+  if (process.env.PLAYWRIGHT_REQUIRE_BASE) bases.push(process.env.PLAYWRIGHT_REQUIRE_BASE);
+  const errors = [];
+  for (const base of bases) {
+    try {
+      const r = createRequire(base.endsWith('/') ? base : base + '/');
+      const mod = r('playwright-core');
+      return { chromium: mod.chromium, base };
+    } catch (err) {
+      errors.push(`${base}: ${String(err?.message || err).slice(0, 80)}`);
+    }
+  }
+  throw new Error(
+    `playwright-core unresolvable from any base — install it in a frontend/ or worker node_modules.\n  tried:\n   ${errors.join('\n   ')}`,
+  );
+}
+const { chromium, base: PW_BASE } = requirePlaywright();
 
 // ---------------------------------------------------------------------------
 // Config + creds (names only in logs — values never printed)
@@ -297,6 +334,16 @@ function finish(status, extra = {}) {
   manifest.elapsedMs = Date.now() - startedAt;
   Object.assign(manifest, extra);
   writeFileSync(resolve(RUN_DIR, 'manifest.json'), JSON.stringify(manifest, null, 2));
+  // ALSO persist the lean manifest (no base64 — screenshots stay gitignored) into the
+  // COMMITTED runs/ dir so each fire's evidence travels with the ledger. The manifest
+  // carries no secrets (passwords are masked pre-capture; identity is email/org only).
+  try {
+    const committedRunDir = resolve(__dirname, 'runs', RUN_ID);
+    mkdirSync(committedRunDir, { recursive: true });
+    writeFileSync(resolve(committedRunDir, 'manifest.json'), JSON.stringify(manifest, null, 2));
+  } catch {
+    /* best-effort — never fail the run on the evidence copy */
+  }
   updateLedger({
     runId: RUN_ID,
     status,
@@ -317,6 +364,8 @@ manifest.providerCoverage = acq.coverage;
 manifest.sessionId = acq.sessionId || null;
 manifest.providerEndpoint = acq.endpoint || null;
 manifest.providerAttempts = acq.attempts || [];
+manifest.journey = process.env.EXPLORER_JOURNEY || 'database-history';
+manifest.playwrightBase = PW_BASE.replace(/^.*\/(\.claude\/worktrees\/[^/]+|apps)\//, '…/$1/');
 
 if (!acq.browser) {
   manifest.blocked.push({
@@ -486,8 +535,11 @@ try {
   // EXPLORER_JOURNEY=admin-breadth walks the Angular admin's nav sections
   // (no editor iframe — fast, wide); settings-api-tokens grinds the Settings ›
   // API Tokens tab (list + mint dialog opened-then-dismissed, zero mutation);
-  // default database-history grinds the deep editor path. Rotate per fire via
-  // the coverage ledger.
+  // database-subtree grinds the UNEXPLORED Database siblings — the SQL console +
+  // the KV manager subnav tabs, plus the Schema / AI-Seed / CSV-Import table-action
+  // overlays (each opened-then-Escaped, zero submit/exec/seed/import, KV never
+  // unlocked); default database-history grinds the deep editor path (Tables →
+  // Actions → History). Rotate per fire via the coverage ledger.
   const JOURNEY = process.env.EXPLORER_JOURNEY || 'database-history';
   if (JOURNEY === 'admin-breadth') {
     const SECTIONS = (
@@ -766,6 +818,230 @@ try {
       await refreshProbe();
       await page.keyboard.press('Escape');
     }
+    finish(
+      manifest.blocked.length === 0
+        ? acq.coverage === 'CLOUD_PASS_ELIGIBLE'
+          ? 'PASS_CLOUDFLARE'
+          : 'PASS_ON_FALLBACK_PROVIDER'
+        : 'PARTIAL',
+    );
+    await acq.browser.close().catch(() => {});
+    process.exit(manifest.status.startsWith('PASS') ? 0 : 2);
+  }
+
+  if (JOURNEY === 'database-subtree') {
+    // Editor → Database tab → the UNEXPLORED siblings: discover the subnav tabs LIVE
+    // from the panel's OWN tablist (`aria-label="Database views"` — never hardcode
+    // Tables/SQL/KV), capture each (the SQL console + the KV manager), THEN on the
+    // Tables view open each table-action overlay (Schema / AI-Seed / CSV-Import) via
+    // its card/menu trigger, capture the settled overlay, and Escape. This is
+    // open-then-dismiss by construction: NO submit / exec / seed / import is ever
+    // clicked, and the KV upsell is observed but NEVER unlocked (zero localStorage/
+    // billing mutation). History is already covered by the default journey.
+    await clickFirst(page, [
+      (p) => p.getByRole('link', { name: /^Editor$/ }),
+      (p) => p.getByRole('link', { name: /editor/i }),
+    ]);
+    await page.waitForURL(/\/admin\/editor/, { timeout: 15_000 }).catch(() => {});
+    await capture(page, 'click Editor nav → /admin/editor (iframe mounts)', {
+      surface: 'admin-editor-shell',
+    });
+
+    const frame = page.frameLocator('iframe[src*="editor."]');
+    const dbTab = [
+      (f) => f.getByRole('tab', { name: /^Database$/i }),
+      (f) => f.getByRole('button', { name: /^Database$/i }),
+      (f) => f.getByText(/^Database$/),
+    ];
+    // Reuse the ~120s workbench boot loop (WebContainer cold-boot) — the Database tab
+    // only renders once site files + warm-up settle.
+    const bootEnd = Date.now() + 120_000;
+    let ready = false;
+    while (Date.now() < bootEnd && !ready) {
+      for (const mk of dbTab) {
+        if (await mk(frame).first().isVisible().catch(() => false)) {
+          ready = true;
+          break;
+        }
+      }
+      if (!ready) await page.waitForTimeout(5_000);
+    }
+    if (!ready) {
+      manifest.blocked.push({
+        phase: 'editor-boot',
+        reason: 'Database tab never visible in the editor iframe within 120s',
+        prerequisite: 'editor workbench needs site files (PS_FILES_READY) + per_site_data flag ON for this org',
+      });
+      throw new Error('BLOCKED:editor-boot');
+    }
+    await clickFirst(frame, dbTab, { timeout: 10_000 });
+    await capture(page, 'open Database tab', { surface: 'editor-database', iframe: 'editor' });
+
+    // Discover the subnav tabs from the panel's OWN tablist (never hardcode) — the broad
+    // workbench selector would also match the top editor tabs + the Resources subnav.
+    const subnavNames = await frame
+      .locator('[role="tablist"][aria-label="Database views"] [role="tab"]')
+      .allInnerTexts()
+      .catch(() => []);
+    const subnav = subnavNames.map((t) => t.trim()).filter((t) => t && t.length < 30);
+    console.warn(`  discovered Database subnav: ${subnav.join(' · ') || '(none)'}`);
+    if (!subnav.length) {
+      manifest.blocked.push({
+        phase: 'database-subtree',
+        reason: 'Database subnav tablist (aria-label="Database views") empty/absent — panel drift or flag-dark',
+      });
+      throw new Error('BLOCKED:database-subnav');
+    }
+
+    // Visit every subnav sibling that ISN'T Tables (Tables is the default + already
+    // covered by the Actions/History journey) — the SQL console + the KV manager.
+    for (const name of subnav) {
+      if (budgetExceeded()) break;
+      if (/^tables?$/i.test(name)) continue;
+      const kind = name.toLowerCase().replace(/\s+/g, '-');
+      const ok = await clickFirst(frame, [
+        (f) => f.getByRole('tab', { name: new RegExp(`^${name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, 'i') }),
+      ]);
+      // KV renders an honest $10/mo locked-upsell (database-kv) until unlocked — we
+      // RECORD that honest state and NEVER click database-kv-unlock (no mutation).
+      const kvLocked = /kv/i.test(name)
+        ? await frame.getByTestId('database-kv').isVisible({ timeout: 6_000 }).catch(() => false)
+        : false;
+      await capture(
+        page,
+        ok
+          ? `Database › ${name} sub-view${kvLocked ? ' (honest $10/mo locked-upsell — not unlocked)' : ''}`
+          : `Database subnav "${name}" not clickable`,
+        {
+          surface: 'editor-database',
+          subview: kind,
+          overlay: kvLocked ? 'kv-locked-upsell' : '',
+          iframe: 'editor',
+        },
+      );
+      if (!ok) {
+        manifest.blocked.push({ phase: 'database-subtree', reason: `Database subnav "${name}" not clickable` });
+      }
+    }
+
+    // Back to Tables for the action overlays (Schema / AI-Seed / Import).
+    await clickFirst(frame, [(f) => f.getByTestId('database-subnav-table')], { timeout: 8_000 });
+    // The SiteTablesPanel re-fetches on mount (skeleton → launchpad/grid). WAIT for a
+    // real actionable surface — the empty launchpad OR the Actions button — before
+    // reaching for any overlay trigger, so we never race the skeleton (the cause of a
+    // prior "trigger unreachable" false-negative on a healthy, present launchpad).
+    const tablesReady = await Promise.race([
+      frame.getByTestId('sitedb-empty').waitFor({ state: 'visible', timeout: 20_000 }).then(() => 'empty'),
+      frame.getByTestId('sitedb-actions').waitFor({ state: 'visible', timeout: 20_000 }).then(() => 'grid'),
+    ]).catch(() => null);
+    console.warn(`  Tables surface ready: ${tablesReady || '(neither launchpad nor Actions appeared)'}`);
+    await capture(page, `Database › Tables (${tablesReady === 'empty' ? 'empty launchpad' : tablesReady === 'grid' ? 'populated grid' : 'state unknown'}) — for action overlays`, {
+      surface: 'editor-database',
+      subview: 'tables',
+      overlay: tablesReady === 'empty' ? 'empty-launchpad' : '',
+      iframe: 'editor',
+    });
+
+    // Open each unexplored table-action surface, capture the SETTLED panel, then Escape.
+    // IMPORTANT (verified from the live component): the Tables view routes AI-Seed +
+    // CSV-Import to the parent's `database-action-overlay`, but "Create Table"
+    // (launchpad tile + Actions › New Table) opens a SEPARATE LOCAL `sitedb-create-table`
+    // modal — NOT the SchemaBuilder `database-action-overlay` (kind=schema). The parent's
+    // `onCreateTable → setTableAction('schema')` prop is effectively orphaned from the
+    // Tables UI. We therefore capture the surface that's ACTUALLY reachable for each
+    // action and record the overlay-vs-local-modal reality honestly.
+    const overlay = frame.getByTestId('database-action-overlay');
+    const createModal = frame.getByTestId('sitedb-create-table');
+    const openActionsMenu = async () =>
+      clickFirst(frame, [(f) => f.getByTestId('sitedb-actions')], { timeout: 5_000 });
+
+    const overlayTargets = [
+      {
+        kind: 'seed',
+        label: 'AI-Seed',
+        // Empty-launchpad tile prefers the parent AiSeedPanel overlay (richer flow, no seed call).
+        triggers: [(f) => f.getByTestId('sitedb-empty-seed')],
+        needsMenu: false,
+        surface: overlay,
+        overlayKey: 'action-seed-settled',
+      },
+      {
+        kind: 'import',
+        label: 'CSV/JSON Import',
+        triggers: [
+          (f) => f.getByTestId('sitedb-empty-import'),
+          (f) => f.getByTestId('sitedb-action-import'),
+        ],
+        needsMenu: true,
+        surface: overlay,
+        overlayKey: 'action-import-settled',
+      },
+      {
+        kind: 'schema',
+        label: 'Create Table (local schema modal)',
+        // The ACTUALLY-reachable schema surface — the local CreateTableModal, not the overlay.
+        triggers: [
+          (f) => f.getByTestId('sitedb-empty-newtable'),
+          (f) => f.getByTestId('sitedb-action-new-table'),
+        ],
+        needsMenu: true,
+        surface: createModal,
+        overlayKey: 'create-table-modal-settled',
+      },
+    ];
+
+    for (const t of overlayTargets) {
+      if (budgetExceeded()) break;
+      // Try the direct (launchpad) trigger first; if absent (populated grid), open the
+      // Actions dropdown and try the menu item. clickFirst tolerates a missing locator.
+      // Generous timeout — the frameLocator resolve through the cross-origin iframe is
+      // slower than a same-page locator (racing it caused prior false "unreachable").
+      let opened = await clickFirst(frame, t.triggers, { timeout: 8_000 });
+      if (!opened && t.needsMenu) {
+        await openActionsMenu();
+        opened = await clickFirst(frame, t.triggers, { timeout: 8_000 });
+      }
+      const settled = opened
+        ? await t.surface.isVisible({ timeout: 8_000 }).catch(() => false)
+        : false;
+      await capture(
+        page,
+        settled
+          ? `Tables › ${t.label} settled (open-then-dismiss — no submit/seed/import)`
+          : `Tables › ${t.label} trigger NOT reachable`,
+        {
+          surface: 'editor-database',
+          subview: 'tables',
+          overlay: settled ? t.overlayKey : `missing-action-${t.kind}`,
+          iframe: 'editor',
+        },
+      );
+      if (settled) {
+        await page.keyboard.press('Escape'); // overlay + CreateTableModal both close on Escape → grid intact
+        const stillOpen = await t.surface.isVisible({ timeout: 2_000 }).catch(() => false);
+        if (stillOpen) {
+          manifest.blocked.push({
+            phase: 'database-subtree',
+            reason: `Escape did not dismiss the ${t.kind} surface (escape contract broken)`,
+          });
+          await clickFirst(frame, [
+            (f) => f.getByRole('button', { name: /^Close$/ }),
+            (f) => f.getByRole('button', { name: /^Cancel$/ }),
+          ]);
+        }
+        await capture(page, `dismiss ${t.label} (Escape) → Tables intact`, {
+          surface: 'editor-database',
+          subview: 'tables',
+          iframe: 'editor',
+        });
+      } else {
+        manifest.blocked.push({
+          phase: 'database-subtree',
+          reason: `${t.kind} surface never settled (trigger unreachable or did not open)`,
+        });
+      }
+    }
+
     finish(
       manifest.blocked.length === 0
         ? acq.coverage === 'CLOUD_PASS_ELIGIBLE'
