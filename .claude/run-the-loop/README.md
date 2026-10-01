@@ -73,6 +73,22 @@
    Tick BACKLOG items (Done only when Acceptance met, with closing SHA + prod proof).
 9. **Release the lease** — `node scripts/loop-fire-lock.mjs release fire-<n>-<slug>`.
 
+## Product direction (Brian 2026-10-01 — steers every fire's ranking)
+
+- **GTM: DELIVERED OUTBOUND.** Lead-scanner finds local businesses → loop PRE-GENERATES
+  their site (gp-09 machinery is the same muscle) → outreach shows it LIVE → owner claims.
+  "We don't sell websites, we deliver them" is the literal funnel, not a tagline.
+- **Pricing: $0 PREVIEW → $29/mo CLAIM.** Generated site viewable free on its subdomain
+  (owner-draft/public-gated rules apply); claiming = $29/mo via Stripe (custom domain,
+  edits, AI ops, email). The preview IS the pitch.
+- **LAUNCH BAR (flip public + announce ONLY when all three green):** (1) gp-05 checkout
+  green end-to-end; (2) 10 gallery-grade showcase sites at vision ≥9; (3) gp-09 recreate
+  loop stable at <5 min / ≤$1. Then QUIET launch — no announcement ritual.
+- **Edit surface: INTENT-FIRST CHAT is the owner's primary surface** ("What do you want
+  to change?" → AI performs, owner confirms). The bolt.diy editor remains as
+  progressive-disclosure ADVANCED mode — invest editor depth only where it serves the
+  chat rail or power users.
+
 ## Standing invariants
 
 - **Cadence: 20-minute cron, RE-ARMED (Brian, 2026-10-01, supersedes fire-58 cancel).**

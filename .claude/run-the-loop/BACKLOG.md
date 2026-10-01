@@ -20,6 +20,21 @@
 
 ---
 
+## LAUNCH BAR — definition of public (Brian 2026-10-01; quiet launch when all green)
+
+- [ ] LB-1 gp-05 money path green — stranger can search → build → pay $29/mo claim → entitlement unlocks → invoice; Stripe test-rail automated in CI
+  - cadence: every-fire-until-green · priority: highest · category: money-path · estimate: 2-3 fires · depends_on: pricing-claim-flow · discovered_by: launch-bar
+- [ ] LB-2 gallery of 10 showcase-grade sites — real local-business verticals, frontier-vision ≥9/10 each, WebGL-era templates, linked from homepage gallery
+  - cadence: every-2-fires · priority: high · category: product · estimate: rolling · depends_on: webgl-templates · discovered_by: launch-bar
+- [ ] LB-3 gp-09 stable at targets — 3 consecutive recreate cycles <5 min live / ≤$1 build with truthful Resources panel + 0 unknowns
+  - cadence: every-2-fires · priority: high · category: testing · estimate: rolling · depends_on: gp-09 · discovered_by: launch-bar
+- [ ] Delivered-outbound rail — lead-scanner → pre-generate preview site → SES outreach with live link → claim CTA on preview top-bar → $29/mo Stripe claim checkout → owner onboarding; reuses gp-09 generation muscle + golden-journey email verify
+  - cadence: every-fire · priority: highest · category: money-path · estimate: 3-4 fires · depends_on: pricing-claim-flow · discovered_by: gtm-delivered-outbound
+- [ ] Pricing claim-flow implementation — $0 preview → $29/mo claim: Stripe product/price, claim CTA + checkout, entitlements gate custom-domain/AI-ops/email, unpaid top-bar copy becomes the claim pitch
+  - cadence: next-fire · priority: highest · category: money-path · estimate: 1 fire · depends_on: none · discovered_by: pricing-decision
+- [ ] Intent-first chat edit rail — "What do you want to change?" chat performs site edits (AI does, owner confirms, undo always); bolt.diy editor demoted to Advanced tab via progressive disclosure; editor investment only where it feeds this rail
+  - cadence: every-2-fires · priority: high · category: product · estimate: multi-fire · depends_on: none · discovered_by: edit-surface-decision
+
 ## FRONTIER 0 — Constitution bootstrap (fire-59 opened)
 
 > `./CONSTITUTION.md` landed 2026-09-30 and now governs the loop. These items bootstrap its
