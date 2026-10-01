@@ -366,7 +366,7 @@ export async function deploySiteToWfp(
   const ordered = [...assets].sort((a, b) => (a.path < b.path ? -1 : a.path > b.path ? 1 : 0));
   const sourceDigest = await sha256HexOf(ordered.map((a) => `${a.path}:${a.hash}`).join('\n'));
   const manifestStr = JSON.stringify(ordered.map((a) => [a.path, a.hash]));
-  const artifactDigest = await sha256HexOf(`${SERVING_SHIM} ${manifestStr}`);
+  const artifactDigest = await sha256HexOf(`${SERVING_SHIM}\u0000${manifestStr}`);
 
   // 6. Slot name — reuse the SSOT normaliser (`site-<id>` | `site-<id>-preview`).
   const scriptName = siteFunctionsScriptName(siteId, { preview: opts.slot === 'preview' });

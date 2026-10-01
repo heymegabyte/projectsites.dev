@@ -41,6 +41,7 @@ export const FORBIDDEN_BUCKET_NAMES: ReadonlySet<string> = new Set([
   'project-sites-assets', // SITES_BUCKET (prod) — shared platform R2
   'project-sites-assets-preview', // SITES_BUCKET (preview)
   'project-sites', // legacy shared bucket name
+  'project-sites-production', // SITES_BUCKET (prod, wrangler env.production) — shared platform R2
 ]);
 
 /** One R2 bucket allocation row (per-site, tenant-owned). */

@@ -53,4 +53,19 @@ describe('createFromSearchSchema (AL-724 boundary validation)', () => {
   it('accepts an empty body (all fields optional; the handler enforces name presence itself)', () => {
     expect(createFromSearchSchema.safeParse({}).success).toBe(true);
   });
+
+  it('accepts a valid preferred_slug (gp-09 fixture determinism)', () => {
+    const r = createFromSearchSchema.safeParse({
+      business_name: 'Lone Mountain Global',
+      preferred_slug: 'lone-mountain-global',
+    });
+    expect(r.success).toBe(true);
+  });
+
+  it('REJECTS a malformed preferred_slug (uppercase / spaces / leading hyphen / too short)', () => {
+    for (const bad of ['Lone-Mountain', 'has space', '-lead', 'trail-', 'ab', 'a'.repeat(64)]) {
+      const r = createFromSearchSchema.safeParse({ business_name: 'X', preferred_slug: bad });
+      expect(r.success).toBe(false);
+    }
+  });
 });

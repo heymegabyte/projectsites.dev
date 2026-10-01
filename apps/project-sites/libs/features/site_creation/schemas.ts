@@ -66,6 +66,20 @@ export const createFromSearchSchema = z
      * Authoritative when a valid preset name; otherwise the workflow re-derives (AL-467).
      */
     theme_style: z.string().optional(),
+    /**
+     * Preferred slug (gp-09): standing fixtures + re-creates need a DETERMINISTIC slug —
+     * `generateSmartSlug` is AI-derived and drifts between runs for the SAME business
+     * (observed: "Lone Mountain Global" → `lone-mountain-global`, then `lone-mountain`).
+     * Mirrors import-from-url's `target_slug` precedent. Still routed through
+     * `ensureUniqueSlug`, so a taken slug degrades to `-N` suffixing, never a collision.
+     */
+    preferred_slug: z
+      .string()
+      .regex(
+        /^[a-z0-9](?:[a-z0-9-]{1,61}[a-z0-9])?$/,
+        'Slug must be lowercase [a-z0-9-], 3-63 chars, no leading/trailing hyphen',
+      )
+      .optional(),
   })
   .passthrough();
 

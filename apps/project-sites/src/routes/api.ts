@@ -164,6 +164,7 @@ import { z } from 'zod';
 import { crawlSiteForImport, estimateRebuildMinutes } from '../services/import_crawler.js';
 import { checkBuildLimit, resolveActiveOrgPlan } from '../services/build_limits.js';
 import { teardownSiteWfp } from '../services/wfp_site_hosting.js';
+import { purgeSiteResources } from '../services/site_purge.js';
 
 /**
  * Fire the WfP Unit-5 teardown for a site off the response path (site delete/archive).
@@ -1677,6 +1678,11 @@ api.delete('/api/sites/:id', async (c) => {
 
   const body = await c.req.json().catch(() => ({}));
   const cancelSubscription = body && (body as Record<string, unknown>).cancel_subscription === true;
+  // gp-09 full-teardown opt-in: `purge_resources: true` additionally removes the site's
+  // entire dedicated footprint (R2 version-tree, dedicated D1/KV/buckets, WfP slots,
+  // registry/hostname rows) and FREES the slug for re-creation. Same explicit body-opt-in
+  // tier as `cancel_subscription`; the purge itself refuses non-archived rows.
+  const purgeResources = body && (body as Record<string, unknown>).purge_resources === true;
 
   await c.env.DB.prepare(
     "UPDATE sites SET deleted_at = datetime('now'), status = 'archived' WHERE id = ?",
@@ -1695,6 +1701,13 @@ api.delete('/api/sites/:id', async (c) => {
   // `c.executionCtx` is a THROWING getter when the request has no ExecutionContext (unit
   // tests), so read it inside try/catch and fall back to an un-awaited fire-and-forget.
   runTeardownWfp(c, siteId, orgId);
+
+  // Explicit full teardown (awaited so the response carries the honest per-step summary;
+  // `purgeSiteResources` never throws and refuses anything not already soft-deleted).
+  let purge: Awaited<ReturnType<typeof purgeSiteResources>> | undefined;
+  if (purgeResources) {
+    purge = await purgeSiteResources(c.env, { orgId, siteId, slug: site.slug as string });
+  }
 
   let subscriptionCanceled = false;
   if (cancelSubscription && site.plan === 'paid') {
@@ -1733,6 +1746,7 @@ api.delete('/api/sites/:id', async (c) => {
       site_id: siteId,
       slug,
       subscription_canceled: subscriptionCanceled,
+      ...(purge ? { purge } : {}),
     },
     request_id: c.get('requestId'),
   });
@@ -1746,7 +1760,13 @@ api.delete('/api/sites/:id', async (c) => {
     /* analytics fire-and-forget */
   }
 
-  return c.json({ data: { deleted: true, subscription_canceled: subscriptionCanceled } });
+  return c.json({
+    data: {
+      deleted: true,
+      subscription_canceled: subscriptionCanceled,
+      ...(purge ? { purge } : {}),
+    },
+  });
 });
 
 /**

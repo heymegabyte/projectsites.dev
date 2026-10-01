@@ -190,7 +190,12 @@ siteCreation.post('/api/sites/create-from-search', async (c) => {
     console.warn(`[create-from-search] mode=${mode}, business=${sanitizedName}`);
   }
 
-  const baseSlug = await generateSmartSlug(c.env, sanitizedName, businessAddress);
+  // gp-09: a caller-pinned slug (schema-validated `[a-z0-9-]{3,63}`) wins over the
+  // AI-derived one — standing fixtures need slug determinism across delete/re-create
+  // cycles. Still funneled through `ensureUniqueSlug`, so a taken slug degrades to
+  // `-N` suffixing exactly like the AI path (never a collision, never a hijack of an
+  // EXISTING row — uniqueness is enforced against D1 + published R2 content).
+  const baseSlug = body.preferred_slug ?? (await generateSmartSlug(c.env, sanitizedName, businessAddress));
 
   // Ensure slug uniqueness across D1 (sites table) + R2 published content.
   const slug = await ensureUniqueSlug(c.env, baseSlug);

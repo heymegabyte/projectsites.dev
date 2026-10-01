@@ -148,8 +148,58 @@ Golden paths are executable product design: long, stateful user journeys written
   allocated resource NAMED (0 "unknown" rows) → record wall-clock + $-per-build →
   frontier-vision QA ≥8/10 (Anthropic vision or Unified-Billing OpenAI — never Workers-AI
   for this gate) → public share-link only after hard gates (owner-draft/public-gated).
-- **Status:** FUTURE until `webgl-templates` + `resources-truth` land.
-- **CAPABILITY GAPS:** full-teardown delete path (verify nothing orphans); per-cycle
-  build-cost metering; resources panel ground-truth reconciler; WebGL template gate.
-- **Visual evidence:** post-delete 404, build stream, live hero (WebGL), Resources>Advanced
-  panel, vision-QA scorecard.
+- **Status:** RUNNABLE (cycle-1 complete 2026-10-01; WebGL gate still open — see receipt).
+- **CAPABILITY GAPS:** ~~full-teardown delete path~~ (SHIPPED cycle-1: `purge_resources` opt-in);
+  ~~per-cycle build-cost metering~~ (build_metrics live: total/phase/cost — container-internal
+  TOKEN metering still absent, `tokens_in/out=0`); resources panel ground-truth reconciler;
+  WebGL template gate (local-service pack carries NO webgl block); create-from-search skips
+  EAGER per-site provisioning (D1 appears only after lazy Data-tab access — parity gap vs
+  `services/site_create.ts`); logo-gen flake → `/logo-icon.png` 404 ([icn40] class); hero H1
+  ships industry-pack default copy ([H1pac] class — "Your community local business" misframes).
+
+### gp-09 cycle-1 receipt (2026-10-01, fire-61 gp-09 operator)
+
+- **Fixture:** `lone-mountain-global` (siteId `4f450690-e622-4c95-a83d-e5516a2c9442`, org-brian-001)
+  → destroyed + re-created as slug **`lone-mountain`** (siteId `d31f404b-7389-4f69-bfa2-70f8c8200f5c`).
+  AI slug gen is NON-deterministic ("Lone Mountain Global" → `lone-mountain-global`, then
+  `lone-mountain`) — fixed same cycle: `preferred_slug` now accepted by create-from-search
+  (schema-validated, routed through `ensureUniqueSlug`). **Cycle-2 MUST pass
+  `preferred_slug: "lone-mountain-global"` and treat BOTH slugs as the sacrificial lineage.**
+- **Timings (wall-clock, measured):** DELETE+full-purge **11s** (15:37:28→:39Z, purge inline in
+  response); re-create POST 15:38:15Z → `published` 15:42:57Z = **4m 42s**; delete→live-again
+  **5m 29s**. Cycle total incl. verification ~19m.
+- **build_metrics row (north-star datapoint #1, measured not reconstructed):** build_id
+  `d31f404b-7389-4f69-bfa2-70f8c8200f5c` · total_ms **279,242** · phase_ms collecting 4,507 /
+  generating 227,150 / imaging 0 / publishing 47,585 · container_ms 213,000 ·
+  **est_cost_usd 0.071** · tokens 0/0 (container-internal tokens unmetered — open gap) ·
+  outcome `published`.
+- **Teardown verdicts (all CF-side ground-truth verified):** 228 R2 version-tree objects
+  deleted (prefix then listed EMPTY) · dedicated D1 `180a0efe…` CF-404 · dedicated KV
+  `479f9dd7…` CF-404 · both `ps-site-*` buckets CF-404 · WfP slots 2 deleted · 4 registry rows
+  retired · allocation retired · host KV key cleared · slug freed
+  (`lone-mountain-global--purged-mupp76c7`) · public URL 404 · admin list empty · resources 404.
+- **Rebuild verdicts:** public 200 · exactly 1 H1, zero `{TOKEN}` leftovers, zero doubled
+  tokens · authed resources: **4 named rows (d1 + r2 site_files + wfp_worker + routing), 0
+  unknowns** (d1 appeared after one Data-tab GET — the lazy-provision path) · console: ONE
+  error (`/logo-icon.png` 404, logo-gen flake) on both viewports · WebGL hero ABSENT
+  (local-service pack has no webgl block — noted per contract).
+- **Vision QA (Anthropic vision, desktop+mobile screenshots):** **7.5/10** — below the ≥8 gate,
+  scored honestly. Critique: (1) layout/type polished — gradient display H1, trust chips, Cmd+K,
+  dual CTAs, clean mobile stack, no overflow; (2) content misframe — industry-pack hero copy +
+  irrelevant stock shop-interior photo read generic for a "Global" trade name; (3) header icon
+  404s to text-wordmark fallback (graceful, but off the gorgeous bar).
+- **Capability gaps SHIPPED this cycle (TDD, 894 suites / 14,066 tests green):**
+  1. `purgeSiteResources` full-teardown service — `src/services/site_purge.ts` (+5-case
+     `src/__tests__/site_purge.test.ts`): R2 version-tree, dedicated D1/KV (CF-side
+     `ps-site-` name check + FORBIDDEN_DB_IDS denylist, GET-verify-then-DELETE), dedicated
+     buckets via guarded `deleteSiteR2`, WfP teardown, registry/allocation/hostname retire,
+     host-key clear, slug freeing. Wired as explicit `{ "purge_resources": true }` body opt-in
+     on DELETE `/api/sites/:id` (`src/routes/api.ts`) — refuses non-archived rows, never throws,
+     response carries the honest per-step summary.
+  2. `preferred_slug` on create-from-search (`libs/features/site_creation/{schemas,handlers}.ts`
+     + schema tests) — slug determinism for standing fixtures.
+  3. Guard fixes: `project-sites-production` added to FORBIDDEN_BUCKET_NAMES (the ACTUAL prod
+     shared bucket was missing from the denylist); raw NUL byte in `wfp_site_hosting.ts`
+     digest-separator replaced with the backslash-u0000 escape — identical runtime string/digest; file no longer binary-classified (was grep-blind).
+- **Deploys:** worker `080e88c8` (purge) → fixture cycle ran → worker `1e718ac2`
+  (preferred_slug), both `--env production`, prod-verified.
