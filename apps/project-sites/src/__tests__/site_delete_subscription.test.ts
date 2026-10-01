@@ -193,7 +193,12 @@ describe('DELETE /api/sites/:id', () => {
 
     expect(res.status).toBe(200);
     const body = await res.json();
-    expect(body.data).toEqual({ deleted: true, subscription_canceled: false });
+    expect(body.data).toEqual({
+      deleted: true,
+      subscription_canceled: false,
+      archived: true,
+      purged: false,
+    });
 
     // Site should be soft-deleted via raw DB prepare
     expect(mockDb.prepare).toHaveBeenCalledWith(
@@ -250,7 +255,12 @@ describe('DELETE /api/sites/:id', () => {
 
     expect(res.status).toBe(200);
     const body = await res.json();
-    expect(body.data).toEqual({ deleted: true, subscription_canceled: true });
+    expect(body.data).toEqual({
+      deleted: true,
+      subscription_canceled: true,
+      archived: true,
+      purged: false,
+    });
 
     // Stripe API should have been called with correct URL and body
     expect(mockFetch).toHaveBeenCalledTimes(1);
@@ -290,7 +300,12 @@ describe('DELETE /api/sites/:id', () => {
 
     expect(res.status).toBe(200);
     const body = await res.json();
-    expect(body.data).toEqual({ deleted: true, subscription_canceled: false });
+    expect(body.data).toEqual({
+      deleted: true,
+      subscription_canceled: false,
+      archived: true,
+      purged: false,
+    });
 
     // Stripe should NOT be called for a free site
     expect(mockFetch).not.toHaveBeenCalled();
@@ -411,7 +426,12 @@ describe('DELETE /api/sites/:id', () => {
 
     expect(res.status).toBe(200);
     const body = await res.json();
-    expect(body.data).toEqual({ deleted: true, subscription_canceled: false });
+    expect(body.data).toEqual({
+      deleted: true,
+      subscription_canceled: false,
+      archived: true,
+      purged: false,
+    });
 
     // No Stripe call (cancel_subscription defaults to false)
     expect(mockFetch).not.toHaveBeenCalled();
@@ -564,11 +584,11 @@ describe('DELETE /api/sites/:id — destructive purge_resources opt-in', () => {
       expect.objectContaining({ orgId, siteId, slug: 'purge-biz' }),
     );
 
-    // The caller can ASSERT the effect: an asserable numeric purged count.
+    // The caller can ASSERT the effect: a boolean `purged` + the count under `resources`.
     expect(body.data.deleted).toBe(true);
-    expect(typeof body.data.purged).toBe('number');
+    expect(body.data.purged).toBe(true);
     // 3 R2 objects + D1 + KV + 1 bucket = 6 dedicated resources torn down.
-    expect(body.data.purged).toBe(6);
+    expect(body.data.resources.purgedCount).toBe(6);
   });
 
   it('(c) the valid empty-object no-op is preserved (200, no purge) — fix must not over-reject', async () => {
@@ -585,7 +605,130 @@ describe('DELETE /api/sites/:id — destructive purge_resources opt-in', () => {
     expect(res.status).toBe(200);
     const body = await res.json();
     expect(body.data.deleted).toBe(true);
-    expect(body.data.purged).toBeUndefined();
+    // No destructive opt-in → purged:false (boolean), no `resources` block, archived:true.
+    expect(body.data.purged).toBe(false);
+    expect(body.data.archived).toBe(true);
+    expect(body.data.resources).toBeUndefined();
     expect(mockPurgeSiteResources).not.toHaveBeenCalled();
+  });
+});
+
+/**
+ * Cycle-2 — UNIFORM OUTCOME ECHO (gp-09 "destructive action must echo what it did").
+ *
+ * A destructive endpoint must let the caller ASSERT the outcome without parsing the
+ * internal per-step summary shape. Every DELETE response therefore carries a uniform
+ * `{ purged: boolean, archived: boolean, resources: {...} }` triad:
+ *   - `archived` — the soft-delete always ran (true on every success).
+ *   - `purged`   — true ONLY when a destructive teardown was intended AND attempted
+ *                  (i.e. `purge_resources: true` AND the purge was not refused).
+ *   - `resources` — the per-step outcome map, so a caller can inspect what fell.
+ *
+ * The prior echo exposed a bare `purged: <number>` count (ambiguous — 0 reads the same
+ * whether no teardown was requested or a requested teardown no-op'd) and no boolean the
+ * caller could branch on. These tests pin the asserable triad.
+ */
+describe('DELETE /api/sites/:id — uniform outcome echo { purged, archived, resources }', () => {
+  const siteId = 'site-uuid-901';
+  const orgId = 'org-uuid-901';
+  const userId = 'user-uuid-901';
+
+  it('(d) destructive success echoes purged:true + archived:true + resources{} the caller can assert', async () => {
+    const mockDb = createMockD1();
+    mockDbQueryOne.mockResolvedValueOnce({ id: siteId, slug: 'echo-biz', plan: 'free' });
+
+    const { app, env } = createAuthenticatedApp(
+      { userId, orgId, requestId: 'req-echo-ok' },
+      { DB: mockDb as unknown as D1Database },
+    );
+
+    const res = await app.request(
+      `/api/sites/${siteId}`,
+      {
+        method: 'DELETE',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ purge_resources: true }),
+      },
+      env,
+    );
+
+    expect(res.status).toBe(200);
+    const body = await res.json();
+
+    // Uniform asserable triad — booleans the caller branches on, no count parsing.
+    expect(body.data.archived).toBe(true);
+    expect(body.data.purged).toBe(true);
+    expect(body.data.resources).toEqual(
+      expect.objectContaining({
+        r2VersionObjectsDeleted: 3,
+        dedicatedD1: 'deleted',
+        dedicatedKv: 'deleted',
+      }),
+    );
+  });
+
+  it('(e) plain archive (no destructive flag) echoes purged:false + archived:true', async () => {
+    const mockDb = createMockD1();
+    mockDbQueryOne.mockResolvedValueOnce({ id: siteId, slug: 'echo-biz', plan: 'free' });
+
+    const { app, env } = createAuthenticatedApp(
+      { userId, orgId, requestId: 'req-echo-archive' },
+      { DB: mockDb as unknown as D1Database },
+    );
+
+    // No body at all → legitimate soft-delete, no destructive opt-in.
+    const res = await app.request(`/api/sites/${siteId}`, { method: 'DELETE' }, env);
+
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.data.archived).toBe(true);
+    expect(body.data.purged).toBe(false);
+    expect(mockPurgeSiteResources).not.toHaveBeenCalled();
+  });
+
+  it('(f) destructive flag but purge REFUSED (attempted:false) echoes purged:false — no false claim', async () => {
+    const mockDb = createMockD1();
+    mockDbQueryOne.mockResolvedValueOnce({ id: siteId, slug: 'echo-biz', plan: 'free' });
+
+    // The purge refuses (e.g. nothing dedicated to tear down / already clean): attempted:false.
+    mockPurgeSiteResources.mockResolvedValueOnce({
+      attempted: false,
+      refusedReason: 'not_deleted',
+      r2VersionObjectsDeleted: 0,
+      dedicatedD1: 'skipped_absent',
+      dedicatedKv: 'skipped_absent',
+      dedicatedBuckets: [],
+      wfp: { attempted: false, slotsDeleted: 0, registryCleared: 0 },
+      allocationRetired: false,
+      registryRetired: 0,
+      hostnamesRetired: 0,
+      hostKeyCleared: false,
+      slugFreed: null,
+    });
+
+    const { app, env } = createAuthenticatedApp(
+      { userId, orgId, requestId: 'req-echo-refused' },
+      { DB: mockDb as unknown as D1Database },
+    );
+
+    const res = await app.request(
+      `/api/sites/${siteId}`,
+      {
+        method: 'DELETE',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ purge_resources: true }),
+      },
+      env,
+    );
+
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    // The purge was attempted but refused — the echo must NOT claim purged:true.
+    expect(body.data.archived).toBe(true);
+    expect(body.data.purged).toBe(false);
+    // resources still present so the caller can see WHY (refusedReason).
+    expect(body.data.resources).toEqual(
+      expect.objectContaining({ attempted: false, refusedReason: 'not_deleted' }),
+    );
   });
 });

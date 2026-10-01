@@ -1716,17 +1716,28 @@ api.delete('/api/sites/:id', async (c) => {
   // Explicit full teardown (awaited so the response carries the honest per-step summary;
   // `purgeSiteResources` never throws and refuses anything not already soft-deleted).
   let purge: Awaited<ReturnType<typeof purgeSiteResources>> | undefined;
-  let purged: number | undefined;
+  let purgedCount: number | undefined;
   if (purgeResources) {
     purge = await purgeSiteResources(c.env, { orgId, siteId, slug: site.slug as string });
     // Asserable effect count the caller can check — total dedicated resources actually
     // torn down (R2 version objects + dedicated D1 + KV + each bucket that deleted ok).
-    purged =
+    purgedCount =
       purge.r2VersionObjectsDeleted +
       (purge.dedicatedD1 === 'deleted' ? 1 : 0) +
       (purge.dedicatedKv === 'deleted' ? 1 : 0) +
       purge.dedicatedBuckets.filter((b) => b.ok).length;
   }
+
+  // Uniform OUTCOME ECHO (gp-09 cycle-2): a destructive action must report what it DID so a
+  // caller can ASSERT the result without parsing the internal per-step summary shape.
+  //  - `archived` — the soft-delete above always ran on a success path.
+  //  - `purged`   — true ONLY when a teardown was intended (`purge_resources`) AND actually
+  //                 attempted (not refused). A requested-but-refused purge echoes false — the
+  //                 destructive path never silently CLAIMS a teardown it didn't perform.
+  //  - `resources`— the honest per-step summary (counts + verdicts + refusedReason), so the
+  //                 caller can inspect exactly what fell (or why nothing did).
+  const archived = true;
+  const purged = purgeResources && purge?.attempted === true;
 
   let subscriptionCanceled = false;
   if (cancelSubscription && site.plan === 'paid') {
@@ -1783,8 +1794,14 @@ api.delete('/api/sites/:id', async (c) => {
     data: {
       deleted: true,
       subscription_canceled: subscriptionCanceled,
-      ...(purge ? { purge } : {}),
-      ...(purged !== undefined ? { purged } : {}),
+      // Uniform asserable outcome triad (cycle-2). `archived` is always true on success;
+      // `purged` is a boolean the caller branches on; `resources` carries the per-step
+      // summary (incl. `purgedCount` — the number of dedicated resources torn down) so no
+      // detail is lost. Only present on the destructive path to keep the plain-archive
+      // response lean, with `purged`/`archived` always present so the shape is stable.
+      archived,
+      purged,
+      ...(purge ? { resources: { ...purge, purgedCount } } : {}),
     },
   });
 });
