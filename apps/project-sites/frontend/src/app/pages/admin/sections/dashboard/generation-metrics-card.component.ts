@@ -4,7 +4,15 @@
  *
  * Super-admin-only (mounted behind the dashboard's `isSysAdmin()` gate; the
  * worker endpoint re-checks authoritatively and the card self-hides on any
- * fetch failure, so a non-operator can never see a broken card). Reads
+ * fetch failure, so a non-operator can never see a broken card).
+ *
+ * Flag-gated: the `build_metrics` worker endpoint 404s when its flag is OFF
+ * (the default — dark). So on init the card resolves `build_metrics` FIRST and
+ * only fetches the summary + starts live-refresh when the flag is ON; OFF /
+ * unknown / errored → it renders nothing and issues ZERO summary requests, so
+ * a dark flag never logs a 404 in the browser console (`{ silent }` suppresses
+ * only the toast, not the network-level console error). The self-hide-on-404
+ * below is kept as defense-in-depth. Reads
  * `GET /api/admin/build-metrics/summary` — the fire-60 `build_metrics` rollup:
  *
  *  - headline p50 build time vs the <5min target + avg cost vs the ≤$1 target,
@@ -31,7 +39,16 @@ import {
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 
 import { CmdGlyphComponent } from '../../../../components/cmd-glyph/cmd-glyph.component';
-import { ApiService } from '../../../../services/api.service';
+import { ApiService, flagEnabled } from '../../../../services/api.service';
+
+/**
+ * The feature flag that gates the `build_metrics` worker endpoint. The server
+ * returns 404 when this flag is OFF (dark by default), so the card MUST resolve
+ * it to ON before ever calling `/admin/build-metrics/summary` — otherwise the
+ * browser logs a network-level 404 on every /admin load (which `{ silent }`
+ * only hides from the toast, not from the console).
+ */
+const BUILD_METRICS_FLAG = 'build_metrics';
 
 /** Per-phase p50 durations (ms); null = not yet measured in-window. */
 export interface PhaseP50 {
@@ -94,7 +111,7 @@ function formatMs(ms: number | null | undefined): string {
   changeDetection: ChangeDetectionStrategy.OnPush,
   imports: [CmdGlyphComponent],
   template: `
-    @if (!failed()) {
+    @if (!hidden() && !failed()) {
       <section class="gen-card" aria-labelledby="gen-h" data-testid="gen-metrics-card">
         <div class="gen-head">
           <h2 class="gen-title" id="gen-h">
@@ -370,6 +387,13 @@ export class GenerationMetricsCardComponent implements OnInit, OnDestroy {
   readonly loading = signal(true);
   /** Any fetch failure (403 / network / 500) hides the card entirely. */
   readonly failed = signal(false);
+  /**
+   * Starts hidden (fail-safe) and flips to visible ONLY after `build_metrics`
+   * resolves ON. While hidden the card renders nothing AND never calls the
+   * summary endpoint — so a dark flag produces zero console 404s. Unknown /
+   * errored flag resolution leaves it hidden.
+   */
+  readonly hidden = signal(true);
 
   private alive = true;
   private refreshTimer: ReturnType<typeof setInterval> | null = null;
@@ -378,8 +402,9 @@ export class GenerationMetricsCardComponent implements OnInit, OnDestroy {
     if (typeof document === 'undefined') return;
     if (document.hidden) {
       this.stopLiveRefresh();
-    } else if (this.alive && !this.failed()) {
+    } else if (this.alive && !this.hidden() && !this.failed()) {
       // Resume + one immediate fetch so tab-return shows fresh numbers.
+      // Never fires while hidden (flag OFF) — the endpoint would 404.
       this.fetchSummary();
       this.startLiveRefresh();
     }
@@ -438,8 +463,31 @@ export class GenerationMetricsCardComponent implements OnInit, OnDestroy {
   });
 
   ngOnInit(): void {
-    this.fetchSummary();
-    this.startLiveRefresh();
+    // Gate on the flag FIRST — never fetch the dark `build_metrics` endpoint
+    // (404 when the flag is OFF, which is the default). Flag ON → reveal +
+    // fetch + live-refresh. OFF / unknown / transport error → stay hidden,
+    // render nothing, issue zero summary requests (no console 404).
+    this.api
+      .getFeatureFlag(BUILD_METRICS_FLAG)
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe({
+        next: (r) => {
+          if (!this.alive) return;
+          if (flagEnabled(r)) {
+            this.hidden.set(false);
+            this.fetchSummary();
+            this.startLiveRefresh();
+          } else {
+            this.hidden.set(true);
+            this.loading.set(false);
+          }
+        },
+        error: () => {
+          // Resolution failed (incl. 404 for an unregistered flag) → fail safe.
+          this.hidden.set(true);
+          this.loading.set(false);
+        },
+      });
   }
 
   ngOnDestroy(): void {
