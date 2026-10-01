@@ -2,99 +2,99 @@
   "states": {
     "/::public-home::::d05f796d": {
       "discovered": "2026-09-29T19:57:38.675Z",
-      "visits": 14,
+      "visits": 17,
       "status": "visited",
       "lastAction": "homepage loads (initial state)",
-      "lastVisited": "2026-10-01T22:08:20.929Z",
-      "lastRun": "dux-2026-10-01T22-08-14-184Z"
+      "lastVisited": "2026-10-01T23:05:11.921Z",
+      "lastRun": "dux-2026-10-01T23-05-04-922Z"
     },
     "/signin::signin::::576d826f": {
       "discovered": "2026-09-29T19:57:43.656Z",
-      "visits": 13,
+      "visits": 16,
       "status": "visited",
       "lastAction": "click Sign In (header) → /signin",
-      "lastVisited": "2026-10-01T22:08:23.502Z",
-      "lastRun": "dux-2026-10-01T22-08-14-184Z"
+      "lastVisited": "2026-10-01T23:05:14.230Z",
+      "lastRun": "dux-2026-10-01T23-05-04-922Z"
     },
     "/signin::signin-test-seam::::02622a42": {
       "discovered": "2026-09-29T19:57:48.051Z",
-      "visits": 13,
+      "visits": 16,
       "status": "visited",
       "lastAction": "enter test seam (/signin?test=1) — panel render",
-      "lastVisited": "2026-10-01T22:08:26.598Z",
-      "lastRun": "dux-2026-10-01T22-08-14-184Z"
+      "lastVisited": "2026-10-01T23:05:16.566Z",
+      "lastRun": "dux-2026-10-01T23-05-04-922Z"
     },
     "/admin::admin-dashboard::::fec53253": {
       "discovered": "2026-09-29T19:57:55.718Z",
-      "visits": 14,
+      "visits": 17,
       "status": "visited",
       "lastAction": "test login submit → lands /admin",
-      "lastVisited": "2026-10-01T22:08:30.336Z",
-      "lastRun": "dux-2026-10-01T22-08-14-184Z"
+      "lastVisited": "2026-10-01T23:05:20.110Z",
+      "lastRun": "dux-2026-10-01T23-05-04-922Z"
     },
     "/admin/editor::admin-editor-shell::::6eca7550": {
       "discovered": "2026-09-29T19:58:16.461Z",
-      "visits": 10,
+      "visits": 13,
       "status": "visited",
       "lastAction": "click Editor nav → /admin/editor (iframe mounts)",
-      "lastVisited": "2026-10-01T22:08:38.119Z",
-      "lastRun": "dux-2026-10-01T22-08-14-184Z"
+      "lastVisited": "2026-10-01T23:05:27.497Z",
+      "lastRun": "dux-2026-10-01T23-05-04-922Z"
     },
     "/admin/editor::editor-workbench::::ea74008d": {
       "discovered": "2026-09-29T19:58:22.511Z",
-      "visits": 4,
+      "visits": 5,
       "status": "visited",
-      "lastAction": "editor workbench booted (Code tab visible)",
-      "lastVisited": "2026-10-01T22:08:42.554Z",
-      "lastRun": "dux-2026-10-01T22-08-14-184Z"
+      "lastAction": "editor workbench booted (Database tab visible)",
+      "lastVisited": "2026-10-01T23:01:59.684Z",
+      "lastRun": "dux-2026-10-01T23-01-32-287Z"
     },
     "/admin/editor::editor-database::::25fc7ab7": {
       "discovered": "2026-09-29T19:58:40.949Z",
-      "visits": 5,
+      "visits": 7,
       "status": "visited",
       "lastAction": "open Database tab",
-      "lastVisited": "2026-10-01T19:46:57.985Z",
-      "lastRun": "dux-2026-10-01T19-46-13-202Z"
+      "lastVisited": "2026-10-01T23:03:12.788Z",
+      "lastRun": "dux-2026-10-01T23-02-38-857Z"
     },
     "/admin/editor::editor-database::::8876121d": {
       "discovered": "2026-09-29T19:58:54.195Z",
-      "visits": 3,
+      "visits": 4,
       "status": "visited",
       "lastAction": "Database › Tables sub-view",
-      "lastVisited": "2026-09-29T22:34:36.938Z",
-      "lastRun": "dux-2026-09-29T22-33-32-322Z"
+      "lastVisited": "2026-10-01T23:02:14.768Z",
+      "lastRun": "dux-2026-10-01T23-01-32-287Z"
     },
     "/admin/editor::editor-database::actions-menu::2188555d": {
       "discovered": "2026-09-29T19:59:03.952Z",
-      "visits": 3,
+      "visits": 4,
       "status": "visited",
       "lastAction": "open Tables › Actions menu",
-      "lastVisited": "2026-09-29T22:34:41.528Z",
-      "lastRun": "dux-2026-09-29T22-33-32-322Z"
+      "lastVisited": "2026-10-01T23:02:17.257Z",
+      "lastRun": "dux-2026-10-01T23-01-32-287Z"
     },
     "/admin/editor::editor-database::history-time-travel::6bb2378e": {
       "discovered": "2026-09-29T19:59:12.638Z",
-      "visits": 3,
+      "visits": 4,
       "status": "visited",
       "lastAction": "choose History → Time-Travel overlay opens",
-      "lastVisited": "2026-09-29T22:34:46.340Z",
-      "lastRun": "dux-2026-09-29T22-33-32-322Z"
+      "lastVisited": "2026-10-01T23:02:19.669Z",
+      "lastRun": "dux-2026-10-01T23-01-32-287Z"
     },
     "/admin/editor::editor-database::history-time-travel-settled::5b57bf22": {
       "discovered": "2026-09-29T19:59:17.357Z",
-      "visits": 3,
+      "visits": 4,
       "status": "visited",
       "lastAction": "History overlay content settled (bookmarks + restore controls)",
-      "lastVisited": "2026-09-29T22:34:48.918Z",
-      "lastRun": "dux-2026-09-29T22-33-32-322Z"
+      "lastVisited": "2026-10-01T23:02:21.208Z",
+      "lastRun": "dux-2026-10-01T23-01-32-287Z"
     },
     "/admin/editor::editor-database::::10f58d63": {
       "discovered": "2026-09-29T19:59:21.758Z",
-      "visits": 7,
+      "visits": 10,
       "status": "visited",
       "lastAction": "dismiss Create Table (local schema modal) (Escape) → Tables intact",
-      "lastVisited": "2026-10-01T19:47:43.036Z",
-      "lastRun": "dux-2026-10-01T19-46-13-202Z"
+      "lastVisited": "2026-10-01T23:04:31.229Z",
+      "lastRun": "dux-2026-10-01T23-02-38-857Z"
     },
     "/admin/snapshots::admin-snapshots::::96210135": {
       "discovered": "2026-09-29T22:18:08.762Z",
@@ -202,11 +202,11 @@
     },
     "/admin/editor::editor-resources::::9ae378df": {
       "discovered": "2026-09-29T22:53:04.101Z",
-      "visits": 4,
+      "visits": 5,
       "status": "visited",
       "lastAction": "open Resources tab",
-      "lastVisited": "2026-09-29T23:45:53.311Z",
-      "lastRun": "dux-2026-09-29T23-45-06-615Z"
+      "lastVisited": "2026-10-01T23:05:40.357Z",
+      "lastRun": "dux-2026-10-01T23-05-04-922Z"
     },
     "/admin/editor::editor-resources::::b12d1d8f": {
       "discovered": "2026-09-29T22:53:18.949Z",
@@ -266,27 +266,27 @@
     },
     "/admin/editor::editor-resources::::eaf80a8d": {
       "discovered": "2026-09-29T22:54:45.510Z",
-      "visits": 4,
+      "visits": 5,
       "status": "visited",
       "lastAction": "Resources › Media library sub-view",
-      "lastVisited": "2026-09-29T23:45:59.188Z",
-      "lastRun": "dux-2026-09-29T23-45-06-615Z"
+      "lastVisited": "2026-10-01T23:05:43.746Z",
+      "lastRun": "dux-2026-10-01T23-05-04-922Z"
     },
     "/admin/editor::editor-resources::::6c3300fb": {
       "discovered": "2026-09-29T23:17:41.604Z",
-      "visits": 3,
+      "visits": 4,
       "status": "visited",
       "lastAction": "Resources › Site files sub-view",
-      "lastVisited": "2026-09-29T23:46:05.075Z",
-      "lastRun": "dux-2026-09-29T23-45-06-615Z"
+      "lastVisited": "2026-10-01T23:05:46.091Z",
+      "lastRun": "dux-2026-10-01T23-05-04-922Z"
     },
     "/admin/editor::editor-resources::::8391e2b2": {
       "discovered": "2026-09-29T23:17:50.088Z",
-      "visits": 3,
+      "visits": 4,
       "status": "visited",
       "lastAction": "Resources › Buckets sub-view",
-      "lastVisited": "2026-09-29T23:46:10.601Z",
-      "lastRun": "dux-2026-09-29T23-45-06-615Z"
+      "lastVisited": "2026-10-01T23:05:48.394Z",
+      "lastRun": "dux-2026-10-01T23-05-04-922Z"
     },
     "/admin/editor::editor-resources::missing-advanced::e581f61c": {
       "discovered": "2026-09-29T23:44:48.853Z",
@@ -298,19 +298,19 @@
     },
     "/admin/editor::editor-resources::advanced-console::7bb0a7ed": {
       "discovered": "2026-09-29T23:46:19.596Z",
-      "visits": 1,
+      "visits": 2,
       "status": "visited",
       "lastAction": "open Advanced console (ResourceOverview)",
-      "lastVisited": "2026-09-29T23:46:19.596Z",
-      "lastRun": "dux-2026-09-29T23-45-06-615Z"
+      "lastVisited": "2026-10-01T23:05:51.916Z",
+      "lastRun": "dux-2026-10-01T23-05-04-922Z"
     },
     "/admin/editor::editor-resources::advanced-kv-detail::a786d5a1": {
       "discovered": "2026-09-29T23:46:25.225Z",
-      "visits": 1,
+      "visits": 2,
       "status": "visited",
       "lastAction": "KV tile drill-in (expect honest not-enabled/empty state)",
-      "lastVisited": "2026-09-29T23:46:25.225Z",
-      "lastRun": "dux-2026-09-29T23-45-06-615Z"
+      "lastVisited": "2026-10-01T23:05:54.987Z",
+      "lastRun": "dux-2026-10-01T23-05-04-922Z"
     },
     "/::public-home::search-results::cf800742": {
       "discovered": "2026-09-30T00:11:28.428Z",
@@ -386,19 +386,19 @@
     },
     "/admin/editor::editor-database::::7fcc98ea": {
       "discovered": "2026-10-01T19:41:31.877Z",
-      "visits": 2,
+      "visits": 3,
       "status": "visited",
       "lastAction": "Database › SQL sub-view",
-      "lastVisited": "2026-10-01T19:47:04.512Z",
-      "lastRun": "dux-2026-10-01T19-46-13-202Z"
+      "lastVisited": "2026-10-01T23:03:15.878Z",
+      "lastRun": "dux-2026-10-01T23-02-38-857Z"
     },
     "/admin/editor::editor-database::kv-locked-upsell::976b1e89": {
       "discovered": "2026-10-01T19:41:35.093Z",
-      "visits": 2,
+      "visits": 3,
       "status": "visited",
       "lastAction": "Database › KV sub-view (honest $10/mo locked-upsell — not unlocked)",
-      "lastVisited": "2026-10-01T19:47:10.834Z",
-      "lastRun": "dux-2026-10-01T19-46-13-202Z"
+      "lastVisited": "2026-10-01T23:03:18.468Z",
+      "lastRun": "dux-2026-10-01T23-02-38-857Z"
     },
     "/admin/editor::editor-database::missing-action-schema::4616e8ff": {
       "discovered": "2026-10-01T19:41:40.776Z",
@@ -410,11 +410,11 @@
     },
     "/admin/editor::editor-database::missing-action-seed::cda0a5f5": {
       "discovered": "2026-10-01T19:42:12.756Z",
-      "visits": 1,
+      "visits": 2,
       "status": "visited",
-      "lastAction": "Tables › AI-Seed overlay trigger NOT reachable",
-      "lastVisited": "2026-10-01T19:42:12.756Z",
-      "lastRun": "dux-2026-10-01T19-40-45-868Z"
+      "lastAction": "Tables › AI-Seed trigger NOT reachable",
+      "lastVisited": "2026-10-01T23:03:30.795Z",
+      "lastRun": "dux-2026-10-01T23-02-38-857Z"
     },
     "/admin/editor::editor-database::missing-action-import::494c64d5": {
       "discovered": "2026-10-01T19:43:53.071Z",
@@ -442,19 +442,19 @@
     },
     "/admin/editor::editor-database::action-import-settled::f98b5c81": {
       "discovered": "2026-10-01T19:47:31.719Z",
-      "visits": 1,
+      "visits": 2,
       "status": "visited",
       "lastAction": "Tables › CSV/JSON Import settled (open-then-dismiss — no submit/seed/import)",
-      "lastVisited": "2026-10-01T19:47:31.719Z",
-      "lastRun": "dux-2026-10-01T19-46-13-202Z"
+      "lastVisited": "2026-10-01T23:03:59.362Z",
+      "lastRun": "dux-2026-10-01T23-02-38-857Z"
     },
     "/admin/editor::editor-database::create-table-modal-settled::92031d14": {
       "discovered": "2026-10-01T19:47:40.247Z",
-      "visits": 1,
+      "visits": 2,
       "status": "visited",
       "lastAction": "Tables › Create Table (local schema modal) settled (open-then-dismiss — no submit/seed/import)",
-      "lastVisited": "2026-10-01T19:47:40.247Z",
-      "lastRun": "dux-2026-10-01T19-46-13-202Z"
+      "lastVisited": "2026-10-01T23:04:29.649Z",
+      "lastRun": "dux-2026-10-01T23-02-38-857Z"
     },
     "/admin/editor::editor-workbench::::5916b917": {
       "discovered": "2026-10-01T22:08:45.781Z",
@@ -519,9 +519,44 @@
       "lastAction": "toggle split-pane: aria-pressed false→true ✓ effect-seen",
       "lastVisited": "2026-10-01T22:09:15.998Z",
       "lastRun": "dux-2026-10-01T22-08-14-184Z"
+    },
+    "/admin/editor::editor-database::::7236fe9f": {
+      "discovered": "2026-10-01T23:03:21.227Z",
+      "visits": 1,
+      "status": "visited",
+      "lastAction": "Database › Tables (populated grid) — for action overlays",
+      "lastVisited": "2026-10-01T23:03:21.227Z",
+      "lastRun": "dux-2026-10-01T23-02-38-857Z"
     }
   },
   "runs": [
+    {
+      "runId": "dux-2026-10-01T23-05-04-922Z",
+      "status": "PASS_CLOUDFLARE",
+      "provider": "cloudflare-browser-run",
+      "coverage": "CLOUD_PASS_ELIGIBLE",
+      "statesVisited": 11,
+      "blockedStates": {},
+      "finishedAt": "2026-10-01T23:05:55.205Z"
+    },
+    {
+      "runId": "dux-2026-10-01T23-02-38-857Z",
+      "status": "PARTIAL",
+      "provider": "cloudflare-browser-run",
+      "coverage": "CLOUD_PASS_ELIGIBLE",
+      "statesVisited": 14,
+      "blockedStates": {},
+      "finishedAt": "2026-10-01T23:04:31.229Z"
+    },
+    {
+      "runId": "dux-2026-10-01T23-01-32-287Z",
+      "status": "PASS_CLOUDFLARE",
+      "provider": "cloudflare-browser-run",
+      "coverage": "CLOUD_PASS_ELIGIBLE",
+      "statesVisited": 12,
+      "blockedStates": {},
+      "finishedAt": "2026-10-01T23:02:22.662Z"
+    },
     {
       "runId": "dux-2026-10-01T22-08-14-184Z",
       "status": "PASS_CLOUDFLARE",
