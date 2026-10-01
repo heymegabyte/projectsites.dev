@@ -75,6 +75,7 @@ import { adminLeads } from './routes/admin_leads.js';
 import { scanProfiles as scanProfilesRoutes } from './routes/scan_profiles.js'; // /api/admin/scan-profiles CRUD (flag: scan_profiles)
 import { adminOutbox } from './routes/admin_outbox.js';
 import { adminFunnel } from './routes/admin_funnel.js';
+import { adminBuildMetrics } from './routes/admin_build_metrics.js';
 import { adminAnalytics } from './routes/admin_analytics.js';
 import { maybeCompleteClaimBuild } from './services/claim_build_callback.js';
 import { claimRoutes } from './routes/claim.js';
@@ -634,6 +635,7 @@ app.route('/', adminLeads); // /api/admin/leads/scan — Super-Admin lead scanne
 app.route('/', scanProfilesRoutes); // /api/admin/scan-profiles{,/:id} — lead-scanner scan-profile CRUD (flag: scan_profiles)
 app.route('/', adminOutbox); // /api/admin/outbox — Super-Admin event-bus DLQ observability (read-only)
 app.route('/', adminFunnel); // /api/admin/activation-funnel — Super-Admin revenue-funnel rollup (Tinybird, read-only)
+app.route('/', adminBuildMetrics); // /api/admin/build-metrics/summary — Super-Admin generation speed + cost rollup (build_metrics D1, read-only)
 app.route('/', adminAnalytics); // /api/admin/analytics/* — Super-Admin events-daily + publishes-by-source + claims-by-source rollups (Tinybird, read-only)
 app.route('/', claimRoutes); // /api/claim/:shortlink — claimyour.site funnel: resolve→click→session START→redirect /create
 app.route('/', claimFlowRoutes); // POST /api/sites/:siteId/claim/checkout — paid-claim ($29/mo) Stripe checkout; existing checkout.session.completed webhook marks the site claimed (flag claim_flow, DARK)

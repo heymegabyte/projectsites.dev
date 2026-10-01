@@ -29,6 +29,7 @@ import { RollingCounterComponent } from '../../../components/rolling-counter/rol
 import { QuotaChipComponent } from '../quota-chip.component';
 import { OnboardingChecklistComponent } from '../../../components/onboarding-checklist/onboarding-checklist.component';
 import { ReferralCardComponent } from '../../../components/referral-card/referral-card.component';
+import { GenerationMetricsCardComponent } from './dashboard/generation-metrics-card.component';
 import { AdminStateService } from '../admin-state.service';
 import { AuthService } from '../../../services/auth.service';
 import { isSysAdminEmail } from '../sys-admin';
@@ -134,6 +135,7 @@ const RECENT_KEY = 'ps_dash_recents';
     QuotaChipComponent,
     OnboardingChecklistComponent,
     ReferralCardComponent,
+    GenerationMetricsCardComponent,
   ],
   template: `
     <section class="dash" aria-label="Getting started">
@@ -237,6 +239,16 @@ const RECENT_KEY = 'ps_dash_recents';
             }
           }
         </section>
+      }
+
+      <!-- ── Generation speed + cost (operator-only, fire-61) ────
+           Platform-wide build speed/cost rollup from the super-admin
+           /api/admin/build-metrics/summary endpoint. Mounted only for
+           operators (mirrors the Feature Flags card gate); the card
+           additionally self-hides if the endpoint rejects, so it can
+           never render broken. -->
+      @if (isSysAdmin()) {
+        <app-generation-metrics-card appReveal />
       }
 
       <!-- ── Search ─────────────────────────────────────────────── -->
