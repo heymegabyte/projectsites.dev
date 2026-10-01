@@ -417,6 +417,62 @@ describe('serveSiteFromR2', () => {
     expect(response.headers.get('Content-Type')).toBe('text/css');
   });
 
+  // fire-66: the unpaid promo top-bar (rendered client-side by /app.js from
+  // data-paid="false") MUST appear ONLY on real published 200 content — NEVER on
+  // a soft-404 / error HTML response. The server-side hook is the injected
+  // `<script …/app.js data-paid="false">` tag, so gating its injection off
+  // non-200 responses gates the bar. These two cases lock that contract: a 404
+  // soft-404 shell carries NO app.js tag; a 200 content page for the same unpaid
+  // site STILL does.
+  it('does NOT inject the app.js upgrade-bar tag on a soft-404 (unknown route) for an unpaid site', async () => {
+    // A sitemap that does NOT list /about-us → the SPA-fallback shell is served
+    // with a 404 status (soft-404 guard). No app.js tag → no unpaid bar on the
+    // error surface.
+    const sitemapXml =
+      '<?xml version="1.0"?><urlset><url><loc>https://my-site.example/</loc></url>' +
+      '<url><loc>https://my-site.example/contact</loc></url></urlset>';
+    (env.SITES_BUCKET.get as jest.Mock).mockImplementation(async (key: string) => {
+      // SPA catch-all only (the version-root index.html) — NOT the /about-us/index.html
+      // directory-index probe, which must miss so the soft-404 path is exercised.
+      if (key === 'sites/my-site/v1/index.html') return createMockR2Object(SAMPLE_HTML);
+      if (key === 'sites/my-site/v1/sitemap.xml') return createMockR2Object(sitemapXml);
+      return null; // every primary / dir-index / .html / flat-name lookup misses
+    });
+
+    const site = makeSite({ plan: 'free' });
+    const response = await serveSiteFromR2(env as any, site, '/about-us');
+
+    expect(response.status).toBe(404);
+    const html = await response.text();
+    // The shell still renders (SPA can show its own 404 view)…
+    expect(html).toContain('<h1>Hello</h1>');
+    // …but the unpaid upgrade bar's server hook is absent on the error surface.
+    expect(html).not.toContain(`https://${DOMAINS.SITES_BASE}/app.js`);
+    expect(html).not.toContain('data-paid="false"');
+    expect(html).not.toContain('data-paid');
+  });
+
+  it('STILL injects the app.js upgrade-bar tag on a 200 content page for the same unpaid site', async () => {
+    // A sitemap that DOES list /about-us → served with a 200 status → the unpaid
+    // bar's server hook is present, exactly as on any real content page.
+    const sitemapXml =
+      '<?xml version="1.0"?><urlset><url><loc>https://my-site.example/</loc></url>' +
+      '<url><loc>https://my-site.example/about-us</loc></url></urlset>';
+    (env.SITES_BUCKET.get as jest.Mock).mockImplementation(async (key: string) => {
+      if (key.endsWith('/index.html')) return createMockR2Object(SAMPLE_HTML);
+      if (key.endsWith('/sitemap.xml')) return createMockR2Object(sitemapXml);
+      return null;
+    });
+
+    const site = makeSite({ plan: 'free' });
+    const response = await serveSiteFromR2(env as any, site, '/about-us');
+
+    expect(response.status).toBe(200);
+    const html = await response.text();
+    expect(html).toContain(`https://${DOMAINS.SITES_BASE}/app.js`);
+    expect(html).toContain('data-paid="false"');
+  });
+
   it('serves index.html for root path /', async () => {
     const r2Obj = createMockR2Object(SAMPLE_HTML);
     (env.SITES_BUCKET.get as jest.Mock).mockResolvedValue(r2Obj);

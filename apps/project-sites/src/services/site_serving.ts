@@ -1876,7 +1876,14 @@ async function buildSiteResponse(
     // whether to show the bar from `data-paid`; the server only passes the slug +
     // paid flag. `defer` so it never blocks first paint. Injected before </body>
     // (falls back to appending when the tag is absent). slug is attribute-escaped.
-    {
+    //
+    // GATE (fire-66): inject ONLY on a real 200 content page. A soft-404 (unknown
+    // route → 404 status) or any non-content/error HTML must NOT carry the app.js
+    // tag — otherwise the unpaid promo top-bar (which /app.js renders client-side
+    // from `data-paid="false"`) appears on 404/500 error pages. The upgrade bar
+    // belongs on published site content only, never on an error surface. Mirrors
+    // the `htmlStatus !== 200` content-vs-error distinction used above for noindex.
+    if (htmlStatus === 200) {
       const safeSlug = String(site.slug).replace(/[&<>"']/g, (ch) =>
         ch === '&'
           ? '&amp;'
