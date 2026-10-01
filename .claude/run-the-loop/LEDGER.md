@@ -500,3 +500,15 @@ launchd banner → in-session cron. Next task-selection now reads the merged fro
 **Rate-limit discipline held:** fan-out capped at 3 (not 6) per fire-63 lesson — zero rate-limit deaths this fire.
 **Residual (orchestrator → next fire):** live authed-embed browser-verify of WLK-03 cell round-trip
 + WLK-08 KV open; then WLK-04 (AI action, shares WLK-03 files), WLK-02/05/28 remaining P0s.
+
+## fire-68 — 2026-10-01 — convergence: editor Data-tab P0 repairs (WLK-04/02/05) + edge-AI 4xx-forward + per-site rate-limit + loop hygiene gate
+**Shipped to main · worker ver `a4ae2da6-352d-445d-a773-d2798fa86ec1` · editor Pages `ccb27622`:**
+- WLK-04 `7d9ae9abd` — unified editor Data-tab "Ask AI" (replaced AI Column/Filter split); root-caused the "3 attempts / bad gateway" to `edge_ai_router` returning a bare 502 on the first transient 5xx → bounded retry (3×+backoff) + typed `AI_UPSTREAM_UNAVAILABLE`.
+- WLK-02 `7d9ae9abd` — "Use AI to load sample data" verified REAL (empty-state tile → `createSampleData` CREATEs tables when absent + seeds rows on the owned per-site D1; not a toast no-op).
+- WLK-05 `0e2f653d3` — SQL console presets populate-before-run (removed auto-run) + AA contrast (textTertiary 3.5:1 → textSecondary 7.8:1 brand token).
+- Adversarial-review fix `6148c9214` — `edge_ai_router.gatewayResponse` masked ANY non-2xx as a retryable 502 (a genuine 400/401 got retried 3× + hid the real cause); now forwards 4xx VERBATIM, only 5xx → typed 502; fixed the test that baked in the masking.
+- Security (fire-68 audit) `6148c9214` — rate-limit budgets for the per-site Data-tab AI+SQL endpoints (ai-seed 10/60s · data-overview/ask 20/60s · db/query + db/search 30/60s); were unmetered, the new retry amplifies cost. IDOR/SQLi/DB-isolation audited CLEAN (opus).
+- Loop-improvement §7 `ba8d38452` — `scripts/loop-backlog-hygiene.mjs` (+test): BACKLOG↔LEDGER stale-open/closed gate; prevents the frontier-digest staleness this fire hit (self-test green; flagged 12 pre-existing drift items → queued).
+- Role-17 Deep UI Explorer `fea22ab1a` — PASS_CLOUDFLARE run (CF Browser Run CDP, super-admin, homepage→signin→/admin→Editor→Database→Tables→Actions→History), 0 console errors; confirms fire-67 WLK-03/08/09 hold.
+**Gates:** worker tsc 0 · jest 212/212 · validate:features 0 · editor tsc 0 · vitest 58/58. **Prod-verify:** projectsites.dev 200 (HSTS+CSP) · /api/health ok (kv+r2 ok) · editor.projectsites.dev 200 · /api/sites/:id/db/query → 403 gate (rate-limit path matches, not 5xx/soft-404).
+**Roster:** 3 mutating worktree + 3 read-only MAIN (Deep UI Explorer r17, Discovery r2, Security r12-opus) + 1 adversarial reviewer (opus). Role-16 Long-Trail deferred (case-001 boot-check folded into r17). Subagent spend ~2.1M tokens.
