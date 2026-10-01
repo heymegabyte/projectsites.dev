@@ -191,10 +191,7 @@ async function workersAiToOpenAiJson(
   messages: { role: string; content: string }[],
 ): Promise<Response> {
   const ai = env.AI as unknown as {
-    run: (
-      model: string,
-      opts: unknown,
-    ) => Promise<{ response?: string } | ReadableStream<string>>;
+    run: (model: string, opts: unknown) => Promise<{ response?: string } | ReadableStream<string>>;
   };
 
   // Bounded retry: a transient Workers-AI throw used to 502 on the first try.
