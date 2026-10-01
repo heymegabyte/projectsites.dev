@@ -104,12 +104,18 @@ function makeEnv(): Record<string, unknown> {
         page += 1;
         if (page === 1) {
           return {
-            objects: [{ key: `sites/${SLUG}/v1/index.html` }, { key: `sites/${SLUG}/v1/a.css` }] as R2ObjHandle[],
+            objects: [
+              { key: `sites/${SLUG}/v1/index.html` },
+              { key: `sites/${SLUG}/v1/a.css` },
+            ] as R2ObjHandle[],
             truncated: true,
             cursor: 'c1',
           };
         }
-        return { objects: [{ key: `sites/${SLUG}/_manifest.json` }] as R2ObjHandle[], truncated: false };
+        return {
+          objects: [{ key: `sites/${SLUG}/_manifest.json` }] as R2ObjHandle[],
+          truncated: false,
+        };
       }),
       delete: jest.fn(async (keys: string[]) => {
         deleted.push(keys);
@@ -145,10 +151,23 @@ beforeEach(() => {
   mockDbQueryOne.mockReset();
   mockDbQuery.mockReset();
   mockDbExecute.mockReset().mockResolvedValue({ changes: 1, error: null });
-  mockTeardownWfp.mockReset().mockResolvedValue({ attempted: true, slotsDeleted: 2, registryCleared: 2 });
-  mockListAllocs.mockReset().mockResolvedValue([
-    { id: 'alloc-1', bucketName: `ps-site-${SITE}-uploads`, displayName: 'uploads', environment: 'preview', isDefault: true, publicAccess: false, publicBaseUrl: null, createdAt: 'x' },
-  ]);
+  mockTeardownWfp
+    .mockReset()
+    .mockResolvedValue({ attempted: true, slotsDeleted: 2, registryCleared: 2 });
+  mockListAllocs
+    .mockReset()
+    .mockResolvedValue([
+      {
+        id: 'alloc-1',
+        bucketName: `ps-site-${SITE}-uploads`,
+        displayName: 'uploads',
+        environment: 'preview',
+        isDefault: true,
+        publicAccess: false,
+        publicBaseUrl: null,
+        createdAt: 'x',
+      },
+    ]);
   mockDeleteBucket.mockReset().mockResolvedValue({ ok: true, deleted: true, objectsDeleted: 4 });
   stubCfFetch();
 });
@@ -158,7 +177,11 @@ describe('purgeSiteResources', () => {
     mockDbQueryOne.mockImplementation(async (_db: unknown, sql: string) =>
       /FROM sites/.test(sql) ? { id: SITE, slug: SLUG, deleted_at: null } : null,
     );
-    const res = await purgeSiteResources(makeEnv() as never, { siteId: SITE, slug: SLUG, orgId: ORG });
+    const res = await purgeSiteResources(makeEnv() as never, {
+      siteId: SITE,
+      slug: SLUG,
+      orgId: ORG,
+    });
     expect(res.attempted).toBe(false);
     expect(res.refusedReason).toBe('not_deleted');
     expect(fetchCalls.filter((c) => c.method === 'DELETE')).toHaveLength(0);
@@ -177,8 +200,16 @@ describe('purgeSiteResources', () => {
     // Dedicated D1 + KV deleted via CF REST (name verified CF-side first).
     expect(res.dedicatedD1).toBe('deleted');
     expect(res.dedicatedKv).toBe('deleted');
-    expect(fetchCalls.some((c) => c.method === 'DELETE' && c.url.includes('/d1/database/d1-dedicated-id'))).toBe(true);
-    expect(fetchCalls.some((c) => c.method === 'DELETE' && c.url.includes('/storage/kv/namespaces/kv-dedicated-id'))).toBe(true);
+    expect(
+      fetchCalls.some(
+        (c) => c.method === 'DELETE' && c.url.includes('/d1/database/d1-dedicated-id'),
+      ),
+    ).toBe(true);
+    expect(
+      fetchCalls.some(
+        (c) => c.method === 'DELETE' && c.url.includes('/storage/kv/namespaces/kv-dedicated-id'),
+      ),
+    ).toBe(true);
     // Dedicated buckets via the existing guarded deleter.
     expect(res.dedicatedBuckets).toEqual([{ bucket: `ps-site-${SITE}-uploads`, ok: true }]);
     // WfP teardown attempted.
@@ -187,26 +218,42 @@ describe('purgeSiteResources', () => {
     expect(res.allocationRetired).toBe(true);
     expect(res.slugFreed).toMatch(new RegExp(`^${SLUG}--purged-`));
     expect(res.slugFreed!.length).toBeLessThanOrEqual(63);
-    const slugUpdate = mockDbExecute.mock.calls.find((c) => /UPDATE sites SET slug/.test(String(c[1])));
+    const slugUpdate = mockDbExecute.mock.calls.find((c) =>
+      /UPDATE sites SET slug/.test(String(c[1])),
+    );
     expect(slugUpdate).toBeTruthy();
     // Host KV key cleared.
-    expect((env.CACHE_KV as { delete: jest.Mock }).delete).toHaveBeenCalledWith(`host:${SLUG}.projectsites.dev`);
+    expect((env.CACHE_KV as { delete: jest.Mock }).delete).toHaveBeenCalledWith(
+      `host:${SLUG}.projectsites.dev`,
+    );
   });
 
   it('NEVER deletes a platform-shared D1 id (FORBIDDEN_DB_IDS → skipped_forbidden)', async () => {
     const forbidden = [...FORBIDDEN_DB_IDS][0]!;
     seedHappyRows({ d1Id: forbidden });
-    const res = await purgeSiteResources(makeEnv() as never, { siteId: SITE, slug: SLUG, orgId: ORG });
+    const res = await purgeSiteResources(makeEnv() as never, {
+      siteId: SITE,
+      slug: SLUG,
+      orgId: ORG,
+    });
     expect(res.dedicatedD1).toBe('skipped_forbidden');
     expect(fetchCalls.some((c) => c.method === 'DELETE' && c.url.includes(forbidden))).toBe(false);
   });
 
   it('skips a resource whose CF-side name fails the ps-site- prefix check', async () => {
     seedHappyRows();
-    stubCfFetch({ getName: (url) => (url.includes('/d1/database/') ? 'main-platform-db' : undefined) });
-    const res = await purgeSiteResources(makeEnv() as never, { siteId: SITE, slug: SLUG, orgId: ORG });
+    stubCfFetch({
+      getName: (url) => (url.includes('/d1/database/') ? 'main-platform-db' : undefined),
+    });
+    const res = await purgeSiteResources(makeEnv() as never, {
+      siteId: SITE,
+      slug: SLUG,
+      orgId: ORG,
+    });
     expect(res.dedicatedD1).toBe('skipped_forbidden');
-    expect(fetchCalls.some((c) => c.method === 'DELETE' && c.url.includes('/d1/database/'))).toBe(false);
+    expect(fetchCalls.some((c) => c.method === 'DELETE' && c.url.includes('/d1/database/'))).toBe(
+      false,
+    );
     // KV (name fine) still deleted — steps are independent.
     expect(res.dedicatedKv).toBe('deleted');
   });
@@ -214,7 +261,11 @@ describe('purgeSiteResources', () => {
   it('fail-soft: a CF outage marks the step error but never throws and other steps run', async () => {
     seedHappyRows();
     stubCfFetch({ failDelete: true });
-    const res = await purgeSiteResources(makeEnv() as never, { siteId: SITE, slug: SLUG, orgId: ORG });
+    const res = await purgeSiteResources(makeEnv() as never, {
+      siteId: SITE,
+      slug: SLUG,
+      orgId: ORG,
+    });
     expect(res.attempted).toBe(true);
     expect(res.dedicatedD1).toBe('error');
     expect(res.dedicatedKv).toBe('error');
