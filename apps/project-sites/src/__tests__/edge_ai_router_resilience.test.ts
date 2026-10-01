@@ -116,17 +116,22 @@ describe('routeBoltChat — gateway (standard/premium) transient-failure resilie
     expect(body.error?.message?.length ?? 0).toBeGreaterThan(0);
   });
 
-  it('does NOT retry a 4xx (real vendor error, e.g. bad key) — surfaces it immediately', async () => {
+  it('does NOT retry a 4xx and forwards it VERBATIM (real vendor error, never masked as 502)', async () => {
     mockGatewayFetch.mockResolvedValue({
-      response: new Response('bad request', { status: 400 }),
+      response: new Response('{"error":{"message":"Invalid API key"}}', {
+        status: 401,
+        headers: { 'Content-Type': 'application/json' },
+      }),
       gatewayUsed: true,
     });
 
     const res = await routeBoltChat(makeEnv(makeAi(jest.fn())), STANDARD_MSG, null, false);
 
     expect(mockGatewayFetch).toHaveBeenCalledTimes(1); // 4xx is terminal, no retry
-    expect(res.status).toBe(502);
-    const body = (await res.json()) as { error?: { code?: string } };
-    expect(body.error?.code).toBe('AI_UPSTREAM_UNAVAILABLE');
+    // The real 4xx is surfaced as-is — NOT masked as a retryable 502. Masking made the
+    // caller retry a hopeless request 3× and hid the real cause behind "unavailable".
+    expect(res.status).toBe(401);
+    const body = (await res.json()) as { error?: { message?: string } };
+    expect(body.error?.message).toBe('Invalid API key');
   });
 });

@@ -424,8 +424,27 @@ function gatewayResponse(
   tier: Exclude<AiTier, 'instant'>,
   stream: boolean,
 ): Response {
-  if (!upstream.response.ok) {
+  const status = upstream.response.status;
+  if (status >= 500) {
+    // Transient upstream failure (the retry budget is already spent) → the typed,
+    // non-swallowed 502 the frontend reads + retries.
     return upstreamUnavailableResponse(stream);
+  }
+  if (status >= 400) {
+    // A 4xx is TERMINAL (bad key / malformed body) — forward it VERBATIM (real status +
+    // vendor message). Previously `!response.ok` masked it as a 502 AI_UPSTREAM_UNAVAILABLE,
+    // which made the caller retry a hopeless request 3× (triple latency + triple spend) and
+    // hid the real cause ("Invalid API key") behind the generic "unavailable" message. The
+    // caller only retries `status >= 500`, so forwarding the real 4xx stops the retry loop.
+    return new Response(upstream.response.body, {
+      status,
+      headers: {
+        'Content-Type': upstream.response.headers.get('Content-Type') ?? 'application/json',
+        'Cache-Control': 'no-cache',
+        'X-AI-Gateway': upstream.gatewayUsed ? '1' : '0',
+        'X-Edge-Tier': tier,
+      },
+    });
   }
   return new Response(upstream.response.body, {
     status: 200,

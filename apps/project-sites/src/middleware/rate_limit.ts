@@ -141,6 +141,37 @@ export const RATE_LIMIT_RULES: readonly RateLimitRule[] = [
     windowSeconds: 60,
     prefix: 'rl:media-podcast',
   },
+  // Per-site Data Platform (editor Data tab) — Workers AI + arbitrary-SQL cost/DoS shield
+  // (fire-68 security audit). Authed but previously UNMETERED, so an owner (or compromised
+  // session) could loop AI-seed/ask to burn Workers AI quota + D1 units, or hammer the raw-SQL
+  // console. The `/api/ai/*` prefix rule does NOT match `/api/sites/.../db/*`. Isolation holds
+  // (resolveSiteDataDb scopes to the owned per-site D1), so blast radius is the caller's own org
+  // — cost/DoS, not cross-tenant. The AI paths are tightest (each = a Workers AI call); the new
+  // retry in edge_ai_router (WLK-04) amplifies per-request upstream cost, so these matter more.
+  {
+    path: '/api/sites/:id/db/ai-seed',
+    maxRequests: 10,
+    windowSeconds: 60,
+    prefix: 'rl:site-ai-seed',
+  },
+  {
+    path: '/api/sites/:id/data-overview/:table/ask',
+    maxRequests: 20,
+    windowSeconds: 60,
+    prefix: 'rl:site-data-ask',
+  },
+  {
+    path: '/api/sites/:id/db/query',
+    maxRequests: 30,
+    windowSeconds: 60,
+    prefix: 'rl:site-db-query',
+  },
+  {
+    path: '/api/sites/:id/db/search',
+    maxRequests: 30,
+    windowSeconds: 60,
+    prefix: 'rl:site-db-search',
+  },
   // Bolt admin (Workers AI + D1 abuse vectors) — legacy + current aliases.
   { path: '/admin-api/vision-ocr', maxRequests: 5, windowSeconds: 60, prefix: 'rl:vision' },
   { path: '/api/bolt/vision-ocr', maxRequests: 5, windowSeconds: 60, prefix: 'rl:vision' },
