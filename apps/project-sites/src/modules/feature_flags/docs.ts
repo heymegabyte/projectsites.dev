@@ -67,6 +67,24 @@ export const FLAG_DOCS: Record<string, FlagDocs> = {
       'Off → /api/sites/:id/review-links 404s and the dialog stays gated',
     ],
   },
+  build_metrics: {
+    checklist: [
+      'North-star generation speed + cost card (<5min / ≤$1 per build)',
+      'Gates GET /api/admin/build-metrics/summary — p50/p95 wall_ms + p50/p95 est_cost_usd + per-phase p50',
+      'Gate order: auth (401) → this flag (404, never 403) → super-admin (403)',
+      'Off (default, DARK) → endpoint 404s for everyone (no existence leak) + the card self-hides',
+      'Recording is always-on + fire-and-forget — a metrics failure never blocks or fails a build',
+      'Reads the build_metrics D1 instrument (migration 0652); owner diagnostics, no per-site exposure',
+    ],
+    explanation:
+      'The north-star generation speed + cost instrument (fire-63). One build_metrics D1 row per site-generation workflow run captures wall-ms, per-phase ms (collecting/imaging/generating/publishing), and estimated USD (token cost via build_pricing + container minutes). The super-admin read endpoint rolls those into p50/p95 speed + p50/p95 cost over the last N builds (default 30 days) plus a last-30 chronological sparkline series, surfaced by the dashboard "Generation speed + cost" card. The flag gates the READ surface and runs BEFORE the super-admin check (after auth): when off, the endpoint is a hard 404 for everyone — never 403, so the feature\'s existence is never leaked — and the card self-hides. Recording keeps running regardless so rows accrue for whenever the card is turned on; a recording failure is warn-logged and never affects a build.',
+    smoke_test: [
+      'Enable the flag → as a super-admin: curl https://projectsites.dev/api/admin/build-metrics/summary -H "Authorization: Bearer $TOKEN" → 200 { windowDays, builds, p50_ms, p95_ms, avg_cost_usd, phase_p50, series }',
+      'Open /admin (super-admin) → the dashboard shows the "Generation speed + cost" card with p50 build time vs the 5min target + avg cost vs the $1 target',
+      'Off → the same GET 404s and the card is absent',
+    ],
+    e2e_tests: ['e2e/build-metrics.spec.ts'],
+  },
   claim_flow: {
     checklist: [
       '$0 preview → $29/mo claim: free subdomain preview IS the pitch',

@@ -74,6 +74,9 @@ ai_features:
 editor:
   inline_editing:   { status: covered, specs: [inline-editing.spec.ts] }
   per_site_d1:      { status: covered, specs: [per-site-d1.spec.ts] }  # Data Platform foundation — per-site OWN-D1 Tables surface (GET /api/sites/:id/db/tables[/:table]). DARK-launch contract: routes mounted + hard auth-gated (401 JSON, never 500 / SPA-shell soft-200) so isolation ships BEFORE owner access. Owner path (flag on) covered by worker unit tests (libs/features/site_data_api/__tests__/site-db.test.ts) + service isolation tests (src/__tests__/site_data_db.test.ts).
+  per_site_data_panel: { status: covered, specs: [per-site-data-panel.spec.ts] }  # Per-site D1 Data Panel real-user journey (flag: per_site_data). Registered fire-63 (was an orphan spec — pre-existing inventory debt).
+  per_site_r2_buckets: { status: covered, specs: [r2-buckets.spec.ts] }  # Per-site R2 Buckets API auth + dark-launch contract. Registered fire-63 (was an orphan spec — pre-existing inventory debt).
+  wfp_site_hosting: { status: covered, specs: [wfp-site-hosting.spec.ts] }  # WfP site hosting default-on serve policy (flag: site_wfp_hosting). Registered fire-63 (was an orphan spec — pre-existing inventory debt).
 
 media:
   # The Media Library ADMIN UI was removed (/admin/media → admin-404: no
@@ -109,6 +112,7 @@ modals_interactions:
 
 observability:
   error_boundary:   { status: covered, specs: [error-boundary.spec.ts] }
+  build_metrics:    { status: covered, specs: [build-metrics.spec.ts] }  # fire-63 — north-star generation speed + cost rollup (flag: build_metrics). Request-level gate contract for GET /api/admin/build-metrics/summary: unauth never served the rollup (401/403/404, never 200) · invalid days never a 200 with bad input. The flag-off→404 + super-admin→200 + real percentile SQL are locked by the worker Jest suite (admin_build_metrics_route.test.ts against SQLite).
 
 site_serving:
   serving:          { status: covered, specs: [site-serving.spec.ts] }

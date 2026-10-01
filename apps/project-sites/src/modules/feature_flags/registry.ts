@@ -46,6 +46,15 @@ export const FLAG_REGISTRY: Record<string, FlagDefinition> = {
     owner_email: 'brian@megabyte.space',
     stage: 'experimental',
   },
+  build_metrics: {
+    default_enabled: false,
+    default_rollout_percent: 0,
+    description:
+      'North-star generation speed + cost trend card (fire-63). Gates the super-admin read endpoint GET /api/admin/build-metrics/summary — p50/p95 wall_ms + p50/p95 est_cost_usd + per-phase p50 over the last N builds, from the always-on fire-and-forget build_metrics D1 instrument (migration 0652). North star: <5min / ≤$1 per build.\n\n• Gate order: auth (401) → this flag (404, never 403) → super-admin (403). The flag runs BEFORE super-admin so an off flag is a hard 404 for everyone (existence never leaked).\n• On: an authed super-admin GETs the summary and the dashboard "Generation speed + cost" card renders.\n• Off (default, DARK): the endpoint 404s and the card self-hides. Recording keeps running harmlessly (rows accrue for when the card is enabled) — no build is ever affected.\n• Acceptance: flag off → summary 404; flag on + super-admin → 200 with the p50/p95 speed+cost rollup. Owner-only diagnostics; no per-site exposure.',
+    key: 'build_metrics',
+    owner_email: 'brian@megabyte.space',
+    stage: 'experimental',
+  },
   claim_flow: {
     default_enabled: false,
     default_rollout_percent: 0,

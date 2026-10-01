@@ -1,6 +1,7 @@
 import { Hono } from 'hono';
 
 import { adminBuildMetrics } from '../routes/admin_build_metrics';
+import { isFlagOn } from '../modules/feature_flags/services.js';
 import { isSuperAdmin } from '../services/sysadmin.js';
 import { createD1Sqlite, type D1SqliteHarness } from './helpers/d1_sqlite';
 
@@ -9,10 +10,12 @@ import { createD1Sqlite, type D1SqliteHarness } from './helpers/d1_sqlite';
  * north star). The aggregation runs against a REAL SQLite via the d1_sqlite
  * harness so the percentile SQL (ORDER BY/LIMIT OFFSET) + json_extract phase
  * math execute for real — a mock double can't catch an off-by-one offset or a
- * wrong-filter. Only the sysadmin check is mocked (route-guard contract).
+ * wrong-filter. The sysadmin check AND the `build_metrics` flag gate are mocked
+ * (route-guard contract).
  *
  * Locks:
- *  - 401 unauthenticated / 403 non-super-admin / 400 invalid `days`.
+ *  - 401 unauthenticated / 404 flag-off / 403 non-super-admin / 400 invalid `days`.
+ *  - flag gate runs BEFORE super-admin: off → 404 (never 403 — no existence leak).
  *  - Empty-table HONEST shape: builds:0 + null percentiles/costs + [] series
  *    (never fabricated zeros presented as measurements).
  *  - p50/p95 via ORDER BY/LIMIT OFFSET over PUBLISHED builds only.
@@ -21,8 +24,10 @@ import { createD1Sqlite, type D1SqliteHarness } from './helpers/d1_sqlite';
  *  - series = last 30 builds, chronological (oldest → newest).
  */
 jest.mock('../services/sysadmin.js', () => ({ isSuperAdmin: jest.fn() }));
+jest.mock('../modules/feature_flags/services.js', () => ({ isFlagOn: jest.fn() }));
 
 const mockIsSuperAdmin = isSuperAdmin as jest.MockedFunction<typeof isSuperAdmin>;
+const mockIsFlagOn = isFlagOn as jest.MockedFunction<typeof isFlagOn>;
 
 /** Mirrors migrations/0652_build_metrics.sql (columns the endpoint reads). */
 const BUILD_METRICS_DDL = `
@@ -106,6 +111,7 @@ const env = () => ({ DB: h.db }) as never;
 
 beforeEach(() => {
   jest.clearAllMocks();
+  mockIsFlagOn.mockResolvedValue(true); // flag ON by default; off-path has its own test
   h = createD1Sqlite();
   h.exec(BUILD_METRICS_DDL);
 });
@@ -122,7 +128,32 @@ describe('GET /api/admin/build-metrics/summary — guards', () => {
     expect(res.status).toBe(401);
   });
 
-  it('403s when authed but not a super-admin', async () => {
+  it('404s when the build_metrics flag is OFF — even for a super-admin (never 403, no existence leak)', async () => {
+    mockIsFlagOn.mockResolvedValue(false);
+    mockIsSuperAdmin.mockResolvedValue(true);
+    const res = await makeApp({ userId: 'admin' }).request(
+      '/api/admin/build-metrics/summary',
+      { method: 'GET' },
+      env(),
+    );
+    expect(res.status).toBe(404);
+  });
+
+  it('flag gate runs BEFORE the super-admin check — off flag 404s a non-super-admin too (never 403)', async () => {
+    mockIsFlagOn.mockResolvedValue(false);
+    mockIsSuperAdmin.mockResolvedValue(false);
+    const res = await makeApp({ userId: 'u1' }).request(
+      '/api/admin/build-metrics/summary',
+      { method: 'GET' },
+      env(),
+    );
+    expect(res.status).toBe(404);
+    // super-admin must not even be consulted when the flag is off (hard 404)
+    expect(mockIsSuperAdmin).not.toHaveBeenCalled();
+  });
+
+  it('403s when authed, flag ON, but not a super-admin', async () => {
+    mockIsFlagOn.mockResolvedValue(true);
     mockIsSuperAdmin.mockResolvedValue(false);
     const res = await makeApp({ userId: 'u1' }).request(
       '/api/admin/build-metrics/summary',

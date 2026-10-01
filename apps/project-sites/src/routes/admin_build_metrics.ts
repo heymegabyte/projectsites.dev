@@ -34,8 +34,12 @@
  *   sparkline trail stays meaningful when the window is quiet), returned
  *   chronologically (oldest → newest) ready to plot.
  *
- * Gate (in order): auth required (401) → super-admin (403). No feature flag —
- * operator-only diagnostics, mirroring `admin_funnel` / `admin_outbox`.
+ * Gate (in order): auth required (401) → `build_metrics` flag (404, never
+ * 403 — don't leak existence) → super-admin (403). The flag gate runs BEFORE
+ * the super-admin check so an off flag is a hard 404 for everyone (the
+ * feature's existence is never confirmed). Flag is DARK by default
+ * (`enabled=0, rollout=0, stage='experimental'`); recording stays always-on +
+ * fire-and-forget regardless (a metrics write never blocks a build).
  *
  * @packageDocumentation
  */
@@ -44,6 +48,7 @@ import { z } from 'zod';
 
 import type { Env, Variables } from '../types/env.js';
 
+import { isFlagOn } from '../modules/feature_flags/services.js';
 import {
   BuildOutcomeSchema,
   BuildPhaseSchema,
@@ -51,6 +56,9 @@ import {
 } from '../services/build_metrics.js';
 import { dbQuery } from '../services/db.js';
 import { isSuperAdmin } from '../services/sysadmin.js';
+
+/** Feature flag gating the read surface (DARK by default → 404 when off). */
+const BUILD_METRICS_FLAG = 'build_metrics';
 
 /** RFC7807-ish error envelope used across the worker. */
 function errorBody(code: string, message: string, requestId: string | undefined) {
@@ -230,6 +238,11 @@ adminBuildMetrics.get('/api/admin/build-metrics/summary', async (c) => {
   const requestId = c.get('requestId');
   const userId = c.get('userId');
   if (!userId) return c.json(errorBody('UNAUTHORIZED', 'Sign in required', requestId), 401);
+  // Flag gate FIRST (before super-admin) — off → hard 404 for everyone, never
+  // 403, so the feature's existence is never leaked (per admin_leads precedent).
+  if (!(await isFlagOn(c.env, BUILD_METRICS_FLAG, { orgId: c.get('orgId'), userId }))) {
+    return c.json(errorBody('NOT_FOUND', 'Not found', requestId), 404);
+  }
   if (!(await isSuperAdmin(c.env, userId))) {
     return c.json(errorBody('FORBIDDEN', 'Super-admin access required', requestId), 403);
   }
