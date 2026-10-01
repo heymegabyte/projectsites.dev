@@ -91,7 +91,9 @@
 
 ## Standing invariants
 
-- **Cadence: 15-minute cron, SELF-ARMING (Brian, 2026-10-01).** Harness cron
+- **Cadence: 15 minutes via macOS launchd (scheduler of record, 2026-10-01-pm).**
+  `space.megabyte.projectsites.run-the-loop` → headless `claude -p "/run-the-loop"` every
+  900s, log `cron-runs.log`, lease-coalesced. Harness cron
   `4,19,34,49 * * * *` → `/run-the-loop` (durable). EVERY `/run-the-loop` invocation
   re-arms it first (see the command file banner) — the 7-day harness expiry is self-healed. The lease (overlap coalescing) is what makes 20m safe; it still binds.
 - **Fire budget ~3M subagent tokens (heavy roster)** — Brian 2026-10-01. Evaluator sweep +
