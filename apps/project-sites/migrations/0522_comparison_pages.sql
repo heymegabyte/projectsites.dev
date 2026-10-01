@@ -57,10 +57,9 @@ CREATE INDEX IF NOT EXISTS idx_comparison_pages_status
   ON comparison_pages(site_id, status)
   WHERE deleted_at IS NULL;
 
-INSERT OR IGNORE INTO feature_flags (key, description, enabled_globally, rollout_pct)
-VALUES (
-  'comparison_pages',
-  'Comparison + Alternative Pages: /vs/{competitor} + /alternatives/{competitor} with weekly pricing refresh.',
-  0,
-  0
-);
+-- fire-61 reconcile (2026-10-01): INSERT rewritten to the PROD feature_flags
+-- shape (id, org_id, flag_name, enabled, metadata_json). The legacy column set
+-- this file originally targeted never existed in production.
+INSERT OR IGNORE INTO feature_flags (id, org_id, flag_name, enabled, metadata_json)
+VALUES ('flag_comparison_pages', NULL, 'comparison_pages', 0,
+  '{"stage":"experimental","rollout_percent":0,"description":"Comparison + Alternative Pages: /vs/{competitor} + /alternatives/{competitor} with weekly pricing refresh.","owner_email":"brian@megabyte.space"}');

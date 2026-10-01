@@ -248,13 +248,23 @@ CREATE INDEX IF NOT EXISTS idx_ai_components_published
 
 -- template_marketplace flag already seeded in earlier migration (0501-era).
 -- Re-seed with the canonical description for parity with FLAG_REGISTRY.
-INSERT OR IGNORE INTO feature_flags (key, description, enabled_globally, rollout_pct) VALUES
-  ('template_marketplace',
-   'Framer-style template marketplace: creators submit, Brian curates, creator keeps 100% on direct sales + 50% on platform-referred conversions.',
-   0, 0),
-  ('plugin_marketplace',
-   'Plugin / integration marketplace: third-party integrations (Stripe, Calendly, MapBox, AI form-fill) installable per site. 70/30 rev-share to creator.',
-   0, 0),
-  ('ai_components',
-   'AI Code Components generator: describe a widget in natural language, get a production React component scaffolded with the site brand tokens auto-inherited from _brand.json.',
-   0, 0);
+-- fire-61 reconcile (2026-10-01): INSERT rewritten to the PROD feature_flags
+-- shape (id, org_id, flag_name, enabled, metadata_json). The legacy column set
+-- this file originally targeted never existed in production.
+INSERT OR IGNORE INTO feature_flags (id, org_id, flag_name, enabled, metadata_json)
+VALUES ('flag_template_marketplace', NULL, 'template_marketplace', 0,
+  '{"stage":"experimental","rollout_percent":0,"description":"Framer-style template marketplace: creators submit, Brian curates, creator keeps 100% on direct sales + 50% on platform-referred conversions.","owner_email":"brian@megabyte.space"}');
+
+-- fire-61 reconcile (2026-10-01): INSERT rewritten to the PROD feature_flags
+-- shape (id, org_id, flag_name, enabled, metadata_json). The legacy column set
+-- this file originally targeted never existed in production.
+INSERT OR IGNORE INTO feature_flags (id, org_id, flag_name, enabled, metadata_json)
+VALUES ('flag_plugin_marketplace', NULL, 'plugin_marketplace', 0,
+  '{"stage":"experimental","rollout_percent":0,"description":"Plugin / integration marketplace: third-party integrations (Stripe, Calendly, MapBox, AI form-fill) installable per site. 70/30 rev-share to creator.","owner_email":"brian@megabyte.space"}');
+
+-- fire-61 reconcile (2026-10-01): INSERT rewritten to the PROD feature_flags
+-- shape (id, org_id, flag_name, enabled, metadata_json). The legacy column set
+-- this file originally targeted never existed in production.
+INSERT OR IGNORE INTO feature_flags (id, org_id, flag_name, enabled, metadata_json)
+VALUES ('flag_ai_components', NULL, 'ai_components', 0,
+  '{"stage":"experimental","rollout_percent":0,"description":"AI Code Components generator: describe a widget in natural language, get a production React component scaffolded with the site brand tokens auto-inherited from _brand.json.","owner_email":"brian@megabyte.space"}');

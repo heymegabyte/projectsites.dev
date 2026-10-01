@@ -27,8 +27,13 @@ CREATE TABLE IF NOT EXISTS affiliates (
   deleted_at          TEXT
 );
 
-CREATE UNIQUE INDEX IF NOT EXISTS idx_affiliates_owner_email ON affiliates(owner_email) WHERE deleted_at IS NULL;
-CREATE INDEX IF NOT EXISTS idx_affiliates_owner_user_id ON affiliates(owner_user_id);
+-- fire-61 reconcile (2026-10-01): prod's `affiliates` table was created by a
+-- DIFFERENT (tracked) lineage with shape (id, org_id, affiliate_email, code,
+-- commission_pct, lifetime_revenue_cents, status, created_at). The CREATE TABLE
+-- above no-ops there via IF NOT EXISTS, so owner_email/owner_user_id never exist
+-- and these two indexes can never apply. Prod reality wins - retired.
+-- CREATE UNIQUE INDEX IF NOT EXISTS idx_affiliates_owner_email ON affiliates(owner_email) WHERE deleted_at IS NULL;
+-- CREATE INDEX IF NOT EXISTS idx_affiliates_owner_user_id ON affiliates(owner_user_id);
 
 -- ─── 2. Attribution referrals ──────────────────────────────────────────────────
 
@@ -45,9 +50,13 @@ CREATE TABLE IF NOT EXISTS affiliate_referrals (
   deleted_at          TEXT
 );
 
-CREATE INDEX IF NOT EXISTS idx_affiliate_referrals_code ON affiliate_referrals(affiliate_code);
-CREATE INDEX IF NOT EXISTS idx_affiliate_referrals_anon ON affiliate_referrals(visitor_anon_id);
-CREATE INDEX IF NOT EXISTS idx_affiliate_referrals_org ON affiliate_referrals(signed_up_org_id);
+-- fire-61 reconcile (2026-10-01): prod's `affiliate_referrals` was likewise created
+-- by a tracked lineage with shape (id, affiliate_id, referred_customer_id,
+-- conversion_cents, commission_cents, status, created_at) - no affiliate_code /
+-- visitor_anon_id / signed_up_org_id columns, so these indexes are retired too.
+-- CREATE INDEX IF NOT EXISTS idx_affiliate_referrals_code ON affiliate_referrals(affiliate_code);
+-- CREATE INDEX IF NOT EXISTS idx_affiliate_referrals_anon ON affiliate_referrals(visitor_anon_id);
+-- CREATE INDEX IF NOT EXISTS idx_affiliate_referrals_org ON affiliate_referrals(signed_up_org_id);
 
 -- ─── 3. Recurring commissions ──────────────────────────────────────────────────
 

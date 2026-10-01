@@ -44,9 +44,14 @@ CREATE TABLE IF NOT EXISTS copilot_sessions (
 CREATE INDEX IF NOT EXISTS idx_copilot_sessions_org_site
   ON copilot_sessions(org_id, site_id, created_at DESC);
 
-CREATE INDEX IF NOT EXISTS idx_copilot_sessions_site_slug
-  ON copilot_sessions(site_slug, created_at DESC);
-
-CREATE INDEX IF NOT EXISTS idx_copilot_sessions_intent
-  ON copilot_sessions(site_id, intent)
-  WHERE intent IS NOT NULL;
+-- fire-61 reconcile (2026-10-01): the two indexes below are RETIRED. Production's
+-- copilot_sessions table was created by a DIFFERENT (tracked) migration lineage
+-- without the site_slug/intent/etc. columns in this file's CREATE TABLE (which
+-- no-ops there via IF NOT EXISTS), so these CREATE INDEX statements can never
+-- apply against prod. Prod reality wins - never index columns that don't exist.
+-- The org/site index above IS valid against the prod shape and was applied.
+-- CREATE INDEX IF NOT EXISTS idx_copilot_sessions_site_slug
+--   ON copilot_sessions(site_slug, created_at DESC);
+-- CREATE INDEX IF NOT EXISTS idx_copilot_sessions_intent
+--   ON copilot_sessions(site_id, intent)
+--   WHERE intent IS NOT NULL;

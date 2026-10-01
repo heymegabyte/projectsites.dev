@@ -1,11 +1,15 @@
 -- Migration: 0516_drop_phone_otps
--- Drops the orphaned phone_otps table and its index (phone feature removed
--- in commit b555680 — Twilio SMS / phone OTP endpoints removed). The
--- `users.phone` column is intentionally left in place: dropping a column
--- from an existing D1 table requires a full table-copy migration that is
--- riskier than the benefit. The column always stores NULL and is excluded
--- from all SELECT / INSERT paths (see CLAUDE.md § Known Issues #8).
--- D1 Time Travel can restore the table for 30 days if needed.
-
-DROP INDEX IF EXISTS idx_phone_otps_phone;
-DROP TABLE IF EXISTS phone_otps;
+-- RECONCILED NO-OP (fire-61, 2026-10-01). Original content retired.
+--
+-- The original migration dropped the orphaned `phone_otps` table + its index
+-- (phone OTP auth removed in commit b555680). It was NEVER applied to production:
+-- `phone_otps` still exists there, and current doctrine (root CLAUDE.md § Removed)
+-- treats the residual `users.phone` column and `phone_otps` table as INERT orphans
+-- that are safe to keep - no code reads or writes them.
+--
+-- The fire-61 reconciliation ran under a strict NEVER-DROP constraint, so instead
+-- of executing a destructive statement years after it was authored, this file is
+-- now a no-op. If the drop is ever actually wanted, author it as a NEW deliberate
+-- migration (D1 Time Travel gives 30 days of recovery). Full audit:
+-- docs/migrations-reconcile-2026-10.md.
+SELECT 1;

@@ -37,10 +37,9 @@ CREATE INDEX IF NOT EXISTS idx_crd_org_pending
   WHERE deleted_at IS NULL AND status = 'pending';
 
 -- Feature flag seed (enabled=0, rollout=0, stage='experimental')
-INSERT OR IGNORE INTO feature_flags (key, description, enabled_globally, rollout_pct)
-VALUES (
-  'content_freshness',
-  'Daily cron rewrites site sections idle >90d with low dwell via Workers AI. Owner approves drafts in /admin/content-freshness.',
-  0,
-  0
-);
+-- fire-61 reconcile (2026-10-01): INSERT rewritten to the PROD feature_flags
+-- shape (id, org_id, flag_name, enabled, metadata_json). The legacy column set
+-- this file originally targeted never existed in production.
+INSERT OR IGNORE INTO feature_flags (id, org_id, flag_name, enabled, metadata_json)
+VALUES ('flag_content_freshness', NULL, 'content_freshness', 0,
+  '{"stage":"experimental","rollout_percent":0,"description":"Daily cron rewrites site sections idle >90d with low dwell via Workers AI. Owner approves drafts in /admin/content-freshness.","owner_email":"brian@megabyte.space"}');

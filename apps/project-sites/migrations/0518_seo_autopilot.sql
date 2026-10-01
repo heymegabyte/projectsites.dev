@@ -32,10 +32,9 @@ CREATE INDEX IF NOT EXISTS idx_seo_meta_drafts_site_route
   WHERE deleted_at IS NULL;
 
 -- Feature flag seed (enabled=0, rollout=0, stage='experimental')
-INSERT OR IGNORE INTO feature_flags (key, description, enabled_globally, rollout_pct)
-VALUES (
-  'seo_autopilot',
-  'AI generates SEO/GEO meta (title, description, quotable answer block) + schema.org JSON-LD per route for existing sites. Owner approves drafts in /admin/seo before they apply.',
-  0,
-  0
-);
+-- fire-61 reconcile (2026-10-01): INSERT rewritten to the PROD feature_flags
+-- shape (id, org_id, flag_name, enabled, metadata_json). The legacy column set
+-- this file originally targeted never existed in production.
+INSERT OR IGNORE INTO feature_flags (id, org_id, flag_name, enabled, metadata_json)
+VALUES ('flag_seo_autopilot', NULL, 'seo_autopilot', 0,
+  '{"stage":"experimental","rollout_percent":0,"description":"AI generates SEO/GEO meta (title, description, quotable answer block) + schema.org JSON-LD per route for existing sites. Owner approves drafts in /admin/seo before they apply.","owner_email":"brian@megabyte.space"}');

@@ -56,10 +56,9 @@ CREATE INDEX IF NOT EXISTS idx_integration_pages_status
   ON integration_pages(site_id, status)
   WHERE deleted_at IS NULL;
 
-INSERT OR IGNORE INTO feature_flags (key, description, enabled_globally, rollout_pct)
-VALUES (
-  'integration_directory',
-  'Integration Directory: auto /integrations/{a}/{b} pages with real screenshots + setup steps.',
-  0,
-  0
-);
+-- fire-61 reconcile (2026-10-01): INSERT rewritten to the PROD feature_flags
+-- shape (id, org_id, flag_name, enabled, metadata_json). The legacy column set
+-- this file originally targeted never existed in production.
+INSERT OR IGNORE INTO feature_flags (id, org_id, flag_name, enabled, metadata_json)
+VALUES ('flag_integration_directory', NULL, 'integration_directory', 0,
+  '{"stage":"experimental","rollout_percent":0,"description":"Integration Directory: auto /integrations/{a}/{b} pages with real screenshots + setup steps.","owner_email":"brian@megabyte.space"}');

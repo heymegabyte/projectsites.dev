@@ -29,10 +29,9 @@ CREATE UNIQUE INDEX IF NOT EXISTS idx_site_tag_assignments ON site_tag_assignmen
 CREATE INDEX IF NOT EXISTS idx_site_tag_assignments_tag ON site_tag_assignments(tag_id, deleted_at);
 
 -- Register feature flag
-INSERT INTO feature_flags (key, enabled, rollout_percent, stage, description, e2e_tests, smoke_steps, owner_email)
-VALUES ('site_tags', 0, 0, 'experimental',
-  'Per-site colored label pills (Site Tags & Labels). Org-scoped tags with custom names, colors, and emoji. Filterable in the site list. CRUD at /api/site-tags/*.',
-  '[]',
-  '1. Enable flag via admin UI\n2. POST /api/site-tags to create a tag\n3. PUT /api/sites/:id/tags to assign it\n4. GET /api/site-tags to list with site counts',
-  'brian@megabyte.space'
-);
+-- fire-61 reconcile (2026-10-01): INSERT rewritten to the PROD feature_flags
+-- shape (id, org_id, flag_name, enabled, metadata_json). The legacy column set
+-- this file originally targeted never existed in production.
+INSERT OR IGNORE INTO feature_flags (id, org_id, flag_name, enabled, metadata_json)
+VALUES ('flag_site_tags', NULL, 'site_tags', 0,
+  '{"stage":"experimental","rollout_percent":0,"description":"Per-site colored label pills (Site Tags & Labels). Org-scoped tags with custom names, colors, and emoji. Filterable in the site list. CRUD at /api/site-tags/*.","e2e_tests":[],"smoke_steps":"1. Enable flag via admin UI\n2. POST /api/site-tags to create a tag\n3. PUT /api/sites/:id/tags to assign it\n4. GET /api/site-tags to list with site counts","owner_email":"brian@megabyte.space"}');

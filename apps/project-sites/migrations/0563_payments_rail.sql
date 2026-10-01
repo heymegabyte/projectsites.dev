@@ -13,12 +13,9 @@ CREATE TABLE IF NOT EXISTS payments_rail_events (
   created_at   TEXT NOT NULL DEFAULT (datetime('now'))
 );
 
-INSERT OR IGNORE INTO feature_flags (key, enabled, rollout_percent, stage, description, owner_email)
-VALUES (
-  'payments_rail',
-  0,
-  0,
-  'experimental',
-  'Unified payments rail events for Stripe and Square. Captures payment lifecycle events per org and site for audit, reconciliation, and revenue analytics.',
-  'brian@megabyte.space'
-);
+-- fire-61 reconcile (2026-10-01): INSERT rewritten to the PROD feature_flags
+-- shape (id, org_id, flag_name, enabled, metadata_json). The legacy column set
+-- this file originally targeted never existed in production.
+INSERT OR IGNORE INTO feature_flags (id, org_id, flag_name, enabled, metadata_json)
+VALUES ('flag_payments_rail', NULL, 'payments_rail', 0,
+  '{"stage":"experimental","rollout_percent":0,"description":"Unified payments rail events for Stripe and Square. Captures payment lifecycle events per org and site for audit, reconciliation, and revenue analytics.","owner_email":"brian@megabyte.space"}');

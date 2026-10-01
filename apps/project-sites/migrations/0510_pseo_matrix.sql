@@ -45,10 +45,9 @@ CREATE INDEX IF NOT EXISTS idx_pseo_org
   WHERE deleted_at IS NULL;
 
 -- Feature flag seed (enabled=0, rollout=0, stage='experimental')
-INSERT OR IGNORE INTO feature_flags (key, description, enabled_globally, rollout_pct)
-VALUES (
-  'pseo_matrix_builder',
-  'pSEO matrix builder: generates service×city×intent×season pages per site. Admin promotes from /admin/pseo.',
-  0,
-  0
-);
+-- fire-61 reconcile (2026-10-01): INSERT rewritten to the PROD feature_flags
+-- shape (id, org_id, flag_name, enabled, metadata_json). The legacy column set
+-- this file originally targeted never existed in production.
+INSERT OR IGNORE INTO feature_flags (id, org_id, flag_name, enabled, metadata_json)
+VALUES ('flag_pseo_matrix_builder', NULL, 'pseo_matrix_builder', 0,
+  '{"stage":"experimental","rollout_percent":0,"description":"pSEO matrix builder: generates service×city×intent×season pages per site. Admin promotes from /admin/pseo.","owner_email":"brian@megabyte.space"}');

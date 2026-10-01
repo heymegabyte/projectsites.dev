@@ -39,10 +39,9 @@ CREATE INDEX IF NOT EXISTS idx_changeset_files_changeset_id
   ON changeset_files(changeset_id);
 
 -- Feature flag seed (enabled=0, rollout=0, stage='experimental')
-INSERT OR IGNORE INTO feature_flags (key, description, enabled_globally, rollout_pct)
-VALUES (
-  'conversational_editing',
-  'Natural-language site editing with reversible, parent-chained changesets. Undo is forward-only; history is preserved.',
-  0,
-  0
-);
+-- fire-61 reconcile (2026-10-01): INSERT rewritten to the PROD feature_flags
+-- shape (id, org_id, flag_name, enabled, metadata_json). The legacy column set
+-- this file originally targeted never existed in production.
+INSERT OR IGNORE INTO feature_flags (id, org_id, flag_name, enabled, metadata_json)
+VALUES ('flag_conversational_editing', NULL, 'conversational_editing', 0,
+  '{"stage":"experimental","rollout_percent":0,"description":"Natural-language site editing with reversible, parent-chained changesets. Undo is forward-only; history is preserved.","owner_email":"brian@megabyte.space"}');

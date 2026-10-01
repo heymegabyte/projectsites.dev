@@ -6,8 +6,11 @@ CREATE INDEX IF NOT EXISTS idx_payments_rail_events_org
 CREATE INDEX IF NOT EXISTS idx_storefront_products_org_site
   ON storefront_products(org_id, site_id);
 
-CREATE INDEX IF NOT EXISTS idx_booking_slots_org_site_start
-  ON booking_slots(org_id, site_id, start_at);
+-- fire-61 reconcile (2026-10-01): RETIRED - prod's booking_slots has NO org_id
+-- column (shape: id, site_id, start_at, end_at, capacity, booked_count,
+-- price_cents, status), so this index can never apply there.
+-- CREATE INDEX IF NOT EXISTS idx_booking_slots_org_site_start
+--   ON booking_slots(org_id, site_id, start_at);
 
 CREATE INDEX IF NOT EXISTS idx_booking_appointments_slot
   ON booking_appointments(slot_id);

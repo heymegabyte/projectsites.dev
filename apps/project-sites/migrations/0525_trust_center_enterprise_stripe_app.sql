@@ -48,13 +48,12 @@ CREATE INDEX IF NOT EXISTS idx_trust_profiles_site
   WHERE deleted_at IS NULL AND site_id IS NOT NULL;
 
 -- Feature flag seed
-INSERT OR IGNORE INTO feature_flags (key, description, enabled_globally, rollout_pct)
-VALUES (
-  'trust_center',
-  'Per-org and per-published-site Trust Center: AI models used, content provenance, audit log, data residency, AI outage fallback. EU AI Act high-risk obligations (Aug 2 2026).',
-  0,
-  0
-);
+-- fire-61 reconcile (2026-10-01): INSERT rewritten to the PROD feature_flags
+-- shape (id, org_id, flag_name, enabled, metadata_json). The legacy column set
+-- this file originally targeted never existed in production.
+INSERT OR IGNORE INTO feature_flags (id, org_id, flag_name, enabled, metadata_json)
+VALUES ('flag_trust_center', NULL, 'trust_center', 0,
+  '{"stage":"experimental","rollout_percent":0,"description":"Per-org and per-published-site Trust Center: AI models used, content provenance, audit log, data residency, AI outage fallback. EU AI Act high-risk obligations (Aug 2 2026).","owner_email":"brian@megabyte.space"}');
 
 -- ─── 2. Enterprise Plan ──────────────────────────────────────────────────────
 
@@ -116,13 +115,12 @@ CREATE TABLE IF NOT EXISTS enterprise_audit_exports (
 CREATE INDEX IF NOT EXISTS idx_enterprise_audit_exports_org
   ON enterprise_audit_exports(org_id, created_at DESC);
 
-INSERT OR IGNORE INTO feature_flags (key, description, enabled_globally, rollout_pct)
-VALUES (
-  'enterprise_plan',
-  'Enterprise plan ($500-$2000/mo): Cloudflare Access SSO (SAML/OIDC), 99.9% SLA monitoring, audit-log export, custom terms, dedicated Slack. Requires Brian to provision Stripe products + Access SSO before promotion.',
-  0,
-  0
-);
+-- fire-61 reconcile (2026-10-01): INSERT rewritten to the PROD feature_flags
+-- shape (id, org_id, flag_name, enabled, metadata_json). The legacy column set
+-- this file originally targeted never existed in production.
+INSERT OR IGNORE INTO feature_flags (id, org_id, flag_name, enabled, metadata_json)
+VALUES ('flag_enterprise_plan', NULL, 'enterprise_plan', 0,
+  '{"stage":"experimental","rollout_percent":0,"description":"Enterprise plan ($500-$2000/mo): Cloudflare Access SSO (SAML/OIDC), 99.9% SLA monitoring, audit-log export, custom terms, dedicated Slack. Requires Brian to provision Stripe products + Access SSO before promotion.","owner_email":"brian@megabyte.space"}');
 
 -- ─── 3. Stripe App Marketplace install analytics ─────────────────────────────
 
@@ -149,10 +147,9 @@ CREATE INDEX IF NOT EXISTS idx_stripe_app_install_status
   ON stripe_app_installations(status)
   WHERE deleted_at IS NULL;
 
-INSERT OR IGNORE INTO feature_flags (key, description, enabled_globally, rollout_pct)
-VALUES (
-  'stripe_app_status',
-  'Admin dashboard for Stripe App Marketplace installs. The growth agent owns the manifest; this surface backs /admin/stripe-app-status with install analytics + lifecycle events.',
-  0,
-  0
-);
+-- fire-61 reconcile (2026-10-01): INSERT rewritten to the PROD feature_flags
+-- shape (id, org_id, flag_name, enabled, metadata_json). The legacy column set
+-- this file originally targeted never existed in production.
+INSERT OR IGNORE INTO feature_flags (id, org_id, flag_name, enabled, metadata_json)
+VALUES ('flag_stripe_app_status', NULL, 'stripe_app_status', 0,
+  '{"stage":"experimental","rollout_percent":0,"description":"Admin dashboard for Stripe App Marketplace installs. The growth agent owns the manifest; this surface backs /admin/stripe-app-status with install analytics + lifecycle events.","owner_email":"brian@megabyte.space"}');

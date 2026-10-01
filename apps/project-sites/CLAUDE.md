@@ -724,7 +724,7 @@ All tables have: `id` (UUID), `created_at`, `updated_at`, `deleted_at` (soft del
 Org-scoped tables include `org_id`.
 
 **Core**: `orgs`, `users`, `memberships`, `sites`, `hostnames`
-**Auth**: `sessions`, `magic_links`, `oauth_states` (`phone_otps` dropped in migration `0516_drop_phone_otps.sql` — phone feature removed)
+**Auth**: `sessions`, `magic_links`, `oauth_states` (`phone_otps` is an INERT ORPHAN — phone feature removed; the 0516 drop never ran on prod and was retired to a tracked no-op in the fire-61 reconcile, see `docs/migrations-reconcile-2026-10.md`)
 **Billing**: `subscriptions`
 **Infra**: `webhook_events`, `audit_logs`, `workflow_jobs`
 **AI**: `research_data`, `confidence_attributes`
