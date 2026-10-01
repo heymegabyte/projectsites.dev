@@ -8,8 +8,14 @@
  * the NEXT scheduled fire either waits/coalesces (exit 3 = "live fire running,
  * skip this tick") or reclaims a STALE lease (prior lead died mid-fire).
  *
- * Same lease semantics as the Long-Trail case-owner checkpoint: a lease is
- * LIVE when its heartbeat is younger than STALE_MS (default 20 min).
+ * A lease is LIVE when its heartbeat is younger than STALE_MS (default 20 min)
+ * AND it was claimed less than MAX_AGE_MS ago (default 90 min). The age ceiling
+ * defeats the ZOMBIE-HEARTBEAT DEADLOCK: a dead lead's detached
+ * `while true; heartbeat; sleep` loop can refresh the heartbeat forever and
+ * wedge every future tick into coalescing — but it CANNOT hold the lease past
+ * MAX_AGE_MS (fire-66 reclaimed exactly such a zombie: owner PID dead, lease
+ * fresh). DOCTRINE: heartbeat INLINE per phase — NEVER background a detached
+ * heartbeat loop; it outlives its fire. This cap is the backstop, not the cure.
  *
  * Usage (from repo root; the loop command runs claim FIRST, release LAST):
  *   node scripts/loop-fire-lock.mjs claim <fireId>    # exit 0 claimed · 3 busy
@@ -24,6 +30,9 @@ import { dirname, resolve } from 'node:path';
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const LOCK_PATH = resolve(__dirname, '../.claude/run-the-loop/.fire-lease.json');
 const STALE_MS = parseInt(process.env.FIRE_LEASE_STALE_MS || String(20 * 60 * 1000), 10);
+// Hard ceiling on how long ANY single lease can be held, independent of
+// heartbeat freshness — the zombie-heartbeat backstop (see header).
+const MAX_AGE_MS = parseInt(process.env.FIRE_LEASE_MAX_AGE_MS || String(90 * 60 * 1000), 10);
 
 const [, , cmd, fireId] = process.argv;
 
@@ -37,7 +46,11 @@ function readLease() {
 }
 
 function isLive(lease) {
-  return !!lease && Date.now() - new Date(lease.heartbeat).getTime() < STALE_MS;
+  if (!lease) return false;
+  const now = Date.now();
+  const heartbeatFresh = now - new Date(lease.heartbeat).getTime() < STALE_MS;
+  const withinMaxAge = now - new Date(lease.claimedAt).getTime() < MAX_AGE_MS;
+  return heartbeatFresh && withinMaxAge;
 }
 
 function write(lease) {
@@ -90,7 +103,14 @@ switch (cmd) {
   }
   case 'status': {
     const lease = readLease();
-    console.warn(JSON.stringify({ lease, live: isLive(lease), stalenessMs: STALE_MS }, null, 2));
+    const ageMs = lease ? Date.now() - new Date(lease.claimedAt).getTime() : null;
+    console.warn(
+      JSON.stringify(
+        { lease, live: isLive(lease), ageMs, stalenessMs: STALE_MS, maxAgeMs: MAX_AGE_MS },
+        null,
+        2,
+      ),
+    );
     process.exit(0);
   }
   default:
