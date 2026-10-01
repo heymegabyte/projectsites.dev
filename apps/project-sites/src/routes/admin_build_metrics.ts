@@ -44,7 +44,11 @@ import { z } from 'zod';
 
 import type { Env, Variables } from '../types/env.js';
 
-import { BuildOutcomeSchema, BuildPhaseSchema, type BuildPhase } from '../services/build_metrics.js';
+import {
+  BuildOutcomeSchema,
+  BuildPhaseSchema,
+  type BuildPhase,
+} from '../services/build_metrics.js';
 import { dbQuery } from '../services/db.js';
 import { isSuperAdmin } from '../services/sysadmin.js';
 
@@ -53,9 +57,7 @@ function errorBody(code: string, message: string, requestId: string | undefined)
   return { error: { code, message, request_id: requestId ?? null } };
 }
 
-const QuerySchema = z
-  .object({ days: z.coerce.number().int().min(1).max(365).optional() })
-  .strip();
+const QuerySchema = z.object({ days: z.coerce.number().int().min(1).max(365).optional() }).strip();
 
 /** Default rollup window when `?days` is omitted. */
 const DEFAULT_WINDOW_DAYS = 30;
@@ -181,9 +183,7 @@ export async function computeBuildMetricsSummary(
 
   const phases = BuildPhaseSchema.options;
   const phaseValues = await Promise.all(
-    phases.map((phase) =>
-      sqlPercentile(env.DB, PHASE_EXPR[phase], speedWhere, speedParams, 0.5),
-    ),
+    phases.map((phase) => sqlPercentile(env.DB, PHASE_EXPR[phase], speedWhere, speedParams, 0.5)),
   );
   const phaseP50 = Object.fromEntries(phases.map((phase, i) => [phase, phaseValues[i]])) as Record<
     BuildPhase,
@@ -239,9 +239,6 @@ adminBuildMetrics.get('/api/admin/build-metrics/summary', async (c) => {
     return c.json(errorBody('VALIDATION_ERROR', 'Invalid query', requestId), 400);
   }
 
-  const summary = await computeBuildMetricsSummary(
-    c.env,
-    parsed.data.days ?? DEFAULT_WINDOW_DAYS,
-  );
+  const summary = await computeBuildMetricsSummary(c.env, parsed.data.days ?? DEFAULT_WINDOW_DAYS);
   return c.json(summary, 200);
 });
