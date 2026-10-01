@@ -91,9 +91,14 @@ contactNewsletter.post('/api/contact-form/:slug', async (c) => {
     // are best-effort DELIVERY on top; a real submission must never be lost to an
     // email misconfig or provider failure. Error-checked → never a lying-success;
     // failure logs, never throws (the submitter's response is unaffected).
+    // UPSERT, not blind insert (fire-61): `contacts` dedupes on (org_id,
+    // lower(email)), so a REPEAT submitter must UPDATE the existing identity
+    // (latest message + advanced last_seen_at) instead of silently dying on the
+    // unique index. Locked by src/__tests__/contacts_upsert.test.ts.
     if (site.org_id) {
       const { dbInsert } = await import('../../../src/services/db.js');
-      const { error: contactErr } = await dbInsert(c.env.DB, 'contacts', {
+      const { upsertContact } = await import('../../../src/services/contacts.js');
+      const { error: contactErr } = await upsertContact(c.env.DB, {
         id: crypto.randomUUID(),
         org_id: site.org_id,
         site_id: site.id,

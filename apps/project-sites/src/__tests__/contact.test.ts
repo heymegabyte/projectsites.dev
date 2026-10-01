@@ -10,13 +10,15 @@ jest.mock('../services/email_deliverability.js', () => ({
 import { hasDeliverableMx } from '../services/email_deliverability.js';
 const mockHasDeliverableMx = hasDeliverableMx as unknown as jest.Mock;
 
-// Persistence is the PRIMARY lead-capture channel — mock db.js so each test
-// controls whether the `contacts` INSERT succeeds. Global `jest` for @swc hoisting.
-jest.mock('../services/db.js', () => ({
-  dbInsert: jest.fn(async () => ({ error: null })),
+// Persistence is the PRIMARY lead-capture channel — mock the contacts UPSERT seam
+// (fire-61: the handler moved from a blind dbInsert to upsertContact, which honors
+// the (org_id, lower(email)) dedupe) so each test controls whether the CRM write
+// succeeds. Global `jest` for @swc hoisting.
+jest.mock('../services/contacts.js', () => ({
+  upsertContact: jest.fn(async () => ({ error: null })),
 }));
-import { dbInsert } from '../services/db.js';
-const mockDbInsert = dbInsert as unknown as jest.Mock;
+import { upsertContact } from '../services/contacts.js';
+const mockUpsertContact = upsertContact as unknown as jest.Mock;
 
 // Resend removed 2026-09-09 (Brian directive): Amazon SES is PRIMARY, SendGrid is the
 // break-glass fallback. With no AWS creds set, sendEmail() falls straight through to the
@@ -33,8 +35,8 @@ beforeEach(() => {
   jest.clearAllMocks();
   // Reset persist to success each test (clearAllMocks does NOT restore the impl,
   // and a leaked mockResolvedValueOnce survives it — per the iter-108 harness trap).
-  mockDbInsert.mockReset();
-  mockDbInsert.mockResolvedValue({ error: null });
+  mockUpsertContact.mockReset();
+  mockUpsertContact.mockResolvedValue({ error: null });
   global.fetch = mockFetch.mockResolvedValue(
     new Response(JSON.stringify({ id: 'mock-msg-id' }), {
       status: 200,
@@ -282,7 +284,7 @@ describe('handleContactForm – email providers', () => {
         message: 'Testing no provider configured.',
       }),
     ).resolves.toBeUndefined();
-    expect(mockDbInsert.mock.calls[0][1]).toBe('contacts');
+    expect(mockUpsertContact).toHaveBeenCalledTimes(1); // the CRM upsert ran
   });
 
   it('still succeeds when both email providers fail — the lead persists to D1', async () => {
@@ -421,9 +423,8 @@ describe('handleContactForm – lead persistence (never lose a lead)', () => {
 
   it('persists the lead to the contacts CRM table BEFORE emailing (never email-only)', async () => {
     await handleContactForm(mockEnv, validInput);
-    expect(mockDbInsert).toHaveBeenCalledTimes(1);
-    const [, table, row] = mockDbInsert.mock.calls[0];
-    expect(table).toBe('contacts');
+    expect(mockUpsertContact).toHaveBeenCalledTimes(1);
+    const [, row] = mockUpsertContact.mock.calls[0];
     expect(row.name).toBe('Lead Person');
     expect(row.email).toBe('lead@example.com');
     // Org-less endpoint → the seeded `system` sentinel org, no owning site.
@@ -436,16 +437,16 @@ describe('handleContactForm – lead persistence (never lose a lead)', () => {
     // Persist OK; all email sends 500. The old email-only handler THREW here →
     // the visitor errored and the lead was lost. Now the lead is in D1, so the
     // handler resolves and the visitor sees success.
-    mockDbInsert.mockResolvedValueOnce({ error: null });
+    mockUpsertContact.mockResolvedValueOnce({ error: null });
     mockFetch.mockResolvedValue(new Response('err', { status: 500 }));
     await expect(handleContactForm(mockEnv, validInput)).resolves.toBeUndefined();
-    expect(mockDbInsert).toHaveBeenCalledTimes(1);
+    expect(mockUpsertContact).toHaveBeenCalledTimes(1);
   });
 
   it('throws ONLY when the lead is captured NOWHERE (D1 drop AND email failure)', async () => {
     // Full outage: the persist drops AND every email rail fails → honest 5xx so
     // the visitor retries (never a lying success that silently drops the lead).
-    mockDbInsert.mockResolvedValueOnce({ error: 'D1_ERROR: disk I/O' });
+    mockUpsertContact.mockResolvedValueOnce({ error: 'D1_ERROR: disk I/O' });
     mockFetch.mockResolvedValue(new Response('err', { status: 500 }));
     await expect(handleContactForm(mockEnv, validInput)).rejects.toThrow();
   });
@@ -471,7 +472,7 @@ describe('handleContactForm – capture outcome observability (AL-836)', () => {
   });
 
   it('logs lead_capture_degraded (warn, email_only) when the CRM write drops but email carries the lead', async () => {
-    mockDbInsert.mockResolvedValueOnce({ error: 'D1_ERROR: write dropped' }); // persisted=false
+    mockUpsertContact.mockResolvedValueOnce({ error: 'D1_ERROR: write dropped' }); // persisted=false
     const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {});
     await handleContactForm(mockEnv, input); // email still succeeds → notified=true → degraded (no throw)
     const logged = warnSpy.mock.calls.map((c) => String(c[0])).join('\n');

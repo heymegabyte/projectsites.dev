@@ -11,6 +11,13 @@ jest.mock('../services/db.js', () => ({
   dbExecute: jest.fn().mockResolvedValue({ error: null, changes: 1 }),
 }));
 
+// fire-61: handleContactForm persists leads through the contacts UPSERT seam
+// (dedupe-honoring) instead of a blind dbInsert — mock it to succeed so the
+// /api/contact tests exercise the email rails atop a healthy CRM write.
+jest.mock('../services/contacts.js', () => ({
+  upsertContact: jest.fn().mockResolvedValue({ error: null }),
+}));
+
 jest.mock('../services/audit.js', () => ({
   writeAuditLog: jest.fn().mockResolvedValue(undefined),
 }));
