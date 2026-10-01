@@ -25,6 +25,7 @@ Golden paths are executable product design: long, stateful user journeys written
 - **Visual evidence:** steps 4 (results), 12 (stream mid-flight), 17 (live hero), 23 (share moment).
 - **CAPABILITY GAP:** post-publish share moment (one-click copy + rendered OG-card preview) is not a first-class screen.
 - **CAPABILITY GAP:** dedupe guard before build (same business re-searched must resume, not duplicate).
+- **CAPABILITY GAP (fire-61):** served sites hardwire PROD absolute origins into the client plumbing — `site_serving.ts:1859` injects `<script src="https://projectsites.dev/app.js">`, the unified client's `API` defaults to prod, and the inline tracker beacons prod `/api/events` — so a LOCAL/preview composition leaks real traffic to prod unless shimmed (long-trail Phase E proxies the whole prod origin). Close by injecting `data-api` (+ a same-origin app.js src) derived from the serving host.
 
 ### gp-02-editor-database-deep — "Own your data without leaving the editor" (constitution's canonical example)
 - **Persona:** Sam, technical-ish owner. **Goal:** inspect + edit the site's OWN database confidently.
@@ -47,7 +48,7 @@ Golden paths are executable product design: long, stateful user journeys written
 
 ### gp-04-analytics-truth — "The dashboard never lies" (causal reconciliation)
 - **Persona:** owner checking "did anyone visit?". **Goal:** a real visit provably appears; display == authoritative store.
-- **Status:** RUNNABLE (reconciler exists; causal loop partially codified). **Binds:** `admin-verify/reconcile-surfaces.mjs` + `admin-analytics-journey.spec.ts`.
+- **Status:** RUNNABLE (reconciler exists; causal loop CODIFIED LOCALLY fire-61 — long-trail Phase E drives visit→`visitor_events` delta→Analytics display (23 views reconciled) + form submit→`form_submissions`/`contacts`→Forms inbox detail, all store-anchored). **Binds:** `admin-verify/reconcile-surfaces.mjs` + `admin-analytics-journey.spec.ts` + `long-trail/case-001-money-path.e2e.ts` Phase E.
 - **Steps (18):** (1-3) sign in → note current pageview count for the site → open analytics → (4-8) second browser context (clean, no auth) → visit own published site → browse 3 distinct routes → trigger beacon events → close → (9-12) ground truth: D1 `visitor_events` count incremented by the exact visit set (SELECT as the real org) → (13-16) admin analytics self-updates (visibility-aware poll — NO manual refresh control) → count reflects the visit within the freshness SLA → per-route drill-down lists the exact routes visited → (17-18) divergence classifier: groundTruth>0 && display==0 ⇒ LYING-EMPTY, counts differ ⇒ WRONG-SOURCE — either fails the path.
 - **Surfaces:** published site, beacon pipeline, D1 visitor_events, admin analytics (edge vs beacon dual-source).
 - **Visual evidence:** steps 3 (before), 15 (after — count moved), 16 (route drill-down).
@@ -148,7 +149,8 @@ Golden paths are executable product design: long, stateful user journeys written
   allocated resource NAMED (0 "unknown" rows) → record wall-clock + $-per-build →
   frontier-vision QA ≥8/10 (Anthropic vision or Unified-Billing OpenAI — never Workers-AI
   for this gate) → public share-link only after hard gates (owner-draft/public-gated).
-- **Status:** RUNNABLE (cycle-1 complete 2026-10-01; WebGL gate still open — see receipt).
+- **Status:** RUNNABLE (cycle-2 complete 2026-10-01 — slug restored via `preferred_slug`;
+  WebGL gate + vision ≥8 gate still open; purge fail-soft defect recorded — see receipts).
 - **CAPABILITY GAPS:** ~~full-teardown delete path~~ (SHIPPED cycle-1: `purge_resources` opt-in);
   ~~per-cycle build-cost metering~~ (build_metrics live: total/phase/cost — container-internal
   TOKEN metering still absent, `tokens_in/out=0`); resources panel ground-truth reconciler;
@@ -203,3 +205,51 @@ Golden paths are executable product design: long, stateful user journeys written
      digest-separator replaced with the backslash-u0000 escape — identical runtime string/digest; file no longer binary-classified (was grep-blind).
 - **Deploys:** worker `080e88c8` (purge) → fixture cycle ran → worker `1e718ac2`
   (preferred_slug), both `--env production`, prod-verified.
+
+### gp-09 cycle-2 receipt (2026-10-01, fire-62 gp-09 operator)
+
+- **Fixture:** slug `lone-mountain` (siteId `d31f404b-…`, verified before firing) → destroyed →
+  re-created as **`lone-mountain-global`** (siteId `8ebf551b-272d-4abc-a15f-386f69c22ea5`).
+  **Canonical slug RESTORED** — `preferred_slug` honored verbatim, no `-N` suffix. Worker live
+  `488ea3e4` (16:42Z deploy, bundle-verified to carry purge + preferred_slug).
+- **DELETE ANOMALY (new defect class, recorded not patched):** first DELETE 18:16:31Z returned
+  200 `deleted:true` in 0.6s but **purge silently SKIPPED** — no `purge` key in response/audit,
+  slug not freed. Root-caused by elimination: live bundle has the wiring (grep-verified);
+  identical curl shape purged a throwaway draft probe (`gp09-probe-c2`, 18:22:31Z) perfectly;
+  middlewares don't consume bodies. Verdict: one-off body loss swallowed by
+  `c.req.json().catch(() => ({}))` — **the explicit destructive opt-in silently downgraded to a
+  plain archive**. Fail-soft masks intent-loss; handler should echo a `purge_requested`/parse
+  honesty field so a lost body is visible. Recovered via shipped path: re-armed row
+  (deleted_at=NULL) → re-DELETE 18:23:13Z → full purge in **4.9s**.
+- **Teardown verdicts (CF ground truth, 18:24Z):** 68 R2 version-tree objects deleted (prefix
+  lists EMPTY) · dedicated D1 `6dda15f1…` CF-404 · KV skipped_absent (never allocated — lazy) ·
+  0 dedicated buckets · WfP slots 2 deleted · allocation + 2 registry rows retired · host key
+  cleared · slug freed (`lone-mountain--purged-mupv47aq`) · both public URLs 404 · admin list empty.
+- **Timings:** delete(effective)+purge **4.9s** (c1: 11s) · create POST 18:23:52Z → `published`
+  18:29:20.616Z = **5m26s** (c1: 4m42s, **+16%**) · delete→live-again **6m16s** (c1: 5m29s).
+- **build_metrics (north-star datapoint #2):** build_id `8ebf551b…` · total_ms **326,223**
+  (c1: 279,242, +16.8%) · phase_ms collecting 5,227 / generating 268,508 / imaging 0 /
+  publishing 52,488 · container_ms 227,000 · **est_cost_usd 0.0757** (c1: 0.071, +6.6%) ·
+  tokens 0/0 — container-internal metering still absent; **no `usage_source` column exists**.
+  Readiness C (72/100), 2 validation errors + 4 warnings (report mode).
+- **Rebuild verdicts:** public 200 · exactly 1 H1 · 0 `{TOKEN}` leftovers · **0 console errors
+  BOTH viewports** (c1 had the `/logo-icon.png` 404 — did NOT recur; icon + wordmark images
+  load) · 18/18 images load after lazy-load settle · no mobile overflow @390 · authed
+  resources: **4 named rows (d1 + r2 + wfp_worker + routing), 0 unknowns**; per-site D1
+  `9932bc86…` appeared only after one Data-tab GET — eager-provision parity gap persists.
+- **WebGL verdict (honest):** hero **ABSENT**. Classified into the generic **local-service**
+  pack (category null; pack-default H1 proves it). Only hvac / personal-injury-law / nonprofit
+  carry webgl blocks. Live DOM: one hidden 300×150 webgl feature-probe canvas + a 2D
+  `ps-particle-field` — no WebGL hero pixels. **CAPABILITY GAP stands: wire webgl blocks into
+  remaining vertical.json packs** (local-service first — it's the default sink).
+- **Vision QA (Anthropic vision, desktop+mobile): 7/10** (c1: 7.5, **−0.5**). Critique:
+  (1) structure polished — gradient display H1, trust chips, Cmd+K, dual CTAs, clean mobile
+  stack, 0 errors; (2) brand surface regressed where it should have won — wordmark renders
+  near-black-on-dark with a garbled letterspaced "GLOBAL" glyph row (illegible), red eyebrow +
+  dim nav links fail AA contrast; (3) content misframe persists — pack-default H1 + irrelevant
+  gift-shop stock hero for a "Global" trade name ([H1pac] + stock-relevance classes unchanged).
+- **Gaps carried:** webgl pack coverage · container token metering (`tokens 0/0`) ·
+  eager per-site D1 provisioning on create · [H1pac] pack-default hero copy · stock-photo
+  relevance. **New:** purge opt-in fail-soft (above) · wordmark dark-on-dark legibility.
+- **No code edits, no commits, no deploys** (cycle was recoverable via shipped surface; defect
+  recorded for the next fire's lane).
