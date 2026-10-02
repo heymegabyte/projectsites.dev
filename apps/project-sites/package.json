@@ -65,6 +65,7 @@
     "audit:flag-registration": "node scripts/audit-flag-registration.mjs",
     "check:fabricated-people": "node scripts/validate-no-fabricated-people.mjs",
     "check:dead-toggle": "node scripts/check-dead-toggle-state.mjs --ci",
+    "check:safe-fetch": "node scripts/check-safe-fetch-redirect.mjs",
     "test:scripts": "node --test scripts/__tests__/validate_no_fabricated_people.test.mjs scripts/__tests__/check_hardcoded_admin_email.test.mjs scripts/__tests__/check_local_error_helpers.test.mjs scripts/__tests__/check_duplicate_routes.test.mjs scripts/__tests__/check_status_sweep_no_retry.test.mjs scripts/__tests__/check_system_org_seed.test.mjs scripts/__tests__/check_trialing_drift.test.mjs scripts/__tests__/check_body_fk_write.test.mjs",
     "knip": "npx --yes knip --no-progress",
     "knip:report": "npx --yes knip --no-progress --reporter compact || true"

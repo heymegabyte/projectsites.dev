@@ -839,13 +839,14 @@ mediaAi.post('/api/ai/discover-images', async (c) => {
           // SSRF defense-in-depth: these candidate URLs come from image-search
           // providers, not the user — but guard anyway so a compromised/poisoned
           // provider response can't make us HEAD a private/loopback/metadata host.
+          // safeFetch re-validates the initial URL AND every redirect hop (forces
+          // redirect:'manual'); a raw fetch+redirect:'follow' here was the one sibling
+          // the fire-75 safeFetch migration missed (a 302→internal-host SSRF oracle).
           if (!isProxyableImageUrl(item.url)) return;
           try {
-            const r = await fetch(item.url, {
-              method: 'HEAD',
-              headers: { 'User-Agent': 'Mozilla/5.0 (compatible; ProjectSites/1.0)' },
-              redirect: 'follow',
-            });
+            const r = (await safeFetch(item.url, {
+              init: { method: 'HEAD', headers: { 'User-Agent': 'Mozilla/5.0 (compatible; ProjectSites/1.0)' } },
+            })) as unknown as Response;
             const ct = r.headers.get('content-type') || '';
             const cl = parseInt(r.headers.get('content-length') || '0');
             if (r.ok && ct.startsWith('image/') && (cl === 0 || cl > 20000)) validated.push(item);
