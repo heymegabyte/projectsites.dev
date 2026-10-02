@@ -230,3 +230,26 @@ Make autonomy legible; reuse the explorer's artifact shape as the org-wide stand
 and it composes entirely from primitives that already run in production (gateway, ai_crypto, R2
 org prefixes, audit_logs, flags), so it ships dark behind `browser_profile_vault` with zero new
 vendors, zero new keys, and no UI dependency. Slices 2-3 then make it visible and human-steerable.
+
+---
+
+## fire-90 additions — 2026-10-02 (from ai-browser-headless-addendum)
+
+These sharpen four mechanisms this doc already sketched; the rest of the addendum was already covered.
+
+- **Freeze-profile via Browserbase `live_view`.** The §4 Freeze flow's human-sign-in step uses the
+  Browserbase `live_view` specialty as its sanctioned path (the human watches + signs in live, then
+  `context.storageState()` is captured) — `live_view` is already the gateway's sanctioned premium use.
+- **Interactive overlay enforced by a SERVER-SIDE lease (not UI-only).** The watch / take-control /
+  resume / pause overlay's AI-vs-human mutual-exclusion is enforced by a SERVER-SIDE lease, never a
+  UI flag: a human "take control" acquires the lease and the AI session BLOCKS AT THE SERVER until it
+  is released (and vice-versa). This is the enforcement teeth §6's "live view + takeover" row lacked.
+- **Profile-scoped domain-allowlist FAIL-CLOSED interception at CONTEXT CREATION.** §5's domain scoping
+  is mechanical AND installed at `newContext(...)` time: route/request interception blocks every
+  navigation + request outside `domains_json` (fail-closed — unlisted = blocked), not an advisory
+  check mid-run. The allowlist is wired when the context is minted so an out-of-allowlist URL never
+  loads even on the first navigation.
+- **Per-run manifest + per-state screenshot timeline to R2 `browser-runs/{orgId}/{runId}/`.** Every
+  run writes a manifest carrying provider + autonomy-level + step list + timings, plus a
+  `NN-<state>.png` screenshot per meaningful state, to the org-prefixed R2 path (the §6 artifact shape
+  made mandatory per-run and the fire-90 acceptance anchor for BRW-RUN-MANIFEST).
