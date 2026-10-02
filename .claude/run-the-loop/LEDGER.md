@@ -11,6 +11,9 @@
 
 ---
 
+## fire-70-convergence (2026-10-01)
+- Backlog-hygiene fire: roles append their closed slices here (newest-first).
+
 ### 2026-10-01 · fire-63 — destructive-opt-in silent-downgrade fix (correctness slice)
 - **Frontier-0 closed:** `DELETE /api/sites/:id` `purge_resources` opt-in no longer silently downgrades on a lost/garbled body. Was `const body = await c.req.json().catch(() => ({}))` → a malformed/non-object body became `{}` → `purge_resources` undefined → irreversible teardown SKIPPED while the delete still 200'd. Now `.catch(() => null)` + null/non-object/array guard → `throw badRequest('Request body must be a JSON object')` (400, `BAD_REQUEST` envelope). Mirrors the PATCH `/api/sites/:id` fix; the valid empty-`{}` no-op stays 200.
 - **Asserable effect:** a successful purge now echoes `{ purged: <number> }` (R2 version objects + dedicated D1 + KV + buckets torn down) so a caller can assert the destructive action actually ran, not just that it 200'd.

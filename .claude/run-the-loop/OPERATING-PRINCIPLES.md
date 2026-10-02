@@ -272,6 +272,10 @@
   to a fresh Explore agent (≤150-line cap).
 - Auto-integrate-recs — anything <2h with no design call ships INLINE; the Recs list is only
   for genuine >2h / design-conversation / external-blocker / irreversible items.
+- Backlog-hygiene — a replenished frontier item promoted to a LEAD/North-Star priority MUST
+  carry file:line (or store/query) evidence of the gap; a vision/discovery HYPOTHESIS stays a
+  candidate (not a frontier lead) until a scout confirms it against code or data. Fire-70: the
+  'WebGL gap' lead was a phantom with no pipeline evidence.
 
 ## Failure taxonomy vs HARD-STOP (recover vs checkpoint — never conflate)
 
