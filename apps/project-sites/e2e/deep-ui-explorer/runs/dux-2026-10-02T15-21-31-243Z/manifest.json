@@ -1,0 +1,300 @@
+{
+  "runId": "dux-2026-10-02T15-21-31-243Z",
+  "origin": "https://projectsites.dev",
+  "viewport": {
+    "width": 1440,
+    "height": 900
+  },
+  "startedAt": "2026-10-02T15:21:31.244Z",
+  "provider": "cloudflare-browser-run",
+  "providerCoverage": "CLOUD_PASS_ELIGIBLE",
+  "sessionId": "cf-browser-run:84fa0d1b…:dux-2026-10-02T15-21-31-243Z",
+  "identity": {
+    "status": 200,
+    "email": "brian@megabyte.space",
+    "orgId": "org-brian-001",
+    "isSuperAdmin": true,
+    "orgName": "Brian Z",
+    "expectedEmail": "brian@megabyte.space"
+  },
+  "deepPath": "homepage → sign-in → /admin → Editor → Database → Tables → Actions → History",
+  "status": "PASS_CLOUDFLARE",
+  "blocked": [],
+  "states": [
+    {
+      "id": 1,
+      "key": "/::public-home::::d05f796d",
+      "prevId": null,
+      "action": "homepage loads (initial state)",
+      "url": "https://projectsites.dev/",
+      "title": "ProjectSites — AI Website Builder, Live in 4 Minutes",
+      "coords": {
+        "route": "/",
+        "surface": "public-home"
+      },
+      "screenshot": "01-homepage-loads-initial-state.png",
+      "visibleText": "Project Sites builds and deploys complete AI-generated websites for small business in under 15 minutes on Cloudflare Workers. The AI gateway routes each prompt to the right model by complexity — instant responses via Workers AI (free), routine generation via DeepSeek, premium reasoning via Anthropic Claude or OpenAI. Every publish runs an axe-core accessibility gate at six viewports and a Lighthouse Core Web Vitals gate, blocking deploys that fail WCAG 2.2 AA or LCP under 2.5 seconds. Skip to main content Features Pricing FAQ Developers ES Sign In Get Started AI-powered website delivery for local businesses Skip the agency. Ship in 4 minutes. AI builds, optimizes, and ships your business site in the time it takes to drink an espresso. We don't sell websites. We deliver them. Claim Your Site See How It Works View Example Sites your-business.projectsites.dev See the difference Drag the slider to compare a generic small-business site with one built by projectsites.dev. GENERIC COMPETITOR BUILT WITH PROJECTSITES.DEV 2+ Sites Built 99.99% Uptime 4 min Build Time 330+ Edge Locations BUILT ON Cloudflare D1 R2 Workers AI bolt.diy How It Works Three steps to a stunning website 01 Search Fin",
+      "consoleErrors": [],
+      "failedRequests": [
+        "POST https://www.google-analytics.com/g/collect?v=2&tid=G-VBBRRQLDFT&gtm=45je69u2v9243930590za200zb9243917138zd9243917138xf1&_p=1790954494480&gcd=13l3l3l3l1l1&npa=0& :: net::ERR_ABORTED",
+        "POST https://www.google-analytics.com/g/collect?v=2&tid=G-VBBRRQLDFT&gtm=45je69u2v9243930590za200zb9243917138zd9243917138xf1&_p=1790954494480&gcd=13l3l3l3l1l1&npa=0& :: net::ERR_ABORTED"
+      ],
+      "ts": "2026-10-02T15:21:39.536Z"
+    },
+    {
+      "id": 2,
+      "key": "/signin::signin::::576d826f",
+      "prevId": 1,
+      "action": "click Sign In (header) → /signin",
+      "url": "https://projectsites.dev/signin",
+      "title": "Sign In — Manage Your AI Website | ProjectSites",
+      "coords": {
+        "route": "/signin",
+        "surface": "signin"
+      },
+      "screenshot": "02-click-sign-in-header-signin.png",
+      "visibleText": "Project Sites builds and deploys complete AI-generated websites for small business in under 15 minutes on Cloudflare Workers. The AI gateway routes each prompt to the right model by complexity — instant responses via Workers AI (free), routine generation via DeepSeek, premium reasoning via Anthropic Claude or OpenAI. Every publish runs an axe-core accessibility gate at six viewports and a Lighthouse Core Web Vitals gate, blocking deploys that fail WCAG 2.2 AA or LCP under 2.5 seconds. Skip to main content Home Pricing Contact Welcome back Sign in to manage your sites. Email Password Sign in OR Continue with Google Continue with GitHub Email me a magic link Enter your email above to get a passwordless magic link. New here? Create an account",
+      "consoleErrors": [],
+      "failedRequests": [
+        "POST https://www.google-analytics.com/g/collect?v=2&tid=G-VBBRRQLDFT&gtm=45je69u2v9243930590za200zb9243917138zd9243917138xf1&_p=1790954494480&gcd=13l3l3l3l1l1&npa=0& :: net::ERR_ABORTED",
+        "POST https://www.google-analytics.com/g/collect?v=2&tid=G-VBBRRQLDFT&gtm=45je69u2v9243930590za200zb9243917138zd9243917138xf1&_p=1790954494480&gcd=13l3l3l3l1l1&npa=0& :: net::ERR_ABORTED"
+      ],
+      "ts": "2026-10-02T15:21:45.835Z"
+    },
+    {
+      "id": 3,
+      "key": "/signin::signin-test-seam::::02622a42",
+      "prevId": 2,
+      "action": "enter test seam (/signin?test=1) — panel render",
+      "url": "https://projectsites.dev/signin?test=1",
+      "title": "Sign In — Manage Your AI Website | ProjectSites",
+      "coords": {
+        "route": "/signin",
+        "surface": "signin-test-seam"
+      },
+      "screenshot": "03-enter-test-seam-signin-test-1-panel-render.png",
+      "visibleText": "Project Sites builds and deploys complete AI-generated websites for small business in under 15 minutes on Cloudflare Workers. The AI gateway routes each prompt to the right model by complexity — instant responses via Workers AI (free), routine generation via DeepSeek, premium reasoning via Anthropic Claude or OpenAI. Every publish runs an axe-core accessibility gate at six viewports and a Lighthouse Core Web Vitals gate, blocking deploys that fail WCAG 2.2 AA or LCP under 2.5 seconds. Skip to main content Home Pricing Contact Welcome back Sign in to manage your sites. TEST SIGN-IN Sign in (test) Email Password Sign in OR Continue with Google Continue with GitHub Email me a magic link Enter your email above to get a passwordless magic link. New here? Create an account",
+      "consoleErrors": [],
+      "failedRequests": [
+        "POST https://www.google-analytics.com/g/collect?v=2&tid=G-VBBRRQLDFT&gtm=45je69u2v9243930590za208zb9243917138zd9243917138xf1&_p=1790954506021&gcd=13l3l3l3l1l1&npa=0& :: net::ERR_ABORTED",
+        "POST https://www.google-analytics.com/g/collect?v=2&tid=G-VBBRRQLDFT&gtm=45je69u2v9243930590za200zb9243917138zd9243917138xf1&_p=1790954506021&gcd=13l3l3l3l1l1&npa=0& :: net::ERR_ABORTED",
+        "POST https://www.google-analytics.com/g/collect?v=2&tid=G-VBBRRQLDFT&gtm=45je69u2v9243930590za200zb9243917138zd9243917138xf1&_p=1790954506021&gcd=13l3l3l3l1l1&npa=0& :: net::ERR_ABORTED"
+      ],
+      "ts": "2026-10-02T15:21:48.570Z"
+    },
+    {
+      "id": 4,
+      "key": "/admin::admin-dashboard::::fec53253",
+      "prevId": 3,
+      "action": "test login submit → lands /admin",
+      "url": "https://projectsites.dev/admin",
+      "title": "Dashboard · ProjectSites",
+      "coords": {
+        "route": "/admin",
+        "surface": "admin-dashboard"
+      },
+      "screenshot": "04-test-login-submit-lands-admin.png",
+      "visibleText": "Project Sites builds and deploys complete AI-generated websites for small business in under 15 minutes on Cloudflare Workers. The AI gateway routes each prompt to the right model by complexity — instant responses via Workers AI (free), routine generation via DeepSeek, premium reasoning via Anthropic Claude or OpenAI. Every publish runs an axe-core accessibility gate at six viewports and a Lighthouse Core Web Vitals gate, blocking deploys that fail WCAG 2.2 AA or LCP under 2.5 seconds. Skip to main content Dashboard section L Lone Mountain Global LIVE 1 L WORKSPACE Dashboard Sites Editor Snapshots Analytics CAPABILITIES Forms Apps Hosting Features Social Voice OPERATIONS Logs Feature Flags Lead Scanner System Services KV Inspector R2 Inspector Vectorize Inspector Queues Inspector ACCOUNT Docs Settings Super admin lone-mountain-global.projectsites.dev Dashboard ⌘K Actions 6 ? Dashboard GETTING STARTED Finish setting up your site 2/4 Create your first site Publish your site Add a custom domain Add a domain → Invite a teammate or explore AI features Dismiss checklist Operator cockpit LIVE LIVE · FROM YOUR ACCOUNT, AUTO-REFRESHED EVERY 30S — NO REFRESH NEEDED 1 Sites live site published",
+      "consoleErrors": [],
+      "failedRequests": [
+        "POST https://www.google-analytics.com/g/collect?v=2&tid=G-VBBRRQLDFT&gtm=45je69u2v9243930590za200zb9243917138zd9243917138xf1&_p=1790954506021&gcd=13l3l3l3l1l1&npa=0& :: net::ERR_ABORTED"
+      ],
+      "ts": "2026-10-02T15:21:52.286Z"
+    },
+    {
+      "id": 5,
+      "key": "/admin/settings::admin-settings::::61dd00af",
+      "prevId": 4,
+      "action": "nav → Settings (root, General tab)",
+      "url": "https://projectsites.dev/admin/settings",
+      "title": "Settings · ProjectSites",
+      "coords": {
+        "route": "/admin/settings",
+        "surface": "admin-settings",
+        "subview": "general",
+        "overlay": ""
+      },
+      "screenshot": "05-nav-settings-root-general-tab.png",
+      "visibleText": "Project Sites builds and deploys complete AI-generated websites for small business in under 15 minutes on Cloudflare Workers. The AI gateway routes each prompt to the right model by complexity — instant responses via Workers AI (free), routine generation via DeepSeek, premium reasoning via Anthropic Claude or OpenAI. Every publish runs an axe-core accessibility gate at six viewports and a Lighthouse Core Web Vitals gate, blocking deploys that fail WCAG 2.2 AA or LCP under 2.5 seconds. Skip to main content Settings section L Lone Mountain Global LIVE 1 L WORKSPACE Dashboard Sites Editor Snapshots Analytics CAPABILITIES Forms Apps Hosting Features Social Voice OPERATIONS Logs Feature Flags Lead Scanner System Services KV Inspector R2 Inspector Vectorize Inspector Queues Inspector ACCOUNT Docs Settings Super admin lone-mountain-global.projectsites.dev Settings ⌘K Actions 6 ? PROJECT Settings Scoped to Lone Mountain Global · per-project settings. For personal preferences (theme, API keys) see your user settings. General Team AI Chat MCP AI Env Vars Webhooks Email Domains API Tokens General Contact + business identity used by the AI when it builds or refines this site. Brand colours, to",
+      "consoleErrors": [],
+      "failedRequests": [
+        "POST https://www.google-analytics.com/g/collect?v=2&tid=G-VBBRRQLDFT&gtm=45je69u2v9243930590za200zb9243917138zd9243917138xf1&_p=1790954506021&gcd=13l3l3l3l1l1&npa=0& :: net::ERR_ABORTED",
+        "POST https://www.google-analytics.com/g/collect?v=2&tid=G-VBBRRQLDFT&gtm=45je69u2v9243930590za200zb9243917138zd9243917138xf1&_p=1790954506021&gcd=13l3l3l3l1l1&npa=0& :: net::ERR_ABORTED"
+      ],
+      "ts": "2026-10-02T15:21:55.188Z"
+    },
+    {
+      "id": 6,
+      "key": "/admin/settings::admin-settings::::1837dd58",
+      "prevId": 5,
+      "action": "Settings › Team tab — settled panel",
+      "url": "https://projectsites.dev/admin/settings#team",
+      "title": "ProjectSites — AI Website Builder, Live in 4 Minutes",
+      "coords": {
+        "route": "/admin/settings",
+        "surface": "admin-settings",
+        "subview": "team",
+        "overlay": ""
+      },
+      "screenshot": "06-settings-team-tab-settled-panel.png",
+      "visibleText": "Project Sites builds and deploys complete AI-generated websites for small business in under 15 minutes on Cloudflare Workers. The AI gateway routes each prompt to the right model by complexity — instant responses via Workers AI (free), routine generation via DeepSeek, premium reasoning via Anthropic Claude or OpenAI. Every publish runs an axe-core accessibility gate at six viewports and a Lighthouse Core Web Vitals gate, blocking deploys that fail WCAG 2.2 AA or LCP under 2.5 seconds. Skip to main content Settings section L Lone Mountain Global LIVE 1 L WORKSPACE Dashboard Sites Editor Snapshots Analytics CAPABILITIES Forms Apps Hosting Features Social Voice OPERATIONS Logs Feature Flags Lead Scanner System Services KV Inspector R2 Inspector Vectorize Inspector Queues Inspector ACCOUNT Docs Settings Super admin lone-mountain-global.projectsites.dev Settings ⌘K Actions 6 ? PROJECT Settings Scoped to Lone Mountain Global · per-project settings. For personal preferences (theme, API keys) see your user settings. General Team AI Chat MCP AI Env Vars Webhooks Email Domains API Tokens Team members Require Two-Factor Authentication Every member must enroll a TOTP authenticator before signi",
+      "consoleErrors": [],
+      "failedRequests": [
+        "POST https://www.google-analytics.com/g/collect?v=2&tid=G-VBBRRQLDFT&gtm=45je69u2v9243930590za200zb9243917138zd9243917138xf1&_p=1790954506021&gcd=13l3l3l3l1l1&npa=0& :: net::ERR_ABORTED"
+      ],
+      "ts": "2026-10-02T15:21:57.978Z"
+    },
+    {
+      "id": 7,
+      "key": "/admin/settings::admin-settings::::77e5bbf8",
+      "prevId": 6,
+      "action": "Settings › AI Chat tab — settled panel",
+      "url": "https://projectsites.dev/admin/settings#ai-chat",
+      "title": "ProjectSites — AI Website Builder, Live in 4 Minutes",
+      "coords": {
+        "route": "/admin/settings",
+        "surface": "admin-settings",
+        "subview": "ai-chat",
+        "overlay": ""
+      },
+      "screenshot": "07-settings-ai-chat-tab-settled-panel.png",
+      "visibleText": "Project Sites builds and deploys complete AI-generated websites for small business in under 15 minutes on Cloudflare Workers. The AI gateway routes each prompt to the right model by complexity — instant responses via Workers AI (free), routine generation via DeepSeek, premium reasoning via Anthropic Claude or OpenAI. Every publish runs an axe-core accessibility gate at six viewports and a Lighthouse Core Web Vitals gate, blocking deploys that fail WCAG 2.2 AA or LCP under 2.5 seconds. Skip to main content Settings section L Lone Mountain Global LIVE 1 L WORKSPACE Dashboard Sites Editor Snapshots Analytics CAPABILITIES Forms Apps Hosting Features Social Voice OPERATIONS Logs Feature Flags Lead Scanner System Services KV Inspector R2 Inspector Vectorize Inspector Queues Inspector ACCOUNT Docs Settings Super admin lone-mountain-global.projectsites.dev Settings ⌘K Actions 6 ? PROJECT Settings Scoped to Lone Mountain Global · per-project settings. For personal preferences (theme, API keys) see your user settings. General Team AI Chat MCP AI Env Vars Webhooks Email Domains API Tokens AI Chat Persona + system prompt + knowledge files for the AI chat widget on your published site. SYSTEM P",
+      "consoleErrors": [],
+      "failedRequests": [
+        "POST https://www.google-analytics.com/g/collect?v=2&tid=G-VBBRRQLDFT&gtm=45je69u2v9243930590za200zb9243917138zd9243917138xf1&_p=1790954506021&gcd=13l3l3l3l1l1&npa=0& :: net::ERR_ABORTED"
+      ],
+      "ts": "2026-10-02T15:22:05.280Z"
+    },
+    {
+      "id": 8,
+      "key": "/admin/settings::admin-settings::::da3c7361",
+      "prevId": 7,
+      "action": "Settings › MCP tab — settled panel",
+      "url": "https://projectsites.dev/admin/settings#mcp",
+      "title": "ProjectSites — AI Website Builder, Live in 4 Minutes",
+      "coords": {
+        "route": "/admin/settings",
+        "surface": "admin-settings",
+        "subview": "mcp",
+        "overlay": ""
+      },
+      "screenshot": "08-settings-mcp-tab-settled-panel.png",
+      "visibleText": "Project Sites builds and deploys complete AI-generated websites for small business in under 15 minutes on Cloudflare Workers. The AI gateway routes each prompt to the right model by complexity — instant responses via Workers AI (free), routine generation via DeepSeek, premium reasoning via Anthropic Claude or OpenAI. Every publish runs an axe-core accessibility gate at six viewports and a Lighthouse Core Web Vitals gate, blocking deploys that fail WCAG 2.2 AA or LCP under 2.5 seconds. Skip to main content Settings section L Lone Mountain Global LIVE 1 L WORKSPACE Dashboard Sites Editor Snapshots Analytics CAPABILITIES Forms Apps Hosting Features Social Voice OPERATIONS Logs Feature Flags Lead Scanner System Services KV Inspector R2 Inspector Vectorize Inspector Queues Inspector ACCOUNT Docs Settings Super admin lone-mountain-global.projectsites.dev Settings ⌘K Actions 6 ? PROJECT Settings Scoped to Lone Mountain Global · per-project settings. For personal preferences (theme, API keys) see your user settings. General Team AI Chat MCP AI Env Vars Webhooks Email Domains API Tokens MCP integrations Connect the tools your AI form router + custom endpoints can call. Tokens are encrypted ",
+      "consoleErrors": [],
+      "failedRequests": [
+        "POST https://www.google-analytics.com/g/collect?v=2&tid=G-VBBRRQLDFT&gtm=45je69u2v9243930590za200zb9243917138zd9243917138xf1&_p=1790954506021&gcd=13l3l3l3l1l1&npa=0& :: net::ERR_ABORTED"
+      ],
+      "ts": "2026-10-02T15:22:13.080Z"
+    },
+    {
+      "id": 9,
+      "key": "/admin/settings::admin-settings::::8c6188b7",
+      "prevId": 8,
+      "action": "Settings › AI Env Vars tab — settled panel",
+      "url": "https://projectsites.dev/admin/settings#env-vars",
+      "title": "ProjectSites — AI Website Builder, Live in 4 Minutes",
+      "coords": {
+        "route": "/admin/settings",
+        "surface": "admin-settings",
+        "subview": "ai-env-vars",
+        "overlay": ""
+      },
+      "screenshot": "09-settings-ai-env-vars-tab-settled-panel.png",
+      "visibleText": "Project Sites builds and deploys complete AI-generated websites for small business in under 15 minutes on Cloudflare Workers. The AI gateway routes each prompt to the right model by complexity — instant responses via Workers AI (free), routine generation via DeepSeek, premium reasoning via Anthropic Claude or OpenAI. Every publish runs an axe-core accessibility gate at six viewports and a Lighthouse Core Web Vitals gate, blocking deploys that fail WCAG 2.2 AA or LCP under 2.5 seconds. Skip to main content Settings section L Lone Mountain Global LIVE 1 L WORKSPACE Dashboard Sites Editor Snapshots Analytics CAPABILITIES Forms Apps Hosting Features Social Voice OPERATIONS Logs Feature Flags Lead Scanner System Services KV Inspector R2 Inspector Vectorize Inspector Queues Inspector ACCOUNT Docs Settings Super admin lone-mountain-global.projectsites.dev Settings ⌘K Actions 6 ? PROJECT Settings Scoped to Lone Mountain Global · per-project settings. For personal preferences (theme, API keys) see your user settings. General Team AI Chat MCP AI Env Vars Webhooks Email Domains API Tokens AI environment variables Env vars marked Exposed to AI flow into LLM tool calls + AI endpoints + MCP requ",
+      "consoleErrors": [],
+      "failedRequests": [
+        "POST https://www.google-analytics.com/g/collect?v=2&tid=G-VBBRRQLDFT&gtm=45je69u2v9243930590za200zb9243917138zd9243917138xf1&_p=1790954506021&gcd=13l3l3l3l1l1&npa=0& :: net::ERR_ABORTED"
+      ],
+      "ts": "2026-10-02T15:22:20.386Z"
+    },
+    {
+      "id": 10,
+      "key": "/admin/settings::admin-settings::::523e4c98",
+      "prevId": 9,
+      "action": "Settings › Webhooks tab — settled panel",
+      "url": "https://projectsites.dev/admin/settings#webhooks",
+      "title": "ProjectSites — AI Website Builder, Live in 4 Minutes",
+      "coords": {
+        "route": "/admin/settings",
+        "surface": "admin-settings",
+        "subview": "webhooks",
+        "overlay": ""
+      },
+      "screenshot": "10-settings-webhooks-tab-settled-panel.png",
+      "visibleText": "Project Sites builds and deploys complete AI-generated websites for small business in under 15 minutes on Cloudflare Workers. The AI gateway routes each prompt to the right model by complexity — instant responses via Workers AI (free), routine generation via DeepSeek, premium reasoning via Anthropic Claude or OpenAI. Every publish runs an axe-core accessibility gate at six viewports and a Lighthouse Core Web Vitals gate, blocking deploys that fail WCAG 2.2 AA or LCP under 2.5 seconds. Skip to main content Settings section L Lone Mountain Global LIVE 1 L WORKSPACE Dashboard Sites Editor Snapshots Analytics CAPABILITIES Forms Apps Hosting Features Social Voice OPERATIONS Logs Feature Flags Lead Scanner System Services KV Inspector R2 Inspector Vectorize Inspector Queues Inspector ACCOUNT Docs Settings Super admin lone-mountain-global.projectsites.dev Settings ⌘K Actions 6 ? PROJECT Settings Scoped to Lone Mountain Global · per-project settings. For personal preferences (theme, API keys) see your user settings. General Team AI Chat MCP AI Env Vars Webhooks Email Domains API Tokens INTEGRATIONS Outbound Webhooks Send signed, retried event notifications to your own endpoints when things",
+      "consoleErrors": [],
+      "failedRequests": [
+        "POST https://www.google-analytics.com/g/collect?v=2&tid=G-VBBRRQLDFT&gtm=45je69u2v9243930590za200zb9243917138zd9243917138xf1&_p=1790954506021&gcd=13l3l3l3l1l1&npa=0& :: net::ERR_ABORTED"
+      ],
+      "ts": "2026-10-02T15:22:27.801Z"
+    },
+    {
+      "id": 11,
+      "key": "/admin/settings::admin-settings::::5d1a03ae",
+      "prevId": 10,
+      "action": "Settings › Email tab — settled panel",
+      "url": "https://projectsites.dev/admin/settings#email",
+      "title": "ProjectSites — AI Website Builder, Live in 4 Minutes",
+      "coords": {
+        "route": "/admin/settings",
+        "surface": "admin-settings",
+        "subview": "email",
+        "overlay": ""
+      },
+      "screenshot": "11-settings-email-tab-settled-panel.png",
+      "visibleText": "Project Sites builds and deploys complete AI-generated websites for small business in under 15 minutes on Cloudflare Workers. The AI gateway routes each prompt to the right model by complexity — instant responses via Workers AI (free), routine generation via DeepSeek, premium reasoning via Anthropic Claude or OpenAI. Every publish runs an axe-core accessibility gate at six viewports and a Lighthouse Core Web Vitals gate, blocking deploys that fail WCAG 2.2 AA or LCP under 2.5 seconds. Skip to main content Settings section L Lone Mountain Global LIVE 1 L WORKSPACE Dashboard Sites Editor Snapshots Analytics CAPABILITIES Forms Apps Hosting Features Social Voice OPERATIONS Logs Feature Flags Lead Scanner System Services KV Inspector R2 Inspector Vectorize Inspector Queues Inspector ACCOUNT Docs Settings Super admin lone-mountain-global.projectsites.dev Settings ⌘K Actions 6 ? PROJECT Settings Scoped to Lone Mountain Global · per-project settings. For personal preferences (theme, API keys) see your user settings. General Team AI Chat MCP AI Env Vars Webhooks Email Domains API Tokens Email sending ProjectSites sends your transactional email — magic links + form notifications — from norep",
+      "consoleErrors": [],
+      "failedRequests": [
+        "POST https://www.google-analytics.com/g/collect?v=2&tid=G-VBBRRQLDFT&gtm=45je69u2v9243930590za200zb9243917138zd9243917138xf1&_p=1790954506021&gcd=13l3l3l3l1l1&npa=0& :: net::ERR_ABORTED"
+      ],
+      "ts": "2026-10-02T15:23:00.076Z"
+    },
+    {
+      "id": 12,
+      "key": "/admin/settings::admin-settings::::36d4fae3",
+      "prevId": 11,
+      "action": "Settings › Domains tab — settled panel",
+      "url": "https://projectsites.dev/admin/settings#domains",
+      "title": "ProjectSites — AI Website Builder, Live in 4 Minutes",
+      "coords": {
+        "route": "/admin/settings",
+        "surface": "admin-settings",
+        "subview": "domains",
+        "overlay": ""
+      },
+      "screenshot": "12-settings-domains-tab-settled-panel.png",
+      "visibleText": "Project Sites builds and deploys complete AI-generated websites for small business in under 15 minutes on Cloudflare Workers. The AI gateway routes each prompt to the right model by complexity — instant responses via Workers AI (free), routine generation via DeepSeek, premium reasoning via Anthropic Claude or OpenAI. Every publish runs an axe-core accessibility gate at six viewports and a Lighthouse Core Web Vitals gate, blocking deploys that fail WCAG 2.2 AA or LCP under 2.5 seconds. Skip to main content Settings section L Lone Mountain Global LIVE 1 L WORKSPACE Dashboard Sites Editor Snapshots Analytics CAPABILITIES Forms Apps Hosting Features Social Voice OPERATIONS Logs Feature Flags Lead Scanner System Services KV Inspector R2 Inspector Vectorize Inspector Queues Inspector ACCOUNT Docs Settings Super admin lone-mountain-global.projectsites.dev Settings ⌘K Actions 6 ? PROJECT Settings Scoped to Lone Mountain Global · per-project settings. For personal preferences (theme, API keys) see your user settings. General Team AI Chat MCP AI Env Vars Webhooks Email Domains API Tokens REACH Domains Manage the live domain, search creative names with AI, and port any custom domain in or out",
+      "consoleErrors": [],
+      "failedRequests": [
+        "POST https://www.google-analytics.com/g/collect?v=2&tid=G-VBBRRQLDFT&gtm=45je69u2v9243930590za200zb9243917138zd9243917138xf1&_p=1790954506021&gcd=13l3l3l3l1l1&npa=0& :: net::ERR_ABORTED"
+      ],
+      "ts": "2026-10-02T15:23:07.245Z"
+    },
+    {
+      "id": 13,
+      "key": "/admin/settings::admin-settings::::72b562a3",
+      "prevId": 12,
+      "action": "tab → General (settings-depth sweep complete)",
+      "url": "https://projectsites.dev/admin/settings#general",
+      "title": "ProjectSites — AI Website Builder, Live in 4 Minutes",
+      "coords": {
+        "route": "/admin/settings",
+        "surface": "admin-settings",
+        "subview": "general"
+      },
+      "screenshot": "13-tab-general-settings-depth-sweep-complete.png",
+      "visibleText": "Project Sites builds and deploys complete AI-generated websites for small business in under 15 minutes on Cloudflare Workers. The AI gateway routes each prompt to the right model by complexity — instant responses via Workers AI (free), routine generation via DeepSeek, premium reasoning via Anthropic Claude or OpenAI. Every publish runs an axe-core accessibility gate at six viewports and a Lighthouse Core Web Vitals gate, blocking deploys that fail WCAG 2.2 AA or LCP under 2.5 seconds. Skip to main content Settings section L Lone Mountain Global LIVE 1 L WORKSPACE Dashboard Sites Editor Snapshots Analytics CAPABILITIES Forms Apps Hosting Features Social Voice OPERATIONS Logs Feature Flags Lead Scanner System Services KV Inspector R2 Inspector Vectorize Inspector Queues Inspector ACCOUNT Docs Settings Super admin lone-mountain-global.projectsites.dev Settings ⌘K Actions 6 ? PROJECT Settings Scoped to Lone Mountain Global · per-project settings. For personal preferences (theme, API keys) see your user settings. General Team AI Chat MCP AI Env Vars Webhooks Email Domains API Tokens General Contact + business identity used by the AI when it builds or refines this site. Brand colours, to",
+      "consoleErrors": [],
+      "failedRequests": [
+        "POST https://www.google-analytics.com/g/collect?v=2&tid=G-VBBRRQLDFT&gtm=45je69u2v9243930590za200zb9243917138zd9243917138xf1&_p=1790954506021&gcd=13l3l3l3l1l1&npa=0& :: net::ERR_ABORTED"
+      ],
+      "ts": "2026-10-02T15:23:14.363Z"
+    }
+  ],
+  "providerEndpoint": "wss://api.cloudflare.com/client/v4/accounts/<acct>/browser-run/devtools/browser?keep_alive=600000",
+  "providerAttempts": [],
+  "journey": "settings-depth",
+  "playwrightBase": "…/apps/project-sites/frontend",
+  "finishedAt": "2026-10-02T15:23:14.363Z",
+  "elapsedMs": 103119
+}
