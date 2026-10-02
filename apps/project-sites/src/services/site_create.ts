@@ -179,30 +179,45 @@ export async function createSite(
   // `per_site_data` (experimental, default-off → DARK: no real Cloudflare resources are created until
   // the flag is promoted). Fail-soft: a CF/provisioning hiccup NEVER blocks site creation, and each
   // provisioner is idempotent + records into `site_database_allocations`, so a later retry converges.
+  //
+  // `eager_site_d1` (NEW, fire-72) is the NARROW D1-only sibling: when it's on but `per_site_data`
+  // is NOT, we eagerly warm ONLY the per-site D1 (the SAME idempotent provisionSiteD1 the lazy
+  // Data-tab path calls) so a site's first Tables read never pays the cold create+propagate wait —
+  // without also standing up KV/R2. `per_site_data` already provisions D1, so when BOTH are on the
+  // broad block wins and the eager-D1 block is skipped (D1 is provisioned exactly ONCE, never twice).
   if (ctx.executionCtx) {
     const provision = (async () => {
       try {
         const { isFlagOn } = await import('../modules/feature_flags/services.js');
-        if (
-          !(await isFlagOn(env, 'per_site_data', {
-            orgId: ctx.actorId ?? undefined,
-            siteId: site.id,
-          }))
-        )
-          return;
-        const [{ provisionSiteD1 }, { provisionSiteKv }, { provisionSiteR2 }] = await Promise.all([
-          import('./d1_provisioner.js'),
-          import('./kv_provisioner.js'),
-          import('./r2_provisioner.js'),
+        const flagCtx = { orgId: ctx.actorId ?? undefined, siteId: site.id };
+        const [perSiteData, eagerD1] = await Promise.all([
+          isFlagOn(env, 'per_site_data', flagCtx),
+          isFlagOn(env, 'eager_site_d1', flagCtx),
         ]);
         const args = { orgId: ctx.actorId ?? null, siteId: site.id, tenantId: input.orgId };
-        await Promise.all([
-          provisionSiteD1(env, args),
-          provisionSiteKv(env, args),
-          provisionSiteR2(env, args),
-        ]);
+
+        if (perSiteData) {
+          // Broad path: D1 + KV + R2 in parallel. Provisions D1 itself, so the eager-D1 block below
+          // is intentionally skipped — provisionSiteD1 runs exactly once this create.
+          const [{ provisionSiteD1 }, { provisionSiteKv }, { provisionSiteR2 }] = await Promise.all([
+            import('./d1_provisioner.js'),
+            import('./kv_provisioner.js'),
+            import('./r2_provisioner.js'),
+          ]);
+          await Promise.all([
+            provisionSiteD1(env, args),
+            provisionSiteKv(env, args),
+            provisionSiteR2(env, args),
+          ]);
+        } else if (eagerD1) {
+          // Narrow path: eagerly warm the per-site D1 ONLY (idempotent — reuses an existing
+          // allocation, never a duplicate). KV/R2 stay un-provisioned (that is per_site_data's job).
+          const { provisionSiteD1 } = await import('./d1_provisioner.js');
+          await provisionSiteD1(env, args);
+        }
       } catch {
-        /* fail-soft — a provisioning / CF outage never blocks site creation (idempotent retry later) */
+        /* fail-soft — a provisioning / CF outage never blocks site creation (lazy Data-tab provision
+           still converges on first access; each provisioner is idempotent, so a retry is safe) */
       }
     })();
     try {

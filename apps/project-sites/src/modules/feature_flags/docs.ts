@@ -156,6 +156,23 @@ export const FLAG_DOCS: Record<string, FlagDocs> = {
       "Once routes land + flag on → the overview surface lists a site's resources; off → those routes 404 (never 403)",
     ],
   },
+  eager_site_d1: {
+    checklist: [
+      'Eagerly warm ONLY the per-site D1 on site-create (narrow sibling of per_site_data)',
+      'Calls the SAME idempotent provisionSiteD1 the lazy Data-tab path uses (no duplicate)',
+      'When per_site_data is also ON, that broad block wins → D1 provisioned exactly once',
+      'Fail-soft: a CF hiccup never blocks creation → falls back to lazy provision on first access',
+      'Off (default, DARK) → D1 created lazily on first Data-tab GET, exactly as today',
+    ],
+    explanation:
+      "Eager per-site D1 warm-up on site-create (fire-72): the narrow, D1-only sibling of per_site_data. When on (and per_site_data off), site-create eagerly calls provisionSiteD1 — the SAME idempotent path the lazy Data-tab access uses — so a site's FIRST Tables read never pays the cold D1 create + query-plane propagation wait. It provisions ONLY the D1 (recorded in site_database_allocations), never KV/R2. When both flags are on, per_site_data's broad block provisions D1 and the eager block is skipped, so D1 is created exactly once per site. Runs under ctx.waitUntil (zero added create latency) and fails soft — a CF outage falls back to the existing lazy provision, which converges because provisionSiteD1 is idempotent. Off → identical to today (lazy create on first Data-tab GET). Backend-only; no route or UI surface.",
+    smoke_test: [
+      'Enable eager_site_d1 (per_site_data off) + create a site → site_database_allocations gains a d1_tenant_db row for it BEFORE any Data-tab access',
+      'Off → create a site → no allocation row until the first GET /api/sites/:id/db/tables',
+      'Unit: npm test -- site_create_eager_d1 → flag on provisions D1 once; a provisionSiteD1 throw still returns the draft site',
+    ],
+    e2e_tests: ['e2e/per_site_data/eager-site-d1.spec.ts'],
+  },
   per_site_data: {
     checklist: [
       'On site-create, provision a dedicated D1 + KV + R2 per site (in parallel)',

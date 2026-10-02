@@ -145,6 +145,15 @@ export const FLAG_REGISTRY: Record<string, FlagDefinition> = {
     owner_email: 'brian@megabyte.space',
     stage: 'experimental',
   },
+  eager_site_d1: {
+    default_enabled: false,
+    default_rollout_percent: 0,
+    description:
+      "Eager per-site D1 warm-up on site-create (Data Platform, fire-72). The NARROW D1-only sibling of per_site_data: when ON (and per_site_data is OFF), site-create (services/site_create.ts) eagerly calls the SAME idempotent provisionSiteD1 the lazy Data-tab path uses, so a site's FIRST Tables read never pays the cold D1 create + query-plane propagation wait.\n\n• Provisions ONLY the per-site D1 (recorded in site_database_allocations) — NOT KV/R2 (that is per_site_data's broad job). When BOTH flags are on, per_site_data's block wins and this one is skipped, so D1 is provisioned EXACTLY ONCE per create (never double).\n• Fail-soft: a CF/provisioning hiccup NEVER blocks site creation — it falls back to the existing lazy provision on first Data-tab access (provisionSiteD1 is idempotent, so the retry converges on one DB). Runs under ctx.waitUntil, so it never adds latency to the create response.\n• Off (default, DARK) → no eager provisioning; D1 is created lazily on first Data-tab GET exactly as today. Backend-only wiring; no route surface, no UI. Owner: site-create pipeline.\n• Acceptance: flag on + create a site → site_database_allocations gains a d1_tenant_db row for it before any Data-tab access; flag off → no allocation until the first /api/sites/:id/db/tables GET.",
+    key: 'eager_site_d1',
+    owner_email: 'brian@megabyte.space',
+    stage: 'experimental',
+  },
   research_cache: {
     default_enabled: false,
     default_rollout_percent: 0,
