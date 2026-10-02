@@ -2,35 +2,35 @@
   "states": {
     "/::public-home::::d05f796d": {
       "discovered": "2026-09-29T19:57:38.675Z",
-      "visits": 28,
+      "visits": 29,
       "status": "visited",
       "lastAction": "homepage loads (initial state)",
-      "lastVisited": "2026-10-02T11:27:42.003Z",
-      "lastRun": "dux-2026-10-02T11-27-33-653Z"
+      "lastVisited": "2026-10-02T13:36:55.498Z",
+      "lastRun": "dux-2026-10-02T13-36-46-855Z"
     },
     "/signin::signin::::576d826f": {
       "discovered": "2026-09-29T19:57:43.656Z",
-      "visits": 27,
+      "visits": 28,
       "status": "visited",
       "lastAction": "click Sign In (header) → /signin",
-      "lastVisited": "2026-10-02T11:27:47.760Z",
-      "lastRun": "dux-2026-10-02T11-27-33-653Z"
+      "lastVisited": "2026-10-02T13:37:02.477Z",
+      "lastRun": "dux-2026-10-02T13-36-46-855Z"
     },
     "/signin::signin-test-seam::::02622a42": {
       "discovered": "2026-09-29T19:57:48.051Z",
-      "visits": 27,
+      "visits": 28,
       "status": "visited",
       "lastAction": "enter test seam (/signin?test=1) — panel render",
-      "lastVisited": "2026-10-02T11:27:50.564Z",
-      "lastRun": "dux-2026-10-02T11-27-33-653Z"
+      "lastVisited": "2026-10-02T13:37:05.933Z",
+      "lastRun": "dux-2026-10-02T13-36-46-855Z"
     },
     "/admin::admin-dashboard::::fec53253": {
       "discovered": "2026-09-29T19:57:55.718Z",
-      "visits": 29,
+      "visits": 30,
       "status": "visited",
       "lastAction": "test login submit → lands /admin",
-      "lastVisited": "2026-10-02T11:27:55.570Z",
-      "lastRun": "dux-2026-10-02T11-27-33-653Z"
+      "lastVisited": "2026-10-02T13:37:10.451Z",
+      "lastRun": "dux-2026-10-02T13-36-46-855Z"
     },
     "/admin/editor::admin-editor-shell::::6eca7550": {
       "discovered": "2026-09-29T19:58:16.461Z",
@@ -586,19 +586,19 @@
     },
     "/admin::admin-dashboard::::a75e00f5": {
       "discovered": "2026-10-02T00:52:35.992Z",
-      "visits": 5,
+      "visits": 8,
       "status": "visited",
       "lastAction": "back to Dashboard (site-detail → cockpit round-trip intact)",
-      "lastVisited": "2026-10-02T00:57:21.550Z",
-      "lastRun": "dux-2026-10-02T00-56-26-721Z"
+      "lastVisited": "2026-10-02T13:37:38.154Z",
+      "lastRun": "dux-2026-10-02T13-36-46-855Z"
     },
     "/admin::admin-dashboard::dash-no-match::67d6d61b": {
       "discovered": "2026-10-02T00:52:38.216Z",
-      "visits": 2,
+      "visits": 3,
       "status": "visited",
       "lastAction": "dashboard search → honest no-match panel",
-      "lastVisited": "2026-10-02T00:56:51.630Z",
-      "lastRun": "dux-2026-10-02T00-56-26-721Z"
+      "lastVisited": "2026-10-02T13:37:16.542Z",
+      "lastRun": "dux-2026-10-02T13-36-46-855Z"
     },
     "/admin::admin-sites::missing-nav-link::b71a65db": {
       "discovered": "2026-10-02T00:53:12.777Z",
@@ -626,27 +626,27 @@
     },
     "/admin/sites::admin-sites::sites-no-match::21bf8827": {
       "discovered": "2026-10-02T00:57:10.661Z",
-      "visits": 1,
+      "visits": 2,
       "status": "visited",
       "lastAction": "Sites list search → honest no-match panel",
-      "lastVisited": "2026-10-02T00:57:10.661Z",
-      "lastRun": "dux-2026-10-02T00-56-26-721Z"
+      "lastVisited": "2026-10-02T13:37:27.518Z",
+      "lastRun": "dux-2026-10-02T13-36-46-855Z"
     },
     "/admin/sites::admin-sites::::861c87ee": {
       "discovered": "2026-10-02T00:57:14.238Z",
-      "visits": 1,
+      "visits": 2,
       "status": "visited",
       "lastAction": "clear Sites search → full grid restored",
-      "lastVisited": "2026-10-02T00:57:14.238Z",
-      "lastRun": "dux-2026-10-02T00-56-26-721Z"
+      "lastVisited": "2026-10-02T13:37:31.355Z",
+      "lastRun": "dux-2026-10-02T13-36-46-855Z"
     },
     "/admin/sites/8ebf551b-272d-4abc-a15f-386f69c22ea5::admin-site-detail::::c4130314": {
       "discovered": "2026-10-02T00:57:17.708Z",
-      "visits": 1,
+      "visits": 2,
       "status": "visited",
       "lastAction": "open site card (site-card-lone-mountain-global) → site detail route",
-      "lastVisited": "2026-10-02T00:57:17.708Z",
-      "lastRun": "dux-2026-10-02T00-56-26-721Z"
+      "lastVisited": "2026-10-02T13:37:34.653Z",
+      "lastRun": "dux-2026-10-02T13-36-46-855Z"
     },
     "/admin/super-admin::admin-super-admin::::54eaa582": {
       "discovered": "2026-10-02T02:48:54.543Z",
@@ -783,9 +783,27 @@
       "lastAction": "Billing › Usage › Upcoming invoice — 1 line item(s) rendered",
       "lastVisited": "2026-10-02T11:28:12.857Z",
       "lastRun": "dux-2026-10-02T11-27-33-653Z"
+    },
+    "/admin/sites::admin-sites::::ba17c4b9": {
+      "discovered": "2026-10-02T13:37:23.682Z",
+      "visits": 1,
+      "status": "visited",
+      "lastAction": "Sites list (via nav link) — populated grid (1 site card(s))",
+      "lastVisited": "2026-10-02T13:37:23.682Z",
+      "lastRun": "dux-2026-10-02T13-36-46-855Z"
     }
   },
   "runs": [
+    {
+      "runId": "dux-2026-10-02T13-36-46-855Z",
+      "journey": "money-funnel",
+      "status": "PASS_CLOUDFLARE",
+      "provider": "cloudflare-browser-run",
+      "coverage": "CLOUD_PASS_ELIGIBLE",
+      "statesVisited": 12,
+      "blockedStates": {},
+      "finishedAt": "2026-10-02T13:37:38.154Z"
+    },
     {
       "runId": "dux-2026-10-02T11-27-33-653Z",
       "journey": "billing-invoice",
