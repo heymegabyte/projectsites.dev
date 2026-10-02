@@ -27,6 +27,7 @@ describe('admin-nav.model', () => {
     const routes = allNavRoutes();
     for (const r of [
       '/admin',
+      '/admin/sites',
       '/admin/editor',
       '/admin/snapshots',
       '/admin/analytics',

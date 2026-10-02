@@ -1,4 +1,5 @@
 import { TestBed } from '@angular/core/testing';
+import { provideRouter } from '@angular/router';
 import { of, Subject } from 'rxjs';
 import { UsageGaugesComponent } from './usage-gauges.component';
 import { ApiService } from '../../services/api.service';
@@ -16,7 +17,13 @@ describe('UsageGaugesComponent (loading skeleton reserves height — anti-CLS)',
 
   function withApi(get: () => unknown) {
     TestBed.resetTestingModule();
-    TestBed.configureTestingModule({ providers: [{ provide: ApiService, useValue: { get } }] });
+    // provideRouter so the over-limit upgrade CTA's static `routerLink` resolves a real
+    // `href` (static routerLink emits no `ng-reflect-*`; without a Router the href never
+    // renders → the fire-69 CTA assertion fell through to '' and failed). Root-cause fix:
+    // the test now asserts the real rendered link, not a dev-only reflection attribute.
+    TestBed.configureTestingModule({
+      providers: [{ provide: ApiService, useValue: { get } }, provideRouter([])],
+    });
     const fx = TestBed.createComponent(UsageGaugesComponent);
     fx.detectChanges();
     return fx;

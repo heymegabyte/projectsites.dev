@@ -44,6 +44,11 @@ import type { NavIconName } from '../../pages/admin/navigation/admin-nav.model';
           <rect x="14" y="14" width="7" height="7" />
           <rect x="3" y="14" width="7" height="7" />
         }
+        @case ('sites') {
+          <circle cx="12" cy="12" r="9" />
+          <line x1="3" y1="12" x2="21" y2="12" />
+          <path d="M12 3a15 15 0 0 1 0 18a15 15 0 0 1 0-18z" />
+        }
         @case ('editor') {
           <polyline points="16 18 22 12 16 6" />
           <polyline points="8 6 2 12 8 18" />

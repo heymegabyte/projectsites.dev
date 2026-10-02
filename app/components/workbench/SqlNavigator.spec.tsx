@@ -13,9 +13,26 @@
  * They must use a contrast-safe brand token (`textSecondary` ≈ 7.8:1 or `item-contentAccent`
  * ≈ 13:1 on `#060610`). We assert the rendered class, not a screenshot.
  *
+ * Part 3 — LABEL↔CONTROL ASSOCIATION (fire-70, WLK-05 a11y follow-up). The visible SQL field
+ * `<label htmlFor="database-sql-input">` must point at a REAL focusable control — otherwise it is
+ * an orphan label and a screen reader announces nothing when the SQL textarea is focused (WCAG
+ * 1.3.1 Info & Relationships / 4.1.2 Name·Role·Value, both AA-relevant). The SqlEditor textarea
+ * must carry `id="database-sql-input"` so the label resolves to it.
+ *
+ * Part 4 — COMPUTED-CONTRAST REGRESSION (fire-70). Part 2 asserts the classNAME, which stays green
+ * even if someone lowers the alpha on the brand token in `app/styles/index.scss` — the AA guarantee
+ * would silently regress (per `verify-against-source-of-truth`). This part reads the ACTUAL token
+ * values from `index.scss`, composites each alpha ink over the real panel background `#060610`, and
+ * asserts the measured WCAG ratio: `textSecondary` ≥ 4.5:1 (the token the panel now uses) AND the
+ * old `textTertiary` is genuinely < 4.5:1 (proving the swap was necessary, not cosmetic).
+ *
  * Mocks mirror DatabasePanel.spec — the embed bridge is stubbed; `requestDbQuery` is a spy so we
  * can prove it is (not) called. `SqlEditor` renders a real `<textarea>` (testId passthrough).
  */
+import { readFileSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
+import { dirname, resolve } from 'node:path';
+
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { render, screen, cleanup, fireEvent, act } from '@testing-library/react';
 import React from 'react';
@@ -163,5 +180,78 @@ describe('SqlNavigator — WLK-05 AA contrast (brand tokens, no opacity-muted to
       expect(hint.className, id).not.toContain(AA_FAIL);
       expect(hint.className, id).toMatch(AA_SAFE);
     }
+  });
+});
+
+describe('SqlNavigator — WLK-05 label↔control association (fire-70 a11y nit)', () => {
+  it('the SQL field label resolves to the real editor textarea (not an orphan label)', () => {
+    render(<SqlNavigator />);
+
+    const label = document.querySelector('label[for="database-sql-input"]') as HTMLLabelElement | null;
+    expect(label, 'the visible SQL label must exist').toBeTruthy();
+
+    // The label's `for` must point at a REAL control in the DOM — else it announces nothing.
+    const target = document.getElementById('database-sql-input');
+    expect(target, 'label[for="database-sql-input"] must resolve to a real element').toBeTruthy();
+
+    // And that control must be the SQL editor textarea the user types into.
+    const textarea = screen.getByTestId('database-sql-textarea');
+    expect(target).toBe(textarea);
+    expect(target?.tagName).toBe('TEXTAREA');
+  });
+});
+
+describe('SqlNavigator — WLK-05 computed-contrast regression (reads the real brand tokens)', () => {
+  /**
+   * Parse the actual token values from `app/styles/index.scss` so this test fails if the brand
+   * override's alpha is ever lowered below AA — the className assertions above cannot catch that.
+   */
+  const here = dirname(fileURLToPath(import.meta.url));
+  const scss = readFileSync(resolve(here, '../../styles/index.scss'), 'utf8');
+
+  const PANEL_BG: [number, number, number] = [6, 6, 16]; // #060610 — SqlNavigator root (bg-depth-1)
+
+  function parseAlphaInk(token: string): { ink: [number, number, number]; alpha: number } {
+    // Matches e.g. `--bolt-elements-textSecondary: rgba(244, 244, 255, 0.65);`
+    const re = new RegExp(`--bolt-elements-${token}:\\s*rgba\\(\\s*(\\d+)\\s*,\\s*(\\d+)\\s*,\\s*(\\d+)\\s*,\\s*([0-9.]+)\\s*\\)`);
+    const m = scss.match(re);
+    if (!m) {
+      throw new Error(`could not parse --bolt-elements-${token} as rgba() in index.scss`);
+    }
+    return { ink: [Number(m[1]), Number(m[2]), Number(m[3])], alpha: Number(m[4]) };
+  }
+
+  function lin(c: number): number {
+    const s = c / 255;
+    return s <= 0.03928 ? s / 12.92 : Math.pow((s + 0.055) / 1.055, 2.4);
+  }
+  function luminance([r, g, b]: [number, number, number]): number {
+    return 0.2126 * lin(r) + 0.7152 * lin(g) + 0.0722 * lin(b);
+  }
+  function over(ink: [number, number, number], a: number, bg: [number, number, number]): [number, number, number] {
+    return [
+      Math.round(ink[0] * a + bg[0] * (1 - a)),
+      Math.round(ink[1] * a + bg[1] * (1 - a)),
+      Math.round(ink[2] * a + bg[2] * (1 - a)),
+    ];
+  }
+  function ratioOnPanel(token: string): number {
+    const { ink, alpha } = parseAlphaInk(token);
+    const composited = over(ink, alpha, PANEL_BG);
+    const l1 = luminance(composited);
+    const l2 = luminance(PANEL_BG);
+    const hi = Math.max(l1, l2);
+    const lo = Math.min(l1, l2);
+    return (hi + 0.05) / (lo + 0.05);
+  }
+
+  it('textSecondary (the token the panel uses) measures >= 4.5:1 on #060610', () => {
+    const r = ratioOnPanel('textSecondary');
+    expect(r).toBeGreaterThanOrEqual(4.5);
+  });
+
+  it('textTertiary (the retired token) genuinely FAILS AA — proving the swap was necessary', () => {
+    const r = ratioOnPanel('textTertiary');
+    expect(r).toBeLessThan(4.5);
   });
 });

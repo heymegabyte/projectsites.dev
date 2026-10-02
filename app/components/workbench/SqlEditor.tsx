@@ -57,6 +57,12 @@ export interface SqlEditorProps {
   readonly placeholder?: string;
   readonly minRows?: number;
   readonly testId?: string;
+  /**
+   * DOM `id` for the overlaid `<textarea>` — set this so a sibling `<label htmlFor=…>` resolves to the
+   * real editable control (WCAG 1.3.1 / 4.1.2). Only the textarea takes it (the decorative `<pre>` is
+   * `aria-hidden`), so the accessibility name maps to the thing the user actually types into.
+   */
+  readonly id?: string;
   /** Inspected schema for completion (real table + column identifiers). Omit to disable completion. */
   readonly schema?: SqlSchema;
 }
@@ -72,6 +78,7 @@ export const SqlEditor = memo(function SqlEditor({
   placeholder,
   minRows = 4,
   testId,
+  id,
   schema,
 }: SqlEditorProps) {
   const taRef = useRef<HTMLTextAreaElement>(null);
@@ -169,6 +176,7 @@ export const SqlEditor = memo(function SqlEditor({
       </pre>
       <textarea
         ref={taRef}
+        id={id}
         value={value}
         onChange={(e) => {
           setDismissed(false);

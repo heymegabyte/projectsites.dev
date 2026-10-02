@@ -21,6 +21,7 @@
 /** Icon registry keys — one per {@link NavIconComponent} `@switch` branch. */
 export type NavIconName =
   | 'dashboard'
+  | 'sites'
   | 'editor'
   | 'snapshots'
   | 'analytics'
@@ -81,6 +82,12 @@ export const ADMIN_NAV_GROUPS: readonly AdminNavGroup[] = [
         label: 'Dashboard',
         route: '/admin',
       },
+      // The org's sites GRID (searchable/filterable/sortable). Component + route
+      // shipped (`app.routes.ts` `path: 'sites'` → AdminSitesComponent) but was never
+      // nav-linked → reachable only by typing the URL or the ⌘K "switch to" action.
+      // Wired here so "all my sites" is one obvious click (interconnectedness +
+      // embarrassingly-easy; Deep UI Explorer fire-70 money-funnel finding).
+      { icon: 'sites', id: 'sites', label: 'Sites', route: '/admin/sites' },
       { icon: 'editor', id: 'editor', label: 'Editor', route: '/admin/editor' },
       { icon: 'snapshots', id: 'snapshots', label: 'Snapshots', route: '/admin/snapshots' },
       { icon: 'analytics', id: 'analytics', label: 'Analytics', route: '/admin/analytics' },

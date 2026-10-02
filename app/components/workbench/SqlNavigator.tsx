@@ -922,6 +922,7 @@ export const SqlNavigator = memo(() => {
               minRows={4}
               placeholder="SELECT * FROM your_table LIMIT 25;"
               testId="database-sql-textarea"
+              id="database-sql-input"
             />
             <div className="flex items-center gap-2">
               <button
