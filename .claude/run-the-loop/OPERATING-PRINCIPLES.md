@@ -287,6 +287,11 @@
   to a real-browser check. NEVER assign off a stale checkpoint. Fire-79: case-001's checkpoint claimed
   the editor `frame-ancestors` block was live (RESOLVED fire-72) AND the D-boot `test.fixme` still set
   (removed fire-63) — a doubly-stale note that nearly burned a case-owner on already-done work.
+  Fire-80: the SAME editor `frame-ancestors` blocker (BACKLOG infra #10) was formally RETIRED after a
+  live `curl -sI https://editor.projectsites.dev` confirmed the CSP includes BOTH `http://localhost:4200`
+  AND `http://localhost:4300` — the item had lingered OPEN in the backlog for ~20 fires after the fix
+  shipped (fire-60 `9077b8ebb`). Lesson reinforced: a blocker reconfirmed-RESOLVED must be MARKED
+  resolved in the backlog the SAME fire, not left open to re-tempt a fix-agent.
 
 ## Failure taxonomy vs HARD-STOP (recover vs checkpoint — never conflate)
 

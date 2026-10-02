@@ -3,10 +3,10 @@
   "title": "Money Path \u2014 search \u2192 sign in \u2192 create \u2192 edit \u2192 publish \u2192 verify \u2192 clean up",
   "updated_at": "2026-10-02T06:52:00-04:00",
   "slice": "LIVE (real local stack + real browser + real test-login)",
-  "status": "phase_f_in_progress_fire80",
-  "runId": "fire-80",
+  "status": "phase_f_ready_importchatfrom_fixed_fire80_lease_released",
+  "runId": null,
   "resourcePrefix": "ltt-e2e-",
-  "heartbeat": 1790940275,
+  "heartbeat": 0,
   "last_completed_action": 59,
   "next_action": {
     "number": 60,

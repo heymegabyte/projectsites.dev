@@ -16,7 +16,7 @@ small optimization cycles on specific elements over one mega-pass).
 
 1. **FILE 3** — net-new swarm/delegation axis (not represented) → decompose FIRST.
 2. **FILE 5** — CF-native voice (partial; = REALTIME-VOICE-DIRECTIVE, not yet persisted).
-3. **FILE 1** — Resources 7-tab editor (mostly in COMBINED §S5; verify + fold remaining).
+3. **FILE 1** — Resources 7-tab editor — ✅ ABSORBED fire-80 (COMBINED §S5 + DIRECTIVE 3 fold + gp GP-13).
 4. **FILE 4** — AWOS master (already adopted REV-2026-10-02-awos-master → MASTER-PROMPT.md; verify-then-absorb).
 5. **FILE 2** — shipping F001–F100 (largely in AWOS WALKTHROUGH/gp-register; verify no dup, then absorb).
 
@@ -42,8 +42,8 @@ Epics:
 - Editor Sandbox binding (Claude Code job → CF Container → Browser Run live view + terminal replay)
 - ProjectSites MCP broker: scoped tool registry + site-level authorization
 
-### FILE 1 — `projectsites-resources-ai-implementation-prompt.md` (28K, 2026-10-02 02:36) — status: `queued`
-Spirit: 7-tab AI-native Resources editor (Buckets, Schedule, Functions, Agents, Connections, Knowledge, Manage) with shared copilot, typed action registry, resource graph. **Absorbed: YES-ish** (COMBINED §S5 + PENDING-DIRECTIVES §DIRECTIVE 3 describe it; verify full decomposition before delete).
+### FILE 1 — `projectsites-resources-ai-implementation-prompt.md` (28K, 2026-10-02 02:36) — status: `absorbed` (2026-10-02, fire-80)
+Spirit: 7-tab AI-native Resources editor (Buckets, Schedule, Functions, Agents, Connections, Knowledge, Manage) with shared copilot, typed action registry, resource graph. **Absorbed: YES** (fire-80 verify) — the 7 tabs + action registry + resource graph + shared copilot are enumerated in `COMBINED-DOWNLOADS-2026-10-02.md` §S5; S5 explicitly folds under the adopted `REV-2026-10-02-awos-master` parent in `PENDING-DIRECTIVES.md` §DIRECTIVE 3; the Buckets/Manage tab is tracked as `gp-register.json` GP-13 ("Fully manage site-scoped R2 buckets and objects" -> WLK-10/11/16/17). Archive copy (gitignored local artifact) safe to `rm` — `.claude/run-the-loop/downloads-intake-archive/projectsites-resources-ai-implementation-prompt.md`.
 Epics:
 - Buckets tab: R2 object listing + upload + delete + versioning UI
 - Schedule tab: cron/workflow calendar + approval policy
