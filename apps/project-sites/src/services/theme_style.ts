@@ -643,3 +643,125 @@ export function commerceIntentBriefFor(mode: unknown): string {
   }
   return COMMERCE_INTENT_BRIEF.general;
 }
+
+/* ──────────────────────────────────────────────────────────────────────────
+ * WebGL ambient hero — the generation-consumption wiring (fire-71).
+ *
+ * `templates/webgl/WebGLHero.tsx` + `webgl-hero-core.mjs` + per-vertical `webgl`
+ * blocks in `templates/verticals/*\/vertical.json` all EXIST, yet no generated
+ * site ever emitted the component — a fire-70-CONFIRMED built-but-unwired defect.
+ * The build pipeline instructs the orchestrator via the `buildPrompt` text, so the
+ * wiring is: resolve a THEMED webgl config here (worker-side, in-`src`), inject it
+ * into the orchestrator prompt + an explicit "mount `<WebGLHero>`" step, and gate
+ * the build on `validateWebglHeroPresent`.
+ *
+ * WHY mirror the presets here instead of importing `templates/webgl/presets.mjs`:
+ * the worker tsconfig scopes compilation to `src/**` + `libs/**` (allowJs off), so a
+ * `templates/*.mjs` import won't type-check or bundle. This is the same deliberate
+ * mirror pattern `build_validators.ts` uses for `PACK_DEFAULT_HEROES`. DRIFT NOTE:
+ * `presets.mjs` `WEBGL_PRESETS` is the SOURCE OF TRUTH for the RENDERED palette (the
+ * component reads it at runtime); this table only needs the variant + a few palette
+ * hints for the PROMPT, so exact palette parity is not load-bearing — if a preset's
+ * variant changes, update the variant here.
+ * ────────────────────────────────────────────────────────────────────────── */
+
+/** WebGL hero variant — the four shader families shipped by `webgl-hero-core.mjs`. */
+export type WebglVariant = 'ember' | 'rays' | 'glint' | 'grid';
+
+/** The pack-shaped WebGL hero config passed to the orchestrator (mirrors `WebGLHeroConfig`). */
+export interface WebglHeroConfig {
+  readonly variant: WebglVariant;
+  readonly background: string;
+  readonly palette: readonly [string, string, string];
+  readonly speed: number;
+  readonly intensity: number;
+  readonly density: number;
+  readonly grain: number;
+}
+
+/**
+ * Worker-side mirror of `templates/webgl/presets.mjs` `WEBGL_PRESETS`, keyed by vertical.
+ * Field order (variant→background→palette→speed→intensity→density→grain) + key order are a
+ * DELIBERATE 1:1 mirror of the source-of-truth presets so a reviewer can diff the two files
+ * line-for-line — re-sorting would defeat that, so the alpha-sort lint is suppressed here.
+ */
+/* eslint-disable perfectionist/sort-objects */
+const WEBGL_HERO_PRESETS: Record<string, WebglHeroConfig> = {
+  restaurant: { variant: 'ember', background: '#1a0f0a', palette: ['#c2572b', '#f0a850', '#6b5a42'], speed: 0.55, intensity: 1.0, density: 8, grain: 0.025 },
+  nonprofit: { variant: 'rays', background: '#edf2e2', palette: ['#fffdf4', '#2e7d4f', '#c9dcba'], speed: 0.45, intensity: 0.9, density: 7, grain: 0.015 },
+  retail: { variant: 'glint', background: '#171a1e', palette: ['#ff7a1a', '#ffd9a8', '#3a4450'], speed: 0.8, intensity: 1.0, density: 10, grain: 0.03 },
+  'professional-services': { variant: 'grid', background: '#f7f5ef', palette: ['#1d3557', '#c9a227', '#e8e4d8'], speed: 0.5, intensity: 0.85, density: 6, grain: 0.012 },
+  medical: { variant: 'rays', background: '#f2f9fa', palette: ['#ffffff', '#0a8cad', '#cfe9ef'], speed: 0.38, intensity: 0.9, density: 5, grain: 0.01 },
+  wellness: { variant: 'rays', background: '#f4f1ea', palette: ['#fdf6ec', '#7e916e', '#e6d9c5'], speed: 0.35, intensity: 0.9, density: 5, grain: 0.015 },
+  legal: { variant: 'grid', background: '#f7f5ef', palette: ['#1d3557', '#c9a227', '#e8e4d8'], speed: 0.5, intensity: 0.85, density: 6, grain: 0.012 },
+  'local-service': { variant: 'grid', background: '#f3f6f9', palette: ['#1f5fa8', '#e8650f', '#d3dfe9'], speed: 0.6, intensity: 0.95, density: 9, grain: 0.015 },
+  saas: { variant: 'grid', background: '#0b0a1a', palette: ['#00e5ff', '#7c3aed', '#1b1838'], speed: 0.8, intensity: 1.0, density: 9, grain: 0.02 },
+  agency: { variant: 'glint', background: '#0b0b0d', palette: ['#ff2d87', '#e8ff3a', '#2a2a30'], speed: 1.1, intensity: 1.1, density: 12, grain: 0.04 },
+  portfolio: { variant: 'glint', background: '#141020', palette: ['#d8b46a', '#f3e3c0', '#2c2440'], speed: 0.6, intensity: 0.75, density: 6, grain: 0.03 },
+};
+/* eslint-enable perfectionist/sort-objects */
+
+/** The vertical used when nothing in the category matches — a sane, universal default. */
+const DEFAULT_WEBGL_VERTICAL = 'professional-services';
+
+/**
+ * Category/hint → vertical-preset-key rules. Ordered specific→general; reuses the
+ * same `firstMatch` engine as {@link commerceModeFor}. Every build resolves (falls
+ * back to {@link DEFAULT_WEBGL_VERTICAL}), so EVERY generated site carries a themed
+ * ambient hero — the default disposition is "has a webgl pack".
+ */
+const WEBGL_VERTICAL_RULES: ReadonlyArray<readonly [string, RegExp]> = [
+  ['nonprofit', /\b(nonprofit|non\s?profit|charit\w*|\bngo\b|foundation|soup\s?kitchen|food\s?(?:bank|pantr\w*)|shelter\w*|ministr\w*|\bchurch\w*|community\s?(?:cent|org)|humanitarian|relief)\b/],
+  ['medical', /\b(\bclinic\w*|dental|dentist\w*|orthodont\w*|\bdoctor\w*|physician\w*|\bmedical\b|hospital\w*|pediatric\w*|dermatolog\w*|chiropract\w*|veterinar\w*|\bvet\b|optometr\w*|urgent\s?care|health\s?(?:care|clinic))\b/],
+  ['wellness', /\b(\bspa\b|med\s?spa|wellness|massage|yoga\b|pilates|meditation|acupunctur\w*|salon\w*|barber\w*|\bnail\w*|beauty|\bhair\b|aesthetic\w*)\b/],
+  ['legal', /\b(legal|\blaw\b|attorney\w*|lawyer\w*|law\s?firm|notary|paralegal)\b/],
+  ['restaurant', /\b(restaurant\w*|caf[eé]\w*|coffee\s?(?:shop|house|roaster\w*)|\broaster(?:y|ies)\b|bakery|bakeries|patisserie|bistro|diner|eatery|eateries|\bgrill\w*|pizzeria|\bpizza\b|taqueria|\bbar\b|brewery|breweries|brewpub|\bpub\b|\bdeli\b|catering|caterer\w*|ice\s?cream|creamer(?:y|ies)|food\s?(?:truck|hall)|steak\s?house|steakhouse|distiller\w*|winer(?:y|ies)|meader\w*|tasting\s?room|\bhotel\w*|resort\w*|\binn\b|\bmotel\w*|hospitality)\b/],
+  ['local-service', /\b(plumb\w*|\bhvac\b|heating|cooling|air\s?condition\w*|furnace\w*|roof\w*|electric\w*|electrician|contractor\w*|construction|landscap\w*|\blawn\b|cleaning|\bmaid\w*|pest\s?control|handyman|carpentr\w*|carpenter|flooring|septic|gutter\w*|remodel\w*|renovation|towing|locksmith|garage\s?door|excavat\w*|fencing|paving|\bmoving\b|junk\s?removal|snow\s?removal|automotive|\bauto\b|mechanic\w*|body\s?shop|\btire\w*|detailing|collision|repair\w*|\bmover\w*)\b/],
+  ['saas', /\b(\bsaas\b|software|startup\w*|\bapp\b|platform\w*|\bapi\b|developer\s?tool\w*|web\s?(?:app|dev\w*)|technolog\w*|\bit\s?services|cloud|cyber\w*|data\s?(?:platform|analytics))\b/],
+  ['agency', /\b(\bagenc\w*|marketing|\bpr\b|public\s?relations|advertis\w*|branding|creative\s?studio|design\s?(?:agency|studio)|media\s?(?:agency|house))\b/],
+  ['portfolio', /\b(portfolio|photograph\w*|\bphotographer\w*|artist\w*|freelanc\w*|designer\w*|\bgaller(?:y|ies)\b|fine\s?art\w*|\bmuseum\w*|personal\s?(?:site|brand))\b/],
+  ['professional-services', /\b(financ\w*|account\w*|\bcpa\b|bookkeep\w*|\btax\b|audit\w*|insurance|insur\w*|wealth|advisor\w*|\bbank\w*|mortgage|invest\w*|escrow|payroll|real\s?estate|realty|realtor\w*|consult\w*|architect\w*|engineer\w*|staffing|recruit\w*)\b/],
+  ['retail', /\b(retail|\bshop\w*|\bstore\w*|boutique\w*|apparel|clothing|fashion\w*|merchandise|florist\w*|\bflower\w*|\bgift\w*|pet\s?(?:store|shop)|home\s?goods|furniture|\btoys?\b|cosmetic\w*|jewel\w*|book\s?stor\w*|bookshop\w*|record\s?stor\w*|vinyl\s?(?:shop|store)|hardware|\bmarket\b|thrift|consignment|antique\w*|electronics|garden\s?cent\w*|nursery)\b/],
+];
+
+/**
+ * Resolve the vertical-preset KEY for a business (category first, then design hint).
+ * Always returns a key present in {@link WEBGL_HERO_PRESETS} (default = professional-services).
+ *
+ * @param category - declared vertical / Google-Places type / freeform category.
+ * @param designHint - freeform "additional details" text (secondary signal).
+ * @returns a vertical key guaranteed present in {@link WEBGL_HERO_PRESETS}. Never throws.
+ */
+export function webglVerticalFor(category?: string | null, designHint?: string | null): string {
+  const cat = normalizeForMatch(category);
+  if (cat) {
+    const byCat = firstMatch(cat, WEBGL_VERTICAL_RULES);
+    if (byCat) return byCat;
+  }
+  const hint = normalizeForMatch(designHint);
+  if (hint) {
+    const byHint = firstMatch(hint, WEBGL_VERTICAL_RULES);
+    if (byHint) return byHint;
+  }
+  return DEFAULT_WEBGL_VERTICAL;
+}
+
+/**
+ * Resolve the THEMED {@link WebglHeroConfig} for a build. Every build resolves (the
+ * default disposition is "has a webgl pack"), so every generated site carries a tuned
+ * ambient hero; the orchestrator mounts `<WebGLHero vertical webgl={this} />` as the
+ * hero section's first child. Static-fallback-safe by the component's own contract.
+ *
+ * @param category - declared vertical / category.
+ * @param designHint - freeform "additional details" (secondary signal).
+ * @returns a themed, render-safe config (never throws, always resolvable).
+ *
+ * @example webglHeroConfigFor('Italian Restaurant') // → { variant:'ember', … }
+ * @example webglHeroConfigFor('law firm')           // → { variant:'grid',  … }
+ */
+export function webglHeroConfigFor(
+  category?: string | null,
+  designHint?: string | null,
+): WebglHeroConfig {
+  return WEBGL_HERO_PRESETS[webglVerticalFor(category, designHint)] as WebglHeroConfig;
+}

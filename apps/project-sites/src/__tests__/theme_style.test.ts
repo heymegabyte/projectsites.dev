@@ -8,6 +8,8 @@ import {
   commerceModeFor,
   commerceIntentBriefFor,
   COMMERCE_INTENT_BRIEF,
+  webglVerticalFor,
+  webglHeroConfigFor,
   type CommerceMode,
 } from '../services/theme_style.js';
 
@@ -712,5 +714,40 @@ describe('theme_style — resolveThemeStyle (explicit wins, derivation is fallba
   it('an explicit preset resolves even with an empty/unmatchable category', () => {
     expect(resolveThemeStyle('brutalist', 'Other')).toBe('brutalist');
     expect(resolveThemeStyle('editorial')).toBe('editorial');
+  });
+});
+
+describe('webglVerticalFor + webglHeroConfigFor (fire-71 — every build carries a themed ambient hero)', () => {
+  it('maps the flagship verticals to their preset keys + variants', () => {
+    expect(webglVerticalFor('Italian Restaurant')).toBe('restaurant');
+    expect(webglHeroConfigFor('Italian Restaurant').variant).toBe('ember');
+    expect(webglVerticalFor('Food Pantry / Soup Kitchen')).toBe('nonprofit');
+    expect(webglHeroConfigFor('Food Pantry / Soup Kitchen').variant).toBe('rays');
+    expect(webglVerticalFor('Guitar Shop')).toBe('retail');
+    expect(webglHeroConfigFor('Guitar Shop').variant).toBe('glint');
+    expect(webglVerticalFor('Accounting Firm')).toBe('professional-services');
+    expect(webglHeroConfigFor('Accounting Firm').variant).toBe('grid');
+  });
+
+  it('maps service / medical / legal / saas categories to their tuned presets', () => {
+    expect(webglVerticalFor('HVAC & Plumbing')).toBe('local-service');
+    expect(webglVerticalFor('Dental Clinic')).toBe('medical');
+    expect(webglVerticalFor('Law Firm')).toBe('legal');
+    expect(webglVerticalFor('B2B SaaS platform')).toBe('saas');
+  });
+
+  it('ALWAYS resolves (default = professional-services) — every build has a webgl pack', () => {
+    expect(webglVerticalFor(undefined, undefined)).toBe('professional-services');
+    expect(webglVerticalFor('', '')).toBe('professional-services');
+    expect(webglVerticalFor('something totally unmatchable xyzzy')).toBe('professional-services');
+    // The config is always a render-safe object (never throws, never undefined).
+    const cfg = webglHeroConfigFor(null, null);
+    expect(['ember', 'rays', 'glint', 'grid']).toContain(cfg.variant);
+    expect(cfg.palette).toHaveLength(3);
+    expect(typeof cfg.background).toBe('string');
+  });
+
+  it('falls back to the design hint when the category is unmatchable', () => {
+    expect(webglVerticalFor('xyzzy', 'a cozy neighborhood bakery and cafe')).toBe('restaurant');
   });
 });

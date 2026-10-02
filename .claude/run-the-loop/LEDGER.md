@@ -9,6 +9,15 @@
 > `_CF_NATIVE_CONVERGENCE.md`, `_ADMIN_VQA_LEDGER.md`, `_INTERCONNECTEDNESS_LEDGER.md`). This is the
 > INDEX, not a duplicate.
 
+## fire-71 — Feature Delivery: WebGL consumption gap (interconnectedness P0)
+
+- **Closed the fire-70-CONFIRMED built-but-unwired WebGL defect**: `templates/webgl/WebGLHero.tsx` + `webgl-hero-core.mjs` + per-vertical `webgl` blocks EXISTED but NO generated site emitted them (`grep WebGLHero apps/project-sites/src` = 0). Now wired end-to-end.
+- **Pipeline EMIT** (`workflows/site-generation.ts` `buildPrompt`) — resolves a THEMED `webglHeroConfigFor(category)` per build + a MANDATORY prompt step: copy `templates/webgl/` in, mount `<WebGLHero vertical webgl={cfg} paletteCssVars=…/>` as the hero section's FIRST child, static-fallback-safe (aria-hidden, deferred GL, `prefers-reduced-motion`→gradient, never LCP), headline+CTA render early.
+- **Build ASSERT** — new `validateWebglHeroPresent` in `services/build_validators.ts` (code `webgl.hero_missing`, opt `hasWebglPack` threaded through `validateBuild`, set `true` in the workflow since every build resolves a config) fails any build whose bundle/HTML never mounts the hero.
+- **Worker-side SSOT** — `WEBGL_HERO_PRESETS` + `webglVerticalFor`/`webglHeroConfigFor` added to `services/theme_style.ts` (faithful mirror of `templates/webgl/presets.mjs`; tsconfig scopes compilation to `src/**`+`libs/**`, so `templates/*.mjs` can't be imported — same deliberate-mirror pattern as `PACK_DEFAULT_HEROES`).
+- **TDD RED→GREEN** — wrote 5 `validateWebglHeroPresent` + 4 resolver + 1 `validateBuild`-aggregate tests FIRST (RED: `validateWebglHeroPresent is not a function`), implemented → GREEN. Full worker suite **898 suites / 14155 tests pass**, `tsc --noEmit` **0 errors**, eslint 0 errors (new region lint-clean). Gates best-effort in sparse worktree (borrowed main `node_modules` via a scratch symlink, removed before commit).
+- **Deferred (next fire):** flow the EXACT per-site vertical.json `webgl` overrides (not just the category-derived preset) into `buildPrompt`; a live regen + real-browser canvas-mount proof on gp-09 (no deploy this fire — pure pipeline/validator slice).
+
 ---
 
 ## fire-70-convergence (2026-10-01)

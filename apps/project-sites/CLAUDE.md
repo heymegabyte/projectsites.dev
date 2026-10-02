@@ -49,6 +49,7 @@ These invariants are enforced programmatically in `src/services/build_validators
 | Banned slop | No "limitless", "revolutionize", "cutting-edge", "leverage", "world-class", etc. | `copy.banned_word` |
 | JS chunk size | No JS chunk > 750KB raw (~250KB gzip) — code-split by route | `js.chunk_too_large` |
 | Lightbox | JS bundle contains `data-zoomable` AND `data-gallery` strings | `lightbox.zoomable_missing`, `lightbox.gallery_missing` |
+| WebGL hero | When the site's vertical pack carries a `webgl` block (opt `hasWebglPack`, always true today), the bundle/HTML MUST mount the ambient `WebGLHero` (`webgl-hero-layer` / `createWebGLHero` / `WebGLHero`) — closes the fire-71 generation-consumption gap | `webgl.hero_missing` |
 
 **Mode flag (in workflow `validate-build` step):** currently `report` (logs to D1 audit, never throws). Flip to `strict` once template ships clean across all benchmarks (megabyte-labs, njsk, nyfb, vito's, soup kitchen).
 

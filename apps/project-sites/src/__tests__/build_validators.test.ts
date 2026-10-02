@@ -19,6 +19,7 @@ import {
   validateHeroNotPackDefault,
   validateJsBundleSize,
   validateLightboxPresence,
+  validateWebglHeroPresent,
   validateThemeFontLoader,
   validateRequiredFiles,
   validateRouteCount,
@@ -928,6 +929,52 @@ describe('validateLightboxPresence', () => {
   });
 });
 
+describe('validateWebglHeroPresent (interconnectedness: a webgl-pack site MUST mount the WebGLHero)', () => {
+  // The pack carries a `webgl` block → the built JS bundle MUST ship the WebGLHero
+  // (its `webgl-hero-layer` host canvas + aria-hidden decorative marker). This closes the
+  // fire-70-confirmed generation-consumption gap: templates/webgl/WebGLHero.tsx existed but
+  // zero generated sites emitted it. Opt-gated on `hasWebglPack` — builds whose vertical
+  // carries NO webgl block are byte-identical to before (the validator returns []).
+  it('is a NO-OP when the pack carries no webgl block (hasWebglPack falsy)', () => {
+    const v = validateWebglHeroPresent([file('assets/i.js', 'const x = 1;')], false);
+    expect(v).toEqual([]);
+  });
+
+  it('FLAGS a webgl-pack build whose bundle never mounts the WebGLHero canvas', () => {
+    const v = validateWebglHeroPresent(
+      [file('assets/index-abc.js', 'const x = 1; // no hero layer here')],
+      true,
+    );
+    expect(v.map((x) => x.code)).toEqual(expect.arrayContaining(['webgl.hero_missing']));
+    expect(v[0]?.severity).toBe('error');
+  });
+
+  it('PASSES a webgl-pack build whose bundle ships the webgl-hero-layer marker', () => {
+    const v = validateWebglHeroPresent(
+      [file('assets/index-abc.js', 'createElement("div",{className:"webgl-hero-layer"})')],
+      true,
+    );
+    expect(v).toEqual([]);
+  });
+
+  it('PASSES when the bundle references WebGLHero / createWebGLHero by name', () => {
+    expect(
+      validateWebglHeroPresent([file('assets/i.js', 'import{createWebGLHero}from"./core"')], true),
+    ).toEqual([]);
+    expect(
+      validateWebglHeroPresent([file('assets/i.js', 'function WebGLHero(){return null}')], true),
+    ).toEqual([]);
+  });
+
+  it('PASSES on a prerendered host div with data-testid="webgl-hero-layer" in HTML', () => {
+    const v = validateWebglHeroPresent(
+      [file('index.html', html('<div data-testid="webgl-hero-layer" aria-hidden="true"></div>'))],
+      true,
+    );
+    expect(v).toEqual([]);
+  });
+});
+
 describe('validateThemeFontLoader', () => {
   it('flags a bundle missing the theme-font loader (headings would fall back to system-ui)', () => {
     const v = validateThemeFontLoader([file('assets/i.js', 'const x = "applyBrand";')]);
@@ -1100,6 +1147,21 @@ describe('VALIDATOR_MODE strict enforcement (Lane 7: report→strict canary, def
     expect(report.ok).toBe(true);
     expect(() => assertBuildStrict(report, 'strict')).not.toThrow();
     expect(assertBuildStrict(report, 'strict')).toBe(report);
+  });
+
+  it('(d) threads hasWebglPack through the aggregate — webgl-pack build w/o hero FAILS', () => {
+    // A complete build (clean on every other gate) that carries a webgl pack but drops the
+    // ambient hero must fail the aggregate with webgl.hero_missing (fire-71 enforcement).
+    const report = validateBuild(completeBuild(), {
+      expectedBusinessName: 'Example Co',
+      hasWebglPack: true,
+    });
+    expect(report.errors.map((e) => e.code)).toEqual(
+      expect.arrayContaining(['webgl.hero_missing']),
+    );
+    // Same build WITHOUT the opt (byte-identical to pre-fire-71) does NOT raise the webgl gate.
+    const noOpt = validateBuild(completeBuild(), { expectedBusinessName: 'Example Co' });
+    expect(noOpt.errors.map((e) => e.code)).not.toContain('webgl.hero_missing');
   });
 
   // Per-org `validator_strict` flag canary (Lane 7). The workflow computes the EFFECTIVE mode as
