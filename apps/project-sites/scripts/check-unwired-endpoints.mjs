@@ -61,6 +61,15 @@ const EXEMPT_SHAPES = new Set([
   'GET /api/sites/*/mcp/tool-usage',
   // (social AI-assist FIXED 2026-08-02: generate() now calls the real
   //  POST /api/social/:siteId/posts/generate — no longer exempted.)
+  // kv/r2 inspectors ARE wired (index.ts `app.route('/', kvInspector|r2Inspector)` →
+  //  /api/admin/{kv,r2}/*, flags kv_inspector|r2_inspector DARK); the detector can't
+  //  resolve the mounted sub-router's 2-param shape, so these are false positives (fire-86).
+  'GET /api/admin/kv/*/*',
+  'GET /api/admin/r2/*/*',
+  // bolt-embed.service.ts constructs cross-origin EDITOR URLs (editor.projectsites.dev),
+  //  not projectsites-worker routes — resourceRegistryApi wires /resources[/reconcile]
+  //  only, never /resources/*/* (fire-86).
+  'POST /api/sites/*/resources/*/*',
 ]);
 /** Matches `EXEMPT_SHAPES` entries `"<METHOD> <shape>"`. */
 const exemptKey = (method, shape) => `${method} ${shape}`;
@@ -159,7 +168,11 @@ for (const f of walk(FE_DIR)) {
     // These are unresolvable + not concrete endpoints (the docstring promises to skip
     // "fully-dynamic variable paths") — never a real unwired route. Skip to kill the
     // GET|POST|PUT|PATCH|DELETE `/*` false positives on api.service.ts.
-    if (!s || s === '/*' || EXEMPT_SHAPES.has(exemptKey(method, s))) continue;
+    // `/*` and any `/*/…` (fully-dynamic FIRST segment) = an unresolvable variable-base
+    // URL (e.g. bolt-embed's cross-origin `${base}/${x}` editor calls) — a real worker
+    // route never has a dynamic first segment, so these are never a concrete unwired route
+    // (the docstring promises to skip "fully-dynamic variable paths"). (fire-86)
+    if (!s || s === '/*' || s.startsWith('/*/') || EXEMPT_SHAPES.has(exemptKey(method, s))) continue;
     if (!workerShapes.has(s)) {
       // Resolve prefix-mounted sub-routers: strip a known `/api/x` mount prefix and
       // match the remainder against the relative shapes (`/api/onboarding/dismiss` →
