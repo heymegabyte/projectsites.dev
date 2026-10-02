@@ -160,6 +160,7 @@ After convergence, spawn ONE adversarial reviewer whose ONLY job is to try to BR
 result — the assumption is that parallel slices introduced a regression:
 - Re-run the money-path golden journey end-to-end; assert nothing upstream broke (auth, build, view-live, edit, publish).
 - Diff-review for: contract drift between slices, a flag left on, an IDOR on a new `:siteId` route, a swallowed error, a soft-404, a lying-empty surface (reconcile display-vs-store per `verify-against-source-of-truth`), a fix inert behind a false precondition.
+- **Re-confirm CARRIED findings LIVE before assigning a fix-agent.** A finding/blocker surfaced by a PRIOR fire (not discovered live this fire) is a stale-able verdict — the surface may already be fixed/deployed. Before any fix-agent touches it, RE-CONFIRM it live THIS fire: curl the header / hit the endpoint / load the view. fire-71 burned a fix-agent re-fixing an editor `frame-ancestors` CSP fire-60 had already deployed.
 - Any regression found → fix-forward in the main thread or ONE targeted agent (never re-fan-out for repair). Re-verify before shipping.
 - The reviewer is Opus-pinned when the merged change touches auth/payments/security (`parallel-subagent-economy`).
 
