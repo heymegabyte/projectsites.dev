@@ -1,0 +1,25 @@
+[
+  {
+    "id": "editor-csp-frame-ancestors",
+    "type": "header",
+    "description": "Editor CSP must allow the Angular admin dev origins to iframe the bolt editor — frame-ancestors on editor.projectsites.dev includes http://localhost:4200 AND http://localhost:4300. Deployed fire-60 (9077b8ebb), RETIRED fire-80; carried as a re-confirm so it is never re-fixed stale (fire-71 burned a fix-agent on it).",
+    "url": "https://editor.projectsites.dev",
+    "contains": "localhost:4300"
+  },
+  {
+    "id": "hosting-promote-publish-live",
+    "type": "endpoint",
+    "description": "The worker that serves hosting Promote/Publish (POST /api/sites/:id/publish-bolt + /api/sites/:id/deploy) must be LIVE. /health is the auth-free liveness probe — a 200 {status:ok} proves the API host serving promote/publish is up (the mutation routes themselves require a Bearer, so health is the honest headless signal). STILL-OPEN here = the host is down and a fix is justified.",
+    "url": "https://projectsites.dev/health",
+    "contains": "ok",
+    "status": 200
+  },
+  {
+    "id": "d1-migrations-list-reconcile",
+    "type": "shell",
+    "description": "D1 migrations ledger reconcile. Prod `wrangler d1 migrations apply` is BLOCKED by ancient untracked backlog (OPERATING-PRINCIPLES § Prod D1 migrations apply), so the honest offline reconcile is: the migrations dir has sequential NNNN_*.sql files present (no gap/dupe). This shell check lists the newest few — PASS proves the ledger files are present + readable without touching prod D1 (never bulk-reconcile mid-fire).",
+    "type_note": "runs from repo root via git rev-parse",
+    "command": "cd \"$(git rev-parse --show-toplevel)/apps/project-sites/migrations\" && ls -1 [0-9]*.sql | tail -n 3",
+    "contains": ".sql"
+  }
+]
