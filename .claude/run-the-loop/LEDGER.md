@@ -713,3 +713,17 @@ LOOP-IMPROVEMENT (section 7): promoted SSRF + dead-toggle detectors to BLOCKING 
 **Gates:** tsc clean · jest 343 pass (touched suites) · feature-drift PASS · eslint 0 errors · adversarial review CLEAN 5/5 · homepage 200 + /health {kv,r2 ok} + route wired.
 **Security (role 12):** CLEAN sweep — IDOR / per-site-D1 isolation / SSRF / CSP all clean.
 **Loop-improvement (§7):** reconfirm-carried-blockers.mjs + 3 carried blockers retired via it.
+
+## fire-85-converge — 2026-10-02 — CONVERGE (SSRF fix + loop-improvement)
+
+**Shipped:**
+- `0d808a7a6` fix(webhooks): close outbound-webhook redirect SSRF via `safeFetch` per-hop revalidation (CWE-918). `attemptDelivery` pre-checked `isSafeWebhookUrl` on the SEED only, then POSTed with `redirect:'follow'` — a registered webhook 302->169.254.169.254/RFC1918 made the Worker POST there (blind SSRF). Now routes through existing `safeFetch` (manual redirect + per-hop `assertPublicHttpUrl`) with `WEBHOOK_SSRF_POLICY` (https-only). TDD RED->GREEN. Gates: tsc 0 · jest 51 pass · validate:features PASS. Deploy worker version `795f7990-0f4e-41b8-81d5-34d473dcc39b`. Prod: projectsites.dev/ 200 · /api/health 200 {status:ok,env:production} · webhooks.projectsites.dev/ 200.
+- `bd5594165` docs(loop): LOOP-IMPROVEMENT — corrected stale editor-CSP checkpoint note (frame-ancestors live-verified RESOLVED on editor.projectsites.dev incl. `localhost:4200 :4300`) + hardened OPERATING-PRINCIPLES § Convergence discipline with the live-reconfirm invariant (fire-71 trap, recurred).
+
+**Verified already-done (no dup drift):** WLK-28-P0 (logs_explorer.ts + component; 578706449/29006b420) · AWOS-02 base SiteEvent schema (e653ebe76).
+
+**Roles:** A1 Feature (verified done, no-op) · A2 Compression (cut-off attrition) · A3 Loop-Improvement (bd5594165) · A4 Architecture (drift/orphan GREEN 0/0; found D-85-a) · A5 Security (SSRF->fixed) · A6 Discovery (hygiene+replenish+CF-scout not stale) · A7 Long-Trail (BLOCKED auto-worktree → D-85-b; Phase F re-queued) · SSRF-fix agent (cherry-pick 0d808a7a6).
+
+**Loop-improvement (§7):** live-reconfirm invariant + stale-checkpoint fix (A3); bonus D-85-b.
+
+**Not run:** long golden journey — role 16/17 need MAIN checkout; fleet auto-worktreed them. Honest BLOCKED, re-queued. Spend ~1.8M subagent tokens.

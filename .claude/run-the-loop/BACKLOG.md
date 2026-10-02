@@ -106,7 +106,7 @@
       `status:"verify"` entries with observed evidence; wire `node scripts/validate-gp-register.mjs`
       into fire protocol step 4; each fire advances ≥1 GP mapping with revision-bound evidence
   - cadence: every-fire · priority: high · category: testing · estimate: 15m/fire · discovered_by: AWOS §GP-1
-- [ ] AWOS-02 Site Consciousness P0 slice: typed `SiteEvent` Zod base schema (id/type/ts/org/site/
+- [ ] AWOS-02 Site Consciousness P0 slice [fire-85: base schema SHIPPED (e653ebe76, site-event.ts 24/24); residual reconcile-dup + identity-helpers + consumer wiring split to AWOS-03]: typed `SiteEvent` Zod base schema (id/type/ts/org/site/
       env/actor/source/correlation/causation/schemaVersion/privacy) + canonical entity identity
       helpers (`ps://org/{o}/site/{s}/env/{e}/{type}/{id}`) in packages/shared + tests; REUSE existing
       event shapes (build events, visitor_events) — reconcile, don't duplicate (§4-5)
@@ -1495,3 +1495,10 @@
 - **WS-F2DRAIN / file2-f-series-crosswalk** — crosswalk F001–F035 to existing WLK/GP/flag ids; append only genuinely-missing; flip DOWNLOADS FILE 2 → absorbed + rm archive.
 - **WS-DUX-REGEX / explorer-primary-action-regex** — role-17's settings-depth probe regex misses real primary actions (`Connect with…`, `Add API key`, `+ Invite`, `+ Add variable`), so dialog-open states go unexercised; widen it. (test-probe, NOT a product bug — surfaces verified gorgeous.)
 - **WS-LOOP-BROWSER-MAIN / browser-roles-must-land-in-main** — role 16 keeps getting fleet-auto-worktree'd into sparse node_modules (wtBRO), blocking the standing Long-Trail case every fire it recurs. Add a preflight guard / fleet config so roles 16+17 reliably run in the MAIN checkout. (loop-improvement — do FIRST next fire)
+
+## Replenish — fire-85 (2026-10-02)
+
+- [ ] AWOS-03 Wire SiteEvent emission + unify duplicated shape (retires D-85-a orphan + the AWOS-02 "reconcile, don't duplicate" drift). Emit a `SiteEvent` validated against the shared `packages/shared` `SiteEventSchema` on >=1 real mutation (e.g. `site:published`); wire `handleSiteEvent` (currently ZERO callers) as the consumer; delete the parallel `{type,payload}` shape in `apps/project-sites/src/services/site_event_dispatch.ts`. AC: >=1 event type emitted+persisted + shared-schema validated + zero duplicated shapes + drift-check clean. cadence: next-fire · priority: high · category: architecture/feature · discovered_by: fire-85 A4+A6 · owner: role-1/6
+- [ ] WLK-29 Logs "View trace" deep-link -> REAL CF Traces API (currently hardcoded/unverified `?tab=traces&trace=<id>`). AC: clicking "View trace" on a log row opens the matching trace filtered by trace_id against the live Traces endpoint. cadence: next-fire · priority: medium · category: observability · discovered_by: fire-85 A6 · owner: role-10/11
+- [ ] gp-09-completion Money-path LONG journey must continue PAST generate -> publish -> load live `{slug}.projectsites.dev` -> FAIL on any console error / asset 404. AC: fresh build -> publish -> CF Browser Run at the live subdomain, zero console errors. cadence: next-fire · priority: high · category: testing/golden-path · discovered_by: fire-85 A6 · owner: role-4/16
+- [ ] Long-Trail case-001 Phase F (actions 60-96) RE-QUEUED — BLOCKED fire-85 by browser-role auto-worktree (D-85-b); MUST run in a guaranteed MAIN checkout with bootable node_modules (or apply the node_modules symlink self-heal). cadence: next-fire · priority: high · category: testing · owner: role-16
