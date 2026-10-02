@@ -1,8 +1,7 @@
 /**
  * @module middleware/error_handler
- * @description Global Hono error handler — thin composition over
- * {@link module:middleware/error_taxonomy} (predicates + page copy) and
- * {@link module:middleware/error_render} (branded HTML page + JSON envelope).
+ * @description Global Hono error handler — thin wiring of error classification,
+ * logging, and response formatting. Delegates branded HTML rendering to `lib/error_pages.ts`.
  *
  * Behavior contract (locked by `src/__tests__/error_handler_integration.test.ts`):
  * - {@link AppError} keeps its `statusCode`/`code` and serializes via `err.toJSON()`.
@@ -24,7 +23,8 @@ import type { Env, Variables } from '../types/env.js';
 import * as posthog from '../lib/posthog.js';
 import { captureException } from '../lib/sentry.js';
 import { createLogger } from '../observability/index.js';
-import { brandedErrorPage, buildErrorEnvelope, prefersHtml } from './error_render.js';
+import { brandedErrorPage } from '../lib/error_pages.js';
+import { buildErrorEnvelope, prefersHtml } from './error_render.js';
 import { isMalformedJsonBody, isStorageUnavailable, isZodErrorLike } from './error_taxonomy.js';
 
 /**
