@@ -1243,3 +1243,19 @@
 - [ ] P2: WebGL LCP guard in template sync — canvas aria-hidden, idle-deferred, never LCP candidate · accept: Playwright LCP on a WebGL-hero generated site ≤2.0s + LCP element is `<img>`/`<h1>` not canvas · file `apps/project-sites/docs/webgl-templates.md`
 - [ ] P2 money: claim conversion analytics — `claim_cta_clicked` + `claim_checkout_completed` events for the $0→$29 funnel · accept: PostHog/Analytics Engine records both keyed by site_id · file `apps/project-sites/src/services/analytics.ts`
 - [ ] P2 hygiene (fire-68 gate found): reconcile the 12 pre-existing BACKLOG↔LEDGER drift items `node scripts/loop-backlog-hygiene.mjs --check` flags (7 stale-open + 5 stale-closed checkbox/citation mismatches) · accept: `--check` exits 0
+
+## fire-69 reconciliation — advanced + next-wave (appended 2026-10-01)
+**Advanced this fire (see LEDGER fire-69):** editor Create-Table dead-end (GBP#2) ✓ · admin entitlement locked-control CTAs ✓ · 3 remaining real-time Refresh→poll (confirmed ALREADY done fire-54, stale backlog — closed) ✓ · Deep UI Explorer vision severity calibration ✓ · Long-Trail case-001 Phase E (37→59) ✓ · Deep UI Explorer Settings coverage 6→13 ✓.
+
+**Next-wave (deduplicated — Discovery + Architecture + standing roles):**
+1. **[North Star] WebGL generation-consumption gap** — template.projectsites.dev copies `templates/webgl/` into the cloned template + renders `<WebGLHero>`; orchestrator prompt carries `webgl` from `vertical.json`; add `validateWebglHeroPresent` to `build_validators.ts` + prod `getContext('webgl')` check. ACCEPTANCE: a generated site renders a live canvas; validator fails a canvas-less build. (DISCOVERIES fire-69)
+2. **[money-path] Stripe test-checkout automation rail** — scripted hosted-checkout (test card / stripe-cli webhook sim) completes inside a golden-path run, no manual card. ACCEPTANCE: gp-05 checkout green end-to-end (launch-bar gate 1).
+3. **[money-path] Eager per-site D1 provisioning on create** — new site's D1 exists immediately post-publish, not only after first lazy Data-tab GET. ACCEPTANCE: fresh site Data tab shows provisioned D1 with no first-GET delay.
+4. **[North Star] WebGL pack for local-service vertical** — local-service `vertical.json` ships a webgl hero block (parity w/ hvac/law/nonprofit). ACCEPTANCE: default-classified builds ship WebGL. (launch-bar gate 2)
+5. **[gen-quality] Hero H1 de-pack-defaults for distinctive trade names** — a business like "Global" gets a tailored H1, not the generic local-service pack default. ACCEPTANCE: vision ≥8 on the [H1pac] class.
+6. **[North Star] Container token metering** — `build_metrics.tokens_in/out` report real counts (currently 0/0; est_cost is container-time-derived). ACCEPTANCE: validate the <$1 gp-09 ceiling against real token usage.
+7. **[money-path] Purge-intent honesty field on DELETE** — `/api/sites/:id` DELETE echoes `purge_requested` vs `purge_executed`. ACCEPTANCE: a swallowed body never silently downgrades a destructive opt-in to a soft archive.
+8. **[gen-quality] Wordmark dark-on-dark contrast guard** — generated wordmark passes a contrast check vs its rendered background before publish. ACCEPTANCE: gate (not just icon-contrast).
+9. **[gen-quality] Stock-photo relevance classifier** — hero media weights business-name/trade signal, not industry-pack default. ACCEPTANCE: no gift-shop photo on a trade business.
+10. **[infra] editor frame-ancestors 'none' blocks iframe embed** — prod `editor.projectsites.dev` `_headers` must allow admin + localhost:4200 origins. ACCEPTANCE: Long-Trail D-boot legs #43-45/#53-55 go live. (DISCOVERIES fire-69)
+11. **[explorer] Settings tab per-action selectors** — re-probe Team/MCP/Webhooks/Domains with tab-specific primary-action selectors (generic invite|add|connect|create regex missed them). ACCEPTANCE: dialog-open states exercised. (R17 next cursor)

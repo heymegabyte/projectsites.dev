@@ -512,3 +512,15 @@ launchd banner → in-session cron. Next task-selection now reads the merged fro
 - Role-17 Deep UI Explorer `fea22ab1a` — PASS_CLOUDFLARE run (CF Browser Run CDP, super-admin, homepage→signin→/admin→Editor→Database→Tables→Actions→History), 0 console errors; confirms fire-67 WLK-03/08/09 hold.
 **Gates:** worker tsc 0 · jest 212/212 · validate:features 0 · editor tsc 0 · vitest 58/58. **Prod-verify:** projectsites.dev 200 (HSTS+CSP) · /api/health ok (kv+r2 ok) · editor.projectsites.dev 200 · /api/sites/:id/db/query → 403 gate (rate-limit path matches, not 5xx/soft-404).
 **Roster:** 3 mutating worktree + 3 read-only MAIN (Deep UI Explorer r17, Discovery r2, Security r12-opus) + 1 adversarial reviewer (opus). Role-16 Long-Trail deferred (case-001 boot-check folded into r17). Subagent spend ~2.1M tokens.
+
+## fire-69-convergence (2026-10-01) — pushed 573c15eb9
+**Shipped to main + deployed + prod-verified:**
+- `6c5863da0` feat(editor) — **GBP#2 money-path dead-end**: Data-tab "Create Table" now routes through the shared `TableActionOverlay → SchemaBuilder` (was a local sitedb modal); removed orphaned `onNewTableSql` prop; added inline Create-Table CTA to the AI-Seed empty state so an owner is never stuck. TDD RED→GREEN, vitest 1130 pass. Prod: `editor.projectsites.dev` 200 + fresh `index-CtcPEpTO.css`.
+- `93ddfe3ed` feat(editor) — Nebula loader HBO-grade shader (ACES tonemap, chromatic bleed, completion `burst`, 7-octave fbm). Editor build ✓ (prior-session polish ladder, finished + shipped this fire).
+- `2d3c55f2e` feat(admin) — **entitlement-locked controls show reason + one-click upgrade CTA** (feature-dossier/inline-checkout/usage-gauges), gated on the real `EntitlementState`; Stripe never mounts when locked. tsc + `ng build` ✓. Prod: `projectsites.dev` 200 + fresh `main-44MZO2M2.js` (hash-verified).
+- `3ff62fe30` chore(loop) — **loop-improvement**: `clampFallbackSeverity` — Workers-AI fallback vision positives can never be p0/p1 (only concrete defects); `--selftest` 4/4; codified in OPERATING-PRINCIPLES § role-17.
+- `573c15eb9` chore(e2e) — Long-Trail case-001 **Phase E green, actions 37→59**, next Phase F.
+
+**Standing roles:** R17 Deep UI Explorer — CF Browser Run CLOUD_PASS, 2 sessions, 24 states (Settings 6→13 tabs), 0 blocked, 0 defects (honest-empty). R16 Long-Trail — Phase E full-replay 7pass/2pending (37→59). Security — NO findings (IDOR gate exit 0, per-site D1 isolation structural, entitlement server-enforced, vision-review scrubs secrets). Architecture — drift clean.
+**Adversarial review:** NO REGRESSIONS — all 4 hunt targets clean.
+**Deploys:** editor Pages `dc3f4ec7` (bolt-diy) + frontend R2 (CDN purged). Token spend ~2.0M subagent.
