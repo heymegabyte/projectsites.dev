@@ -28,7 +28,7 @@
     "check:fitness:ci": "node scripts/check-architecture-fitness.mjs --ci",
     "format": "prettier --write src",
     "format:check": "prettier --check src",
-    "check": "npm run typecheck && npm run lint && npm run check:html-injection && npm run check:fabricated-people && npm run check:idor && npm run check:idor-handlers && npm run check:body-slug-idor && npm run check:body-fk && npm run check:get-read-idor && npm run check:response-keys && npm run check:request-keys && npm run check:admin-email && npm run check:local-error-helpers && npm run check:ai-gateway && npm run check:no-openmeter && npm run check:unwired && npm run check:dbinsert && npm run check:dbupdate:ci && npm run check:dbexecute:ci && npm run check:duplicate-routes && npm run check:published-build && npm run check:orphan-flags && npm run check:admin-contract && npm run check:status-sweep && npm run check:system-org-seed && npm run check:trialing-drift && npm run format:check && npm run test:unit",
+    "check": "npm run typecheck && npm run lint && npm run check:html-injection && npm run check:fabricated-people && npm run check:dead-toggle && npm run check:idor && npm run check:idor-handlers && npm run check:body-slug-idor && npm run check:body-fk && npm run check:get-read-idor && npm run check:response-keys && npm run check:request-keys && npm run check:admin-email && npm run check:local-error-helpers && npm run check:ai-gateway && npm run check:no-openmeter && npm run check:unwired && npm run check:dbinsert && npm run check:dbupdate:ci && npm run check:dbexecute:ci && npm run check:duplicate-routes && npm run check:published-build && npm run check:orphan-flags && npm run check:admin-contract && npm run check:status-sweep && npm run check:system-org-seed && npm run check:trialing-drift && npm run format:check && npm run test:unit",
     "check:idor": "node scripts/check-idor-gates.mjs --ci",
     "check:idor-handlers": "node scripts/check-idor-handlers.mjs --ci",
     "check:body-slug-idor": "node scripts/check-body-slug-write-idor.mjs --ci",
@@ -64,6 +64,7 @@
     "audit:schema-applied": "node scripts/audit-schema-migrations-applied.mjs",
     "audit:flag-registration": "node scripts/audit-flag-registration.mjs",
     "check:fabricated-people": "node scripts/validate-no-fabricated-people.mjs",
+    "check:dead-toggle": "node scripts/check-dead-toggle-state.mjs --ci",
     "test:scripts": "node --test scripts/__tests__/validate_no_fabricated_people.test.mjs scripts/__tests__/check_hardcoded_admin_email.test.mjs scripts/__tests__/check_local_error_helpers.test.mjs scripts/__tests__/check_duplicate_routes.test.mjs scripts/__tests__/check_status_sweep_no_retry.test.mjs scripts/__tests__/check_system_org_seed.test.mjs scripts/__tests__/check_trialing_drift.test.mjs scripts/__tests__/check_body_fk_write.test.mjs",
     "knip": "npx --yes knip --no-progress",
     "knip:report": "npx --yes knip --no-progress --reporter compact || true"
