@@ -27,11 +27,23 @@ export interface LogRow {
   ts: string;
   level: string;
   request_id: string;
+  /**
+   * Distributed-trace id correlating this row with the full request trace
+   * (Workers Tracing / the error envelope's `correlationId`). `null` when the
+   * event carried none — the UI links a row → its trace only when present.
+   */
+  trace_id: string | null;
   route: string;
   method: string;
   status: number | null;
   duration_ms: number | null;
   cost_estimate: number;
+  /**
+   * Structured error code (`NOT_FOUND`, `VALIDATION_ERROR`, …) from a thrown
+   * `AppError` the error handler logged. `null` for ordinary request/info rows
+   * (createLogger-shape events have no top-level `code`).
+   */
+  code: string | null;
   message: string;
   meta: unknown;
 }
@@ -164,17 +176,36 @@ export function estimateCost(durationMs: number | null): number {
 
 // ── Observability query ──────────────────────────────────────────────────────
 
-/** One raw Observability event source we depend on. */
+/**
+ * One raw Observability event source we depend on. Two logger shapes flow in:
+ *  - **createLogger / http_request** — `{ msg, path, requestId, durationMs, … }`
+ *    (camelCase; the structured `console.warn` wrapper).
+ *  - **thrown AppError** — logged by `middleware/error_handler.ts` via a raw
+ *    `console.warn(JSON.stringify({ code, message, request_id, status, url,
+ *    method }))` — snake_case `request_id`/`url`, a top-level `code`, `message`
+ *    (not `msg`), and NO `path`/`requestId`. {@link mapEvent} reads both.
+ */
 interface ObsSource {
   ts?: string;
   level?: string;
   msg?: string;
+  /** Thrown-AppError message key (error_handler emits `message`, not `msg`). */
+  message?: string;
+  /** Structured error code from a thrown AppError (`NOT_FOUND`, …). */
+  code?: string;
   eventName?: string;
   service?: string;
   scope?: string;
   requestId?: string;
+  /** Thrown-AppError snake_case request id (error_handler emits `request_id`). */
+  request_id?: string;
+  /** Distributed-trace id, either camel or snake depending on the emitter. */
+  traceId?: string;
+  trace_id?: string;
   method?: string;
   path?: string;
+  /** Thrown-AppError route key (error_handler emits `url`, not `path`). */
+  url?: string;
   route?: string;
   status?: number;
   durationMs?: number;
@@ -185,21 +216,39 @@ interface ObsResponse {
   errors?: Array<{ message?: string }>;
 }
 
-/** Map a raw Observability event to a {@link LogRow}. */
+/**
+ * Map a raw Observability event to a {@link LogRow}, normalizing BOTH logger
+ * shapes (createLogger camelCase + thrown-AppError snake_case — see
+ * {@link ObsSource}). A 500 that threw an `AppError` therefore surfaces its real
+ * `code` + `message` + route, never an empty/generic edge-level row.
+ *
+ * @param src - One raw Observability event source.
+ * @param i - Index within the page (keeps `id` unique when `requestId` repeats).
+ * @returns The normalized row the admin Log Explorer renders.
+ */
 export function mapEvent(src: ObsSource, i: number): LogRow {
-  const route = src.path ?? src.route ?? src.service ?? src.scope ?? '—';
+  // Route: thrown-AppError events carry `url` (not `path`); fall through the rest.
+  const route = src.path ?? src.url ?? src.route ?? src.service ?? src.scope ?? '—';
+  // request_id: createLogger emits `requestId`; error_handler emits `request_id`.
+  const requestId = src.requestId ?? src.request_id ?? '';
+  // trace_id: either casing; `null` (not '') when absent so the UI can gate on it.
+  const traceId = src.traceId ?? src.trace_id ?? null;
   const durationMs = typeof src.durationMs === 'number' ? src.durationMs : null;
   return {
-    id: `${src.requestId ?? 'log'}:${src.ts ?? ''}:${i}`,
+    id: `${requestId || 'log'}:${src.ts ?? ''}:${i}`,
     ts: src.ts ?? '',
     level: src.level ?? 'info',
-    request_id: src.requestId ?? '',
+    request_id: requestId,
+    trace_id: traceId,
     route,
     method: src.method ?? '',
     status: typeof src.status === 'number' ? src.status : null,
     duration_ms: durationMs,
     cost_estimate: estimateCost(durationMs),
-    message: src.msg ?? src.eventName ?? '',
+    // Structured error code from a thrown AppError; `null` for ordinary rows.
+    code: src.code ?? null,
+    // Message: createLogger emits `msg`; error_handler emits `message`.
+    message: src.msg ?? src.message ?? src.eventName ?? '',
     meta: src,
   };
 }
