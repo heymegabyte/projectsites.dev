@@ -26,6 +26,7 @@
 - **fire lock** — repo-root `scripts/loop-fire-lock.mjs` (claim/heartbeat/release)
 - **recipient allowlist** — `apps/project-sites/scripts/recipient-allowlist.mjs` (+ `.recipient-allowlist.local.json` (verify) — local override not present in a clean tree)
 - **deep UI explorer** — `apps/project-sites/e2e/deep-ui-explorer/` (`explorer.mjs` · `vision-review.mjs` · `coverage-ledger.json`)
+- **carried-blocker re-confirm (BATCH)** — `node apps/project-sites/scripts/reconfirm-carried-blockers.mjs` reads `apps/project-sites/e2e/carried-blockers.json` (header/endpoint/shell checks) → PASS(retire) | STILL-OPEN | ERROR, exit 0 iff all resolved; run it BEFORE assigning ANY fix-agent to a carried blocker (§ Carried-blocker re-confirm). Singular single-header variant: `reconfirm-carried-blocker.mjs`.
 - **long-trail checkpoint** — `apps/project-sites/e2e/long-trail/checkpoint-case-001.json`
 - **canonical home** — `.claude/run-the-loop/` (`README` · `OPERATING-PRINCIPLES` · `BACKLOG` · `LEDGER` · `DISCOVERIES` · `ARCHITECTURE` · `CONSTITUTION` · `GENOME` · `GOLDEN-PATHS` · `VISUAL-COVERAGE` · `BROWSER-OPERATING-LAYER`)
 - **worker deploy** — `cd apps/project-sites && npx wrangler deploy --env production`
