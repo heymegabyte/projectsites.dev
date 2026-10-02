@@ -272,6 +272,14 @@
   to a fresh Explore agent (≤150-line cap).
 - Auto-integrate-recs — anything <2h with no design call ships INLINE; the Recs list is only
   for genuine >2h / design-conversation / external-blocker / irreversible items.
+- Backlog-hygiene — evidence cuts BOTH ways. A replenished item promoted to a LEAD/North-Star
+  priority MUST carry file:line (or store/query) evidence the gap EXISTS; EQUALLY, a gap DISMISSED
+  as "phantom" MUST confirm ABSENCE across the FULL relevant tree (`src/` + `templates/` + the remote
+  template repo), never a partial grep. A vision/discovery verdict — positive OR negative — stays a
+  candidate until confirmed against the full source + store. Fire-70: a scout searched only `src/`,
+  missed `apps/project-sites/templates/webgl/WebGLHero.tsx` (real, built, unwired into site-generation),
+  and wrongly called the real WebGL P0 a phantom; the adversarial-review phase caught the false-negative
+  before it retired a live item.
 
 ## Failure taxonomy vs HARD-STOP (recover vs checkpoint — never conflate)
 

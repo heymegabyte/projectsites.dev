@@ -11,6 +11,13 @@
 
 ---
 
+## fire-70-convergence (2026-10-01)
+- Wired orphaned `/admin/sites` list into Workspace nav (Deep UI Explorer money-funnel finding; interconnectedness) + globe icon + lockstep spec — SHA 9f5909eb4; frontend R2 deploy (300/300, CDN purged).
+- WLK-05 editor SQL a11y hardening: SqlEditor `id` for label assoc + computed-contrast regression (AA 7.88:1) — SHA 9f5909eb4; editor Pages deploy 99b0d476.bolt-diy-8jf.pages.dev.
+- Fixed pre-existing RED fire-69 usage-gauges upgrade-CTA test (provideRouter so static routerLink resolves href) — Karma 2443 SUCCESS / 0 FAILED.
+- Dead-toggle gate wired into `check` aggregate (SHA 6d9df3ed4, detector from fire-63) — `check:dead-toggle` GREEN (188 files, 0 dead). Deep UI Explorer money-funnel pass (SHA f670b80b7, CF Browser Run CLOUD_PASS, 12 states, 0 p0/p1).
+- Adversarial review CAUGHT a fan-out error: scout's `src/`-only search wrongly called the real WebGL built-but-unwired P0 a "phantom" → corrected (see BACKLOG + OPERATING-PRINCIPLES + monitor #14). Budget: ~2.1M subagent tokens.
+
 ### 2026-10-01 · fire-63 — destructive-opt-in silent-downgrade fix (correctness slice)
 - **Frontier-0 closed:** `DELETE /api/sites/:id` `purge_resources` opt-in no longer silently downgrades on a lost/garbled body. Was `const body = await c.req.json().catch(() => ({}))` → a malformed/non-object body became `{}` → `purge_resources` undefined → irreversible teardown SKIPPED while the delete still 200'd. Now `.catch(() => null)` + null/non-object/array guard → `throw badRequest('Request body must be a JSON object')` (400, `BAD_REQUEST` envelope). Mirrors the PATCH `/api/sites/:id` fix; the valid empty-`{}` no-op stays 200.
 - **Asserable effect:** a successful purge now echoes `{ purged: <number> }` (R2 version objects + dedicated D1 + KV + buckets torn down) so a caller can assert the destructive action actually ran, not just that it 200'd.
