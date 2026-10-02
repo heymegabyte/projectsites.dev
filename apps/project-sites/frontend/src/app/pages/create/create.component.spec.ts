@@ -1,6 +1,6 @@
 import { TestBed, type ComponentFixture, fakeAsync, tick } from '@angular/core/testing';
-import { provideRouter, ActivatedRoute } from '@angular/router';
-import { of } from 'rxjs';
+import { provideRouter, ActivatedRoute, Router } from '@angular/router';
+import { of, throwError } from 'rxjs';
 import { CreateComponent } from './create.component';
 import { ApiService } from '../../services/api.service';
 import { AuthService } from '../../services/auth.service';
@@ -562,4 +562,128 @@ describe('CreateComponent — inline required-field error on blur (WCAG 3.3.1)',
       .withContext('AT must hear the address field is invalid after a focus→blur')
       .toBe('true');
   });
+});
+
+/**
+ * Over-limit → Upgrade CTA (money-path · embarrassingly-easy · action-button-must-
+ * gate-on-server-precondition). When site-create hits the per-plan cap the worker
+ * returns 403 `{ error: { code: 'BUILD_LIMIT_REACHED', message } }` (api.ts:1096). The
+ * create flow must NOT dead-end that with a generic error toast — a doomed outcome
+ * must offer the FIX inline: an action-armed toast ("Upgrade") that routes to the
+ * authed billing surface. A NON-limit failure stays a plain toast (no false CTA).
+ */
+describe('CreateComponent — over-limit surfaces an Upgrade CTA (BUILD_LIMIT_REACHED)', () => {
+  let api: {
+    searchBusinesses: jasmine.Spy;
+    searchAddress: jasmine.Spy;
+    createSiteFromSearch: jasmine.Spy;
+  };
+  let toast: { error: jasmine.Spy; success: jasmine.Spy; info: jasmine.Spy; dismiss: jasmine.Spy };
+  let router: Router;
+
+  afterEach(() => {
+    localStorage.clear();
+    sessionStorage.clear();
+    TestBed.resetTestingModule();
+  });
+
+  function limitError() {
+    return throwError(() => ({
+      status: 403,
+      error: {
+        error: {
+          code: 'BUILD_LIMIT_REACHED',
+          message:
+            "You've used 1 of 1 sites. Free accounts include 1 site — add more for $50/month per site.",
+        },
+      },
+    }));
+  }
+
+  function render(): ComponentFixture<CreateComponent> {
+    api = {
+      searchBusinesses: jasmine.createSpy('searchBusinesses').and.returnValue(of({ data: [] })),
+      searchAddress: jasmine.createSpy('searchAddress').and.returnValue(of({ data: [] })),
+      createSiteFromSearch: jasmine
+        .createSpy('createSiteFromSearch')
+        .and.returnValue(limitError()),
+    };
+    const auth = {
+      isLoggedIn: jasmine.createSpy('isLoggedIn').and.returnValue(true),
+      getAutoCreate: jasmine.createSpy('getAutoCreate').and.returnValue(false),
+      setAutoCreate: jasmine.createSpy('setAutoCreate'),
+      getPendingBuild: jasmine.createSpy('getPendingBuild').and.returnValue(false),
+      setPendingBuild: jasmine.createSpy('setPendingBuild'),
+      getSelectedBusiness: jasmine.createSpy('getSelectedBusiness').and.returnValue(null),
+      getMode: jasmine.createSpy('getMode').and.returnValue('build'),
+      clearSelectedBusiness: jasmine.createSpy('clearSelectedBusiness'),
+    };
+    toast = {
+      error: jasmine.createSpy('error').and.returnValue(1),
+      success: jasmine.createSpy('success'),
+      info: jasmine.createSpy('info'),
+      dismiss: jasmine.createSpy('dismiss'),
+    };
+    TestBed.configureTestingModule({
+      imports: [CreateComponent],
+      providers: [
+        provideRouter([]),
+        { provide: ApiService, useValue: api },
+        { provide: AuthService, useValue: auth },
+        { provide: GeolocationService, useValue: { lat: () => null, lng: () => null } },
+        { provide: ToastService, useValue: toast },
+        { provide: TelemetryService, useValue: { track: () => undefined } },
+        {
+          provide: ActivatedRoute,
+          useValue: { snapshot: { queryParams: {}, queryParamMap: { get: () => null } } },
+        },
+      ],
+    });
+    router = TestBed.inject(Router);
+    spyOn(router, 'navigateByUrl').and.resolveTo(true);
+    const fx = TestBed.createComponent(CreateComponent);
+    fx.detectChanges();
+    return fx;
+  }
+
+  type CreatePrivate = { createSiteWithUploadId: (uploadId?: string) => void };
+
+  it('offers an "Upgrade" action that routes to /admin/billing instead of a dead toast', fakeAsync(() => {
+    const fx = render();
+    const c = fx.componentInstance;
+    c.businessName = "Vito's Mens Salon";
+    c.businessAddress = '74 N Beverwyck Rd, Lake Hiawatha, NJ 07034';
+    (c as unknown as CreatePrivate).createSiteWithUploadId();
+    tick();
+
+    expect(toast.error).withContext('an error toast is shown').toHaveBeenCalled();
+    const opts = toast.error.calls.mostRecent().args[1] as
+      | { action?: { label: string; run: (id: number) => void } }
+      | undefined;
+    expect(opts?.action?.label)
+      .withContext('over-limit must offer an inline Upgrade action, never a dead toast')
+      .toBe('Upgrade');
+
+    opts?.action?.run(1);
+    expect(router.navigateByUrl)
+      .withContext('the Upgrade action routes to the authed billing surface')
+      .toHaveBeenCalledWith('/admin/billing');
+  }));
+
+  it('keeps a plain error toast (no action) for a NON-limit failure', fakeAsync(() => {
+    const fx = render();
+    api.createSiteFromSearch.and.returnValue(
+      throwError(() => ({ status: 500, error: { error: { code: 'INTERNAL_ERROR', message: 'boom' } } })),
+    );
+    const c = fx.componentInstance;
+    c.businessName = 'X';
+    c.businessAddress = 'Y';
+    (c as unknown as CreatePrivate).createSiteWithUploadId();
+    tick();
+
+    const opts = toast.error.calls.mostRecent().args[1] as { action?: unknown } | undefined;
+    expect(opts?.action)
+      .withContext('a generic failure stays a plain toast — no false Upgrade CTA')
+      .toBeUndefined();
+  }));
 });

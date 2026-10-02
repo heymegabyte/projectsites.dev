@@ -1975,12 +1975,32 @@ export class CreateComponent implements OnInit, OnDestroy {
       },
       error: (err) => {
         this.submitting.set(false);
-        this.toast.error(
-          err?.error?.error?.message || err?.error?.message || 'Failed to create site',
-        );
+        const code = err?.error?.error?.code;
+        const message =
+          err?.error?.error?.message || err?.error?.message || 'Failed to create site';
+        if (code === 'BUILD_LIMIT_REACHED') {
+          // Doomed outcome → offer the FIX inline (embarrassingly-easy +
+          // action-button-must-gate-on-server-precondition). The server message already
+          // carries plan context ("used N of M sites…"); pair it with a one-click Upgrade
+          // action to the authed billing surface instead of a dead error toast. Sticky so
+          // the owner can read + act; the action navigates (and dismisses) on click.
+          this.toast.error(message, {
+            duration: 0,
+            action: {
+              label: 'Upgrade',
+              run: (id: number) => {
+                this.toast.dismiss(id);
+                void this.router.navigateByUrl('/admin/billing');
+              },
+            },
+          });
+        } else {
+          this.toast.error(message);
+        }
         this.telemetry.track('site.create.failed', {
           reset_mode: false,
           status: err?.status,
+          code,
         });
       },
     });
