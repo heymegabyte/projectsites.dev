@@ -17,6 +17,7 @@ import {
   DestroyRef,
   inject,
   input,
+  OnDestroy,
   OnInit,
   signal,
 } from '@angular/core';
@@ -40,9 +41,11 @@ import { ApiService, type SchemaTable, type SiteMigrations } from '../../../serv
     .sb-search { flex: 1; min-width: 0; font: inherit; font-size: 0.82rem; padding: 0.4rem 0.6rem; border-radius: 8px; color: var(--ps-ink, #f4f4ff); background: rgba(0,0,0,0.25); border: 1px solid var(--ps-edge, rgba(255,255,255,0.12)); }
     .sb-search:focus-visible { outline: 2px solid var(--ps-accent, #00e5ff); outline-offset: 2px; }
     .sb-count { font-size: 0.72rem; color: color-mix(in oklch, var(--ps-ink, #f4f4ff) 55%, transparent); font-variant-numeric: tabular-nums; }
-    .sb-refresh { font: inherit; font-size: 0.76rem; cursor: pointer; padding: 0.3rem 0.7rem; border-radius: 6px; color: var(--ps-accent, #00e5ff); background: color-mix(in oklch, var(--ps-accent, #00e5ff) 9%, transparent); border: 1px solid color-mix(in oklch, var(--ps-accent, #00e5ff) 28%, transparent); }
-    .sb-refresh:hover { background: color-mix(in oklch, var(--ps-accent, #00e5ff) 18%, transparent); }
-    .sb-refresh:focus-visible { outline: 2px solid var(--ps-accent, #00e5ff); outline-offset: 2px; }
+    .sb-live { display: inline-flex; align-items: center; gap: 0.35rem; font-size: 0.68rem; font-variant-numeric: tabular-nums; color: color-mix(in oklch, var(--ps-ink, #f4f4ff) 45%, transparent); white-space: nowrap; user-select: none; }
+    .sb-live-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--ps-accent, #00e5ff); animation: sb-live-pulse 2s ease-in-out infinite; }
+    .sb-live-dot.is-paused { background: color-mix(in oklch, var(--ps-ink, #f4f4ff) 35%, transparent); animation: none; }
+    @keyframes sb-live-pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.35; } }
+    @media (prefers-reduced-motion: reduce) { .sb-live-dot { animation: none; } }
     .sb-layout { display: grid; grid-template-columns: minmax(160px, 240px) 1fr; gap: 1rem; align-items: start; }
     @media (max-width: 640px) { .sb-layout { grid-template-columns: 1fr; } }
     .sb-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 0.2rem; max-height: 60vh; overflow-y: auto; }
@@ -100,7 +103,18 @@ import { ApiService, type SchemaTable, type SiteMigrations } from '../../../serv
             (ngModelChange)="search.set($event)"
           />
           <span class="sb-count">{{ tables().length }} {{ tables().length === 1 ? 'object' : 'objects' }}</span>
-          <button type="button" class="sb-refresh" (click)="load()" data-testid="sb-refresh" aria-label="Refresh schema">Refresh</button>
+          <!-- Live affordance — the schema self-updates on a visibility-aware poll; no manual
+               Refresh (per real-time-data-no-manual-refresh). -->
+          <span
+            class="sb-live"
+            role="status"
+            aria-live="off"
+            [title]="polling() ? 'This view updates itself automatically' : 'Paused while the tab is hidden'"
+            data-testid="sb-live"
+          >
+            <span class="sb-live-dot" [class.is-paused]="!polling()" aria-hidden="true"></span>
+            {{ updatedLabel() }}
+          </span>
         </div>
 
         <div class="sb-layout">
@@ -270,9 +284,16 @@ import { ApiService, type SchemaTable, type SiteMigrations } from '../../../serv
     </div>
   `,
 })
-export class SiteSchemaBrowserComponent implements OnInit {
+export class SiteSchemaBrowserComponent implements OnInit, OnDestroy {
   private readonly api = inject(ApiService);
   private readonly destroyRef = inject(DestroyRef);
+
+  /**
+   * Visibility-aware real-time poll cadence (per real-time-data-no-manual-refresh): the schema
+   * silently re-fetches every 60s while foregrounded — there is NO manual Refresh button. The
+   * poll pauses while `document.hidden` and refreshes immediately when the tab returns.
+   */
+  private static readonly POLL_MS = 60_000;
 
   /** The site whose schema to browse. Bound by the parent site-detail tab. */
   readonly siteId = input<string>('');
@@ -283,6 +304,35 @@ export class SiteSchemaBrowserComponent implements OnInit {
   readonly selectedName = signal<string | null>(null);
   readonly search = signal('');
   readonly copied = signal(false);
+
+  /** Live-affordance state — `true` while the visibility-aware poll is active (tab foregrounded). */
+  readonly polling = signal(true);
+  /** Epoch ms of the last successful schema load (drives the "updated Ns ago" label). */
+  readonly lastUpdated = signal<number | null>(null);
+  /** A tick signal so the relative "updated" label re-computes each second without a fetch. */
+  private readonly nowTick = signal(Date.now());
+
+  private pollTimer: ReturnType<typeof setInterval> | null = null;
+  private labelTimer: ReturnType<typeof setInterval> | null = null;
+  private readonly onVisibility = (): void => {
+    if (typeof document === 'undefined') return;
+    const visible = !document.hidden;
+    this.polling.set(visible);
+    // Foreground return → refresh immediately so the view is never stale on focus.
+    if (visible) this.refresh();
+  };
+
+  /** Compact "updated Ns ago" affordance; the dot + this label replace the old Refresh button. */
+  readonly updatedLabel = computed<string>(() => {
+    const at = this.lastUpdated();
+    if (!this.polling()) return 'Paused';
+    if (at == null) return 'Live';
+    const secs = Math.max(0, Math.round((this.nowTick() - at) / 1000));
+    if (secs < 5) return 'updated just now';
+    if (secs < 60) return `updated ${secs}s ago`;
+    const mins = Math.round(secs / 60);
+    return `updated ${mins}m ago`;
+  });
 
   // Applied-migration ledger (d1_migrations) — loads alongside the schema (super-admin).
   readonly migrations = signal<SiteMigrations['migrations']>([]);
@@ -328,6 +378,61 @@ export class SiteSchemaBrowserComponent implements OnInit {
   ngOnInit(): void {
     this.load();
     this.loadMigrations();
+    this.startLiveRefresh();
+  }
+
+  ngOnDestroy(): void {
+    this.stopLiveRefresh();
+  }
+
+  /**
+   * Arm the visibility-aware real-time poll (per real-time-data-no-manual-refresh). A 60s tick
+   * silently re-fetches the schema (no loading flash); a 1s tick keeps the "updated Ns ago" label
+   * honest without a fetch. Paused while the tab is hidden; refreshed immediately on foreground.
+   */
+  private startLiveRefresh(): void {
+    this.stopLiveRefresh();
+    if (typeof document !== 'undefined') {
+      this.polling.set(!document.hidden);
+      document.addEventListener('visibilitychange', this.onVisibility);
+    }
+    this.pollTimer = setInterval(() => {
+      if (typeof document !== 'undefined' && document.hidden) return;
+      this.refresh();
+    }, SiteSchemaBrowserComponent.POLL_MS);
+    this.labelTimer = setInterval(() => this.nowTick.set(Date.now()), 1_000);
+  }
+
+  private stopLiveRefresh(): void {
+    if (typeof document !== 'undefined') document.removeEventListener('visibilitychange', this.onVisibility);
+    if (this.pollTimer) { clearInterval(this.pollTimer); this.pollTimer = null; }
+    if (this.labelTimer) { clearInterval(this.labelTimer); this.labelTimer = null; }
+  }
+
+  /**
+   * Silent poll-tick refresh — re-fetch the schema WITHOUT the loading flash, keeping the current
+   * list + selection on a transient error (never wipes a good view). Skips while a first/manual
+   * `load()` is still in flight. The authoritative-data read behind the self-updating surface.
+   */
+  refresh(): void {
+    const id = this.siteId();
+    if (!id || this.loading()) return;
+    this.api
+      .getSiteSchema(id)
+      .pipe(
+        catchError(() => of(null)),
+        takeUntilDestroyed(this.destroyRef),
+      )
+      .subscribe((res) => {
+        // Transient failure / shapeless body → keep the last good schema, never flash an error.
+        if (!res || !Array.isArray(res.data?.tables)) return;
+        this.tables.set(res.data.tables);
+        this.lastUpdated.set(Date.now());
+        const current = this.selectedName();
+        if (!current || !res.data.tables.some((t) => t.name === current)) {
+          this.selectedName.set(res.data.tables[0]?.name ?? null);
+        }
+      });
   }
 
   /** Fetch the applied-migration ledger (super-admin only). Fails soft to "unavailable"
@@ -376,6 +481,7 @@ export class SiteSchemaBrowserComponent implements OnInit {
           return;
         }
         this.tables.set(res.data.tables);
+        this.lastUpdated.set(Date.now());
         // Keep the selection if it still exists, else land on the first table.
         const current = this.selectedName();
         if (!current || !res.data.tables.some((t) => t.name === current)) {
