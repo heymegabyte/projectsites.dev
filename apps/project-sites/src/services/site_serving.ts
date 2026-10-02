@@ -573,6 +573,48 @@ export async function serveSiteFromR2(
   requestPath: string,
   host?: string,
 ): Promise<Response> {
+  // Observability (fire-82): stamp EVERY R2-served response with `x-ps-serve: r2`
+  // so a prod-verify can prove WHICH path served a published site — the twin of the
+  // `x-ps-serve: wfp` marker set on the WfP dispatch branch (serveSiteViaWfpIfPreferred).
+  // R2 is the byte-identical fail-soft, so a degraded WfP request that falls back here
+  // (that function returns null → this runs) is honestly reported as `r2`. The tag is
+  // applied at this single boundary so ALL of serveSiteFromR2's return branches
+  // (buildSiteResponse HTML, soft-404 shell, CSS-minified, raw asset, the logo-icon /
+  // /assets/ fallbacks, the meta-blocked + not-found 404s, the building/unavailable
+  // pages) carry it uniformly without touching each `return` individually.
+  //
+  // Headers objects on a Worker Response are mutable here (these are freshly
+  // constructed, not immutable), so set-in-place is safe; a defensive fallback
+  // re-wraps if a particular branch ever hands back a locked header set.
+  const res = await serveSiteFromR2Inner(env, site, requestPath, host);
+  try {
+    res.headers.set('x-ps-serve', 'r2');
+    return res;
+  } catch {
+    const tagged = new Response(res.body, res);
+    tagged.headers.set('x-ps-serve', 'r2');
+    return tagged;
+  }
+}
+
+/**
+ * The R2 serving implementation. Wrapped by {@link serveSiteFromR2} which stamps the
+ * `x-ps-serve: r2` observability marker on whatever Response this returns, so every
+ * branch is tagged uniformly. See the wrapper's doc for the full rationale.
+ *
+ * @internal
+ */
+async function serveSiteFromR2Inner(
+  env: Env,
+  site: {
+    site_id: string;
+    slug: string;
+    current_build_version: string | null;
+    plan: string;
+  },
+  requestPath: string,
+  host?: string,
+): Promise<Response> {
   // Block access to meta files and manifests
   if (requestPath.startsWith('/_meta/') || requestPath === '/_manifest.json') {
     serveLog.warn('serve_blocked_path', { slug: site.slug, path: requestPath });
