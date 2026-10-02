@@ -1,4 +1,4 @@
--- 0655_pricing_config.sql
+-- 0657_pricing_config.sql
 -- Super-admin-editable pricing config for the cost-metering engine (PRICING-MODEL.md Wave 2,
 -- fire-86 pricing-engine-v2). Moves the hardcoded unit prices + flat platform fee out of
 -- src/services/site_cost.ts (DEFAULT_UNIT_PRICES + PLATFORM_FEE_USD) into a D1 table a

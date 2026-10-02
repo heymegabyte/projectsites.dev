@@ -165,7 +165,7 @@ const DEFAULT_PRICING: ResolvedPricing = {
 };
 
 /**
- * Zod shape of ONE {@link https://| `pricing_config`} row (migration 0655). `value_usd` is the
+ * Zod shape of ONE {@link https://| `pricing_config`} row (migration 0657). `value_usd` is the
  * full-precision authoritative rate; `value_cents` is the whole-cent fallback view. A row is usable
  * only if at least one of the two is a finite non-negative number.
  */
@@ -199,7 +199,7 @@ function rowToUsd(row: z.infer<typeof PricingConfigRowSchema>): number {
 
 /**
  * Resolve the effective price set. When the `pricing_config_v2` flag is ON, load the super-admin-
- * editable rates from the `pricing_config` D1 table (migration 0655) and overlay them onto the
+ * editable rates from the `pricing_config` D1 table (migration 0657) and overlay them onto the
  * hardcoded defaults (code-owned label/unit/divisor preserved, only `priceUsd` + the platform fee
  * replaced). When the flag is OFF — the default — return the hardcoded {@link DEFAULT_PRICING}
  * UNCHANGED with ZERO DB read. Fail-soft: any DB error, missing row, or malformed row falls back to

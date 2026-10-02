@@ -24,7 +24,7 @@ const mockDbQuery = dbQuery as jest.MockedFunction<typeof dbQuery>;
 // A minimal env — resolvePricing only ever touches env.DB through the (mocked) dbQuery.
 const env = { DB: {} } as unknown as Env;
 
-/** The 9 rows the 0655 migration seeds — value_usd matches the current hardcoded constants. */
+/** The 9 rows the 0657 migration seeds — value_usd matches the current hardcoded constants. */
 const SEED_ROWS = [
   { key: 'worker_requests', value_cents: 30, value_usd: 0.3 },
   { key: 'worker_cpu', value_cents: 2, value_usd: 0.02 },
