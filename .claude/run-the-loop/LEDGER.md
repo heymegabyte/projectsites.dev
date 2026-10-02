@@ -697,3 +697,19 @@ LOOP-IMPROVEMENT (section 7): promoted SSRF + dead-toggle detectors to BLOCKING 
 **Attrition salvaged (NOT a HARD-STOP — lead stayed lean):** agent-1 (analytics) + agent-4 (LTT) cut off mid-work → both WIP salvaged (classifier files + the RED test/checkpoint/screenshots), fixes completed in convergence, remainders re-queued.
 **Adversarial review:** CLEAN — all 5 commits verdict clean, 0 P0/P1 regressions, headline fix confirmed live, contrast gates confirmed report-mode.
 **Spend:** 7 fan-out agents (3 worktree-mutating + 2 main-checkout browser + 1 read-only security + 1 worktree docs) + 1 frontier-digest scout + 1 adversarial reviewer. Testing-lane over-weighted (starved 3 fires).
+
+## fire-84 — 2026-10-02 (converge; date-column wire closes role-1 orphan + 0656 additive migration applied + 2 standing browser roles + reconfirm-blockers loop-tool)
+
+**Shipped (main `70a5a9d6e`; worker deployed version `1e8fe9a6-d678-460c-96d7-85129de69b31`):**
+- **Role 1 + lead wire** — `date` column type + strict-ISO detection (NEVER `new Date()` coercion) for per-site D1 Data tables, WIRED into the live add-column handler (closed a built-but-unwired orphan: handler now preserves DATE intent instead of base-clamp collapsing to TEXT). Commits `5d2b1e88e` + `70a5a9d6e`. 46 tests incl 3 new handler-integration locks. Behind `per_site_data` (DARK). Prod: POST columns route wired+guarded (403 unauth, not 500).
+- **Role 18 (Template Evolution)** — `validateNoInlineStyleChild` build-validator: fails build (report mode) on React-19-dropped component `<style>{string}`. Commit `740b1221a`. 11 tests.
+- **Role 15 (Loop Improvement)** — `apps/project-sites/scripts/reconfirm-carried-blockers.mjs`: batch live re-confirm of carried blockers (retires the fire-71 stale-blocker-churn class). Commit `faa45bd1d`. `--selftest` 10/10.
+- **Role 17 (Deep UI Explorer, STANDING)** — CF Browser Run `PASS_CLOUDFLARE` (session dux-2026-10-02T15-21-31), settings-depth journey, 13 states / 13 vision ($0 Llama-4-Scout). Commit `42a44f3c5`.
+- **0656_feature_flags_consolidate** (ADDITIVE) APPLIED to prod D1 — key/enabled_v2/rollout_percent/stage on the write-only legacy feature_flags, 44 rows backfilled, 0 pending. **Carried blocker 3 RESOLVED.**
+- **Carried blockers 1 (editor CSP frame-ancestors) + 2 (hosting Promote/Publish) RE-CONFIRMED stale → RETIRE.**
+
+**Blocked/attrition:** Role 16 (Long-Trail TDD, STANDING) — fleet auto-worktree'd into sparse node_modules (wtBRO class), couldn't boot local stack; 0 commits (branch stayed at fire-83 HEAD); re-queued. See DISCOVERIES + WS-LOOP-BROWSER-MAIN.
+
+**Gates:** tsc clean · jest 343 pass (touched suites) · feature-drift PASS · eslint 0 errors · adversarial review CLEAN 5/5 · homepage 200 + /health {kv,r2 ok} + route wired.
+**Security (role 12):** CLEAN sweep — IDOR / per-site-D1 isolation / SSRF / CSP all clean.
+**Loop-improvement (§7):** reconfirm-carried-blockers.mjs + 3 carried blockers retired via it.

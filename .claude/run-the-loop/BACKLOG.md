@@ -1486,3 +1486,12 @@
 **Ticks (fire-82):**
 - ✅ **Published-site WfP/serve observability** — done `c82563d1e`, deployed `fd9128cc` (`--env production`). Every published-site response now stamps `x-ps-serve` (`r2` on all ~8 R2 branches; `wfp` on the WfP branch). (No prior exact frontier line — net-new observability slice.)
 - ✅ **Admin Analytics cold-start skeleton >10s** — see §181 `[x]` (fire-60 first paint 2.4s); fire-82 `7e8340a0f` tightened it further (cached-first/progressive paint, `FIRST_PAINT_BOUND_MS` 3000→1200, cold skeleton <1.3s; prod `/admin` serves `main-TH5NO3LG.js`).
+
+## fire-84 replenish (next-wave, deduplicated — money-path first)
+- **WS-DP1 / promote-flag-golden-proof** — promote `durable_preview` to beta on the e2e-test-org; prove edit→promote→live end-to-end; promoted artifact digest == frozen Preview revision; reversible via override. (money-path)
+- **WS-DP2 / wire-date-detect-into-import** — role-1's `detectColumnType`/`isStrictIsoDate` currently drive only the add-column TYPE; wire autodetect into the seed/import path + a date cell-editor in the app/ editor Data tab. Acceptance: importing ISO-date data auto-types the column `date` + renders a date cell-editor (real browser).
+- **WS-WFP-BF / wfp-backfill-prewfp-sites** — lonemountainglobal.projectsites.dev serves `x-ps-serve: r2` (not wfp), contradicting WfP-default; run the WfP prod-slot backfill. Acceptance: `verify-wfp-serving.mjs --strict` exits 0; sampled sites flip r2→wfp. (money-path HIGH, carried)
+- **WS-DOC1 / fix-awos-master-prompt-ref** — §AWOS backlog block + the [AWOS] memory cite `./MASTER-PROMPT.md`, which does NOT exist in the repo. Restore it or correct both refs. Unblocks flipping DOWNLOADS FILE 4 → absorbed.
+- **WS-F2DRAIN / file2-f-series-crosswalk** — crosswalk F001–F035 to existing WLK/GP/flag ids; append only genuinely-missing; flip DOWNLOADS FILE 2 → absorbed + rm archive.
+- **WS-DUX-REGEX / explorer-primary-action-regex** — role-17's settings-depth probe regex misses real primary actions (`Connect with…`, `Add API key`, `+ Invite`, `+ Add variable`), so dialog-open states go unexercised; widen it. (test-probe, NOT a product bug — surfaces verified gorgeous.)
+- **WS-LOOP-BROWSER-MAIN / browser-roles-must-land-in-main** — role 16 keeps getting fleet-auto-worktree'd into sparse node_modules (wtBRO), blocking the standing Long-Trail case every fire it recurs. Add a preflight guard / fleet config so roles 16+17 reliably run in the MAIN checkout. (loop-improvement — do FIRST next fire)
