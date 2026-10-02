@@ -1,11 +1,14 @@
 # Downloads Prompt Intake Queue
 
-Durable queue for the `/run-the-loop` § 0.5 Prompt Intake phase. Brian drops master prompts into
-`~/Downloads` (`projectsites*.md` / `ProjectSites*.md`); the loop drains **ONE per fire**, imports its
-SPIRIT by decomposing it into `BACKLOG.md` ledger items (never reads the giant file in the lead —
-delegates to a fresh agent), advances only the slice that fits the fire's budget, then marks the row
-`absorbed` + removes the archived source. Governed by global rule `split-work-into-ledger` (prefer many
-small optimization cycles on specific elements over one mega-pass).
+Durable queue for the `/run-the-loop` § 0.5 Prompt Intake phase. Brian drops Claude-Code master prompts into
+`~/Downloads`. **Every fire (desktop only), scan + absorb ALL repo-matched prompts** (Brian directive 2026-10-02):
+content-sniff for `*.md` that read like a prompt FOR projectsites.dev (not just `projectsites*.md`), confirm repo,
+then for EACH — delegate a fresh agent to read it (never in the lead), **fold its genuinely-new WISDOM into the
+durable docs/skills** (`ECOSYSTEM-CONTEXT` · `OPERATING-PRINCIPLES` · `ARCHITECTURE` · skills) AND absorb ALL its
+requirements into `BACKLOG.md`; advance only the decision-independent slice(s) that fit this fire (rest lives in the
+ledger per `split-work-into-ledger`); a prompt contradicting settled doctrine → an `## Open question` for Brian, never
+a silent flip; then mark the row `absorbed` + `rm` the source. Wisdom-in-docs + reqs-in-backlog = "absorbed", NOT
+whole-prompt-executed. This is `prompt-as-training-signal` applied to the Downloads inbox.
 
 - **Sources archived** (moved OUT of `~/Downloads` 2026-10-02 to clean the inbox + preserve fidelity):
   `.claude/run-the-loop/downloads-intake-archive/` — drains read the full file from there, then `rm` it once `absorbed`.
@@ -86,3 +89,9 @@ Epics (each ≈ one drain fire):
 - **Cycle 5 — migration + destructive-edge tests + visual review + release**: flag-gated incremental migration (inventory legacy R2/isomorphic-git/fs; copy each needed immutable legacy >30MB version into Media, hash-compare, reference-map before switching reads; immutable replacement release + legacy resolver during retention; back up history before any Git externalization; one test site first); unit/provider-contract/integration/browser/deployed-canary; **required evidence incl. a real ≥350MB video full lifecycle** (interrupt→resume→Save→reopen→seek→rename→replace→Promote→Production-download→rollback, proving NO >30MB payload entered Artifacts/Preview/Production), exact threshold cases across text/binary/agent/MCP/generated/import/build-output, security (tenant/path-traversal/manifest-injection/content-origin/secret-leak), GC/lifecycle/site-deletion never deleting release-pinned Media, bounded-memory streaming proof; Playwright/Browser-Run visual review (inspect screenshots, not OCR); update ledger/ADRs/contracts/API-MCP docs/runbooks + regression gates for any >30MB payload routed outside Media.
 Preserve-invariants (never violate on any drain): stable `siteId` identity · never collapse Preview/Production env buckets · deployment pins verified Media versions (no byte-dup into Production, no dependence on mutable Preview) · `30 MB = 30,000,000 bytes` decimal · Better Auth/OpenFGA + Langfuse preserved · Claude orchestrator with DeepSeek/MiniMax delegation preserved · no mathematically-unlimited-size claims.
 Sources: S1–S14 CF docs (Artifacts limits/binding/git-protocol · R2 upload/limits/presigned/s3/consistency · Workers limits · Workflows · DO · Stream · best-practices) — recheck live before each drain. Archived: `.claude/run-the-loop/downloads-intake-archive/cloudflare-artifacts-three-bucket-implementation.md`.
+
+### FILE 7 — `projectsites-chatgpt-final-prompt-compiler-v7.md` — status: `absorbed (fire-89)`
+Spirit: v7 compiled master — production deployment OFF by default (deliver working PREVIEW; explicit single-release grant to promote; audit CI so a `main` push can't auto-promote) · shared skills/run-the-loop platform-owned + read-only in cloud (overlay locally, propose patches, no auto-publish/hot-reload) · opportunistic dogfooding only when it materially helps (never force calls/agents to claim it; preserve bootstrap recovery) · 95% availability DEV target measured per-plane (editor/control-plane/published-site) · evidence-optimized assignment prep (Workers-AI→OpenAI→constraints→Claude, original immutable; Langfuse+Promptfoo raw-vs-prepared route eval) · website-business-autopilot HOMEPAGE+Preview-publish-first · daily marketing-blog = separate narrow rule that must NOT auto-deploy app changes. **Absorbed: YES (fire-89)** — wisdom folded to ECOSYSTEM-CONTEXT § fire-89 + OPERATING-PRINCIPLES (open question + loop discipline); requirements → BACKLOG § fire-89 intake. The prod-off-by-default ask CONFLICTS with canonical answer #3 → captured as an OPEN QUESTION (not applied). Source deletable.
+
+### FILE 8 — `projectsites-claude-code-homepage-domains-seo-evaluation-prompt.md` — status: `absorbed (fire-89)`
+Spirit: homepage + domains + SEO evaluation — complete the homepage/launch-sequence money path, URL/domain lifecycle UX, business-name keyword → landing-page research, SEO quality pass. **Absorbed: YES (fire-89)** — deduped against existing homepage items (LB-2/HOME-EMPTY, AWOS SEO); genuinely-new slices (HOME-MONEY completion + DOMAIN-URL-LIFECYCLE) → BACKLOG § fire-89 intake; wisdom folded to ECOSYSTEM-CONTEXT/OPERATING-PRINCIPLES + BACKLOG. Source deletable.

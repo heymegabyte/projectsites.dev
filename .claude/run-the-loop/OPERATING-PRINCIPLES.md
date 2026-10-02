@@ -17,6 +17,23 @@
   irreversible: drop tables, bulk data mutation, secret rotation, mass outreach,
   billing/pricing.
 
+## Open question — prod-off-by-default vs canonical answer #3 (Brian to reconcile)
+
+> Surfaced fire-89 from the `~/Downloads` v7 master prompts. NOT applied — behavior is
+> UNCHANGED (canonical answer #3 + `brian-preferences` prod-pre-authorized still bind). This
+> is a flagged CONTRADICTION awaiting Brian's call, never a silent policy change.
+
+- **v7 position:** production deployment should be **OFF by default** — the loop delivers a working
+  PREVIEW, and promotion to production requires an **explicit single-release grant**; CI hooks should
+  be audited so a plain `main` push CANNOT auto-promote to prod.
+- **Canonical position (answer #3 above + `brian-preferences`):** autonomy is FULL on reversible prod
+  actions — `wrangler deploy` is standing-authorized, work is never held "awaiting authorization."
+- **These directly conflict.** Until Brian reconciles, keep current behavior (deploy stays
+  pre-authorized). **Likely scope when resolved:** the OFF-by-default grant most plausibly applies to
+  **customer-SITE publish** + **platform homepage promotion** (visitor-facing, one-way-ish), NOT
+  necessarily the worker `wrangler deploy` of the control plane — so the two positions may be
+  reconcilable by SURFACE rather than being globally exclusive. Do not pre-decide; flag it.
+
 ## Canonical paths (do-not-hunt cheatsheet)
 
 > Verified 2026-10-01. Don't re-discover these — `loop-fire-lock.mjs` lives at REPO-ROOT
@@ -135,6 +152,17 @@
   issue as open is stale — update it. Don't let `CLAUDE.md` become a novel.
 - Human-curated context files (LLM-generated ones give ~0 benefit, can cut success ~3% +
   raise cost ~20%).
+
+## Loop discipline — shared skills ownership + dogfooding boundary (fire-89)
+
+- **Shared `skills/` + `run-the-loop` are platform-owned + READ-ONLY in cloud runs.** A project
+  OVERLAYS them LOCALLY (project `.claude/` wins per conflict resolution) and PROPOSES patches to the
+  maintainer — it NEVER auto-publishes to `heymegabyte/claude-skills` and NEVER hot-reloads the shared
+  layer mid-run. Edit the project overlay; upstream the lesson as a proposal, not a push.
+- **Opportunistic dogfooding has a boundary.** Use the platform's OWN products (ProjectSites/GitLink/
+  Megabyte/Sink/etc.) only when they MATERIALLY help the task at hand. NEVER force extra network calls
+  or extra agents purely to claim dogfooding, and ALWAYS preserve a bootstrap-recovery path when a
+  product is broken — the loop must still make progress when the dogfood is down.
 
 ## AI-agent principles
 

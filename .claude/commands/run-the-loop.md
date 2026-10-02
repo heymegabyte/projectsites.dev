@@ -67,16 +67,21 @@ a role under-delivered.
 - **Context budget (per `monitor-orchestration` § context thrash):** the main thread holds conclusions only. Never ingest `_LOOP_LEDGER.md` / `SCOPE.md` / `DECISIONS.md` / subagent `.output` transcripts — the `guard-oversized-read.py` hook will block oversized reads; heed it.
 - **HARD STOP = LEAD saturation ONLY, never a single agent's transient failure** (per `OPERATING-PRINCIPLES.md` § Failure taxonomy vs HARD-STOP). Checkpoint to `progress.md` + fresh session ONLY when the ORCHESTRATOR hits "Prompt is too long" / an `autocompact thrashing` notice fires on the LEAD / the main thread can't spawn. ONE agent dying on ECONNRESET or returning `subagent_tokens: 0` from a network drop is fan-out ATTRITION → salvage its commit (`git show <branch-tip>` before `git branch -D`), re-queue its slice in `BACKLOG.md`, and KEEP THE LOOP RUNNING. Read WHICH thing failed before checkpointing.
 
-## 0.5 — Prompt Intake Queue (~/Downloads `projectsites*.md` / `ProjectSites*.md`) — drain ONE per fire
-Brian drops master prompts into `~/Downloads`. The queue is tracked in
-`.claude/run-the-loop/DOWNLOADS-INTAKE-QUEUE.md` (one row per file: `queued | draining | absorbed`).
-Each fire, right after the lease claim, intake ONE:
-- **Scan** `~/Downloads` for `projectsites*.md` + `ProjectSites*.md` (case-insensitive); reconcile any NEW file into the queue as `queued`.
-- **Take exactly ONE per fire, OLDEST-first** (FIFO — nothing starves). Never process >1 master prompt in one fire.
-- **NEVER read the file in the lead** — they run 28K–224K; the oversized-read guard blocks them and they thrash the lead. Delegate to a FRESH agent (`Explore`/`architect`) that reads it and returns ≤150 lines: its SPIRIT + concrete, deduplicated BACKLOG items (schema/handler/UI/test/flag slices), each sized for ONE future fire.
-- **Import the SPIRIT, split the work into the ledger** — fold the decomposed items into `BACKLOG.md` (dedupe vs the frontier) + note the intake in `LEDGER.md`. Do NOT execute the whole prompt this fire; advance only the decision-independent slice(s) that fit this fire's budget. The rest lives in the ledger for many future optimization cycles (global rule `split-work-into-ledger` — prefer depth-per-element over one mega-pass).
-- **DELETE the file once its spirit is captured** (`rm ~/Downloads/<file>`) and flip its queue row to `absorbed` (date + the BACKLOG ids it produced). "Done with it" = spirit decomposed into the ledger, NOT the whole prompt executed. NEVER delete a file whose spirit isn't yet in the ledger.
-- Empty queue → skip this phase.
+## 0.5 — Prompt Intake Queue (~/Downloads projectsites Claude-Code prompts) — scan + absorb ALL every fire (Brian directive 2026-10-02)
+Brian drops master prompts into `~/Downloads`. Queue tracked in `.claude/run-the-loop/DOWNLOADS-INTAKE-QUEUE.md`
+(one row per file: `queued | draining | absorbed`). **Every fire, right after the lease claim**, run the scan.
+Its job is not just to queue work — it is to **propagate each prompt's WISDOM into the durable layer** (docs + skills)
+AND absorb its requirements into the backlog, so the prompt's spirit survives even though its execution is sliced
+across many fires (global rule `split-work-into-ledger`). This is `prompt-as-training-signal` applied to Downloads.
+- **Desktop-only guard.** Only scan when running on Brian's desktop — `~/Downloads` exists AND the run is interactive/local (skip entirely on a headless/CI/cloud runner, where `~/Downloads` is absent or irrelevant). No desktop → skip this phase.
+- **Scan by CONTENT, not just filename.** Match any `*.md` in `~/Downloads` whose body reads like a Claude-Code prompt FOR THIS repo (projectsites.dev) — `projectsites*.md`/`ProjectSites*.md` names AND content-sniff (mentions projectsites.dev / this platform / its surfaces). Reconcile every NEW match into the queue. A prompt clearly for a DIFFERENT repo → leave it, note it skipped (wrong-repo).
+- **Process EVERY matched, repo-confirmed file this phase** (not one-per-fire). For each, in parallel where independent:
+  - **NEVER read the file in the lead** (they run 28K–224K → oversized-read guard + lead thrash). Delegate to a FRESH agent (`Explore`/`architect`/`general-purpose`) that reads the ONE file + returns ≤150 lines: its SPIRIT · the genuinely-NEW durable wisdom (deduped vs `ECOSYSTEM-CONTEXT.md`/`OPERATING-PRINCIPLES.md`/skills) with a suggested home · deduplicated `BACKLOG.md` items each sized for ONE fire.
+  - **Fold the WISDOM into the durable layer SAME FIRE** — update the canonical loop docs (`ECOSYSTEM-CONTEXT.md` · `OPERATING-PRINCIPLES.md` · `ARCHITECTURE.md`) and any relevant skill to reflect the new scope/requirements/standards. Dedupe hard — add only what's new; UPDATE existing sections, never duplicate.
+  - **A prompt that CONTRADICTS settled doctrine** (e.g. a canonical answer, `brian-preferences`) is captured as an explicit `## Open question` for Brian + a BLOCKED backlog item — NEVER silently flip standing behavior. (fire-89: a v7 prompt's "production-OFF-by-default" vs canonical answer #3 "prod pre-authorized" → logged as an open question, behavior unchanged.)
+  - **Absorb ALL requirements into `BACKLOG.md`** (dedupe vs the frontier) + note the intake in `LEDGER.md`. **Immediate processing:** if the prompt flags something that must happen NOW (a live defect, a safety gate) advance that decision-independent slice this fire; everything else lives in the ledger for future optimization cycles — do NOT execute a whole master prompt in one fire.
+  - **DELETE the file once its wisdom is in the docs AND its requirements are in the backlog** (`rm ~/Downloads/<file>`); flip its queue row to `absorbed` (date + where the wisdom landed + the BACKLOG ids). NEVER delete a file whose spirit isn't yet captured.
+- Empty queue / no desktop → skip this phase.
 
 ## The 4 canonical answers (BAKED IN — init-gate satisfied 2026-09-29, DO NOT re-ask)
 These are settled. Never re-prompt Brian for them; they govern every fire.

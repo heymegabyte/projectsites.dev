@@ -2,43 +2,43 @@
   "states": {
     "/::public-home::::d05f796d": {
       "discovered": "2026-09-29T19:57:38.675Z",
-      "visits": 34,
+      "visits": 35,
       "status": "visited",
       "lastAction": "homepage loads (initial state)",
-      "lastVisited": "2026-10-02T19:59:47.723Z",
-      "lastRun": "dux-2026-10-02T19-59-37-857Z"
+      "lastVisited": "2026-10-02T20:45:48.864Z",
+      "lastRun": "dux-2026-10-02T20-45-40-411Z"
     },
     "/signin::signin::::576d826f": {
       "discovered": "2026-09-29T19:57:43.656Z",
-      "visits": 33,
+      "visits": 34,
       "status": "visited",
       "lastAction": "click Sign In (header) \u2192 /signin",
-      "lastVisited": "2026-10-02T19:59:51.077Z",
-      "lastRun": "dux-2026-10-02T19-59-37-857Z"
+      "lastVisited": "2026-10-02T20:45:50.676Z",
+      "lastRun": "dux-2026-10-02T20-45-40-411Z"
     },
     "/signin::signin-test-seam::::02622a42": {
       "discovered": "2026-09-29T19:57:48.051Z",
-      "visits": 33,
+      "visits": 34,
       "status": "visited",
       "lastAction": "enter test seam (/signin?test=1) \u2014 panel render",
-      "lastVisited": "2026-10-02T19:59:54.570Z",
-      "lastRun": "dux-2026-10-02T19-59-37-857Z"
+      "lastVisited": "2026-10-02T20:45:53.548Z",
+      "lastRun": "dux-2026-10-02T20-45-40-411Z"
     },
     "/admin::admin-dashboard::::fec53253": {
       "discovered": "2026-09-29T19:57:55.718Z",
-      "visits": 36,
+      "visits": 37,
       "status": "visited",
       "lastAction": "test login submit \u2192 lands /admin",
-      "lastVisited": "2026-10-02T19:59:59.974Z",
-      "lastRun": "dux-2026-10-02T19-59-37-857Z"
+      "lastVisited": "2026-10-02T20:45:56.736Z",
+      "lastRun": "dux-2026-10-02T20-45-40-411Z"
     },
     "/admin/editor::admin-editor-shell::::6eca7550": {
       "discovered": "2026-09-29T19:58:16.461Z",
-      "visits": 17,
+      "visits": 18,
       "status": "visited",
       "lastAction": "click Editor nav \u2192 /admin/editor (iframe mounts)",
-      "lastVisited": "2026-10-02T19:53:59.554Z",
-      "lastRun": "dux-2026-10-02T19-53-31-632Z"
+      "lastVisited": "2026-10-02T20:46:12.608Z",
+      "lastRun": "dux-2026-10-02T20-45-40-411Z"
     },
     "/admin/editor::editor-workbench::::ea74008d": {
       "discovered": "2026-09-29T19:58:22.511Z",
@@ -202,11 +202,11 @@
     },
     "/admin/editor::editor-resources::::9ae378df": {
       "discovered": "2026-09-29T22:53:04.101Z",
-      "visits": 6,
+      "visits": 7,
       "status": "visited",
       "lastAction": "open Resources tab",
-      "lastVisited": "2026-10-02T00:02:33.644Z",
-      "lastRun": "dux-2026-10-02T00-01-53-253Z"
+      "lastVisited": "2026-10-02T20:46:27.368Z",
+      "lastRun": "dux-2026-10-02T20-45-40-411Z"
     },
     "/admin/editor::editor-resources::::b12d1d8f": {
       "discovered": "2026-09-29T22:53:18.949Z",
@@ -266,27 +266,27 @@
     },
     "/admin/editor::editor-resources::::eaf80a8d": {
       "discovered": "2026-09-29T22:54:45.510Z",
-      "visits": 6,
+      "visits": 7,
       "status": "visited",
       "lastAction": "Resources \u203a Media library sub-view",
-      "lastVisited": "2026-10-02T00:02:36.725Z",
-      "lastRun": "dux-2026-10-02T00-01-53-253Z"
+      "lastVisited": "2026-10-02T20:46:31.341Z",
+      "lastRun": "dux-2026-10-02T20-45-40-411Z"
     },
     "/admin/editor::editor-resources::::6c3300fb": {
       "discovered": "2026-09-29T23:17:41.604Z",
-      "visits": 5,
+      "visits": 6,
       "status": "visited",
       "lastAction": "Resources \u203a Site files sub-view",
-      "lastVisited": "2026-10-02T00:02:39.699Z",
-      "lastRun": "dux-2026-10-02T00-01-53-253Z"
+      "lastVisited": "2026-10-02T20:46:35.780Z",
+      "lastRun": "dux-2026-10-02T20-45-40-411Z"
     },
     "/admin/editor::editor-resources::::8391e2b2": {
       "discovered": "2026-09-29T23:17:50.088Z",
-      "visits": 5,
+      "visits": 6,
       "status": "visited",
       "lastAction": "Resources \u203a Buckets sub-view",
-      "lastVisited": "2026-10-02T00:02:42.508Z",
-      "lastRun": "dux-2026-10-02T00-01-53-253Z"
+      "lastVisited": "2026-10-02T20:46:38.769Z",
+      "lastRun": "dux-2026-10-02T20-45-40-411Z"
     },
     "/admin/editor::editor-resources::missing-advanced::e581f61c": {
       "discovered": "2026-09-29T23:44:48.853Z",
@@ -298,19 +298,19 @@
     },
     "/admin/editor::editor-resources::advanced-console::7bb0a7ed": {
       "discovered": "2026-09-29T23:46:19.596Z",
-      "visits": 3,
+      "visits": 4,
       "status": "visited",
       "lastAction": "open Advanced console (ResourceOverview)",
-      "lastVisited": "2026-10-02T00:02:46.613Z",
-      "lastRun": "dux-2026-10-02T00-01-53-253Z"
+      "lastVisited": "2026-10-02T20:46:45.745Z",
+      "lastRun": "dux-2026-10-02T20-45-40-411Z"
     },
     "/admin/editor::editor-resources::advanced-kv-detail::a786d5a1": {
       "discovered": "2026-09-29T23:46:25.225Z",
-      "visits": 3,
+      "visits": 4,
       "status": "visited",
       "lastAction": "KV tile drill-in (expect honest not-enabled/empty state)",
-      "lastVisited": "2026-10-02T00:02:49.601Z",
-      "lastRun": "dux-2026-10-02T00-01-53-253Z"
+      "lastVisited": "2026-10-02T20:46:49.023Z",
+      "lastRun": "dux-2026-10-02T20-45-40-411Z"
     },
     "/::public-home::search-results::cf800742": {
       "discovered": "2026-09-30T00:11:28.428Z",
@@ -795,6 +795,16 @@
   },
   "runs": [
     {
+      "runId": "dux-2026-10-02T20-45-40-411Z",
+      "journey": "resources-deep",
+      "status": "PASS_CLOUDFLARE",
+      "provider": "cloudflare-browser-run",
+      "coverage": "CLOUD_PASS_ELIGIBLE",
+      "statesVisited": 11,
+      "blockedStates": {},
+      "finishedAt": "2026-10-02T20:46:49.309Z"
+    },
+    {
       "runId": "dux-2026-10-02T19-59-37-857Z",
       "journey": "billing-invoice",
       "status": "PARTIAL",
@@ -1067,15 +1077,6 @@
       "statesVisited": 14,
       "blockedStates": {},
       "finishedAt": "2026-09-29T22:54:46.158Z"
-    },
-    {
-      "runId": "dux-2026-09-29T22-33-32-322Z",
-      "status": "PASS_CLOUDFLARE",
-      "provider": "cloudflare-browser-run",
-      "coverage": "CLOUD_PASS_ELIGIBLE",
-      "statesVisited": 12,
-      "blockedStates": {},
-      "finishedAt": "2026-09-29T22:34:51.179Z"
     }
   ],
   "fireNotes": [
@@ -1150,6 +1151,39 @@
         "DUX-FIX: database-subtree journey should open 'Actions \u25be' menu before asserting AI-Seed trigger, and treat the opened schema-builder overlay as success for Create-Table (remove stale 'NOT reachable' false-negatives + the 2 seed/schema blocks).",
         "UX: add Billing to the persistent admin left-sidebar nav (ADMIN_NAV_GROUPS) \u2014 money surface currently only \u2318K/user-menu discoverable.",
         "VISION-TUNE: vision-review emits a boilerplate a11y_perf P0 ('run automated accessibility tests') with observed='no issues visible' \u2014 clamp/suppress generic no-finding P0s so p0/p1 count stays honest."
+      ]
+    },
+    {
+      "fire": "fire-89",
+      "role": "deep-ui-explorer (role 17)",
+      "at": "2026-10-02T20:48:45.467Z",
+      "provider": "cloudflare-browser-run",
+      "coverage": "CLOUD_PASS_ELIGIBLE (CF-PASS)",
+      "identity": "brian@megabyte.space / isSuperAdmin",
+      "journeys": [
+        {
+          "journey": "resources-deep",
+          "run": "dux-2026-10-02T20-45-40-411Z",
+          "status": "PASS_CLOUDFLARE",
+          "states": 11,
+          "consoleErrors": 0,
+          "failedRequests": 0,
+          "vision": "11/11 reviewed, 0 real P0/P1, scores 8-10/10, cost $0 (Workers-AI fallback tier)"
+        }
+      ],
+      "rotationRationale": "resources-deep had NEVER run in the tracked 30-run window (alongside editor-toolbar / settings-api-tokens / create-funnel) and directly targeted the ledger's lowest-visit-count cluster: 7 stale 'Resources pill X not clickable' states from run dux-2026-09-29T22-52-17-937Z (pills: Files, Search, Locks, Source, Tables, SQL, KV).",
+      "staleFindingReconciled": {
+        "priorFinding": "7 states logged 'Resources pill \"<name>\" not clickable' for pills Files/Search/Locks/Source/Tables/SQL/KV, lastRun dux-2026-09-29T22-52-17-937Z",
+        "liveObservation": "The Resources tab's LIVE tablist (discovered fresh via [role=tablist][aria-label='Resource sections'], not hardcoded) now exposes only 3 pills: Media library, Site files, Buckets \u2014 ALL 3 clicked successfully, zero not-clickable.",
+        "verdict": "SUPERSEDED, not reproduced \u2014 the Resources tab UI was reshaped between 2026-09-29 and this fire; the old 7-pill set no longer exists live. This is not a fix confirmation of the exact same bug (the surface changed shape), so the 7 stale ledger entries are left as historical record rather than marked resolved.",
+        "realTimeContract": "refreshProbe() ran after every pill + after Advanced console + after KV drill-in \u2014 zero manual Refresh/Reconcile controls found anywhere in the Resources surface, holding the fire-54 real-time contract."
+      },
+      "findings": [
+        {
+          "severity": "advisory-only",
+          "verdict": "No concrete P0/P1 defect. All vision findings were p2 (aesthetics, e.g. 'misaligned elements', 'add visual feedback for interactive elements') or p3 (fallback-clamped function/architecture_hypothesis observations with no reproducible break). Editor boot showed its known 'Booting your AI editor / first visit only' cold-start copy (state 5, 8/10) \u2014 expected first-session behavior, not a regression.",
+          "recommendation": "None actionable this fire. Next rotation candidates still unrun in the 30-window: editor-toolbar, settings-api-tokens, create-funnel."
+        }
       ]
     }
   ]
