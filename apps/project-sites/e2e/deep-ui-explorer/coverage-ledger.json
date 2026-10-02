@@ -2,35 +2,35 @@
   "states": {
     "/::public-home::::d05f796d": {
       "discovered": "2026-09-29T19:57:38.675Z",
-      "visits": 26,
+      "visits": 27,
       "status": "visited",
       "lastAction": "homepage loads (initial state)",
-      "lastVisited": "2026-10-02T04:37:37.648Z",
-      "lastRun": "dux-2026-10-02T04-37-30-936Z"
+      "lastVisited": "2026-10-02T05:53:01.539Z",
+      "lastRun": "dux-2026-10-02T05-52-47-703Z"
     },
     "/signin::signin::::576d826f": {
       "discovered": "2026-09-29T19:57:43.656Z",
-      "visits": 25,
+      "visits": 26,
       "status": "visited",
       "lastAction": "click Sign In (header) → /signin",
-      "lastVisited": "2026-10-02T04:37:39.086Z",
-      "lastRun": "dux-2026-10-02T04-37-30-936Z"
+      "lastVisited": "2026-10-02T05:53:07.248Z",
+      "lastRun": "dux-2026-10-02T05-52-47-703Z"
     },
     "/signin::signin-test-seam::::02622a42": {
       "discovered": "2026-09-29T19:57:48.051Z",
-      "visits": 25,
+      "visits": 26,
       "status": "visited",
       "lastAction": "enter test seam (/signin?test=1) — panel render",
-      "lastVisited": "2026-10-02T04:37:41.392Z",
-      "lastRun": "dux-2026-10-02T04-37-30-936Z"
+      "lastVisited": "2026-10-02T05:53:10.359Z",
+      "lastRun": "dux-2026-10-02T05-52-47-703Z"
     },
     "/admin::admin-dashboard::::fec53253": {
       "discovered": "2026-09-29T19:57:55.718Z",
-      "visits": 26,
+      "visits": 28,
       "status": "visited",
-      "lastAction": "test login submit → lands /admin",
-      "lastVisited": "2026-10-02T04:37:44.174Z",
-      "lastRun": "dux-2026-10-02T04-37-30-936Z"
+      "lastAction": "nav → Dashboard (tour closes)",
+      "lastVisited": "2026-10-02T05:53:48.742Z",
+      "lastRun": "dux-2026-10-02T05-52-47-703Z"
     },
     "/admin/editor::admin-editor-shell::::6eca7550": {
       "discovered": "2026-09-29T19:58:16.461Z",
@@ -98,107 +98,107 @@
     },
     "/admin/snapshots::admin-snapshots::::96210135": {
       "discovered": "2026-09-29T22:18:08.762Z",
-      "visits": 1,
+      "visits": 2,
       "status": "visited",
       "lastAction": "nav → Snapshots",
-      "lastVisited": "2026-09-29T22:18:08.762Z",
-      "lastRun": "dux-2026-09-29T22-17-35-142Z"
+      "lastVisited": "2026-10-02T05:53:16.676Z",
+      "lastRun": "dux-2026-10-02T05-52-47-703Z"
     },
     "/admin/analytics::admin-analytics::::f90077f0": {
       "discovered": "2026-09-29T22:18:16.560Z",
-      "visits": 1,
+      "visits": 2,
       "status": "visited",
       "lastAction": "nav → Analytics",
-      "lastVisited": "2026-09-29T22:18:16.560Z",
-      "lastRun": "dux-2026-09-29T22-17-35-142Z"
+      "lastVisited": "2026-10-02T05:53:20.243Z",
+      "lastRun": "dux-2026-10-02T05-52-47-703Z"
     },
     "/admin/forms::admin-forms::::cfe81f24": {
       "discovered": "2026-09-29T22:18:20.926Z",
-      "visits": 1,
+      "visits": 2,
       "status": "visited",
       "lastAction": "nav → Forms",
-      "lastVisited": "2026-09-29T22:18:20.926Z",
-      "lastRun": "dux-2026-09-29T22-17-35-142Z"
+      "lastVisited": "2026-10-02T05:53:22.886Z",
+      "lastRun": "dux-2026-10-02T05-52-47-703Z"
     },
     "/admin/apps::admin-apps::::05320e3e": {
       "discovered": "2026-09-29T22:18:25.448Z",
-      "visits": 1,
+      "visits": 2,
       "status": "visited",
       "lastAction": "nav → Apps",
-      "lastVisited": "2026-09-29T22:18:25.448Z",
-      "lastRun": "dux-2026-09-29T22-17-35-142Z"
+      "lastVisited": "2026-10-02T05:53:25.415Z",
+      "lastRun": "dux-2026-10-02T05-52-47-703Z"
     },
     "/admin/hosting::admin-hosting::::7acdde33": {
       "discovered": "2026-09-29T22:18:36.448Z",
-      "visits": 1,
+      "visits": 2,
       "status": "visited",
       "lastAction": "nav → Hosting",
-      "lastVisited": "2026-09-29T22:18:36.448Z",
-      "lastRun": "dux-2026-09-29T22-17-35-142Z"
+      "lastVisited": "2026-10-02T05:53:27.274Z",
+      "lastRun": "dux-2026-10-02T05-52-47-703Z"
     },
     "/admin/site-features::admin-features::::f8436511": {
       "discovered": "2026-09-29T22:19:34.382Z",
-      "visits": 1,
+      "visits": 2,
       "status": "visited",
       "lastAction": "nav → Features",
-      "lastVisited": "2026-09-29T22:19:34.382Z",
-      "lastRun": "dux-2026-09-29T22-19-12-412Z"
+      "lastVisited": "2026-10-02T05:53:29.094Z",
+      "lastRun": "dux-2026-10-02T05-52-47-703Z"
     },
     "/admin/social::admin-social::::c8a33171": {
       "discovered": "2026-09-29T22:19:37.545Z",
-      "visits": 1,
+      "visits": 2,
       "status": "visited",
       "lastAction": "nav → Social",
-      "lastVisited": "2026-09-29T22:19:37.545Z",
-      "lastRun": "dux-2026-09-29T22-19-12-412Z"
+      "lastVisited": "2026-10-02T05:53:32.426Z",
+      "lastRun": "dux-2026-10-02T05-52-47-703Z"
     },
     "/admin/voice::admin-voice::::5431dc4a": {
       "discovered": "2026-09-29T22:19:40.479Z",
-      "visits": 1,
+      "visits": 2,
       "status": "visited",
       "lastAction": "nav → Voice",
-      "lastVisited": "2026-09-29T22:19:40.479Z",
-      "lastRun": "dux-2026-09-29T22-19-12-412Z"
+      "lastVisited": "2026-10-02T05:53:35.051Z",
+      "lastRun": "dux-2026-10-02T05-52-47-703Z"
     },
     "/admin/logs::admin-logs::::34302b3b": {
       "discovered": "2026-09-29T22:19:43.747Z",
-      "visits": 1,
+      "visits": 2,
       "status": "visited",
       "lastAction": "nav → Logs",
-      "lastVisited": "2026-09-29T22:19:43.747Z",
-      "lastRun": "dux-2026-09-29T22-19-12-412Z"
+      "lastVisited": "2026-10-02T05:53:37.122Z",
+      "lastRun": "dux-2026-10-02T05-52-47-703Z"
     },
     "/admin/feature-flags::admin-feature-flags::::8756e199": {
       "discovered": "2026-09-29T22:19:47.956Z",
-      "visits": 1,
+      "visits": 2,
       "status": "visited",
       "lastAction": "nav → Feature Flags",
-      "lastVisited": "2026-09-29T22:19:47.956Z",
-      "lastRun": "dux-2026-09-29T22-19-12-412Z"
+      "lastVisited": "2026-10-02T05:53:39.152Z",
+      "lastRun": "dux-2026-10-02T05-52-47-703Z"
     },
     "/admin/system-services::admin-system-services::::b1b645e5": {
       "discovered": "2026-09-29T22:19:50.840Z",
-      "visits": 1,
+      "visits": 2,
       "status": "visited",
       "lastAction": "nav → System Services",
-      "lastVisited": "2026-09-29T22:19:50.840Z",
-      "lastRun": "dux-2026-09-29T22-19-12-412Z"
+      "lastVisited": "2026-10-02T05:53:41.031Z",
+      "lastRun": "dux-2026-10-02T05-52-47-703Z"
     },
     "/admin/settings::admin-settings::::e7f63003": {
       "discovered": "2026-09-29T22:19:53.679Z",
-      "visits": 1,
+      "visits": 2,
       "status": "visited",
       "lastAction": "nav → Settings",
-      "lastVisited": "2026-09-29T22:19:53.679Z",
-      "lastRun": "dux-2026-09-29T22-19-12-412Z"
+      "lastVisited": "2026-10-02T05:53:43.110Z",
+      "lastRun": "dux-2026-10-02T05-52-47-703Z"
     },
     "/admin/super-admin::admin-super-admin::::6c671c8c": {
       "discovered": "2026-09-29T22:19:57.208Z",
-      "visits": 1,
+      "visits": 2,
       "status": "visited",
       "lastAction": "nav → Super admin",
-      "lastVisited": "2026-09-29T22:19:57.208Z",
-      "lastRun": "dux-2026-09-29T22-19-12-412Z"
+      "lastVisited": "2026-10-02T05:53:46.309Z",
+      "lastRun": "dux-2026-10-02T05-52-47-703Z"
     },
     "/admin/editor::editor-resources::::9ae378df": {
       "discovered": "2026-09-29T22:53:04.101Z",
@@ -770,6 +770,16 @@
     }
   },
   "runs": [
+    {
+      "runId": "dux-2026-10-02T05-52-47-703Z",
+      "journey": "admin-breadth",
+      "status": "PASS_CLOUDFLARE",
+      "provider": "cloudflare-browser-run",
+      "coverage": "CLOUD_PASS_ELIGIBLE",
+      "statesVisited": 18,
+      "blockedStates": {},
+      "finishedAt": "2026-10-02T05:53:48.742Z"
+    },
     {
       "runId": "dux-2026-10-02T04-37-30-936Z",
       "journey": "database-history",
