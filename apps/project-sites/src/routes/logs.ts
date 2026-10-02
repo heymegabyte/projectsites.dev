@@ -15,6 +15,7 @@ import { Hono } from 'hono';
 import { z } from 'zod';
 import type { Env, Variables } from '../types/env.js';
 import { costByRoute, parseLogRange, searchLogs } from '../services/logs_explorer.js';
+import { isSuperAdmin } from '../services/sysadmin.js';
 
 export const logsRoutes = new Hono<{ Bindings: Env; Variables: Variables }>();
 
@@ -44,6 +45,12 @@ logsRoutes.post('/api/logs/search', async (c) => {
   const ctx = requireAuth(c);
   if (!ctx) return c.json({ error: { code: 'UNAUTHORIZED', message: 'auth required' } }, 401);
   // log_explorer un-flagged 2026-08-13 (was stable/100%) — always available.
+  // Observability tail-logs are CROSS-TENANT (platform-wide, NOT org-scoped) and since
+  // WLK-28 these rows surface raw AppError.message/code — gate to super-admin only,
+  // matching the sibling KV/D1/R2 + admin_analytics inspectors (CWE-200 / CWE-639).
+  if (!(await isSuperAdmin(c.env, ctx.userId))) {
+    return c.json({ error: { code: 'FORBIDDEN', message: 'Super-admin access required' } }, 403);
+  }
 
   const parsed = SearchBody.safeParse(await c.req.json().catch(() => ({})));
   if (!parsed.success) {
@@ -67,6 +74,12 @@ logsRoutes.get('/api/logs/cost-by-route', async (c) => {
   const ctx = requireAuth(c);
   if (!ctx) return c.json({ error: { code: 'UNAUTHORIZED', message: 'auth required' } }, 401);
   // log_explorer un-flagged 2026-08-13 (was stable/100%) — always available.
+  // Observability tail-logs are CROSS-TENANT (platform-wide, NOT org-scoped) and since
+  // WLK-28 these rows surface raw AppError.message/code — gate to super-admin only,
+  // matching the sibling KV/D1/R2 + admin_analytics inspectors (CWE-200 / CWE-639).
+  if (!(await isSuperAdmin(c.env, ctx.userId))) {
+    return c.json({ error: { code: 'FORBIDDEN', message: 'Super-admin access required' } }, 403);
+  }
 
   const data = await costByRoute(c.env, parseLogRange(c.req.query('range')));
   return c.json({ data });

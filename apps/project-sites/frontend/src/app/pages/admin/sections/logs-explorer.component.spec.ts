@@ -244,11 +244,22 @@ describe('AdminLogsExplorerComponent (WLK-28 detail + trace navigation)', () => 
   it('copyId writes the id to the clipboard and confirms via toast', async () => {
     const { c, toastOk } = make();
     const writeText = jasmine.createSpy('writeText').and.returnValue(Promise.resolve());
-    spyOnProperty(navigator, 'clipboard', 'get').and.returnValue({ writeText } as unknown as Clipboard);
-    c.copyId('trace-abc', 'Trace ID');
-    await Promise.resolve();
-    expect(writeText).toHaveBeenCalledWith('trace-abc');
-    expect(toastOk).toHaveBeenCalledWith('Trace ID copied');
+    // `navigator.clipboard` is an INHERITED accessor — `spyOnProperty` is order-fragile in the
+    // full suite (another spec can leave it non-configurable). Shadow it with an OWN property we
+    // restore in `finally` so this test is isolated regardless of execution order.
+    const original = Object.getOwnPropertyDescriptor(navigator, 'clipboard');
+    Object.defineProperty(navigator, 'clipboard', { value: { writeText }, configurable: true });
+    try {
+      c.copyId('trace-abc', 'Trace ID');
+      // writeText() resolves, then `.then(done)` fires the toast one microtask later — flush twice.
+      await Promise.resolve();
+      await Promise.resolve();
+      expect(writeText).toHaveBeenCalledWith('trace-abc');
+      expect(toastOk).toHaveBeenCalledWith('Trace ID copied');
+    } finally {
+      if (original) Object.defineProperty(navigator, 'clipboard', original);
+      else delete (navigator as unknown as Record<string, unknown>)['clipboard'];
+    }
   });
 });
 

@@ -1,9 +1,10 @@
-import { Component, signal, inject, DestroyRef, type OnInit } from '@angular/core';
+import { Component, signal, computed, inject, DestroyRef, type OnInit } from '@angular/core';
 import { ActivatedRoute, Router } from '@angular/router';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { AdminAuditComponent } from './audit.component';
 import { AdminLogsExplorerComponent } from './logs-explorer.component';
 import { AdminAiLogsComponent } from './ai-logs.component';
+import { AdminStateService } from '../admin-state.service';
 
 type LogsTab = 'audit' | 'explorer' | 'traces';
 
@@ -27,7 +28,7 @@ type LogsTab = 'audit' | 'explorer' | 'traces';
         Audit trail + structured request / AI / job logs — one place for everything that happened.
       </p>
       <div class="flex overflow-x-auto max-w-full min-w-0 gap-1 p-1 rounded-xl border border-white/[0.06] bg-white/[0.02]" role="tablist" aria-label="Logs view">
-        @for (t of tabs; track t.id) {
+        @for (t of tabs(); track t.id) {
           <button
             type="button"
             role="tab"
@@ -45,12 +46,12 @@ type LogsTab = 'audit' | 'explorer' | 'traces';
       </div>
     </div>
 
-    @if (tab() === 'audit') {
-      <app-admin-audit [embedded]="true" />
-    } @else if (tab() === 'explorer') {
+    @if (tab() === 'explorer' && isSuperAdmin()) {
       <app-logs-explorer />
-    } @else {
+    } @else if (tab() === 'traces' && isSuperAdmin()) {
       <app-admin-ai-logs />
+    } @else {
+      <app-admin-audit [embedded]="true" />
     }
   `,
 })
@@ -58,12 +59,23 @@ export class AdminLogsDashboardComponent implements OnInit {
   private readonly route = inject(ActivatedRoute);
   private readonly router = inject(Router);
   private readonly destroyRef = inject(DestroyRef);
+  private readonly adminState = inject(AdminStateService);
 
-  readonly tabs: ReadonlyArray<{ id: LogsTab; label: string }> = [
-    { id: 'audit', label: 'Audit Trail' },
-    { id: 'explorer', label: 'Log Explorer' },
-    { id: 'traces', label: 'Traces' },
-  ];
+  /**
+   * Log Explorer + Traces read CROSS-TENANT Cloudflare Observability (platform-wide,
+   * super-admin-only on the worker since fire-71 — see routes/logs.ts). Those two tabs
+   * render ONLY for super-admins; the org-scoped, owner-facing Audit Trail is always
+   * shown. Hiding the tabs (vs. letting them 403) avoids a doomed control.
+   */
+  readonly isSuperAdmin = this.adminState.isSuperAdmin;
+
+  readonly tabs = computed<ReadonlyArray<{ id: LogsTab; label: string }>>(() => {
+    const t: Array<{ id: LogsTab; label: string }> = [{ id: 'audit', label: 'Audit Trail' }];
+    if (this.isSuperAdmin()) {
+      t.push({ id: 'explorer', label: 'Log Explorer' }, { id: 'traces', label: 'Traces' });
+    }
+    return t;
+  });
   readonly tab = signal<LogsTab>('audit');
 
   ngOnInit(): void {
