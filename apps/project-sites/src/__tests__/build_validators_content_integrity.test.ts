@@ -17,6 +17,8 @@ import {
   validateHeaderLogoAssetExistence,
   validateWordmarkContrast,
   validateEyebrowContrast,
+  validateNoBuildPromptLeak,
+  validateNoEmptyNap,
   type BuildFile,
 } from '../services/build_validators';
 
@@ -374,5 +376,105 @@ describe('validateEyebrowContrast — opacity-on-muted eyebrow AA-fail class (fi
       file('assets/hero.js', 'e("span",{className:"divider text-white/40"},"•")'),
     ];
     expect(validateEyebrowContrast(files)).toEqual([]);
+  });
+});
+
+/**
+ * fire-83 — build-prompt-leak class: the generation PROMPT, an AI refusal/preamble, or a markdown
+ * code fence survived into the shipped page (a real, highly-embarrassing generation defect). Each
+ * is a visible `error`-severity hole the existing copy gates don't catch.
+ */
+describe('validateNoBuildPromptLeak — leaked generation prompt / AI preamble / code fence (fire-83)', () => {
+  it('flags a leaked "Build a professional website" instruction in the body', () => {
+    const f = file(
+      'index.html',
+      shell('Acme Bakery', '', '<p>Build a professional website for Acme Bakery in Newark.</p>'),
+    );
+    const v = validateNoBuildPromptLeak([f]);
+    expect(v).toHaveLength(1);
+    expect(v[0].code).toBe('copy.build_prompt_leaked');
+    expect(v[0].severity).toBe('error');
+  });
+
+  it('flags an "As an AI language model" refusal preamble', () => {
+    const f = file('about.html', shell('About', '', '<p>As an AI language model, I cannot…</p>'));
+    expect(validateNoBuildPromptLeak([f])[0]?.code).toBe('copy.build_prompt_leaked');
+  });
+
+  it('flags an "I\'ll create the website" meta-preamble and a leaked ``` code fence', () => {
+    for (const body of ['<p>I\'ll create the website now.</p>', '<p>```html</p>']) {
+      const v = validateNoBuildPromptLeak([file('index.html', shell('X', '', body))]);
+      expect(v[0]?.code).toBe('copy.build_prompt_leaked');
+    }
+  });
+
+  it('does NOT false-positive on real bakery copy ("I\'ll create a custom cake")', () => {
+    // The bare verb is fine — only the build-time "create a website/page" shape is a leak.
+    const f = file(
+      'index.html',
+      shell('Acme Bakery', '', "<p>I'll create a custom cake for your celebration.</p>"),
+    );
+    expect(validateNoBuildPromptLeak([f])).toEqual([]);
+  });
+
+  it('does NOT scan a 404 shell (non-content shell exclusion)', () => {
+    const f = file('404.html', shell('Not found', '', '<p>As an AI, here is the error page.</p>'));
+    expect(validateNoBuildPromptLeak([f])).toEqual([]);
+  });
+
+  it('passes clean marketing copy (the happy path)', () => {
+    const f = file(
+      'index.html',
+      shell('Acme Bakery', '', '<p>Fresh sourdough baked daily in the heart of Newark.</p>'),
+    );
+    expect(validateNoBuildPromptLeak([f])).toEqual([]);
+  });
+});
+
+/**
+ * fire-83 — empty-NAP class: a local-business page renders an address/phone BLOCK with no real value
+ * (blank, "N/A", an unfilled `{{token}}`, "undefined") — the one thing a visitor needs is a hole.
+ * Only a PRESENT-but-EMPTY block is an `error`; a page that omits the block isn't flagged here.
+ */
+describe('validateNoEmptyNap — present-but-empty address/phone block (fire-83)', () => {
+  it('flags a blank <address> element', () => {
+    const f = file('contact.html', shell('Contact', '', '<address>  </address>'));
+    const v = validateNoEmptyNap([f]);
+    expect(v).toHaveLength(1);
+    expect(v[0].code).toBe('content.empty_nap');
+    expect(v[0].severity).toBe('error');
+  });
+
+  it('flags an itemprop="telephone" with an "N/A" placeholder value', () => {
+    const f = file('index.html', shell('X', '', '<span itemprop="telephone">N/A</span>'));
+    expect(validateNoEmptyNap([f])[0]?.code).toBe('content.empty_nap');
+  });
+
+  it('flags an unfilled {{phone}} token and an "undefined" street address', () => {
+    for (const body of [
+      '<span itemprop="telephone">{{phone}}</span>',
+      '<span itemprop="streetAddress">undefined</span>',
+    ]) {
+      const v = validateNoEmptyNap([file('index.html', shell('X', '', body))]);
+      expect(v[0]?.code).toBe('content.empty_nap');
+    }
+  });
+
+  it('does NOT flag a filled <address> with a real NAP', () => {
+    const f = file(
+      'contact.html',
+      shell('Contact', '', '<address>74 N Beverwyck Rd, Lake Hiawatha, NJ 07034</address>'),
+    );
+    expect(validateNoEmptyNap([f])).toEqual([]);
+  });
+
+  it('does NOT flag a filled itemprop telephone', () => {
+    const f = file('index.html', shell('X', '', '<span itemprop="telephone">(973) 555-0142</span>'));
+    expect(validateNoEmptyNap([f])).toEqual([]);
+  });
+
+  it('does NOT scan a 404 shell for empty NAP (non-content shell exclusion)', () => {
+    const f = file('500.html', shell('Error', '', '<address>N/A</address>'));
+    expect(validateNoEmptyNap([f])).toEqual([]);
   });
 });

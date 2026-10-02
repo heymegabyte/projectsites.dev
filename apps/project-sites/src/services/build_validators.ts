@@ -1001,6 +1001,139 @@ export const validateAdjacentDuplicateWords = (files: BuildFile[]): Violation[] 
 };
 
 /**
+ * Phrases that only appear when the SITE-GENERATION PROMPT itself leaked into the shipped page —
+ * an instruction to the model, a meta-refusal, a code fence, or a "here is the …" preamble that was
+ * meant to be stripped before render. Each is case-insensitive and anchored on wording that never
+ * occurs in legitimate small-business marketing copy. Kept deliberately tight to avoid flagging real
+ * copy (e.g. a bakery that literally says "I'll create a custom cake" — that clause is excluded by
+ * requiring the build-time shapes "I'll create the/a (site|website|page|…)" rather than the bare verb).
+ */
+const BUILD_PROMPT_LEAK_PHRASES: readonly RegExp[] = [
+  /\bbuild (?:me )?an? (?:professional |modern |beautiful |stunning )?(?:website|web ?site|web page|landing page|homepage)\b/i,
+  /\bcreate (?:me )?an? (?:professional |modern |beautiful |stunning )?(?:website|web ?site|web page|landing page|homepage)\b/i,
+  /\bgenerate (?:me )?an? (?:professional |modern |beautiful |stunning )?(?:website|web ?site|web page|landing page|homepage)\b/i,
+  /\bas an ai(?:\b| language model| assistant)/i,
+  /\bi(?:'m| am) an ai\b/i,
+  /\bas a (?:large )?language model\b/i,
+  /\bhere(?:'s| is) (?:the|your|a) (?:website|html|code|updated|revised|completed|generated)\b/i,
+  // Build-time preamble: "I'll create the website / your landing page / the HTML / this site for you".
+  // Scoped to build ARTIFACTS so real copy ("I'll create a custom cake for you") never trips.
+  /\bi(?:'ll| will) (?:now )?(?:create|build|generate|write|design|make) (?:the|your|a|this) (?:professional |modern |beautiful |stunning |custom )?(?:website|web ?site|web page|landing page|homepage|site|page|html|code)\b/i,
+  /\bi cannot (?:create|generate|provide|comply)\b/i,
+  /\bsystem prompt\b/i,
+  /```/,
+];
+
+/**
+ * Build-prompt leak — the generation prompt (or a model refusal / code fence / "here is the …"
+ * preamble) MUST never survive into the shipped page. These artifacts are an unambiguous, highly
+ * embarrassing visible defect — the customer sees the instruction that was supposed to build their
+ * site, not the site. `error` severity. Scans the RENDERED body text of content shells (script/style
+ * + tags stripped, so a `<!-- prompt -->` comment or a `<script>` string never false-positives),
+ * plus a raw-source scan for a literal triple-backtick code fence (which a markdown→HTML slip ships
+ * as visible text). Skips non-content shells (404/500/offline) per
+ * `content-validators-must-exclude-non-content-shells`. Ref: fire-83 content-quality slice.
+ */
+export const validateNoBuildPromptLeak = (files: BuildFile[]): Violation[] => {
+  const out: Violation[] = [];
+  for (const file of files) {
+    if (!isContentHtml(file.path) || !file.text) continue;
+    // Code fences are matched against RAW source (a leaked fence may sit in markup, not just text).
+    if (file.text.includes('```')) {
+      out.push({
+        code: 'copy.build_prompt_leaked',
+        severity: 'error',
+        message:
+          'A triple-backtick code fence (```) leaked into the shipped page — the generation output was pasted without stripping its markdown fences. Remove it.',
+        file: file.path,
+      });
+    }
+    const text = stripScripts(file.text).replace(/<[^>]+>/g, ' ');
+    for (const re of BUILD_PROMPT_LEAK_PHRASES) {
+      if (re.source === '```') continue; // handled on raw source above
+      const m = re.exec(text);
+      if (m) {
+        out.push({
+          code: 'copy.build_prompt_leaked',
+          severity: 'error',
+          message: `Build-prompt leak — the shipped page contains generation-prompt/meta text "${m[0].trim()}". The build prompt or an AI preamble was rendered to the customer instead of real copy. Strip it.`,
+          file: file.path,
+        });
+        break; // one leak signal per file is enough; avoid duplicate noise
+      }
+    }
+  }
+  return out;
+};
+
+/** Empty / placeholder NAP value — blank, or an obvious non-value a generator left behind. */
+const EMPTY_NAP_RE =
+  /^(?:\s*|n\/?a|tbd|none|null|undefined|xxx+|\{\{?[^}]*\}?\}|\[[^\]]*\]|-+|_+|\.+|%[A-Z_]+%|\$\{[^}]*\})$/i;
+
+/** Extract an element's inner text by tag name OR by an attribute match, tags+scripts stripped. */
+const innerTextMatches = (html: string, re: RegExp): string[] => {
+  const out: string[] = [];
+  for (const m of html.matchAll(re)) {
+    const inner = (m[1] ?? '')
+      .replace(/<[^>]+>/g, ' ')
+      .replace(/&nbsp;|&#160;/gi, ' ')
+      .replace(/\s+/g, ' ')
+      .trim();
+    out.push(inner);
+  }
+  return out;
+};
+
+/**
+ * Empty NAP (Name/Address/Phone) — a local-business site that renders an address or phone BLOCK with
+ * no real value (blank, "N/A", "TBD", an unfilled `{{token}}`, "undefined") is a trust-destroying
+ * defect: the one thing a visitor needs (where you are / how to call) is a hole. Per
+ * `embarrassingly-easy-to-use` + the NAP-consistency SEO mandate. Only fires when the NAP element is
+ * actually PRESENT — a site that legitimately omits an address block isn't flagged here (that's a
+ * separate completeness concern), but a PRESENT-but-EMPTY one is an unambiguous `error`. Scans
+ * `<address>` elements and any element carrying `itemprop="telephone"`/`"streetAddress"`/`"address"`
+ * (microdata) or a `tel:`-less phone placeholder. Script/style stripped; skips non-content shells.
+ * Ref: fire-83 content-quality slice.
+ */
+export const validateNoEmptyNap = (files: BuildFile[]): Violation[] => {
+  const out: Violation[] = [];
+  // <address>…</address>
+  const ADDRESS_RE = /<address\b[^>]*>([\s\S]*?)<\/address>/gi;
+  // Any element with itemprop="telephone|streetAddress|address|postalCode" — capture its inner text.
+  const ITEMPROP_RE =
+    /<([a-z0-9]+)\b[^>]*\bitemprop\s*=\s*["'](?:telephone|streetAddress|address|postalCode)["'][^>]*>([\s\S]*?)<\/\1>/gi;
+  for (const file of files) {
+    if (!isContentHtml(file.path) || !file.text) continue;
+    const src = stripScripts(file.text);
+    const blocks: string[] = [];
+    blocks.push(...innerTextMatches(src, ADDRESS_RE));
+    // ITEMPROP_RE captures the tag in group 1 and inner text in group 2 — remap to a group-1 shape.
+    for (const m of src.matchAll(ITEMPROP_RE)) {
+      blocks.push(
+        (m[2] ?? '')
+          .replace(/<[^>]+>/g, ' ')
+          .replace(/&nbsp;|&#160;/gi, ' ')
+          .replace(/\s+/g, ' ')
+          .trim(),
+      );
+    }
+    for (const inner of blocks) {
+      if (EMPTY_NAP_RE.test(inner)) {
+        out.push({
+          code: 'content.empty_nap',
+          severity: 'error',
+          message: `Empty NAP block — an address/phone element rendered with no real value${
+            inner ? ` ("${inner}")` : ' (blank)'
+          }. A local-business visitor needs the real address/phone; fill it from research or remove the block.`,
+          file: file.path,
+        });
+      }
+    }
+  }
+  return out;
+};
+
+/**
  * Header-logo asset existence — the Header component renders the wordmark <img> CLIENT-SIDE from
  * the bundled JS (React renders `e("img",{src:"/logo-wordmark.png",...})` at runtime), so the
  * literal tag NEVER appears in the server HTML shell. {@link validateAssetExistence}'s `collectRefs`
@@ -1951,6 +2084,8 @@ export const validateBuild = (
     ...validateHeroNotPackDefault(files),
     ...validateHeroLeadsWithBusinessName(files),
     ...validateAdjacentDuplicateWords(files),
+    ...validateNoBuildPromptLeak(files),
+    ...validateNoEmptyNap(files),
     ...validateHeaderLogoAssetExistence(files),
     ...validateWordmarkContrast(files),
     ...validateEyebrowContrast(files),
