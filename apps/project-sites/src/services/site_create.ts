@@ -199,11 +199,13 @@ export async function createSite(
         if (perSiteData) {
           // Broad path: D1 + KV + R2 in parallel. Provisions D1 itself, so the eager-D1 block below
           // is intentionally skipped — provisionSiteD1 runs exactly once this create.
-          const [{ provisionSiteD1 }, { provisionSiteKv }, { provisionSiteR2 }] = await Promise.all([
-            import('./d1_provisioner.js'),
-            import('./kv_provisioner.js'),
-            import('./r2_provisioner.js'),
-          ]);
+          const [{ provisionSiteD1 }, { provisionSiteKv }, { provisionSiteR2 }] = await Promise.all(
+            [
+              import('./d1_provisioner.js'),
+              import('./kv_provisioner.js'),
+              import('./r2_provisioner.js'),
+            ],
+          );
           await Promise.all([
             provisionSiteD1(env, args),
             provisionSiteKv(env, args),

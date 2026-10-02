@@ -65,7 +65,12 @@ beforeEach(() => {
   (trackSite as jest.Mock).mockReturnValue(undefined);
   (tryEmitEvent as jest.Mock).mockResolvedValue({ inserted: true });
   (grantSiteOwner as jest.Mock).mockResolvedValue(undefined);
-  mockD1.mockResolvedValue({ ok: true, databaseId: 'db-x', databaseName: 'ps-site-x', reused: false });
+  mockD1.mockResolvedValue({
+    ok: true,
+    databaseId: 'db-x',
+    databaseName: 'ps-site-x',
+    reused: false,
+  });
   mockKv.mockResolvedValue({ ok: true });
   mockR2.mockResolvedValue({ ok: true });
 });
