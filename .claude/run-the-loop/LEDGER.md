@@ -9,6 +9,15 @@
 > `_CF_NATIVE_CONVERGENCE.md`, `_ADMIN_VQA_LEDGER.md`, `_INTERCONNECTEDNESS_LEDGER.md`). This is the
 > INDEX, not a duplicate.
 
+## fire-81 — converge: money-path AI-build E2E + SSRF webhook guard + brand-H1 validator + preflight token honesty (+ adversarial self-catch)
+
+- **Money-path P1 closed (coverage):** `e2e/money-path/ai-build-to-live.e2e.ts` — causal AI-build coverage (create→workflow→published→live `x-ps-serve:wfp` 200 + real `<h1>`); paid build cost-gated behind `E2E_RUN_PAID_BUILD`, default path asserts the causal postcondition on the most-recent published site. SHA `ad23d879a`. Parses (1 test).
+- **Security (CWE-918 HIGH):** `newsletter_dispatch.dispatchWebhook` now SSRF-guards the site-owner-set `webhook_url` (`isSafeWebhookUrl` + `redirect:'manual'` → 3xx fails `!res.ok`). Reuses the canonical guard. SHA `ad23d879a`.
+- **Brand quality:** `build_validators.validateHeroLeadsWithBusinessName` hard-fails a generated hero `<h1>` on an unfilled token / industry-pack default. SHA `ad23d879a`.
+- **Loop-improvement (§7):** `browser-role-preflight.mjs` now checks `CF_BROWSER_RUN_TOKEN` from get-secret OR `.dev.vars` (WARN when absent). Finding: token IS present via get-secret (role 17 CF coverage available) — the `.dev.vars`-only mental model masked it. SHA `ad23d879a`.
+- **Adversarial review SELF-CAUGHT + fixed-forward a HIGH:** the salvaged flags-consolidation `services.ts` legacy fallback read the `feature_flags` governance table (never a runtime source per 0613) and let its backfilled rollout override the registry default (`social_publishing_native` 100%→25%). REVERTED services.ts to pre-fire (resolver unchanged). Migration `0656_feature_flags_consolidate.sql` kept (additive shape-convergence + `UNIQUE(key)`; NOT applied to prod — nothing reads the new cols). SHA `ffb496583`.
+- **Prod:** worker deployed `--env production`, Version `2dc6030e-a1e8-4863-aa62-542c6451499d`. Verified: homepage 200 ("Live in 4 Minutes") + CSP/HSTS + `x-content-type-options`; `/api/health` 200 (`environment:production`, KV+R2 ok). ~3M-token heavy roster (9 agents: 6 mutating + 3 read-only; role 16 auto-worktree-BLOCKED, content-writer LOST → both re-queued).
+
 ## fire-71 — Feature Delivery: WebGL consumption gap (interconnectedness P0)
 
 - **Closed the fire-70-CONFIRMED built-but-unwired WebGL defect**: `templates/webgl/WebGLHero.tsx` + `webgl-hero-core.mjs` + per-vertical `webgl` blocks EXISTED but NO generated site emitted them (`grep WebGLHero apps/project-sites/src` = 0). Now wired end-to-end.

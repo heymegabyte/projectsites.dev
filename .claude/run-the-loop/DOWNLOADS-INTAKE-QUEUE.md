@@ -14,7 +14,7 @@ small optimization cycles on specific elements over one mega-pass).
 
 ## Drain order (oldest-value-first, net-new before already-absorbed)
 
-1. **FILE 3** — net-new swarm/delegation axis (not represented) → decompose FIRST.
+1. **FILE 3** — ✅ ABSORBED fire-81 (swarm/delegation axis → BACKLOG § fire-81 replenish; starter slice = provider entitlement registry).
 2. **FILE 5** — CF-native voice (partial; = REALTIME-VOICE-DIRECTIVE, not yet persisted).
 3. **FILE 1** — Resources 7-tab editor — ✅ ABSORBED fire-80 (COMBINED §S5 + DIRECTIVE 3 fold + gp GP-13).
 4. **FILE 4** — AWOS master (already adopted REV-2026-10-02-awos-master → MASTER-PROMPT.md; verify-then-absorb).
@@ -22,8 +22,8 @@ small optimization cycles on specific elements over one mega-pass).
 
 ## Queue
 
-### FILE 3 — `ProjectSites_Claude_Code_Master_Prompt_v2.md` (102K, 2026-10-02 01:44) — status: `queued` ⭐ drain-first
-Spirit: shared swarm architecture, Claude permanent orchestrator, DeepSeek-first delegated inference, MiniMax/OpenAI specialists, Exa discovery + Deepcrawl ingestion, existing-benefits-first media routing, MCP provider ecosystem. **Absorbed: NO** (net-new axis; pending `REV-2026-10-02-swarm-delegation`).
+### FILE 3 — `ProjectSites_Claude_Code_Master_Prompt_v2.md` (102K, 2026-10-02 01:44) — status: `absorbed` (2026-10-02, fire-81)
+Spirit: shared swarm architecture, Claude permanent orchestrator, DeepSeek-first delegated inference, MiniMax/OpenAI specialists, Exa discovery + Deepcrawl ingestion, existing-benefits-first media routing, MCP provider ecosystem. **Absorbed: YES** (fire-81 — decomposed into BACKLOG § fire-81 replenish FILE-3 swarm epic; archive retained as gitignored local artifact, spirit fully in BACKLOG — safe to rm manually).
 Epics:
 - `/delegate` interface + provider registry (capability × entitlement × funding)
 - DeepSeek-first routing for commodity work (recon, test-writing, cleanup)
