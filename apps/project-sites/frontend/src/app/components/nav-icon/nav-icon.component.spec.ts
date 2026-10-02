@@ -21,24 +21,30 @@ describe('NavIconComponent', () => {
   afterEach(() => TestBed.resetTestingModule());
 
   it('renders a non-empty SVG for every model icon key', () => {
-    const names: NavIconName[] = [
-      'dashboard',
-      'editor',
-      'snapshots',
-      'analytics',
-      'forms',
-      'apps',
-      'features',
-      'social',
-      'voice',
-      'logs',
-      'feature-flags',
-      'leads',
-      'system-services',
-      'docs',
-      'settings',
-      'super-admin',
-    ];
+    // Exhaustive BY CONSTRUCTION: `satisfies Record<NavIconName, 1>` makes tsc fail
+    // if an icon key is added to the union without a glyph test here. The old
+    // hand-maintained array had silently drifted — 'sites' + 'billing' were missing.
+    const ICON_KEYS = {
+      dashboard: 1,
+      sites: 1,
+      editor: 1,
+      snapshots: 1,
+      analytics: 1,
+      forms: 1,
+      apps: 1,
+      features: 1,
+      social: 1,
+      voice: 1,
+      logs: 1,
+      'feature-flags': 1,
+      leads: 1,
+      'system-services': 1,
+      docs: 1,
+      billing: 1,
+      settings: 1,
+      'super-admin': 1,
+    } satisfies Record<NavIconName, 1>;
+    const names = Object.keys(ICON_KEYS) as NavIconName[];
     for (const n of names) {
       const svg = render(n);
       expect(svg).withContext(`${n} has an <svg>`).toBeTruthy();
