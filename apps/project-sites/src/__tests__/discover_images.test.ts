@@ -590,7 +590,7 @@ describe('POST /api/ai/discover-images', () => {
         const urlStr =
           typeof url === 'string' ? url : url instanceof URL ? url.toString() : url.url;
 
-        if (urlStr === 'https://example.com') {
+        if (urlStr === 'https://example.com' || urlStr === 'https://example.com/') {
           return new Response(
             `
             <html><head>
@@ -703,7 +703,7 @@ describe('POST /api/ai/discover-images', () => {
         const urlStr =
           typeof url === 'string' ? url : url instanceof URL ? url.toString() : url.url;
 
-        if (urlStr === 'https://example-biz.com') {
+        if (urlStr === 'https://example-biz.com' || urlStr === 'https://example-biz.com/') {
           return new Response(
             `
             <html><head><title>Example Biz</title></head><body>

@@ -32,6 +32,7 @@ import { Hono } from 'hono';
 import { DOMAINS } from '@project-sites/shared';
 import type { Env, Variables } from '../../../src/types/env.js';
 import { gatewayFetch } from '../../../src/services/ai_gateway.js';
+import { safeFetch } from '../../../src/services/safe_fetch.js';
 import { requireNotAbusive } from '../../../src/middleware/abuse.js';
 
 type AppContext = { Bindings: Env; Variables: Variables };
@@ -228,13 +229,11 @@ mediaAi.get('/api/image-proxy', async (c) => {
 /** Validate that a URL points to a real, loadable image (HEAD check). */
 async function isImageReachable(url: string): Promise<boolean> {
   try {
-    const r = await fetch(url, {
-      method: 'HEAD',
-      headers: { 'User-Agent': 'Mozilla/5.0 (compatible; ProjectSites/1.0)' },
-      redirect: 'follow',
+    const r = await safeFetch(url, {
+      init: { method: 'HEAD', headers: { 'User-Agent': 'Mozilla/5.0 (compatible; ProjectSites/1.0)' } },
     });
     const ct = r.headers.get('content-type') || '';
-    return r.ok && (ct.startsWith('image/') || ct.includes('octet-stream'));
+    return r.status < 400 && (ct.startsWith('image/') || ct.includes('octet-stream'));
   } catch {
     return false;
   }
@@ -248,13 +247,14 @@ async function getImageDimensions(
   url: string,
 ): Promise<{ width: number; height: number; byteLength: number } | null> {
   try {
-    const r = await fetch(url, {
-      headers: {
-        'User-Agent': 'Mozilla/5.0 (compatible; ProjectSites/1.0)',
-        Range: 'bytes=0-65535',
+    const r = (await safeFetch(url, {
+      init: {
+        headers: {
+          'User-Agent': 'Mozilla/5.0 (compatible; ProjectSites/1.0)',
+          Range: 'bytes=0-65535',
+        },
       },
-      redirect: 'follow',
-    });
+    })) as unknown as Response;
     if (!r.ok && r.status !== 206) return null;
     const buf = new Uint8Array(await r.arrayBuffer());
     const cl = parseInt(r.headers.get('content-length') || '0') || buf.byteLength;
@@ -496,10 +496,11 @@ mediaAi.post('/api/ai/discover-images', async (c) => {
   let scrapedHtml = '';
   if (domain) {
     try {
-      const siteRes = await fetch(`https://${domain}`, {
-        headers: { 'User-Agent': 'ProjectSites/1.0 (https://projectsites.dev)' },
-        redirect: 'follow',
-      });
+      // SSRF guard: `domain` is caller-supplied (body.website) — safeFetch validates
+      // the host AND re-validates every redirect hop (can't reach internal/metadata).
+      const siteRes = (await safeFetch(`https://${domain}`, {
+        init: { headers: { 'User-Agent': 'ProjectSites/1.0 (https://projectsites.dev)' } },
+      })) as unknown as Response;
       if (siteRes.ok) {
         scrapedHtml = await siteRes.text();
       }
