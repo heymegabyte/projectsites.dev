@@ -9,6 +9,8 @@
  * exist).
  */
 
+import { type EntitlementState } from '../../pages/admin/sections/feature-flags/flag-logic';
+
 export interface DossierModel {
   /** 'Feature Flag' (Layer 1) or 'Feature' (Layer 2). */
   kind: 'Feature Flag' | 'Feature';
@@ -35,7 +37,13 @@ export interface DossierModel {
   /** Feature-only (Layer 2). */
   requiredPlan?: string;
   category?: string;
-  entitled?: string;
+  /**
+   * Owner-facing entitlement state for this feature. When it's a LOCK state
+   * (`upgrade-required` / `addon-required`) the spec sheet surfaces WHY it's
+   * locked + a one-click upgrade CTA — never a documented-but-unreachable
+   * capability. Omitted / `available` = no lock treatment.
+   */
+  entitled?: EntitlementState;
   /** Live URL to offer an on-demand AI vision critique (per-site features). */
   previewUrl?: string;
   /**

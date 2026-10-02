@@ -45,4 +45,30 @@ describe('UsageGaugesComponent (loading skeleton reserves height — anti-CLS)',
     expect(el.querySelector('[data-testid="usage-gauges"]')).toBeNull();
     expect(fx.componentInstance.loading()).withContext('settled, not loading').toBeFalse();
   });
+
+  /**
+   * fire-69 — no-dead-control: an over-limit gauge told the owner they were over
+   * but gave NO one-click way to fix it. An at-/over-limit metric must pair its
+   * reason with a one-click upgrade CTA → /admin/billing. The CTA link is the RED
+   * driver (the over-limit row had prose only, no actionable path).
+   */
+  describe('fire-69 — over-limit rows carry a one-click upgrade CTA', () => {
+    const OVER = { metric: 'builds', label: 'Builds', used: 12, limit: 10, unit: '', pct: 120 };
+
+    it('renders an upgrade CTA to /admin/billing on an over-limit gauge', () => {
+      const fx = withApi(() => of({ data: [OVER], period: 'month' }));
+      const el = fx.nativeElement as HTMLElement;
+      const cta = el.querySelector('[data-testid="usage-upgrade-builds"]') as HTMLAnchorElement | null;
+      expect(cta).withContext('over-limit gauge offers a one-click fix').not.toBeNull();
+      expect(cta?.getAttribute('ng-reflect-router-link') ?? cta?.getAttribute('href') ?? '')
+        .toContain('/admin/billing');
+    });
+
+    it('shows NO upgrade CTA when the metric is within its limit', () => {
+      const fx = withApi(() => of({ data: [GAUGE], period: 'month' }));
+      const el = fx.nativeElement as HTMLElement;
+      expect(el.querySelector('[data-testid="usage-upgrade-sites"]'))
+        .withContext('within-limit metric needs no upgrade CTA').toBeNull();
+    });
+  });
 });

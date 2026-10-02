@@ -73,4 +73,44 @@ describe('InlineCheckoutComponent (payment display + emit contract)', () => {
     expect(evt).toEqual({ paymentIntentId: 'pi_123' });
     expect(success).toHaveBeenCalled();
   });
+
+  /**
+   * fire-69 — no-doomed-control: when a `lockedReason` is supplied (a server-side
+   * precondition isn't met — seat limit, plan tier, missing config), the checkout
+   * must NOT mount Stripe or show a Pay button that will fail. Instead it shows the
+   * reason + a one-click upgrade CTA. `locked` gates both the render and the mount.
+   */
+  describe('fire-69 — locked precondition shows reason + CTA, never a doomed Pay button', () => {
+    it('isLocked reflects a non-empty lockedReason', () => {
+      const { c } = make();
+      expect(c.isLocked()).withContext('unlocked by default').toBeFalse();
+      c.lockedReason = 'Upgrade to Pro to buy more credits';
+      expect(c.isLocked()).withContext('locked once a reason is set').toBeTrue();
+    });
+
+    it('a locked checkout never attempts a Stripe mount', async () => {
+      const mountSpy = jasmine.createSpy('mountPaymentElement').and.resolveTo(null);
+      TestBed.resetTestingModule();
+      TestBed.configureTestingModule({
+        imports: [InlineCheckoutComponent],
+        providers: [
+          { provide: ApiService, useValue: { post: () => of({ data: {} }) } },
+          {
+            provide: StripeService,
+            useValue: {
+              mountExpressCheckout: jasmine.createSpy('mx').and.resolveTo(null),
+              mountPaymentElement: mountSpy,
+            },
+          },
+          { provide: ToastService, useValue: { success: () => {}, error: () => {} } },
+        ],
+      });
+      TestBed.overrideComponent(InlineCheckoutComponent, { set: { template: '<div></div>', imports: [] } });
+      const c = TestBed.createComponent(InlineCheckoutComponent).componentInstance;
+      c.amountCents = 2500;
+      c.lockedReason = 'Seat limit reached — upgrade to add more';
+      await (c as unknown as { mountAll(): Promise<void> }).mountAll();
+      expect(mountSpy).withContext('locked surface must not mount a doomed payment field').not.toHaveBeenCalled();
+    });
+  });
 });

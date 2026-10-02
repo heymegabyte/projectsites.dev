@@ -57,38 +57,53 @@ interface PaymentIntentResponse {
         }
       </header>
 
-      @if (loading()) {
-        <div class="inline-checkout__loading" data-testid="inline-checkout-loading">
-          <span class="inline-checkout__spinner"></span>
-          <span>Loading 1-click checkout…</span>
+      @if (isLocked()) {
+        <!-- Precondition not met — show WHY + a one-click upgrade CTA, never a
+             Pay button that would fail server-side (fire-69). -->
+        <div class="inline-checkout__locked" data-testid="inline-checkout-locked" role="note">
+          <p class="inline-checkout__locked-msg">{{ lockedReason }}</p>
+          <a
+            class="inline-checkout__upgrade"
+            data-testid="inline-checkout-upgrade"
+            [attr.href]="upgradeHref"
+            [attr.aria-label]="upgradeLabel"
+            >{{ upgradeLabel }} →</a
+          >
         </div>
-      }
+      } @else {
+        @if (loading()) {
+          <div class="inline-checkout__loading" data-testid="inline-checkout-loading">
+            <span class="inline-checkout__spinner"></span>
+            <span>Loading 1-click checkout…</span>
+          </div>
+        }
 
-      @if (error(); as err) {
-        <div class="inline-checkout__error" role="alert" data-testid="inline-checkout-error">
-          <span>{{ err }}</span>
-          <button type="button" class="inline-checkout__retry" (click)="retry()">Try again</button>
-        </div>
-      }
+        @if (error(); as err) {
+          <div class="inline-checkout__error" role="alert" data-testid="inline-checkout-error">
+            <span>{{ err }}</span>
+            <button type="button" class="inline-checkout__retry" (click)="retry()">Try again</button>
+          </div>
+        }
 
-      <div #expressHost class="inline-checkout__express" data-testid="inline-checkout-express"></div>
+        <div #expressHost class="inline-checkout__express" data-testid="inline-checkout-express"></div>
 
-      @if (!loading() && !error()) {
-        <div class="inline-checkout__divider"><span>or pay with card</span></div>
-      }
+        @if (!loading() && !error()) {
+          <div class="inline-checkout__divider"><span>or pay with card</span></div>
+        }
 
-      <div #paymentHost class="inline-checkout__payment" data-testid="inline-checkout-payment"></div>
+        <div #paymentHost class="inline-checkout__payment" data-testid="inline-checkout-payment"></div>
 
-      @if (!loading() && !error()) {
-        <button
-          type="button"
-          class="inline-checkout__pay"
-          data-testid="inline-checkout-pay"
-          [disabled]="confirming()"
-          (click)="payWithCard()"
-        >
-          {{ confirming() ? 'Processing…' : 'Pay $' + amountUsd }}
-        </button>
+        @if (!loading() && !error()) {
+          <button
+            type="button"
+            class="inline-checkout__pay"
+            data-testid="inline-checkout-pay"
+            [disabled]="confirming()"
+            (click)="payWithCard()"
+          >
+            {{ confirming() ? 'Processing…' : 'Pay $' + amountUsd }}
+          </button>
+        }
       }
     </section>
   `,
@@ -204,6 +219,40 @@ interface PaymentIntentResponse {
         opacity: 0.55;
         cursor: not-allowed;
       }
+      /* Locked precondition — reason + one-click upgrade CTA (fire-69). */
+      .inline-checkout__locked {
+        display: flex;
+        flex-direction: column;
+        gap: 12px;
+        padding: 16px 18px;
+        border-radius: 14px;
+        border: 1px dashed color-mix(in oklch, var(--ps-accent, #00e5ff) 42%, transparent);
+        background: color-mix(in oklch, var(--ps-accent, #00e5ff) 7%, transparent);
+      }
+      .inline-checkout__locked-msg {
+        margin: 0;
+        font-size: 0.9rem;
+        line-height: 1.45;
+        color: color-mix(in oklch, var(--ps-ink, #f4f4ff) 82%, transparent);
+      }
+      .inline-checkout__upgrade {
+        align-self: flex-start;
+        background: var(--ps-accent, #00e5ff);
+        color: #060610;
+        font-weight: 700;
+        font-size: 0.9rem;
+        text-decoration: none;
+        padding: 10px 16px;
+        border-radius: 999px;
+        transition: filter 120ms ease;
+      }
+      .inline-checkout__upgrade:hover {
+        filter: brightness(1.08);
+      }
+      .inline-checkout__upgrade:focus-visible {
+        outline: 2px solid var(--ps-ink, #f4f4ff);
+        outline-offset: 2px;
+      }
     `,
   ],
 })
@@ -213,13 +262,27 @@ export class InlineCheckoutComponent implements AfterViewInit, OnDestroy {
   @Input() description?: string;
   @Input() siteId?: string;
   @Input() saveForFutureUse = true;
+  /**
+   * When set (a server-side precondition isn't met — seat limit, plan tier,
+   * missing config), the checkout shows this reason + a one-click upgrade CTA
+   * instead of a Pay button that would fail. A doomed payment control is never
+   * rendered (fire-69).
+   */
+  @Input() lockedReason?: string;
+  /** Where the lock CTA routes (default: the billing/upgrade surface). */
+  @Input() upgradeHref = '/admin/billing';
+  /** Label for the lock CTA. */
+  @Input() upgradeLabel = 'Upgrade to unlock';
 
   @Output() readonly succeeded = new EventEmitter<{ paymentIntentId: string }>();
   @Output() readonly cancelled = new EventEmitter<void>();
   @Output() readonly failed = new EventEmitter<{ message: string }>();
 
-  @ViewChild('expressHost', { static: true }) expressHost!: ElementRef<HTMLElement>;
-  @ViewChild('paymentHost', { static: true }) paymentHost!: ElementRef<HTMLElement>;
+  // `static: false` — the hosts now live inside the `@else` (non-locked) branch,
+  // so they aren't in the DOM at construction; they resolve by ngAfterViewInit,
+  // which is where mountAll() first reads them. A locked checkout never reads them.
+  @ViewChild('expressHost') expressHost!: ElementRef<HTMLElement>;
+  @ViewChild('paymentHost') paymentHost!: ElementRef<HTMLElement>;
 
   private readonly api = inject(ApiService);
   private readonly stripe = inject(StripeService);
@@ -238,6 +301,11 @@ export class InlineCheckoutComponent implements AfterViewInit, OnDestroy {
     return (this.amountCents / 100).toFixed(this.amountCents % 100 ? 2 : 0);
   }
 
+  /** True when a precondition reason is set — show the lock surface, never Stripe. */
+  isLocked(): boolean {
+    return !!this.lockedReason && this.lockedReason.trim().length > 0;
+  }
+
   async ngAfterViewInit(): Promise<void> {
     await this.mountAll();
   }
@@ -252,6 +320,14 @@ export class InlineCheckoutComponent implements AfterViewInit, OnDestroy {
   }
 
   private async mountAll(): Promise<void> {
+    // Locked precondition → never mount a doomed payment field. The template
+    // shows the reason + upgrade CTA instead (fire-69).
+    if (this.isLocked()) {
+      this.teardown();
+      this.loading.set(false);
+      this.error.set(null);
+      return;
+    }
     this.loading.set(true);
     this.teardown();
     try {

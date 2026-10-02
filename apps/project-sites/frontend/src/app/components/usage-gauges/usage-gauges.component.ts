@@ -1,4 +1,5 @@
 import { ChangeDetectionStrategy, Component, computed, inject, signal, OnInit } from '@angular/core';
+import { RouterLink } from '@angular/router';
 import { ApiService } from '../../services/api.service';
 
 /** One usage gauge, mirrors the worker `usage_gauges` shape. */
@@ -33,6 +34,7 @@ interface UsageResponse {
 @Component({
   selector: 'app-usage-gauges',
   standalone: true,
+  imports: [RouterLink],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     @if (loading()) {
@@ -72,7 +74,16 @@ interface UsageResponse {
                 <span class="ug-fill" [class]="'ug-fill--' + tone(g)" [style.width.%]="clampPct(g.pct)" [attr.data-testid]="'usage-bar-' + g.metric"></span>
               </div>
               @if (isOver(g)) {
-                <p class="ug-over" [attr.data-testid]="'usage-over-' + g.metric">Over your plan limit — upgrade for more headroom.</p>
+                <div class="ug-over-row">
+                  <p class="ug-over" [attr.data-testid]="'usage-over-' + g.metric">Over your plan limit — the next {{ g.label.toLowerCase() }} action will be blocked.</p>
+                  <a
+                    class="ug-upgrade"
+                    routerLink="/admin/billing"
+                    [attr.data-testid]="'usage-upgrade-' + g.metric"
+                    [attr.aria-label]="'Upgrade your plan for more ' + g.label.toLowerCase() + ' headroom'"
+                    >Upgrade for more headroom →</a
+                  >
+                </div>
               }
             </li>
           }
@@ -96,7 +107,14 @@ interface UsageResponse {
     .ug-fill--ok { background: #34d399; }
     .ug-fill--warn { background: #fbbf24; }
     .ug-fill--danger { background: #f87171; }
-    .ug-over { font-size: 0.7rem; color: #f87171; margin: 0.35rem 0 0; }
+    .ug-over-row { display: flex; align-items: baseline; justify-content: space-between; gap: 0.75rem; flex-wrap: wrap; margin: 0.35rem 0 0; }
+    .ug-over { font-size: 0.7rem; color: #f87171; margin: 0; }
+    /* One-click fix — never leave an over-limit owner without an action. */
+    .ug-upgrade { flex: none; font-size: 0.72rem; font-weight: 700; white-space: nowrap; text-decoration: none;
+      color: var(--ps-bg, #060610); background: var(--ps-accent, #00e5ff); padding: 0.2rem 0.6rem; border-radius: 999px;
+      transition: filter 0.15s ease; }
+    .ug-upgrade:hover { filter: brightness(1.08); }
+    .ug-upgrade:focus-visible { outline: 2px solid var(--ps-accent, #00e5ff); outline-offset: 2px; }
     /* Loading skeleton — reuses .ug / .ug-item / .ug-track so its height matches the real
        gauges card (reserves space → no CLS when /usage lands). */
     .ug-skel { display: inline-block; border-radius: 6px; background: rgba(255,255,255,0.06); animation: ug-pulse 1.4s ease-in-out infinite; }

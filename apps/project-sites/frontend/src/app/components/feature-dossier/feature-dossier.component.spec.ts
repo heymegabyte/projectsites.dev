@@ -122,4 +122,48 @@ describe('FeatureDossierComponent (§17 spec-sheet takeover modal)', () => {
     fixture.destroy();
     expect(document.body.style.overflow).not.toBe('hidden');
   });
+
+  /**
+   * fire-69 — embarrassingly-easy / no-dead-control: when the dossier documents a
+   * feature the owner's plan DOESN'T include (`entitled` is a lock state), the spec
+   * sheet must say WHY it's locked AND offer a one-click upgrade CTA → inline-checkout
+   * at /admin/billing. A locked capability with no visible reason + no path to unlock
+   * is the exact dead-control bug being fixed. The upgrade banner is the RED driver —
+   * the dossier never surfaced the entitlement lock before.
+   */
+  describe('fire-69 — entitlement lock banner + one-click upgrade CTA', () => {
+    function openLocked(entitled: 'upgrade-required' | 'addon-required'): HTMLElement {
+      fixture.componentRef.setInput('model', { ...MODEL, entitled });
+      fixture.componentRef.setInput('open', true);
+      fixture.detectChanges();
+      return document.querySelector('[data-testid="feature-dossier"]') as HTMLElement;
+    }
+
+    it('shows the upgrade lock banner + reason + CTA when the plan lacks the feature', () => {
+      const root = openLocked('upgrade-required');
+      const banner = root.querySelector('[data-testid="fd-upgrade-cta"]');
+      expect(banner).withContext('locked banner renders').not.toBeNull();
+      // The reason names the required plan (no mystery-locked control).
+      expect(banner?.textContent ?? '').toContain('pro');
+      const cta = root.querySelector('[data-testid="fd-upgrade-link"]') as HTMLAnchorElement | null;
+      expect(cta).withContext('one-click upgrade CTA present').not.toBeNull();
+      expect(cta?.getAttribute('href') ?? '').toContain('/admin/billing');
+      expect(cta?.textContent ?? '').toContain('Upgrade to pro');
+    });
+
+    it('reads as an add-on unlock (not a plan upgrade) when entitled is addon-required', () => {
+      const root = openLocked('addon-required');
+      const cta = root.querySelector('[data-testid="fd-upgrade-link"]');
+      expect(cta?.textContent ?? '').toContain('Add as an add-on');
+    });
+
+    it('shows NO upgrade banner when the feature is available (entitled) or a plain flag', () => {
+      fixture.componentRef.setInput('model', { ...MODEL, entitled: 'available' });
+      fixture.componentRef.setInput('open', true);
+      fixture.detectChanges();
+      const root = document.querySelector('[data-testid="feature-dossier"]');
+      expect(root?.querySelector('[data-testid="fd-upgrade-cta"]'))
+        .withContext('available feature is not locked').toBeNull();
+    });
+  });
 });

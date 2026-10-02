@@ -163,6 +163,19 @@ interface E2eSpec {
     .fd-e2e-status[data-st="running"], .fd-e2e-status[data-st="queued"] { background: color-mix(in oklch, var(--ps-accent, #00e5ff) 20%, transparent); color: var(--ps-accent, #00e5ff); }
     .fd-e2e-status[data-st="passed"] { background: #4ade80; color: #052e16; }
     .fd-e2e-status[data-st="failed"] { background: #f87171; color: #190606; }
+    /* Entitlement lock banner — reason + one-click upgrade CTA (fire-69). */
+    .fd-upgrade { display: flex; align-items: center; justify-content: space-between; gap: 1rem; flex-wrap: wrap;
+      padding: 1rem 1.25rem; border-radius: 16px;
+      border: 1px dashed color-mix(in oklch, var(--ps-accent, #00e5ff) 42%, transparent);
+      background: color-mix(in oklch, var(--ps-accent, #00e5ff) 8%, transparent); }
+    .fd-upgrade-copy { min-width: 0; }
+    .fd-upgrade-h { margin: 0; font-weight: 700; color: var(--ps-ink, #f4f4ff); }
+    .fd-upgrade-sub { margin: .2rem 0 0; font-size: .82rem; color: color-mix(in oklch, var(--ps-ink, #f4f4ff) 68%, transparent); }
+    .fd-upgrade-link { flex: none; background: var(--ps-accent, #00e5ff); color: var(--ps-bg, #060610);
+      font-weight: 700; font-size: .85rem; text-decoration: none; padding: .55rem 1rem; border-radius: 999px;
+      transition: filter .15s ease; }
+    .fd-upgrade-link:hover { filter: brightness(1.08); }
+    .fd-upgrade-link:focus-visible { outline: 2px solid var(--ps-ink, #f4f4ff); outline-offset: 2px; }
     /* Print / Save-as-PDF — drop chrome, white paper, black ink. */
     @media print {
       .fd-bar, .fd-rail, .fd-e2e, app-vision-qa { display: none !important; }
@@ -272,6 +285,22 @@ interface E2eSpec {
           </aside>
 
           <div class="fd-main">
+            <!-- Entitlement lock banner — when this owner feature isn't on the
+                 current plan, say WHY + offer a one-click upgrade CTA so the spec
+                 sheet is never a documented-but-unreachable dead end (fire-69). -->
+            @if (isLocked(m)) {
+              <section class="fd-upgrade" data-testid="fd-upgrade-cta" role="note"
+                       aria-label="This feature isn't included on your current plan">
+                <div class="fd-upgrade-copy">
+                  <p class="fd-upgrade-h">{{ lockReason(m) }}</p>
+                  <p class="fd-upgrade-sub">Unlock it in one click — your live site updates the moment it's on.</p>
+                </div>
+                <a class="fd-upgrade-link" data-testid="fd-upgrade-link"
+                   [attr.href]="'/admin/billing?spec=' + m.key"
+                   [attr.aria-label]="lockCtaLabel(m) + ' — ' + m.name">{{ lockCtaLabel(m) }} →</a>
+              </section>
+            }
+
             <!-- E2E coverage table + parallel runner (Cloudflare-backed) -->
             <section class="fd-e2e" data-testid="fd-e2e" aria-label="End-to-end test coverage">
               <header class="fd-e2e-head">
@@ -534,6 +563,27 @@ export class FeatureDossierComponent implements OnDestroy {
   stageIndex(stage: string | undefined): number {
     const i = STAGES.indexOf((stage ?? '') as (typeof STAGES)[number]);
     return i < 0 ? -1 : i;
+  }
+
+  /**
+   * True when this owner feature is gated off the current plan (a real lock
+   * state), so the spec sheet should surface the reason + an upgrade CTA. A
+   * plain flag, an available feature, or an unset entitlement is NOT locked.
+   */
+  isLocked(m: DossierModel): boolean {
+    return m.kind === 'Feature' && (m.entitled === 'upgrade-required' || m.entitled === 'addon-required');
+  }
+
+  /** Plain-English reason the control is locked, naming the exact required plan. */
+  lockReason(m: DossierModel): string {
+    return m.entitled === 'addon-required'
+      ? `${m.name} is available as an add-on — it isn't on your current plan yet.`
+      : `${m.name} is included on the ${m.requiredPlan ?? 'higher'} plan and above — your current plan doesn't include it.`;
+  }
+
+  /** Per-entitlement upgrade CTA label (add-on vs the exact plan tier). */
+  lockCtaLabel(m: DossierModel): string {
+    return m.entitled === 'addon-required' ? 'Add as an add-on' : `Upgrade to ${m.requiredPlan ?? 'unlock'}`;
   }
 
   goTo(slug: string): void {
