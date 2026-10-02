@@ -38,10 +38,15 @@ const REAL_HEADERS = {
   'Upgrade-Insecure-Requests': '1',
 };
 
-// Default hosts: a known published WfP site + the apex (expected-R2 marketing).
-const DEFAULT_HOSTS = ['lonemountainglobal.projectsites.dev', 'projectsites.dev'];
-// Hosts that legitimately serve from R2 (not WfP) — exempt from strict fallback fail.
-const EXPECTED_R2 = new Set(['projectsites.dev', 'www.projectsites.dev']);
+// Default hosts: a REAL D1-published WfP site (hyphenated slug) + the apex (expected-R2 marketing).
+// NOTE (fire-83): 'lonemountainglobal' (NO hyphens) is a bolt-community R2-only subdomain with NO
+// D1 row — serveSiteViaWfpIfPreferred intentionally excludes it from WfP (correct r2). fire-82's
+// recurring "lonemountainglobal needs WfP backfill" RED came from probing that phantom host, not the
+// real site 'lone-mountain-global.projectsites.dev' (verified x-ps-serve: wfp). Probe the real one.
+const DEFAULT_HOSTS = ['lone-mountain-global.projectsites.dev', 'projectsites.dev'];
+// Hosts that legitimately serve from R2 (not WfP) — exempt from strict fallback fail. Includes the
+// apex marketing route + the bolt-community R2-only subdomain (no D1 row, WfP-excluded by design).
+const EXPECTED_R2 = new Set(['projectsites.dev', 'www.projectsites.dev', 'lonemountainglobal.projectsites.dev']);
 
 const args = process.argv.slice(2);
 if (args.includes('--help') || args.includes('-h')) {
