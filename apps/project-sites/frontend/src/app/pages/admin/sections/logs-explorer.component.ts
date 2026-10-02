@@ -21,12 +21,14 @@
 import {
   Component, inject, signal, computed, effect, ChangeDetectionStrategy, OnInit, OnDestroy,
 } from '@angular/core';
+import { Router } from '@angular/router';
 import { Subscription } from 'rxjs';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { RollingCounterComponent } from '../../../components/rolling-counter/rolling-counter.component';
 import { FlagGateNoticeComponent } from '../../../components/states/flag-gate-notice.component';
 import { MiniEmptyComponent } from '../../../components/mini-empty/mini-empty.component';
+import { DialogShellComponent } from '../../../components/dialog-shell/dialog-shell.component';
 import { HlmInputDirective } from '../../../ui';
 import { AdminStateService } from '../admin-state.service';
 import { ApiService } from '../../../services/api.service';
@@ -39,11 +41,17 @@ interface LogRow {
   ts: string;
   level: string;
   request_id: string;
+  /** Distributed-trace id correlating this row with its full request trace;
+   *  `null` when the event carried none. Drives the row → trace navigation. */
+  trace_id: string | null;
   route: string;
   method: string;
   status: number | null;
   duration_ms: number | null;
   cost_estimate: number;
+  /** Structured error code from a thrown AppError (`NOT_FOUND`, …); `null` for
+   *  ordinary rows. Surfaced as an inline badge so a 500 is never a blank row. */
+  code: string | null;
   message: string;
   meta: unknown;
 }
@@ -82,7 +90,7 @@ const LEVEL_COLORS: Record<string, string> = {
   selector: 'app-logs-explorer',
   standalone: true,
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [CommonModule, FormsModule, RollingCounterComponent, MiniEmptyComponent, HlmInputDirective, FlagGateNoticeComponent],
+  imports: [CommonModule, FormsModule, RollingCounterComponent, MiniEmptyComponent, HlmInputDirective, FlagGateNoticeComponent, DialogShellComponent],
   template: `
     <div class="p-7 flex-1 overflow-y-auto max-md:p-4 space-y-5">
 
@@ -195,17 +203,42 @@ const LEVEL_COLORS: Record<string, string> = {
               <span class="col-status">Status</span>
               <span class="col-dur">ms</span>
               <span class="col-msg">Message</span>
+              <span class="col-trace">Trace</span>
             </div>
             @for (row of rows(); track row.id) {
-              <div class="log-row" data-testid="logs-row" [class.log-error]="row.level === 'error' || row.level === 'fatal'">
+              <!-- Whole row opens the detail dialog (resource context + trace nav).
+                   A <button> row = keyboard-operable (Enter/Space) + focus-visible. -->
+              <button
+                type="button"
+                class="log-row log-row-btn"
+                data-testid="logs-row"
+                [class.log-error]="row.level === 'error' || row.level === 'fatal'"
+                (click)="openDetail(row)"
+                [attr.aria-label]="'Open log detail for ' + row.method + ' ' + row.route + (row.code ? ' (' + row.code + ')' : '')"
+              >
                 <span class="col-ts text-[#888]">{{ row.ts | slice:11:19 }}</span>
                 <span class="col-level {{ LEVEL_COLORS[row.level] ?? '' }}">{{ row.level }}</span>
                 <span class="col-method text-[#888]">{{ row.method }}</span>
                 <span class="col-route truncate text-[0.68rem]" [attr.title]="row.route">{{ row.route }}</span>
                 <span class="col-status" [class.text-red-400]="(row.status ?? 0) >= 500">{{ row.status ?? '—' }}</span>
                 <span class="col-dur text-[#888]">{{ row.duration_ms ?? '—' }}</span>
-                <span class="col-msg truncate text-[0.68rem]" title="{{ row.message }}">{{ row.message }}</span>
-              </div>
+                <span class="col-msg truncate text-[0.68rem] text-left" title="{{ row.message }}">
+                  @if (row.code) {
+                    <span class="code-badge" data-testid="logs-row-code">{{ row.code }}</span>
+                  }
+                  {{ row.message }}
+                </span>
+                <span class="col-trace">
+                  @if (row.trace_id) {
+                    <span class="trace-chip" data-testid="logs-row-trace" title="View trace {{ row.trace_id }}">
+                      <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 12h4l3 8 4-16 3 8h4"/></svg>
+                      trace
+                    </span>
+                  } @else {
+                    <span class="text-[#555] text-[0.6rem]">—</span>
+                  }
+                </span>
+              </button>
             }
           </div>
         </section>
@@ -242,6 +275,63 @@ const LEVEL_COLORS: Record<string, string> = {
           }
         </div>
       }
+      }
+
+      <!-- Log-row detail: full resource context + trace navigation. Reuses the
+           ONE dialog primitive (DialogShellComponent) per the admin convention. -->
+      @if (selectedRow(); as r) {
+        <app-dialog-shell (closed)="selectedRow.set(null)" data-testid="logs-detail-dialog">
+          <span dialogIcon class="{{ LEVEL_COLORS[r.level] ?? 'text-[--ps-accent]' }}">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 12h4l3 8 4-16 3 8h4"/></svg>
+          </span>
+          <ng-container dialogTitle>Log detail</ng-container>
+          <span dialogBadge class="detail-level-badge {{ LEVEL_COLORS[r.level] ?? '' }}">{{ r.level }}</span>
+
+          <div class="p-5 space-y-3">
+            @if (r.code) {
+              <div class="detail-error-banner" data-testid="logs-detail-code">
+                <span class="code-badge">{{ r.code }}</span>
+                <span class="text-[0.82rem] text-red-200">{{ r.message }}</span>
+              </div>
+            } @else {
+              <p class="text-[0.82rem] text-text-secondary break-words m-0" data-testid="logs-detail-message">{{ r.message || '—' }}</p>
+            }
+
+            <dl class="detail-grid">
+              <dt>Time</dt><dd class="font-mono">{{ r.ts || '—' }}</dd>
+              <dt>Method</dt><dd class="font-mono">{{ r.method || '—' }}</dd>
+              <dt>Route</dt><dd class="font-mono break-all">{{ r.route }}</dd>
+              <dt>Status</dt><dd class="font-mono" [class.text-red-400]="(r.status ?? 0) >= 500">{{ r.status ?? '—' }}</dd>
+              <dt>Duration</dt><dd class="font-mono">{{ r.duration_ms ?? '—' }}{{ r.duration_ms != null ? ' ms' : '' }}</dd>
+              <dt>Est. cost</dt><dd class="font-mono">{{ '$' }}{{ (r.cost_estimate * 1_000_000) | number:'1.0-2' }}µ</dd>
+              <dt>Request ID</dt>
+              <dd class="font-mono break-all flex items-center gap-1.5">
+                <span data-testid="logs-detail-request-id">{{ r.request_id || '—' }}</span>
+                @if (r.request_id) {
+                  <button type="button" class="copy-mini" (click)="copyId(r.request_id, 'Request ID')" aria-label="Copy request ID">⧉</button>
+                }
+              </dd>
+              <dt>Trace ID</dt>
+              <dd class="font-mono break-all flex items-center gap-1.5">
+                <span data-testid="logs-detail-trace-id">{{ r.trace_id || '—' }}</span>
+                @if (r.trace_id) {
+                  <button type="button" class="copy-mini" (click)="copyId(r.trace_id, 'Trace ID')" aria-label="Copy trace ID">⧉</button>
+                }
+              </dd>
+            </dl>
+          </div>
+
+          <div dialogFooter class="detail-footer flex items-center justify-end gap-2">
+            @if (r.trace_id) {
+              <button type="button" class="btn-primary text-xs px-4" data-testid="logs-view-trace" (click)="viewTrace(r)">
+                View trace →
+              </button>
+            } @else {
+              <span class="text-[0.72rem] text-text-secondary mr-auto" data-testid="logs-no-trace">No trace id captured for this event.</span>
+            }
+            <button type="button" class="btn-ghost text-xs" (click)="selectedRow.set(null)">Close</button>
+          </div>
+        </app-dialog-shell>
       }
     </div>
   `,
@@ -291,7 +381,7 @@ const LEVEL_COLORS: Record<string, string> = {
     }
     .log-header, .log-row {
       display: grid;
-      grid-template-columns: 70px 50px 60px 1fr 52px 48px 1fr;
+      grid-template-columns: 70px 50px 60px 1fr 52px 48px 1.4fr 58px;
       align-items: center;
       padding: 0 8px;
       height: 32px;
@@ -311,6 +401,75 @@ const LEVEL_COLORS: Record<string, string> = {
     }
     .log-row:hover { background: rgba(255,255,255,.03); }
     .log-error { background: rgba(255,80,80,.04); }
+    /* Row-as-button: strip native button chrome, keep the grid + a cyan focus ring. */
+    .log-row-btn {
+      width: 100%;
+      border: none;
+      border-bottom: 1px solid rgba(255,255,255,.04);
+      background: transparent;
+      color: inherit;
+      font: inherit;
+      text-align: inherit;
+      cursor: pointer;
+    }
+    .log-row-btn:hover { background: rgba(0,229,255,.05); }
+    .log-row-btn:focus-visible { outline: 2px solid var(--ps-accent,#00e5ff); outline-offset: -2px; }
+    /* Error-code badge — makes a 500 instantly legible, never a blank row. */
+    .code-badge {
+      display: inline-block;
+      padding: 1px 6px;
+      margin-right: 4px;
+      border-radius: 5px;
+      background: rgba(255,80,80,.14);
+      border: 1px solid rgba(255,80,80,.3);
+      color: #ff9b9b;
+      font-size: .6rem;
+      font-weight: 700;
+      letter-spacing: .03em;
+      vertical-align: middle;
+      white-space: nowrap;
+    }
+    /* Trace affordance chip in the row. */
+    .trace-chip {
+      display: inline-flex;
+      align-items: center;
+      gap: 3px;
+      padding: 1px 6px;
+      border-radius: 5px;
+      background: rgba(0,229,255,.08);
+      border: 1px solid rgba(0,229,255,.22);
+      color: var(--ps-accent,#00e5ff);
+      font-size: .6rem;
+      font-weight: 600;
+      white-space: nowrap;
+    }
+    .col-trace { display: flex; justify-content: flex-start; }
+    /* Detail dialog. */
+    .detail-level-badge {
+      font-size: .62rem; font-weight: 700; text-transform: uppercase; letter-spacing: .05em;
+      padding: 2px 7px; border-radius: 5px; background: rgba(255,255,255,.05);
+    }
+    .detail-error-banner {
+      display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+      padding: 10px 12px; border-radius: 8px;
+      background: rgba(255,80,80,.07); border: 1px solid rgba(255,80,80,.18);
+    }
+    .detail-grid {
+      display: grid;
+      grid-template-columns: max-content 1fr;
+      gap: 6px 14px;
+      margin: 0;
+      font-size: .76rem;
+    }
+    .detail-grid dt { color: rgba(255,255,255,.42); text-transform: uppercase; font-size: .62rem; letter-spacing: .05em; align-self: center; }
+    .detail-grid dd { color: rgba(255,255,255,.85); margin: 0; }
+    .copy-mini {
+      border: none; background: transparent; color: var(--ps-accent,#00e5ff);
+      cursor: pointer; font-size: .8rem; line-height: 1; padding: 2px; border-radius: 4px;
+    }
+    .copy-mini:hover { background: rgba(0,229,255,.1); }
+    .copy-mini:focus-visible { outline: 2px solid var(--ps-accent,#00e5ff); outline-offset: 1px; }
+    .detail-footer { padding: 14px 20px; border-top: 1px solid rgba(255,255,255,.06); }
     .log-skel {
       display: block; height: 10px; width: 100%; border-radius: 5px;
       background: linear-gradient(90deg,
@@ -331,6 +490,7 @@ export class AdminLogsExplorerComponent implements OnInit, OnDestroy {
   protected readonly state = inject(AdminStateService);
   private readonly api = inject(ApiService);
   private readonly toast = inject(ToastService);
+  private readonly router = inject(Router);
 
   readonly RANGES: LogRange[] = ['1h', '6h', '24h', '7d', '30d'];
   readonly LEVEL_CHIPS = [
@@ -356,6 +516,9 @@ export class AdminLogsExplorerComponent implements OnInit, OnDestroy {
   readonly costLoading = signal(false);
   /** True when the worker returns 404 feature_disabled (log_explorer flag off). */
   readonly featureDisabled = signal(false);
+  /** The log row whose detail dialog is open (null = closed). Drives the
+   *  resource-context + trace-navigation dialog. */
+  readonly selectedRow = signal<LogRow | null>(null);
 
   /**
    * In-flight rows fetch. `search()` + `loadMore()` share the rows/searching/
@@ -516,5 +679,44 @@ export class AdminLogsExplorerComponent implements OnInit, OnDestroy {
         this.costLoading.set(false);
       },
     });
+  }
+
+  /** Open the detail dialog for a row (full resource context + trace nav). */
+  openDetail(row: LogRow): void {
+    this.selectedRow.set(row);
+  }
+
+  /**
+   * Navigate from a log row to its correlated request trace. Deep-links to the
+   * Logs › Traces tab with the trace id as a query param (bookmarkable + back/
+   * forward-safe) so the operator lands on the full trace, not a raw id. Closes
+   * the dialog first. No-op (with a toast) when the event carried no trace id.
+   */
+  viewTrace(row: LogRow): void {
+    if (!row.trace_id) {
+      this.toast.error('No trace id captured for this log event');
+      return;
+    }
+    this.selectedRow.set(null);
+    void this.router.navigate(['/admin/logs'], {
+      queryParams: { tab: 'traces', trace: row.trace_id },
+      queryParamsHandling: 'merge',
+    });
+  }
+
+  /** Copy a request/trace id to the clipboard with a confirming toast. */
+  copyId(id: string, label: string): void {
+    const done = () => this.toast.success(`${label} copied`);
+    const fail = () => this.toast.error(`Couldn't copy ${label}`);
+    try {
+      const clip = (globalThis as { navigator?: { clipboard?: { writeText(t: string): Promise<void> } } }).navigator?.clipboard;
+      if (clip?.writeText) {
+        clip.writeText(id).then(done, fail);
+      } else {
+        fail();
+      }
+    } catch {
+      fail();
+    }
   }
 }

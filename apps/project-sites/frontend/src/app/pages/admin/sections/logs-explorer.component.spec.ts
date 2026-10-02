@@ -5,7 +5,7 @@ import { AdminLogsExplorerComponent } from './logs-explorer.component';
 import { ApiService } from '../../../services/api.service';
 import { ToastService } from '../../../services/toast.service';
 import { AdminStateService } from '../admin-state.service';
-import { provideRouter } from '@angular/router';
+import { provideRouter, Router } from '@angular/router';
 
 /**
  * Guards the Log Explorer search-state logic: a fetch error sets a PERSISTENT
@@ -177,6 +177,78 @@ describe('AdminLogsExplorerComponent (search state)', () => {
     expect(c.queryInput).toBe('');
     expect(c.activeLevel()).toBeNull();
     expect(c.hasActiveFilters()).toBe(false);
+  });
+});
+
+// WLK-28 (fire-71): log rows carry resource context + a trace id, and the row →
+// trace navigation deep-links to the Logs › Traces tab. These guard the detail
+// dialog open/close + the trace-nav routing + the no-trace fallback + copy.
+describe('AdminLogsExplorerComponent (WLK-28 detail + trace navigation)', () => {
+  afterEach(() => TestBed.resetTestingModule());
+
+  function make(): {
+    c: AdminLogsExplorerComponent;
+    nav: jasmine.Spy;
+    toastErr: jasmine.Spy;
+    toastOk: jasmine.Spy;
+  } {
+    const nav = jasmine.createSpy('navigate').and.returnValue(Promise.resolve(true));
+    const toastErr = jasmine.createSpy('error');
+    const toastOk = jasmine.createSpy('success');
+    TestBed.configureTestingModule({
+      imports: [AdminLogsExplorerComponent],
+      providers: [
+        { provide: ApiService, useValue: { post: () => of({ data: { items: [], next_cursor: null, total_returned: 0 } }), get: () => of({ data: { rows: [], grand_total_cost: 0 } }) } },
+        { provide: ToastService, useValue: { error: toastErr, success: toastOk } },
+        { provide: AdminStateService, useValue: { selectedSite: signal(null) } },
+        { provide: Router, useValue: { navigate: nav } },
+      ],
+    });
+    TestBed.overrideComponent(AdminLogsExplorerComponent, { set: { template: '<div></div>', imports: [] } });
+    return { c: TestBed.createComponent(AdminLogsExplorerComponent).componentInstance, nav, toastErr, toastOk };
+  }
+
+  const rowWith = (over: Record<string, unknown> = {}) => ({
+    id: 'r1', ts: '2026-10-01T00:00:00Z', level: 'error', request_id: 'req-1',
+    trace_id: 'trace-abc', route: '/api/sites/x', method: 'GET', status: 500,
+    duration_ms: 30, cost_estimate: 0, code: 'INTERNAL_ERROR', message: 'boom', meta: {},
+    ...over,
+  }) as unknown as Parameters<AdminLogsExplorerComponent['openDetail']>[0];
+
+  it('openDetail sets the selected row (opens the dialog)', () => {
+    const { c } = make();
+    expect(c.selectedRow()).toBeNull();
+    c.openDetail(rowWith());
+    expect(c.selectedRow()).not.toBeNull();
+    expect(c.selectedRow()!.code).toBe('INTERNAL_ERROR');
+  });
+
+  it('viewTrace deep-links to the Traces tab with the trace id + closes the dialog', () => {
+    const { c, nav } = make();
+    c.openDetail(rowWith());
+    c.viewTrace(c.selectedRow()!);
+    expect(c.selectedRow()).withContext('dialog closes on navigate').toBeNull();
+    expect(nav).toHaveBeenCalledWith(
+      ['/admin/logs'],
+      jasmine.objectContaining({ queryParams: jasmine.objectContaining({ tab: 'traces', trace: 'trace-abc' }) }),
+    );
+  });
+
+  it('viewTrace is a no-op (toast, no navigate) when the row has no trace id', () => {
+    const { c, nav, toastErr } = make();
+    c.viewTrace(rowWith({ trace_id: null }));
+    expect(nav).not.toHaveBeenCalled();
+    expect(toastErr).toHaveBeenCalled();
+  });
+
+  it('copyId writes the id to the clipboard and confirms via toast', async () => {
+    const { c, toastOk } = make();
+    const writeText = jasmine.createSpy('writeText').and.returnValue(Promise.resolve());
+    spyOnProperty(navigator, 'clipboard', 'get').and.returnValue({ writeText } as unknown as Clipboard);
+    c.copyId('trace-abc', 'Trace ID');
+    await Promise.resolve();
+    expect(writeText).toHaveBeenCalledWith('trace-abc');
+    expect(toastOk).toHaveBeenCalledWith('Trace ID copied');
   });
 });
 
