@@ -9,6 +9,14 @@
 > `_CF_NATIVE_CONVERGENCE.md`, `_ADMIN_VQA_LEDGER.md`, `_INTERCONNECTEDNESS_LEDGER.md`). This is the
 > INDEX, not a duplicate.
 
+## fire-89 — 2026-10-02 (converge; §0.5 scan-all intake directive + non-interactive harness config + fire-89 crash salvage)
+
+- **§7a — Non-interactive loop (Brian's stall fix).** `~/.claude/settings.json`: `fallbackModel:[claude-sonnet-4-6,claude-haiku-4-5]` (Opus-unavailable → auto-fallback instead of the "classifier outage" stall) + `switchModelsOnFlag:true` + a `PreToolUse/AskUserQuestion` hook (`~/.claude/hooks/ask-to-megabyte-space.sh`) that POSTs the question to ask.megabyte.space then DENIES with assume-recommended-default. VERIFIED: settings JSON valid, hook pipe-test → correct deny JSON + exit 0. (Live in `~/.claude`, not repo-committed.)
+- **§7b — §0.5 rewrite (Brian directive 2026-10-02).** Every fire (desktop-only) content-sniff-scans `~/Downloads` for projectsites Claude-Code prompts, folds each one's WISDOM into the durable docs/skills AND absorbs its requirements into `BACKLOG.md`, then deletes — `prompt-as-training-signal` for the inbox. `a64cbd37e`.
+- **Downloads absorbed (2):** v7-compiler + homepage/domains/SEO-eval → wisdom to `ECOSYSTEM-CONTEXT` (95% dev-SLA target · evidence-prep + Langfuse/Promptfoo route-eval · homepage-first autopilot) + `OPERATING-PRINCIPLES` (shared-skills read-only · dogfooding boundary) + 8 deduped `BACKLOG` items; sources `rm`'d; a 3rd (40-integrations, double-download) deduped + queued for next fire.
+- **Open question (surfaced, NOT silently applied):** v7 "production-OFF-by-default / explicit-grant" vs canonical answer #3 "prod pre-authorized" → `OPERATING-PRINCIPLES` open question + BLOCKED Brian-gated backlog item. Deploy behavior unchanged.
+- **Salvage:** recovered crashed fire-89's empty-state-launchpad slice (env-vars · copilot · MCP-tokens + TDD specs), tsc-green. `f766df02c`. Lease reclaimed from dead pid 49689 (44m-stale heartbeat).
+
 ## fire-87 — 2026-10-02 (§7 loop-improvement; FA-gate tolerant of non-semantic pnpm lock `deprecated:` drift — clears carried fire-86 silRED blocker)
 
 - `scripts/check-lockfile-drift.mjs` now strips `deprecated:` annotation lines from BOTH the committed + CI-regen lockfiles before diffing. A registry-side deprecation stamped at regen time (observed near `@xterm/addon-fit@0.10.0`) was failing the Feature Architecture drift gate with ZERO real version change (the `silRED` class). `resolution:`/`version:`/`specifier:`/dep-edges still compared verbatim → real drift still RED. VERIFIED via a deterministic harness vs the real lockfile: metadata-only diff → GREEN, a `0.10.0→0.10.1` version bump → RED, 22 `deprecated:` lines stripped symmetrically. (No deploy — CI gate hardening.)
