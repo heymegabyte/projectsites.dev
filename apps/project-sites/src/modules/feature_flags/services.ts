@@ -5,29 +5,10 @@
  *   1. Tenant override (`scope='tenant'`, `scope_id=site_id`)
  *   2. Org override    (`scope='org'`,    `scope_id=org_id`)
  *   3. Global override (`scope='global'`, `scope_id='*'`)
- *   4. Legacy-shape fallback (`feature_flags` — modern columns backfilled by
- *      migration 0656; see `resolveLegacyFlagShape` below)
- *   5. Registry default (`registry.ts`)
+ *   4. Registry default (`registry.ts`)
  *
- * Overrides live in D1 `flag_overrides` (per migration 0500) — this is the
- * MODERN, authoritative shape and the ONLY table the admin UI + every live
- * handler read/write. `flag_overrides` was already fully modern-shaped before
- * migration 0656 and needed no backfill.
- *
- * The LEGACY `feature_flags` table (id/org_id/flag_name/enabled/metadata_json
- * — the 0001 initial-schema shape, seeded by every 05xx/06xx_*_flag.sql
- * governance migration) has NO live runtime readers as of migration 0613's
- * own audit comment — it is a write-only admin-governance artifact. Migration
- * 0656 added 4 modern columns (`key`/`enabled_v2`/`rollout_percent`/`stage`)
- * to that table and backfilled them from each row's `flag_name`/`enabled`/
- * `metadata_json` so the table's SHAPE converges toward the universal
- * [[feature-flags]] contract — but it stays read-ONLY during the transition
- * (never written by this module) and is consulted ONLY as a step-4 fallback
- * when no `flag_overrides` row exists at any scope, so a legacy-shaped row
- * still resolves correctly without ever out-ranking the modern path.
- *
- * KV cache 60s for hot paths; admin mutations invalidate via
- * `invalidateFlagCache()`.
+ * Overrides live in D1 `flag_overrides` (per migration 0500). KV cache 60s for
+ * hot paths; admin mutations invalidate the cache via `invalidateFlagCache()`.
  */
 
 import type { Env } from '../../types/env.js';
@@ -41,25 +22,11 @@ interface FlagOverrideRow {
   expires_at: string | null;
 }
 
-/** A `feature_flags` row AFTER migration 0656's backfill — `key` is the
- * flag registry key (copied from `flag_name`), `enabled_v2` mirrors the
- * legacy `enabled` INTEGER (named `_v2` to avoid a same-name type collision
- * with the pre-existing `enabled` column), `rollout_percent`/`stage` are
- * parsed out of `metadata_json` at migration time. `key IS NULL` means the
- * row predates 0656 and was never backfilled (shouldn't happen post-apply,
- * but every caller treats it as "not resolvable" rather than throwing). */
-interface LegacyFlagRow {
-  key: string | null;
-  enabled_v2: number | null;
-  rollout_percent: number;
-  stage: string;
-}
-
 interface FlagState {
   enabled: boolean;
   rollout_percent: number;
   stage: string;
-  source: 'registry' | 'global' | 'org' | 'tenant' | 'legacy';
+  source: 'registry' | 'global' | 'org' | 'tenant';
 }
 
 export interface FlagScope {
@@ -117,43 +84,6 @@ function parseOverride(
 }
 
 /**
- * Transition-only fallback: resolve a flag's state from the LEGACY
- * `feature_flags` table's migration-0656-backfilled columns, for a flag key
- * that has no `flag_overrides` row at any scope. Read-ONLY — this module
- * never writes to `feature_flags`; the admin UI + every mutation path write
- * `flag_overrides` exclusively. Returns `null` when no backfilled row
- * exists (most callers — `flag_overrides` is the live write path and has
- * been since migration 0500), letting the caller fall through to the
- * registry default.
- *
- * Fails soft on any D1 error (missing table in a fresh/mocked env, etc.) —
- * same fail-soft discipline as `fetchOverride`.
- */
-async function resolveLegacyFlagShape(
-  env: Env,
-  flagKey: string,
-  fallback: FlagDefinition,
-): Promise<FlagState | null> {
-  const row = await env.DB.prepare(
-    `SELECT key, enabled_v2, rollout_percent, stage FROM feature_flags
-     WHERE key = ? AND deleted_at IS NULL
-     LIMIT 1`,
-  )
-    .bind(flagKey)
-    .first<LegacyFlagRow>()
-    .catch(() => null);
-
-  if (!row || row.key === null) return null;
-
-  return {
-    enabled: row.enabled_v2 === null ? fallback.default_enabled : row.enabled_v2 === 1,
-    rollout_percent: row.rollout_percent ?? fallback.default_rollout_percent,
-    stage: row.stage ?? fallback.stage,
-    source: 'legacy',
-  };
-}
-
-/**
  * Resolve a flag's final state given scope. Cached 60s in KV under
  * `flag:<key>:<scopeHash>` so hot-path endpoints aren't hammering D1.
  *
@@ -204,17 +134,6 @@ export async function resolveFlag(
       () => {},
     );
     return state;
-  }
-
-  // No `flag_overrides` row at any scope — fall back to the legacy table's
-  // migration-0656-backfilled shape (step 4) before the registry default
-  // (step 5). Read-only; never out-ranks a `flag_overrides` row above.
-  const legacyState = await resolveLegacyFlagShape(env, flagKey, def);
-  if (legacyState) {
-    await env.CACHE_KV.put(cacheKey, JSON.stringify(legacyState), {
-      expirationTtl: KV_TTL,
-    }).catch(() => {});
-    return legacyState;
   }
 
   const fallback: FlagState = {
