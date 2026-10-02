@@ -27,6 +27,11 @@ async function probeOne(target: HealthTarget, fetchImpl: typeof fetch): Promise<
   try {
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), 5_000);
+    // target.url is ONLY ever a hardcoded platform-infra health endpoint from the
+    // INTEGRATION_TARGETS const above — never user-influenced, so there is no SSRF
+    // surface. These are first-party hosts (some resolve to private infra), so
+    // safeFetch's public-host guard would wrongly block them; a plain fetch is correct.
+    // safe-fetch-ok: fixed first-party INTEGRATION_TARGETS host, not user-influenced
     const res = await fetchImpl(target.url, { signal: controller.signal, redirect: 'follow' });
     clearTimeout(timeout);
     const latencyMs = Date.now() - start;

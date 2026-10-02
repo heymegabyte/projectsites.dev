@@ -222,6 +222,33 @@ jobs:
         working-directory: apps/project-sites
         run: node scripts/check-html-injection.mjs
 
+      # SSRF redirect-follow gate — every raw `fetch(<var-url>, { redirect:'follow' })` in
+      # src/+libs/ on an attacker-influenceable URL MUST route through safeFetch() (forces
+      # redirect:'manual' + re-validates the host allowlist on EVERY hop), else a public,
+      # allowlisted URL can 302 to 169.254.169.254 / 127.0.0.1 / an internal 10.x host and
+      # become an SSRF existence/latency/content-type oracle (TOCTOU). Caps the fire-75→76
+      # discover-images arc + the fire-76 media_ai HEAD-probe sibling. fire-77 migrated the
+      # last 3 un-audited sites (lead_enrichment ×2, domains RDAP) to safeFetch and annotated
+      # the 1 fixed-host case (system_status) `// safe-fetch-ok` → 0 un-annotated findings,
+      # graduated from SOFT-INFO to a blocking gate. Pure Node, no deps. Mirrors the script's
+      # own `--ci` promotion note.
+      - name: 🔒 SSRF redirect-follow gate
+        working-directory: apps/project-sites
+        run: node scripts/check-safe-fetch-redirect.mjs --ci
+
+      # Dead-toggle-state gate — a setter-less `useState(<empty>)` whose frozen value feeds an
+      # interactive, user-visible toggle in app/components/** is a latent DEAD-WIRE (the fire-62/63
+      # inline-diff bug: `const [fileHistory] = useState({})` → the toggle flipped aria-pressed but
+      # the diff baseline was permanently `{}` → "No AI-tracked changes yet" forever; it rendered +
+      # toggled fine so no render/console gate caught it). Precise 4-signal heuristic (setter-less +
+      # empty/placeholder init + drives render/hook + an interactive toggle nearby); 0-finding-stable
+      # (188 component files, inline-diff useState→useMemo fix holds) + shipped with unit tests but
+      # never wired into any gate chain — the same orphaned-gate class the admin-contract sweep caught.
+      # fire-77 graduates it to a blocking gate. Pure Node, no deps.
+      - name: 🧹 dead-toggle-state gate
+        working-directory: apps/project-sites
+        run: node scripts/check-dead-toggle-state.mjs --ci
+
       # Fabricated-people gate — no invented person + testimonial/quote on a shippable
       # surface without a _confirmations.json entry (anti-fabrication / trust mandate;
       # Storybook *.stories.ts demo data excluded). Just caught the site-kit

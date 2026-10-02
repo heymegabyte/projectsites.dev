@@ -50,6 +50,7 @@ import { checkBatch as rdapCheckBatch } from '../../../src/services/rdap_availab
 import { suggestDomains, type DomainSuggestion } from '../../../src/services/domain_suggester.js';
 import { gatherProfileContext } from '../../../src/services/profile_context.js';
 import { dbQueryOne } from '../../../src/services/db.js';
+import { safeFetch } from '../../../src/services/safe_fetch.js';
 import * as domainService from '../../../src/services/domains.js';
 import * as auditService from '../../../src/services/audit.js';
 import * as posthog from '../../../src/lib/posthog.js';
@@ -1187,10 +1188,12 @@ domains.get('/api/domains/availability', async (c) => {
     // external_llm/newsletter_dispatch already clear in finally).
     const timeoutId = setTimeout(() => controller.abort(), 8000);
     try {
-      const rdapRes = await fetch(url, {
-        signal: controller.signal,
-        redirect: 'follow',
-        headers: { Accept: 'application/rdap+json' },
+      // SSRF-safe: `url` carries a user-derived `domain` in its path; safeFetch forces
+      // redirect:'manual' and re-validates the host allowlist on every hop so an RDAP
+      // 3xx can't be followed into an internal host. A blocked host throws → the catch
+      // below conservatively marks the domain unavailable.
+      const rdapRes = await safeFetch(url, {
+        init: { signal: controller.signal, headers: { Accept: 'application/rdap+json' } },
       });
       // 404 = not registered = available; 200 = registered = unavailable.
       return { domain, available: rdapRes.status === 404 };

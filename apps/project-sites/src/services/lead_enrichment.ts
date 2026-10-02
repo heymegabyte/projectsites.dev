@@ -26,6 +26,7 @@ import {
   mergeContactBundles,
   type ContactBundle,
 } from './social_links.js';
+import { safeFetch } from './safe_fetch.js';
 
 /** Realistic desktop Chrome UA — bare fetch UAs get WAF-blocked (`fetch-defaults`). */
 const REAL_UA =
@@ -108,10 +109,14 @@ function isDirectoryHost(host: string): boolean {
  */
 async function parseHomepage(url: string, fetchImpl: typeof fetch): Promise<ContactBundle> {
   try {
-    const res = await fetchImpl(url, {
-      headers: { 'User-Agent': REAL_UA, Accept: 'text/html,application/xhtml+xml' },
-      redirect: 'follow',
-    });
+    // SSRF-safe: `url` is an attacker-influenceable candidate site (discovered via DDG
+    // search). safeFetch validates the URL AND re-validates every redirect hop so a
+    // public URL that 302s to an internal host can't become an SSRF oracle. The injected
+    // fetchImpl is threaded through so tests stay deterministic.
+    const res = (await safeFetch(url, {
+      fetchImpl,
+      init: { headers: { 'User-Agent': REAL_UA, Accept: 'text/html,application/xhtml+xml' } },
+    })) as Response;
     if (!res.ok) return {};
     const raw = await res.text();
     const html = raw.length > HTML_CAP ? raw.slice(0, HTML_CAP) : raw;
@@ -167,10 +172,12 @@ async function searchDiscovery(
   try {
     const query = `${input.businessName} ${input.city ?? ''}`.trim();
     const url = `https://html.duckduckgo.com/html/?q=${encodeURIComponent(query)}`;
-    const res = await fetchImpl(url, {
-      headers: { 'User-Agent': REAL_UA, Accept: 'text/html,application/xhtml+xml' },
-      redirect: 'follow',
-    });
+    // SSRF-safe: route the search fetch through safeFetch so a redirect off the DDG host
+    // is re-validated against the host allowlist on every hop (never followed blindly).
+    const res = (await safeFetch(url, {
+      fetchImpl,
+      init: { headers: { 'User-Agent': REAL_UA, Accept: 'text/html,application/xhtml+xml' } },
+    })) as Response;
     if (!res.ok) return {};
     const raw = await res.text();
     const html = raw.length > HTML_CAP ? raw.slice(0, HTML_CAP) : raw;
