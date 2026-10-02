@@ -22,6 +22,7 @@ jest.mock('../../../../src/services/site_data_db.js', () => {
   // parameterized `UPDATE … WHERE rowid=?` (bound value, never interpolated), not a fake.
   const actual = jest.requireActual('../../../../src/services/site_data_db.js');
   return {
+    buildAddColumnSql: actual.buildAddColumnSql,
     buildCreateTableSql: jest.fn(),
     buildUpdateRowSql: actual.buildUpdateRowSql,
     createSampleData: jest.fn(),
@@ -316,6 +317,59 @@ function post(body: unknown = {}) {
     method: 'POST',
   };
 }
+
+describe('POST /api/sites/:siteId/db/tables/:table/columns (DATE-aware add-column wire, fire-84)', () => {
+  function resolveWith(query: jest.Mock) {
+    mockFlag.mockResolvedValue(true);
+    mockResolve.mockResolvedValue({ databaseId: 'db1', db: { databaseId: 'db1', query }, ok: true, provisioned: false });
+    mockListTables.mockResolvedValue(['events']);
+    mockIntrospect.mockResolvedValue([
+      { name: 'id', notnull: 0, pk: 1, type: 'INTEGER' },
+      { name: 'title', notnull: 0, pk: 0, type: 'TEXT' },
+    ]);
+  }
+
+  it("201 + emits ADD COLUMN … DATE when type='date' (role-84 wire: NO silent collapse to TEXT)", async () => {
+    const query = jest.fn(async () => ({ meta: {}, results: [] }));
+    resolveWith(query);
+    const res = await authed().request(
+      '/api/sites/s1/db/tables/events/columns',
+      post({ name: 'starts_on', type: 'date' }),
+      mockEnv(),
+    );
+    expect(res.status).toBe(201);
+    // The owner's DATE intent is PRESERVED end-to-end — the base clamp would have collapsed it to
+    // TEXT; this proves role 1's site_data_column_types module is actually WIRED into the live handler.
+    const alter = query.mock.calls.find((c) => /^ALTER TABLE/.test(c[0] as string));
+    expect(alter?.[0]).toBe('ALTER TABLE "events" ADD COLUMN "starts_on" DATE');
+  });
+
+  it('201 + ADD COLUMN … INTEGER for a non-date type (base path unchanged)', async () => {
+    const query = jest.fn(async () => ({ meta: {}, results: [] }));
+    resolveWith(query);
+    const res = await authed().request(
+      '/api/sites/s1/db/tables/events/columns',
+      post({ name: 'seats', type: 'integer' }),
+      mockEnv(),
+    );
+    expect(res.status).toBe(201);
+    const alter = query.mock.calls.find((c) => /^ALTER TABLE/.test(c[0] as string));
+    expect(alter?.[0]).toBe('ALTER TABLE "events" ADD COLUMN "seats" INTEGER');
+  });
+
+  it('clamps an unknown type to TEXT (never injects a bogus affinity)', async () => {
+    const query = jest.fn(async () => ({ meta: {}, results: [] }));
+    resolveWith(query);
+    const res = await authed().request(
+      '/api/sites/s1/db/tables/events/columns',
+      post({ name: 'note', type: 'wat' }),
+      mockEnv(),
+    );
+    expect(res.status).toBe(201);
+    const alter = query.mock.calls.find((c) => /^ALTER TABLE/.test(c[0] as string));
+    expect(alter?.[0]).toBe('ALTER TABLE "events" ADD COLUMN "note" TEXT');
+  });
+});
 
 describe('POST /api/sites/:siteId/db/sample-data', () => {
   it('404 (DARK) when flag off — resolve never runs', async () => {

@@ -51,6 +51,11 @@ import type { Env, Variables } from '../../../src/types/env.js';
 import { isFlagOn } from '../../../src/modules/feature_flags/services.js';
 import { dbQueryOne } from '../../../src/services/db.js';
 import {
+  DATE_SQLITE_TYPE,
+  buildAddDateColumnSql,
+  clampSiteColumnType,
+} from './site_data_column_types.js';
+import {
   buildAddColumnSql,
   buildCreateTableSql,
   buildDropColumnSql,
@@ -713,7 +718,14 @@ siteDbApi.post('/api/sites/:siteId/db/tables/:table/columns', async (c) => {
       return c.json({ error: { code: 'BAD_REQUEST', message: 'Invalid column definition' }, ok: false }, 400);
     if (gate.columns.some((col) => col.name === parsed.data.name))
       return c.json({ error: { code: 'CONFLICT', message: 'A column with that name already exists' }, ok: false }, 409);
-    const sql = buildAddColumnSql(table, parsed.data.name, parsed.data.type ?? 'TEXT');
+    // DATE-aware clamp (role-84 site_data_column_types): a `date` request keeps DATE affinity so the
+    // grid gets a real date column + cell-editor, instead of the base clamp silently collapsing it to
+    // TEXT. All other types flow through the base builder unchanged. Identifier safety unchanged.
+    const colType = clampSiteColumnType(parsed.data.type ?? 'TEXT');
+    const sql =
+      colType === DATE_SQLITE_TYPE
+        ? buildAddDateColumnSql(table, parsed.data.name)
+        : buildAddColumnSql(table, parsed.data.name, colType);
     if (!sql)
       return c.json({ error: { code: 'BAD_REQUEST', message: 'Invalid column name' }, ok: false }, 400);
     await gate.db.query(sql);
