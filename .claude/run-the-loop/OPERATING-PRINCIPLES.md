@@ -280,6 +280,13 @@
   missed `apps/project-sites/templates/webgl/WebGLHero.tsx` (real, built, unwired into site-generation),
   and wrongly called the real WebGL P0 a phantom; the adversarial-review phase caught the false-negative
   before it retired a live item.
+- Carried-blocker re-confirm (deterministic, fire-79) — before assigning a fix agent to any carried
+  blocker, re-confirm it LIVE: `node apps/project-sites/scripts/reconfirm-carried-blocker.mjs <url>
+  <header-substring> --contains <needle>` → `RESOLVED` (exit 0) retires the stale item, `STILL-BLOCKED`
+  (exit 1) justifies the fix, `ERROR` (exit 2, usually a CF bot challenge — retries UA-only) escalates
+  to a real-browser check. NEVER assign off a stale checkpoint. Fire-79: case-001's checkpoint claimed
+  the editor `frame-ancestors` block was live (RESOLVED fire-72) AND the D-boot `test.fixme` still set
+  (removed fire-63) — a doubly-stale note that nearly burned a case-owner on already-done work.
 
 ## Failure taxonomy vs HARD-STOP (recover vs checkpoint — never conflate)
 
@@ -325,7 +332,7 @@ run Playwright/CF-Browser-Run against a LIVE local stack, so their execution env
 - **Write-capable specialist only.** When the role must edit code/specs/checkpoints
   (role 16 always; role 17's same-fire repair hand-off), the specialist is `test-writer` or
   `general-purpose` — NEVER `visual-qa` (read-only, no Write; mis-assigning it strands the fire,
-  fire-63).
+  fire-63). This covers role 17's DISCOVERY pass too: it is NOT read-only in the harness sense — it RUNS `explorer.mjs` (Bash) + WRITES `coverage-ledger.json`, so a `visual-qa` agent spawned into a plan-mode/read-only context cannot execute it and returns a recon-only PLAN, not real CF Browser Run coverage (fire-79). Assign role 17 to `test-writer`/`general-purpose`, NEVER `visual-qa`.
 - **ONE real-browser driver per fire — serialize, never share.** The single shared Playwright-MCP
   browser must NOT be driven by concurrent agents + the lead at once; serialize real-browser
   verification to ONE driver per fire (the lead owns prod-verify, OR exactly ONE browser agent) —

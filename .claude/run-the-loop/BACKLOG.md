@@ -1427,3 +1427,19 @@
 **Broken/suspect money-path (re-confirm live each fire):**
 - apex POST /api/conversion/checkout + /api/sites/:id/claim/checkout → 403 cf-mitigated (CONFIRMED fire-78) — whole paid funnel unverifiable headlessly; items 4+5 close it (extends BL:457/1099).
 - claim_flow return pages exist but NO frontend POST to claim/checkout (BL:1312) + unpaid top-bar may lack a clickable $29/mo deep-link (1314) — confirm live on an unpaid {slug}.projectsites.dev.
+
+
+**fire-79 replenish (deduped; evidence-backed):**
+12. [eager-d1-causal-verify] causal prod-verify eager_site_d1 (now beta/100%): create a site via prod -> assert `site_database_allocations` gains a `d1_tenant_db` row BEFORE any Data-tab GET - accept: fresh create yields the allocation row with no /api/sites/:id/db/tables call - services/site_create.ts:214 - north-star - decision-independent (next organic create or Long-Trail site-create exercises it)
+13. [ltt-case001-phaseF] Long-Trail case-001 Phase F #60-96 - disposable app install/remove /admin/apps(umami) -> DELETE /apps/instances/:id w/ confirm -> tenant-isolation #90 (requireOwnedSite 404 cross-org) -> cleanup #91-96 -> sign-out app-user-menu->/signin?returnUrl - accept: checkpoint 60->96, each leg screenshot+vision - e2e/long-trail/case-001-money-path.e2e.ts - role-16 standing (lease released, D-boot green)
+14. [role17-billing-usage] Deep UI Explorer Billing>Usage deep pass (Write-capable specialist, NOT visual-qa) - graph 3 subviews: upcoming-invoice (GET /api/billing/invoices/upcoming; Stripe-stub caveat), meter-events (OBSERVE-only), per-project AI caps (siteCosts + bulk modal open-then-Escape) - reconcile caps-row count vs D1 sites COUNT - accept: CF Browser Run PASS + each subview settled screenshot+vision - e2e/deep-ui-explorer/explorer.mjs - UX/discovery
+15. [gp01-served-origin] served client hardwires prod origin - site_serving.ts:1953 injects src="https://${DOMAINS.SITES_BASE}/app.js" with no data-api/data-origin - accept: inject data-api+same-origin app.js from the serving host - site_serving.ts:1953 - money-path - M
+16. [gp01-share-moment] post-publish celebratory share screen - build-complete has no "your site is live" moment (share-link-dialog is preview/approve, not copy+OG-card share) - accept: build-complete -> share screen w/ copy-link + rendered OG card - share-link-dialog.component.ts - money-path - M
+17. [north-star-warm-pool] container warm-start pool - container.ts:37 sleepAfter='15m', no prewarm/min-instance - accept: >=1 warm instance removes ~30-60s cold boot from TTFB - container.ts:37 - north-star - M
+18. [north-star-parallel-imaging] parallelize imaging || collecting - build_metrics.ts:53 imaging rides serially in the container - accept: overlap stages, cut wall-time toward <5min - build_metrics.ts:53 - north-star - M
+19. [swarm-delegate] (FILE 3 intake, stays queued) /delegate interface + provider registry (capability x entitlement x funding) - swarm - M
+20. [swarm-deepseek-route] (FILE 3) DeepSeek-first routing for commodity work (recon/tests/cleanup) - swarm - M
+21. [swarm-minimax] (FILE 3) MiniMax adapter (long-context/multimodal) - swarm - S
+22. [swarm-exa-deepcrawl] (FILE 3) Exa discovery + Deepcrawl ingestion - swarm - M
+23. [swarm-media-funding] (FILE 3) media funding governance (existing-benefits-first) - swarm - S
+24. [swarm-browserrun-consolidate] (FILE 3) Browser Run/Stagehand v2.5.x consolidation + verify CF Agents - swarm - S

@@ -1,16 +1,16 @@
 {
   "case_id": "case-001-money-path",
   "title": "Money Path \u2014 search \u2192 sign in \u2192 create \u2192 edit \u2192 publish \u2192 verify \u2192 clean up",
-  "updated_at": "2026-10-01T16:25:00Z",
+  "updated_at": "2026-10-02T06:52:00-04:00",
   "slice": "LIVE (real local stack + real browser + real test-login)",
-  "status": "phase_e_green_full_replay_7pass_2pending_in_progress_phase_f",
-  "runId": "fire-69",
+  "status": "phase_f_ready_dboot_verified_green_fire79_lease_released",
+  "runId": null,
   "resourcePrefix": "ltt-e2e-",
-  "heartbeat": 1790899052330,
+  "heartbeat": 0,
   "last_completed_action": 59,
   "next_action": {
     "number": 60,
-    "description": "Phase F (case #79-96: disposable app install/remove \u2192 site survives \u2192 tenant isolation #90 \u2192 full cleanup #91-96). Also: D-boot iframe legs remain blocked-on-deploy \u2014 verify first (curl -sI https://editor.projectsites.dev | grep -i frame-ancestors must show http://localhost:4200; fire-61 re-verified it does NOT \u2014 the orchestrator's 'deployed 5b23e8bd' was a PREVIEW whose _headers evaluate to frame-ancestors 'none'; prod alias + custom domain still pre-fix). When it lands: delete the one test.fixme in D-boot + the 4 'Framing' allowlist entries, then iframe legs #43-45/#53-55 go live."
+    "description": "Phase F (case #79-96: disposable app install/remove -> site survives -> tenant isolation #90 -> full cleanup #91-96). D-BOOT RE-CONFIRMED GREEN (fire-79 bounded salvage): re-ran ONLY the D-boot leg against the live local stack -- `npx playwright test ... -g D-boot` -> 1 passed (4.8s), zero frame-ancestors CSP violation, editor iframe document loaded. No code or spec changes were needed (fire-63 already promoted it out of test.fixme and removed all 4 console-allowlist entries -- confirmed via `git log` showing deb70c8c2 as the last commit to touch this file, and grep showing zero test.fixme / allowlist matches for 'Framing'). Proceed straight to Phase F actions 60-96 next fire."
   },
   "ports": {
     "worker_wrangler_dev": 8787,
@@ -163,5 +163,6 @@
     "class": "shared-dev-server-concurrent-edit-vite-cache-confound",
     "date_discovered": "fire-58",
     "verdict": "NOT_A_PRODUCT_DEFECT (unchanged fire-61; worktree-serve + two-boot warm recipe held)"
-  }
+  },
+  "resume_note": "fire-79: D-boot leg re-verified GREEN live (editor iframe loads, 0 frame-ancestors violation); test.fixme+4 allowlist already removed fire-63 (doubly-stale note corrected). OPEN: Phase F actions #60-96 \u2014 disposable app install/remove via /admin/apps (umami), DELETE /apps/instances/:id w/ confirm, tenant-isolation #90 (requireOwnedSite 404 cross-org), cleanup #91-96, sign-out via app-user-menu -> /signin?returnUrl. Lease released; next fire reclaims."
 }
