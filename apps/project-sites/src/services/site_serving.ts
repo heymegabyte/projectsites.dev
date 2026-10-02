@@ -690,8 +690,7 @@ async function serveSiteFromR2Inner(
   // The Cache API (`caches.default`) is present in the Workers runtime but absent
   // in the jest/unit env — treat it as optional so serving never depends on it
   // (fail-soft to a normal R2 fetch when unavailable, exactly like a cache miss).
-  const edgeCache =
-    typeof caches !== 'undefined' && caches?.default ? caches.default : null;
+  const edgeCache = typeof caches !== 'undefined' && caches?.default ? caches.default : null;
   const edgeKey =
     edgeCache && host && isHtmlDoc && version
       ? new Request(
@@ -2011,7 +2010,10 @@ async function buildSiteResponse(
       // well-formed hostname — a malformed/attacker host never reaches the
       // attribute, so the client keeps its safe hard-coded default.
       let apiAttr = '';
-      if (host && /^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?(\.[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?)+$/i.test(host)) {
+      if (
+        host &&
+        /^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?(\.[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?)+$/i.test(host)
+      ) {
         apiAttr = ` data-api="https://${host}"`;
       }
       const appScript = `<script defer src="https://${DOMAINS.SITES_BASE}/app.js" data-slug="${safeSlug}" data-paid="${paid}"${apiAttr}${claimAttrs}></script>`;
