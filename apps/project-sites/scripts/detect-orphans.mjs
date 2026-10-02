@@ -491,6 +491,82 @@ async function findOrphanMcpTools() {
   return findings;
 }
 
+// ─── 5. SERVICE MODULES (src/services/**) ───────────────────────────────────────────
+//
+// Until fire-86 the ONLY thing scanning src/services/ was the MCP-tool class (class 4),
+// and it looks exclusively at `mcp`-named files — so a generic service "thunk" (a thin
+// orchestration/dispatch module with a real exported entrypoint but ZERO non-test callers)
+// slipped past every class. That's exactly how site_event_dispatch.ts (D-85-a) sat
+// built-but-unwired + undetected. This class closes that gap: a substantial service module
+// whose PRIMARY exported function is imported by no NON-TEST source file is an orphan.
+//
+// Scoped conservatively to avoid noise: only files >= MIN_SERVICE_LINES, skip barrels
+// (index.ts) + anything class 4 already owns (mcp*). Confidence is 'medium' (a service may
+// be a deliberately-reserved contract — allowlist those with a reason), mirroring how knip
+// "unused" is verified-not-blind-deleted.
+
+const MIN_SERVICE_LINES = 40;
+
+async function findOrphanServiceModules() {
+  const findings = [];
+  const servicesDir = path.join(PROJECT, 'src', 'services');
+  if (!existsSync(servicesDir)) return findings;
+
+  const serviceFiles = (await readdir(servicesDir)).filter(
+    (f) =>
+      f.endsWith('.ts') &&
+      f !== 'index.ts' &&
+      !f.includes('.test.') &&
+      !f.includes('.spec.') &&
+      !/mcp/i.test(f), // class 4 (MCP_TOOL) already owns mcp*-named service modules
+  );
+
+  for (const file of serviceFiles) {
+    const abs = path.join(servicesDir, file);
+    const base = file.replace(/\.ts$/, '');
+    const src = safeRead(abs);
+    if (src.split('\n').length < MIN_SERVICE_LINES) continue;
+
+    const exportNames = extractFunctionExports(src);
+    if (exportNames.length === 0) continue; // no exported function → not a wireable entrypoint
+
+    // WIRED if any NON-TEST source file (a) imports this module by path, or (b) references
+    // any of its exported function names. Both the module-path form and the symbol form are
+    // checked so an aliased or barrel-re-exported import still counts as reachable.
+    const byPath = filesReferencing(`services/${base}`, [
+      path.join(PROJECT, 'src'),
+      path.join(PROJECT, 'libs'),
+    ]).filter((f) => path.resolve(f) !== path.resolve(abs) && !/\.(test|spec)\.[tj]sx?$/.test(f));
+
+    const bySymbol = exportNames.flatMap((name) =>
+      filesReferencing(name, [path.join(PROJECT, 'src'), path.join(PROJECT, 'libs')], [abs]).filter(
+        (f) => !/\.(test|spec)\.[tj]sx?$/.test(f),
+      ),
+    );
+
+    if (byPath.length === 0 && bySymbol.length === 0) {
+      findings.push({
+        type: 'SERVICE_MODULE',
+        path: relFromRepo(abs),
+        unit: exportNames.join(', '),
+        confidence: 'medium',
+        why: `Service module "${base}" exports [${exportNames.join(', ')}] but no NON-TEST source file imports the module or references its exports — built but unwired (tests alone are not a surface).`,
+        suggest: `Call it from a route handler / workflow step / cron that reaches a surface, or allowlist it in scripts/orphans-allowlist.json with a reason if it is a deliberately-reserved contract — or delete it.`,
+      });
+    }
+  }
+  return findings;
+}
+
+/** Pull exported top-level function/const-arrow names from a service file's source. */
+function extractFunctionExports(src) {
+  const names = new Set();
+  for (const m of src.matchAll(/export\s+(?:async\s+)?function\s+([A-Za-z0-9_]+)\s*\(/g)) names.add(m[1]);
+  for (const m of src.matchAll(/export\s+const\s+([A-Za-z0-9_]+)\s*(?::[^=]+)?=\s*(?:async\s*)?\(/g))
+    names.add(m[1]);
+  return [...names];
+}
+
 // ─── small helpers ────────────────────────────────────────────────────────────────
 
 function safeRead(p) {
@@ -538,24 +614,37 @@ async function collectFiles(dir, filterFn) {
 
 // ─── reporting ──────────────────────────────────────────────────────────────────
 
-const ICON = { EDITOR_PANEL: '🧩', FEATURE_MODULE: '📦', WORKER_ROUTE: '🛣️ ', MCP_TOOL: '🔧' };
+const ICON = { EDITOR_PANEL: '🧩', FEATURE_MODULE: '📦', WORKER_ROUTE: '🛣️ ', MCP_TOOL: '🔧', SERVICE_MODULE: '⚙️ ' };
+
+// Classes that REPORT but do NOT fail the build yet. A freshly-added detector class
+// starts advisory (audit-arc maturity ladder step 2 "Surface"): it surfaces the backlog
+// every run without blocking, gets migrated toward zero over time, and only PROMOTES to a
+// blocking class once stable at zero. SERVICE_MODULE launched in fire-86 against a large
+// pre-existing unwired-service surface (~134) — blind-baselining those into the allowlist
+// would rubber-stamp real orphans, so it stays advisory until that surface is drained.
+const ADVISORY_TYPES = new Set(['SERVICE_MODULE']);
 
 function report(findings, allowlist) {
   const isAllowed = (f) => allowlist.byKey.has(`${f.type}::${f.path}`);
-  const newOrphans = findings.filter((f) => !isAllowed(f));
+  const notAllowed = findings.filter((f) => !isAllowed(f));
   const suppressed = findings.filter(isAllowed);
+  // Only NON-advisory, non-allowlisted findings fail the build.
+  const newOrphans = notAllowed.filter((f) => !ADVISORY_TYPES.has(f.type));
+  const advisory = notAllowed.filter((f) => ADVISORY_TYPES.has(f.type));
 
   console.log('╔══════════════════════════════════════════════════════════════════════╗');
   console.log('║   detect-orphans — unwired major code units (interconnectedness gate)  ║');
   console.log('╚══════════════════════════════════════════════════════════════════════╝');
   console.log(`   ripgrep: ${RG ? RG : 'not found → pure-Node scan fallback'}`);
   console.log(
-    `   scanned: editor panels (app/components) · feature modules (libs/features) · worker routes (src/routes) · MCP tools (src/services)`,
+    `   scanned: editor panels (app/components) · feature modules (libs/features) · worker routes (src/routes) · MCP tools (src/services) · service modules (src/services)`,
   );
   console.log('');
 
   if (newOrphans.length === 0) {
-    console.log('✅ No NEW orphaned code units found. Every major unit is wired to a surface.');
+    console.log(
+      `✅ No NEW blocking orphaned code units.${advisory.length > 0 ? ` (${advisory.length} advisory finding(s) below — non-blocking.)` : ' Every major unit is wired to a surface.'}`,
+    );
   } else {
     console.log(`❌ ${newOrphans.length} NEW orphaned code unit(s) — each is unwired to any user-facing surface:`);
     console.log('');
@@ -566,6 +655,16 @@ function report(findings, allowlist) {
       console.log(`     wire-to: ${f.suggest}`);
       console.log('');
     }
+  }
+
+  if (advisory.length > 0) {
+    console.log(
+      `⚠️  ${advisory.length} ADVISORY finding(s) [${[...ADVISORY_TYPES].join(', ')}] — reported, NOT build-blocking (drain this backlog, then promote to a hard class):`,
+    );
+    for (const f of advisory) {
+      console.log(`     · ${ICON[f.type] ?? '•'} ${f.type} ${f.unit} (${f.path})`);
+    }
+    console.log('');
   }
 
   if (suppressed.length > 0) {
@@ -582,7 +681,7 @@ function report(findings, allowlist) {
   console.log(
     `Summary: ${findings.length} total finding(s) [${Object.entries(byType)
       .map(([t, n]) => `${t}:${n}`)
-      .join(', ') || 'none'}] · ${newOrphans.length} new · ${suppressed.length} allowlisted`,
+      .join(', ') || 'none'}] · ${newOrphans.length} new (blocking) · ${advisory.length} advisory · ${suppressed.length} allowlisted`,
   );
 
   return newOrphans.length;
@@ -593,14 +692,15 @@ function report(findings, allowlist) {
 async function main() {
   const allowlist = loadAllowlist();
 
-  const [panels, features, routes, mcp] = await Promise.all([
+  const [panels, features, routes, mcp, services] = await Promise.all([
     findOrphanEditorPanels(),
     findOrphanFeatureModules(),
     findOrphanWorkerRoutes(),
     findOrphanMcpTools(),
+    findOrphanServiceModules(),
   ]);
 
-  const findings = [...panels, ...features, ...routes, ...mcp].sort((a, b) =>
+  const findings = [...panels, ...features, ...routes, ...mcp, ...services].sort((a, b) =>
     a.type === b.type ? a.path.localeCompare(b.path) : a.type.localeCompare(b.type),
   );
 

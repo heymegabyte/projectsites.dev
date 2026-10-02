@@ -10,6 +10,14 @@
  * envelope; the Durable Object emitter, D1/R2 persistence, and per-event-type
  * payload schemas are later AWOS-03+ slices.
  *
+ * @remarks Reserved contract — the full envelope has no emitter yet (the DO
+ * emitter lands in AWOS-03+). Its first in-tree consumer is the worker's
+ * outbound-webhook dispatcher, which reuses {@link SiteEvent}'s `type` as the
+ * single source of truth for a site-event's name
+ * (`apps/project-sites/src/services/site_event_dispatch.ts`
+ * `DispatchableSiteEvent`). Do NOT re-declare a parallel site-event shape
+ * elsewhere — extend THIS schema.
+ *
  * | Export               | Kind        | Description                                      |
  * | --------------------- | ----------- | ------------------------------------------------ |
  * | `siteEventActorSchema` | `ZodObject` | `{ kind, id }` — who/what caused the event       |

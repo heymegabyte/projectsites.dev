@@ -15,10 +15,21 @@
  * unit-testable with no real I/O.
  */
 import type { DispatchOutcome } from './webhook_dispatch.js';
+import type { SiteEvent } from '@project-sites/shared';
+
+/**
+ * The event this dispatcher fans out. We reuse the `type` of the canonical
+ * {@link SiteEvent} envelope (`@project-sites/shared/schemas/site-event`) as the
+ * single source of truth for "what names a site event", rather than re-declaring
+ * an inline `{ type: string }` here. `payload` stays `unknown` — the per-event
+ * payload schemas are a later AWOS-03+ slice — so this is the base-envelope's
+ * routing fields narrowed to what an arm needs to dispatch.
+ */
+export type DispatchableSiteEvent = Pick<SiteEvent, 'type'> & { payload: unknown };
 
 /** The injected webhook arm (wraps its load + dispatch). */
 export interface SiteEventDeps {
-  dispatchWebhooks: (event: { type: string; payload: unknown }) => Promise<DispatchOutcome>;
+  dispatchWebhooks: (event: DispatchableSiteEvent) => Promise<DispatchOutcome>;
 }
 
 /** One arm's result is its outcome, or `{ error }` if that arm threw (isolated). */
@@ -46,7 +57,7 @@ function armError(reason: unknown): { error: string } {
  */
 export async function handleSiteEvent(
   deps: SiteEventDeps,
-  event: { type: string; payload: unknown },
+  event: DispatchableSiteEvent,
 ): Promise<SiteEventResult> {
   const [w] = await Promise.allSettled([deps.dispatchWebhooks(event)]);
   return {
