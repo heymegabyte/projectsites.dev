@@ -263,6 +263,82 @@ describe('AdminLogsExplorerComponent (WLK-28 detail + trace navigation)', () => 
   });
 });
 
+// WLK-28 (fire-72): the logic specs above drive openDetail/copyId/viewTrace against a
+// STUB template (<div></div>), so they prove the component's STATE but not that the REAL
+// template actually (a) makes each log row an activatable control and (b) renders the full
+// detail dialog with the error `code` + `trace_id` VISIBLE plus a copy affordance. A
+// computed-but-unrendered field or a dropped dialog binding would pass every stub spec and
+// still ship a dead feature — these render the real template end-to-end to close that gap.
+describe('AdminLogsExplorerComponent — row-click opens detail dialog (real template)', () => {
+  afterEach(() => TestBed.resetTestingModule());
+
+  const ROW = {
+    id: 'r1', ts: '2026-10-01T12:34:56Z', level: 'error', request_id: 'req-9',
+    trace_id: 'trace-xyz-789', route: '/api/sites/abc', method: 'POST', status: 500,
+    duration_ms: 42, cost_estimate: 0.000001, code: 'INTERNAL_ERROR', message: 'kaboom', meta: {},
+  };
+
+  function render() {
+    TestBed.configureTestingModule({
+      imports: [AdminLogsExplorerComponent],
+      providers: [
+        { provide: ApiService, useValue: { post: () => of({ data: { items: [], next_cursor: null, total_returned: 0 } }), get: () => of({ data: { rows: [], grand_total_cost: 0 } }) } },
+        { provide: ToastService, useValue: { error: () => 0, success: () => 0 } },
+        { provide: AdminStateService, useValue: { selectedSite: signal(null) } },
+        provideRouter([]),
+      ],
+    });
+    const fx = TestBed.createComponent(AdminLogsExplorerComponent);
+    fx.detectChanges();
+    return fx;
+  }
+
+  // The row MUST be a real <button> (keyboard-operable via Enter/Space, not a
+  // mousedown-only div) wired to openDetail — the slice's a11y contract.
+  it('renders each log row as an activatable button that opens the dialog on click', () => {
+    const fx = render();
+    fx.componentInstance.rows.set([ROW as never]);
+    fx.detectChanges();
+    const host = fx.nativeElement as HTMLElement;
+
+    const rowBtn = host.querySelector('[data-testid="logs-row"]') as HTMLButtonElement | null;
+    expect(rowBtn).withContext('log row renders').not.toBeNull();
+    expect(rowBtn!.tagName).withContext('row is a <button> → Enter/Space activate it, keyboard-accessible').toBe('BUTTON');
+    expect(host.querySelector('[data-testid="logs-detail-dialog"]')).withContext('dialog closed before click').toBeNull();
+
+    rowBtn!.click();
+    fx.detectChanges();
+    expect(host.querySelector('[data-testid="logs-detail-dialog"]')).withContext('row click opens the detail dialog').not.toBeNull();
+  });
+
+  // The open dialog MUST surface the inline error code + the trace id as visible text,
+  // plus a one-click "copy trace id" control — the heart of WLK-28.
+  it('shows the error code + trace_id in the dialog with a copy-trace-id affordance', () => {
+    const fx = render();
+    fx.componentInstance.openDetail(ROW as never);
+    fx.detectChanges();
+    const host = fx.nativeElement as HTMLElement;
+
+    const code = host.querySelector('[data-testid="logs-detail-code"]');
+    expect(code).withContext('error-code banner renders for a coded row').not.toBeNull();
+    expect(code!.textContent).withContext('the code is visible').toContain('INTERNAL_ERROR');
+
+    const traceId = host.querySelector('[data-testid="logs-detail-trace-id"]');
+    expect(traceId).withContext('trace id row renders').not.toBeNull();
+    expect(traceId!.textContent).withContext('the trace id is visible').toContain('trace-xyz-789');
+
+    // The copy control sits beside the trace id — a <button> with an accessible name.
+    const copyBtn = traceId!.parentElement!.querySelector('button[aria-label="Copy trace ID"]') as HTMLButtonElement | null;
+    expect(copyBtn).withContext('one-click copy-trace-id affordance present').not.toBeNull();
+    expect(copyBtn!.tagName).toBe('BUTTON');
+
+    // Clicking copy invokes copyId with the trace id (keyboard-operable button, not a bare span).
+    const copySpy = spyOn(fx.componentInstance, 'copyId');
+    copyBtn!.click();
+    expect(copySpy).withContext('copy button is wired to copyId(traceId, …)').toHaveBeenCalledWith('trace-xyz-789', jasmine.any(String));
+  });
+});
+
 describe('AdminLogsExplorerComponent (cost load)', () => {
   afterEach(() => TestBed.resetTestingModule());
 
