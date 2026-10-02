@@ -739,3 +739,12 @@ LOOP-IMPROVEMENT (section 7): promoted SSRF + dead-toggle detectors to BLOCKING 
 - Convergence gates: worker tsc 0, 87 touched tests, validate:features PASS, frontend tsc 0, e2e-inventory 347 PASS.
 - Deploy: worker Version fe1a093b-d7d7-44ab-8b4c-ce1acaeaf0e0; frontend 300 files -> R2. Prod-verify: / 200 · /api/health 200 + HSTS/CSP · bogus /api/* -> NOT_FOUND JSON 404 · bogus HTML -> real 404 + branded page · /admin 200.
 - Attrition: golden-path agent (role 4, Editor Data-tab journey) returned mid-journey, no commit — re-queued (see BACKLOG).
+
+## fire-86-converge (cont.) — Feature Architecture gate convergence (pre-existing red; 5/6 sub-gates fixed)
+The Feature Architecture CI gate was RED on main BEFORE fire-86 — 6 INDEPENDENT pre-existing failures, none caused by this fire (surfaced when agent-2 touched a `check-*.mjs` path, re-triggering the path-filtered workflow). Fixed 5/6 this fire, each verified locally:
+- worker e2e-inventory orphan → registered `fire78-admin-ops.spec.ts` in e2e/COVERAGE.yml. `c039bf97a`
+- frontend e2e-inventory orphan → registered `create-blur-required.e2e.ts` in frontend COVERAGE.yml + FEATURES.md. `5fed608c5`
+- error-helper false-positive → renamed local `unauthorized` guard var → `authError` in model_registry/handlers.ts. `1ab98097c`
+- unwired-endpoint false-positives (8) → detector now skips fully-dynamic `/*/` shapes + exempts WIRED kv/r2/resources routes (index.ts 1045/1047/629). `cf06b4cc9`
+- SHA-pin → pinned `anthropics/claude-code-action@v1` → `97c5347…` in run-the-loop.yml. `167b536ac`
+6th (lockfile-drift) NOT locally-fixable → BACKLOG: CI `pnpm@9.14.4` regen adds a `deprecated:` metadata line near `@xterm/addon-fit@0.10.0` that the committed lockfile + a local (stale-cache) regen don't reproduce. `check-lockfile-drift` passes LOCALLY; `pnpm install --lockfile-only` = no-op. CI-registry-metadata-freshness drift only (known class, memory `silRED`).
