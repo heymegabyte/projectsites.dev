@@ -319,6 +319,9 @@ run Playwright/CF-Browser-Run against a LIVE local stack, so their execution env
   `test -d node_modules && test -d apps/project-sites/node_modules` (+ `.dev.vars` present) FIRST.
   A missing-deps launch = **BLOCKED with the exact missing prerequisite**, never "passed" — a worktree
   with no deps can never count as passed CF/browser coverage.
+  - Deterministic preflight (run this, not the ad-hoc `test -d`): `node apps/project-sites/scripts/browser-role-preflight.mjs`
+    — resolves the repo root via `git rev-parse`, asserts root + worker `node_modules/` + `.dev.vars`,
+    WARNs on a `.claude/worktrees/` cwd, prints `OK` (exit 0) or `BLOCKED: <missing prereq>` (exit 1). Fire-74.
 - **Write-capable specialist only.** When the role must edit code/specs/checkpoints
   (role 16 always; role 17's same-fire repair hand-off), the specialist is `test-writer` or
   `general-purpose` — NEVER `visual-qa` (read-only, no Write; mis-assigning it strands the fire,
