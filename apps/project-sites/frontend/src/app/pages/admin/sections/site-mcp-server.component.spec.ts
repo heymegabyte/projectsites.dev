@@ -119,6 +119,22 @@ describe('SiteMcpServerComponent (header calls-today pill — no false "0")', ()
     f.detectChanges();
     expect(btn.getAttribute('aria-busy')).withContext('minting → busy').toBe('true');
   });
+
+  // Empty-state-is-launchpad: zero tokens must offer a real primary CTA (not a
+  // bare "No tokens yet." dead-end), and clicking it focuses the mint-label input
+  // so the owner's next step is obvious.
+  it('tokens empty state renders a launchpad CTA that focuses the mint input', () => {
+    const f = renderFull();
+    f.detectChanges(); // mock get → tokens: [] → empty state
+    const host = f.nativeElement as HTMLElement;
+    const cta = host.querySelector('[data-testid="mcp-tokens-empty-cta"]') as HTMLButtonElement | null;
+    expect(cta).withContext('tokens empty-state CTA must render').not.toBeNull();
+    expect(cta!.textContent).toContain('Mint your first token');
+    const input = host.querySelector('[data-testid="new-token-label"]') as HTMLInputElement;
+    expect(input).withContext('mint-label input renders').not.toBeNull();
+    cta!.click();
+    expect(document.activeElement).withContext('CTA focuses the mint-label input').toBe(input);
+  });
 });
 
 describe('SiteMcpServerComponent (MCP token CRUD + playground)', () => {

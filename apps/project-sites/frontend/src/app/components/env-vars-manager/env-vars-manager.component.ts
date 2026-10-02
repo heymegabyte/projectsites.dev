@@ -211,7 +211,17 @@ const EMPTY_DRAFT: NewVarDraft = {
         <div class="ev-empty" aria-busy="true">Loading…</div>
       } @else if (vars().length === 0) {
         <div class="ev-empty">
-          <p>No env vars yet. Click <strong>+ Add variable</strong> to create one.</p>
+          <p>No env vars yet — add your first encrypted variable for this scope.</p>
+          <button
+            type="button"
+            class="ev-btn-primary"
+            (click)="startAdd()"
+            [disabled]="addingOpen()"
+            data-testid="ev-empty-cta"
+            aria-label="Add your first environment variable"
+          >
+            + Add your first variable
+          </button>
         </div>
       } @else {
         <div class="ev-table-wrap" role="region" aria-label="Env vars table">
@@ -398,6 +408,7 @@ const EMPTY_DRAFT: NewVarDraft = {
       color: color-mix(in oklch, var(--ps-ink, #f4f4ff) 55%, transparent);
       font-size: 0.78rem;
     }
+    .ev-empty > p { margin: 0 0 0.75rem; }
     @media (max-width: 720px) {
       .ev-form-grid { grid-template-columns: 1fr; }
       .ev-head { flex-direction: column; align-items: stretch; }

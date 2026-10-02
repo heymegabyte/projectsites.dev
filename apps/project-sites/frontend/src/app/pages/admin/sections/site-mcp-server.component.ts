@@ -16,8 +16,10 @@ import {
   ChangeDetectionStrategy,
   Component,
   computed,
+  ElementRef,
   inject,
   signal,
+  viewChild,
   OnInit,
 } from '@angular/core';
 import { FormsModule } from '@angular/forms';
@@ -109,6 +111,7 @@ interface ToolUsage {
           <h3 class="text-sm font-semibold m-0">API Tokens</h3>
           <div class="flex items-center gap-2">
             <input
+              #tokenLabelInput
               hlmInput
               class="text-xs h-8 w-40"
               [(ngModel)]="newTokenLabel"
@@ -152,9 +155,17 @@ interface ToolUsage {
             @for (i of [0,1]; track i) { <div class="skel h-9 rounded w-full"></div> }
           </div>
         } @else if (tokens().length === 0) {
-          <app-mini-empty text="No tokens yet.">
-            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="7.5" cy="15.5" r="5.5"/><path d="m21 2-9.6 9.6"/><path d="m15.5 7.5 3 3"/></svg>
-          </app-mini-empty>
+          <div class="flex flex-col items-center gap-2.5 py-6 text-center" role="status" data-testid="mcp-tokens-empty">
+            <span class="grid place-items-center w-9 h-9 rounded-full text-accent" style="background: color-mix(in oklch, var(--ps-accent, #00e5ff) 8%, transparent); border: 1px solid color-mix(in oklch, var(--ps-accent, #00e5ff) 22%, transparent)" aria-hidden="true"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="7.5" cy="15.5" r="5.5"/><path d="m21 2-9.6 9.6"/><path d="m15.5 7.5 3 3"/></svg></span>
+            <p class="m-0 text-[0.8rem] text-text-secondary">No tokens yet — mint one so an MCP client can authenticate to this site.</p>
+            <button
+              type="button"
+              class="min-h-[36px] px-4 rounded-lg text-[0.8rem] font-semibold text-dark bg-primary transition-[box-shadow] hover:shadow-[0_0_20px_rgba(0,229,255,0.25)] focus-visible:outline focus-visible:outline-[3px] focus-visible:outline-primary focus-visible:outline-offset-2"
+              (click)="focusMintLabel()"
+              data-testid="mcp-tokens-empty-cta"
+              aria-label="Mint your first MCP token"
+            >Mint your first token</button>
+          </div>
         } @else {
           <div class="card overflow-hidden">
             <table class="w-full text-xs" data-testid="tokens-table">
@@ -314,7 +325,15 @@ export class SiteMcpServerComponent implements OnInit {
   playgroundArgs = '{}';
   newTokenLabel = '';
 
+  /** The mint-label input — focused by the empty-state launchpad CTA. */
+  private readonly tokenLabelInput = viewChild<ElementRef<HTMLInputElement>>('tokenLabelInput');
+
   private siteId = '';
+
+  /** Empty-state launchpad → focus the mint-label input so the owner's next step is obvious. */
+  focusMintLabel(): void {
+    this.tokenLabelInput()?.nativeElement.focus();
+  }
 
   readonly totalCallsToday = computed(() => {
     const today = new Date().toISOString().slice(0, 10);

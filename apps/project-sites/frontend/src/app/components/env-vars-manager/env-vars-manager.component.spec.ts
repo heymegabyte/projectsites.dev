@@ -103,4 +103,20 @@ describe('EnvVarsManagerComponent (env-var key validation)', () => {
     expect(cmp.keyValid()).toBe(true);
     expect(cmp.keyError()).toBeNull();
   });
+
+  // Empty-state-is-launchpad: with zero vars the empty state must offer a real
+  // primary CTA (not instruct the owner to hunt for a header button), and that
+  // CTA must open the inline add form via startAdd().
+  it('renders a launchpad CTA in the empty state that opens the add form', () => {
+    const { fixture, cmp } = setup();
+    fixture.detectChanges(); // GET returns [] → vars().length === 0 → empty state
+    const cta = fixture.nativeElement.querySelector(
+      '[data-testid="ev-empty-cta"]',
+    ) as HTMLButtonElement | null;
+    expect(cta).withContext('empty-state CTA button must render').not.toBeNull();
+    expect(cta!.textContent).toContain('Add your first variable');
+    expect(cmp.addingOpen()).toBe(false);
+    cta!.click();
+    expect(cmp.addingOpen()).withContext('CTA opens the inline add form').toBe(true);
+  });
 });

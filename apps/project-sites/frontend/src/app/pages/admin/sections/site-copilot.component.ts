@@ -132,7 +132,16 @@ const INTENT_ICONS: Record<string, string> = {
                   <button class="btn-ghost text-xs ml-3" data-testid="copilot-retry" (click)="loadSessions()" [disabled]="loading()">Retry</button>
                 </td></tr>
               } @else if (sessions().length === 0) {
-                <tr><td colspan="5" class="copilot-td-center">No sessions yet. Embed the widget to start.</td></tr>
+                <tr><td colspan="5" class="copilot-td-center">
+                  <p class="copilot-empty-tx">No sessions yet. Embed the widget on your site and visitor conversations show up here.</p>
+                  @if (siteSlug()) {
+                    <button type="button" class="copilot-empty-cta" (click)="copySnippet()"
+                            data-testid="copilot-empty-cta"
+                            [attr.aria-label]="copied() ? 'Embed snippet copied to clipboard' : 'Copy the embed snippet to add the copilot to your site'">
+                      {{ copied() ? '✓ Snippet copied' : 'Copy embed snippet' }}
+                    </button>
+                  }
+                </td></tr>
               } @else {
                 @for (s of sessions(); track s.id) {
                   <tr>
@@ -195,6 +204,10 @@ const INTENT_ICONS: Record<string, string> = {
       .copilot-skel-row:hover td { background: transparent; }
       .copilot-skel-bar { display: inline-block; height: 11px; border-radius: 4px; }
       .copilot-td-center { text-align: center; color: rgba(244,244,255,0.72); padding: 24px !important; }
+      .copilot-empty-tx { margin: 0 0 12px; color: rgba(244,244,255,0.72); font-size: 0.82rem; }
+      .copilot-empty-cta { min-height: 36px; padding: 8px 16px; border-radius: 8px; border: 1px solid var(--ps-accent, #00e5ff); background: var(--ps-accent, #00e5ff); color: var(--ps-bg, #060610); font-size: 0.82rem; font-weight: 600; cursor: pointer; transition: box-shadow 140ms ease; }
+      .copilot-empty-cta:hover { box-shadow: 0 0 20px rgba(0,229,255,0.25); }
+      .copilot-empty-cta:focus-visible { outline: 3px solid var(--ps-accent, #00e5ff); outline-offset: 2px; }
       .copilot-intent-chip { font-size: 12px; font-weight: 500; }
       .copilot-signals { display: flex; gap: 4px; }
       .copilot-signals span { background: rgba(0,229,255,0.1); border: 1px solid rgba(0,229,255,0.2); border-radius: 4px; padding: 1px 5px; font-size: 10px; font-weight: 700; color: var(--ps-accent); }
