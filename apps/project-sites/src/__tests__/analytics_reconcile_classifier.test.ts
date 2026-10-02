@@ -107,7 +107,11 @@ describe('classifyFreshness — display must not lag the store beyond the SLA', 
   });
 
   it('treats a missing displayComputedAtMs (surface exposes no freshness signal) as STALE-UNKNOWN, never a silent pass', () => {
-    const v = classifyFreshness({ storeNewestMs: NOW - 60_000, displayComputedAtMs: null, nowMs: NOW });
+    const v = classifyFreshness({
+      storeNewestMs: NOW - 60_000,
+      displayComputedAtMs: null,
+      nowMs: NOW,
+    });
     expect(v.ok).toBe(false);
     expect(v.code).toBe('STALE_UNKNOWN');
   });

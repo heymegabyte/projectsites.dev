@@ -214,7 +214,10 @@ describe('validateHeaderLogoAssetExistence — header-referenced logo-wordmark 4
 describe('validateWordmarkContrast — dark-on-dark text wordmark class (fire-80, gp-09 c2)', () => {
   it('flags a text wordmark span rendered with a near-black hex color (dark-on-dark, no halo)', () => {
     const files = [
-      file('index.html', '<!DOCTYPE html><html><body><script src="/assets/h.js"></script></body></html>'),
+      file(
+        'index.html',
+        '<!DOCTYPE html><html><body><script src="/assets/h.js"></script></body></html>',
+      ),
       // React Header renders the business NAME as a styled span with an inline near-black color and
       // no halo — illegible over the dark/transparent nav.
       file(
@@ -230,7 +233,10 @@ describe('validateWordmarkContrast — dark-on-dark text wordmark class (fire-80
 
   it('flags a text wordmark styled with a dark THEME token class (text-[#0...]/text-ink-900) sans halo', () => {
     const files = [
-      file('index.html', '<!DOCTYPE html><html><body><script src="/assets/h.js"></script></body></html>'),
+      file(
+        'index.html',
+        '<!DOCTYPE html><html><body><script src="/assets/h.js"></script></body></html>',
+      ),
       file(
         'assets/h.js',
         'e("span",{className:"wordmark font-bold text-[#111827] whitespace-nowrap"},business)',
@@ -243,7 +249,10 @@ describe('validateWordmarkContrast — dark-on-dark text wordmark class (fire-80
 
   it('PASSES a text wordmark with a light token + a text-shadow halo (the logo-contrast fix)', () => {
     const files = [
-      file('index.html', '<!DOCTYPE html><html><body><script src="/assets/h.js"></script></body></html>'),
+      file(
+        'index.html',
+        '<!DOCTYPE html><html><body><script src="/assets/h.js"></script></body></html>',
+      ),
       // Light token (text-text / text-white) + halo via [text-shadow:...] — legible on any nav.
       file(
         'assets/h.js',
@@ -255,7 +264,10 @@ describe('validateWordmarkContrast — dark-on-dark text wordmark class (fire-80
 
   it('PASSES a dark-colored wordmark that sits on an explicit dark backing (bg-* on the same span)', () => {
     const files = [
-      file('index.html', '<!DOCTYPE html><html><body><script src="/assets/h.js"></script></body></html>'),
+      file(
+        'index.html',
+        '<!DOCTYPE html><html><body><script src="/assets/h.js"></script></body></html>',
+      ),
       // A dark text token is fine when the element carries its OWN light/dark backing — contrast is local.
       file(
         'assets/h.js',
@@ -267,7 +279,10 @@ describe('validateWordmarkContrast — dark-on-dark text wordmark class (fire-80
 
   it('PASSES an IMAGE wordmark (no text span) — the img path is covered by header-logo-asset gate', () => {
     const files = [
-      file('index.html', '<!DOCTYPE html><html><body><script src="/assets/h.js"></script></body></html>'),
+      file(
+        'index.html',
+        '<!DOCTYPE html><html><body><script src="/assets/h.js"></script></body></html>',
+      ),
       file('assets/h.js', 'e("img",{src:"/logo-wordmark.png",alt:business,className:"h-12"})'),
       file('logo-wordmark.png', undefined, 12000),
     ];
@@ -291,7 +306,10 @@ describe('validateWordmarkContrast — dark-on-dark text wordmark class (fire-80
 describe('validateEyebrowContrast — opacity-on-muted eyebrow AA-fail class (fire-80, gp-09 c2)', () => {
   it('flags an eyebrow using a low-opacity white utility (text-white/40 → fails AA on dark)', () => {
     const files = [
-      file('index.html', '<!DOCTYPE html><html><body><script src="/assets/hero.js"></script></body></html>'),
+      file(
+        'index.html',
+        '<!DOCTYPE html><html><body><script src="/assets/hero.js"></script></body></html>',
+      ),
       file(
         'assets/hero.js',
         'e("p",{className:"eyebrow uppercase tracking-widest text-white/40"},"EST. 2008")',
@@ -305,7 +323,10 @@ describe('validateEyebrowContrast — opacity-on-muted eyebrow AA-fail class (fi
 
   it('flags an eyebrow on a muted token further dimmed by an opacity-* class', () => {
     const files = [
-      file('index.html', '<!DOCTYPE html><html><body><script src="/assets/hero.js"></script></body></html>'),
+      file(
+        'index.html',
+        '<!DOCTYPE html><html><body><script src="/assets/hero.js"></script></body></html>',
+      ),
       file(
         'assets/hero.js',
         'e("span",{className:"eyebrow text-text-subtle opacity-60 uppercase"},"WELCOME")',
@@ -318,7 +339,10 @@ describe('validateEyebrowContrast — opacity-on-muted eyebrow AA-fail class (fi
 
   it('PASSES an eyebrow on a solid brand accent token (the text-contrast fix)', () => {
     const files = [
-      file('index.html', '<!DOCTYPE html><html><body><script src="/assets/hero.js"></script></body></html>'),
+      file(
+        'index.html',
+        '<!DOCTYPE html><html><body><script src="/assets/hero.js"></script></body></html>',
+      ),
       // Solid accent token at full opacity — the --ink-accent / text-accent pattern clears AA.
       file(
         'assets/hero.js',
@@ -331,7 +355,10 @@ describe('validateEyebrowContrast — opacity-on-muted eyebrow AA-fail class (fi
   it('PASSES an eyebrow with a solid muted token at FULL opacity (text-text-muted, no opacity fade)', () => {
     // text-text-muted alone is a legitimate AA-safe mid token; only opacity-fading it fails.
     const files = [
-      file('index.html', '<!DOCTYPE html><html><body><script src="/assets/hero.js"></script></body></html>'),
+      file(
+        'index.html',
+        '<!DOCTYPE html><html><body><script src="/assets/hero.js"></script></body></html>',
+      ),
       file('assets/hero.js', 'e("p",{className:"eyebrow uppercase text-text-muted"},"WELCOME")'),
     ];
     expect(validateEyebrowContrast(files)).toEqual([]);
@@ -339,7 +366,10 @@ describe('validateEyebrowContrast — opacity-on-muted eyebrow AA-fail class (fi
 
   it('does NOT false-positive on a low-opacity utility that is NOT on an eyebrow element', () => {
     const files = [
-      file('index.html', '<!DOCTYPE html><html><body><script src="/assets/hero.js"></script></body></html>'),
+      file(
+        'index.html',
+        '<!DOCTYPE html><html><body><script src="/assets/hero.js"></script></body></html>',
+      ),
       // A decorative divider using text-white/40 — not an eyebrow, must not trip the gate.
       file('assets/hero.js', 'e("span",{className:"divider text-white/40"},"•")'),
     ];
