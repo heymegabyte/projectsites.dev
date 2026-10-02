@@ -573,3 +573,7 @@ launchd banner → in-session cron. Next task-selection now reads the merged fro
 - **Category mix**: product (A1/A2) · UX-a11y (A3) · testing/golden (A4) · loop-improvement (A5) · discovery (R17) — rebalanced fire-71's 0% product / 0% testing.
 - **SHAs**: projectsites.dev **9b7e366b8** (4 slices on main) · template.projectsites.dev **1c83c80**. Prod proof: homepage 200+HSTS+CSP+H1, money path wfp 200.
 - **Frontier updates**: WLK-28 → DONE (coverage closed). Hosting-CTA "no Promote" finding → STALE/resolved (not a defect).
+
+### fire-72 addendum — R17 Deep UI Explorer (CF-PASS)
+- R17-exec (general-purpose, re-dispatched after visual-qa dropped to plan-mode) EXECUTED the analytics deep-walk via NEW `e2e/deep-ui-explorer/analytics-walk.mjs`. Provider **CF-PASS** (cloudflare-browser-run), session `an-2026-10-02T04-40-47-343Z`. 11 states, 0 console errors (only harmless GA4 beacon aborts), vision 8–9/10.
+- **RECONCILE** (verify-against-source-of-truth): display `kpi-pageviews=43` for `lone-mountain-global` (8ebf551b-…) === D1 `visitor_events` ground truth **43** across 7d/30d/90d (all pageviews <7d old → identical is correct, not a window bug). **VERIFIED HONEST-POPULATED** — not lying-empty, not stale. [ANALYTICS] backlog item → DONE.
