@@ -642,7 +642,12 @@ describe('validateHeroLeadsWithBusinessName (HARD gate: hero H1 must lead with t
     `<!DOCTYPE html><html><head><title>x</title></head><body><h1>${h1}</h1></body></html>`;
 
   it('FAILS (error) on an unfilled mustache token in the hero H1 — the substitution did not run', () => {
-    for (const h1 of ['{{business}}', '{{businessName}}', '{{ business_name }}', '{{businessName}} — Fresh daily']) {
+    for (const h1 of [
+      '{{business}}',
+      '{{businessName}}',
+      '{{ business_name }}',
+      '{{businessName}} — Fresh daily',
+    ]) {
       const v = validateHeroLeadsWithBusinessName([file('index.html', shell(h1))]);
       expect(v[0]?.code).toBe('copy.hero_unfilled_token');
       expect(v[0]?.severity).toBe('error');
@@ -681,9 +686,9 @@ describe('validateHeroLeadsWithBusinessName (HARD gate: hero H1 must lead with t
   });
 
   it('skips non-content shells (404/500/offline) — they legitimately carry synthetic H1 copy', () => {
-    expect(
-      validateHeroLeadsWithBusinessName([file('404.html', shell('{{business}}'))]),
-    ).toEqual([]);
+    expect(validateHeroLeadsWithBusinessName([file('404.html', shell('{{business}}'))])).toEqual(
+      [],
+    );
   });
 });
 
