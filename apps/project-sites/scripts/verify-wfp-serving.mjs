@@ -82,8 +82,10 @@ console.log(`${pad('HOST', w)}  STATUS  X-PS-SERVE`);
 console.log(`${'-'.repeat(w)}  ------  ----------`);
 for (const r of results) console.log(`${pad(r.host, w)}  ${pad(r.status, 6)}  ${r.marker}`);
 
-// Strict classification: MISSING on any host, or a WfP-expected host served by r2.
-const missing = results.filter((r) => r.marker === 'MISSING');
+// Strict classification: MISSING on any PUBLISHED-SITE host, or a WfP-expected host served
+// by r2. EXPECTED_R2 hosts (the apex marketing route) never traverse the per-site serving
+// path that stamps x-ps-serve, so they are legitimately header-free — reported, not failed.
+const missing = results.filter((r) => r.marker === 'MISSING' && !EXPECTED_R2.has(r.host));
 const fellBack = results.filter((r) => r.marker === 'r2' && !EXPECTED_R2.has(r.host));
 if (missing.length) {
   console.log(`\n⚠ ${missing.length} host(s) MISSING x-ps-serve (expected on every published site after fire-82): ${missing.map((r) => r.host).join(', ')}`);
