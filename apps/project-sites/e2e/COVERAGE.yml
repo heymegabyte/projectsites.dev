@@ -125,6 +125,7 @@ value_domains:
 
 convergence:
   admin_journey:        { status: covered, specs: [admin-journey.spec.ts] }
+  fire78_admin_ops:     { status: covered, specs: [fire78-admin-ops.spec.ts] }  # Golden-Path fire-78 — ADMIN OPS + PUBLISHED-SITE journey (real owner already signed in manages an EXISTING site through the console, then confirms the published site renders for an anon visitor). Registered fire-86 (orphan spec — pre-existing inventory debt, caught when the Feature Architecture gate fired on a validate-*.mjs touch).
   admin_dashboard_authed: { status: covered, specs: [admin-dashboard.spec.ts] }
   admin_editor:         { status: covered, specs: [admin-editor.spec.ts] }
   section_journeys:     { status: covered, specs: [admin-analytics-journey.spec.ts, admin-apps-journey.spec.ts, admin-forms-journey.spec.ts, admin-social-journey.spec.ts, admin-voice-journey.spec.ts, admin-leads-journey.spec.ts, admin-system-services-journey.spec.ts, admin-docs-journey.spec.ts, admin-settings-journey.spec.ts, admin-billing-journey.spec.ts, admin-domains-journey.spec.ts, admin-team-journey.spec.ts] }
