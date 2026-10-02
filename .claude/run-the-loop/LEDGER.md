@@ -561,3 +561,15 @@ launchd banner → in-session cron. Next task-selection now reads the merged fro
 **Standing roles:** R17 CLOUD_PASS (above). R16 Long-Trail Phase F DEFERRED — the carried editor frame-ancestors CSP blocker was STALE (resolved+deployed live since fire-60; `curl` proved scoped value present); A4's real friction was local-stack boot. Checkpoint intact (action 59).
 **Loop-improvement (§7):** 2 lessons captured (DISCOVERIES + 2 memories) — (1) re-confirm a carried blocker LIVE before assigning an agent; (2) worktree agents borrowing MAIN node_modules must not checkout/stash/reset the whole MAIN tree (clobbered A4's WIP).
 **Attrition:** A3 + A4 truncated mid-stream — A3's dead-code commit salvaged+merged; A4's premise stale (no code lost beyond a non-fix), Phase F re-queued. Zero lead saturation.
+
+## fire-72 — 2026-10-02 — converge: eager-D1 flag · WLK-28 coverage · money-path STALE-confirm · wordmark contrast · loop-improvement
+- **A1** feat(worker): eager per-site D1 provisioning behind default-off `eager_site_d1` flag — fail-soft (throw never blocks create → lazy fallback) + idempotent (owned-site allocation, `ON CONFLICT(site_id) DO NOTHING`). tsc 0 · jest 5/5 · validate:features PASS. Deployed worker **cf8117bc-4b22-4bf8-a324-b07111d775d7**; migration **0654** applied; prod D1 `flag_name=eager_site_d1 enabled=0 stage=experimental` (DARK, verified).
+- **A2** test(admin): WLK-28 Log Explorer render-based coverage — feature already shipped fire-71 (578706449); closed the stub-template coverage gap (RED-proven). 24/24 · ng build 0.
+- **A4** test(e2e): money-path Hosting "no Promote CTA" carried finding = **STALE** (CTA is `<a>`, spec queried `button`). Fixed locator (`data-testid=hosting-publish`) + origin-aware console gate. GREEN 2/2 ×2. Live: `lone-mountain-global` `x-ps-serve: wfp` 200. **NEW DEFECT** found → editor-iframe crash (DISCOVERIES).
+- **A3** fix(header, template.projectsites.dev **1c83c80**): wordmark dark-backing chip + dual halo (~1.1:1→6.1/6.7:1 AA); eyebrow already-AA, not re-churned. vitest 38 · build+validate-site clean. Delivered-site propagation pending next container rebuild.
+- **A5** docs(loop): §5 bullet "re-confirm CARRIED findings live before assigning fix-agent" — the fire's ≥1 loop self-improvement (fire-71 CSP re-fix motivated it; A4 proved it live this fire).
+- **Adversarial review**: GO — 6/6 PASS (flag off both sources · isolation owned-site-only · fail-soft no half-write · A4 gate not over-suppressed · A2 not tautology · A3 overflow/contrast-safe).
+- **Journey**: money-path A (homepage→search→signin→build→editor→Hosting→published view), 13 actions, carried finding STALE-confirmed live.
+- **Category mix**: product (A1/A2) · UX-a11y (A3) · testing/golden (A4) · loop-improvement (A5) · discovery (R17) — rebalanced fire-71's 0% product / 0% testing.
+- **SHAs**: projectsites.dev **9b7e366b8** (4 slices on main) · template.projectsites.dev **1c83c80**. Prod proof: homepage 200+HSTS+CSP+H1, money path wfp 200.
+- **Frontier updates**: WLK-28 → DONE (coverage closed). Hosting-CTA "no Promote" finding → STALE/resolved (not a defect).
