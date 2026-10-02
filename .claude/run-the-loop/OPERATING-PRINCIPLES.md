@@ -293,6 +293,11 @@
   AND `http://localhost:4300` — the item had lingered OPEN in the backlog for ~20 fires after the fix
   shipped (fire-60 `9077b8ebb`). Lesson reinforced: a blocker reconfirmed-RESOLVED must be MARKED
   resolved in the backlog the SAME fire, not left open to re-tempt a fix-agent.
+  Fire-85 (RECURRENCE — the rule restated as a hard invariant): the case-001 checkpoint STILL carried the
+  stale editor-CSP "blocker" and nearly burned a fix-agent a THIRD time. A carried blocker/finding from a
+  PRIOR fire MUST be re-confirmed LIVE THIS fire (curl the header / hit the endpoint / load the view) BEFORE
+  any fix-agent touches it — a deployed fix makes the carried note stale, so a stale note is the DEFAULT
+  expectation, not the exception. Correct the stale note (checkpoint + backlog) the SAME fire you disprove it.
 
 ## Failure taxonomy vs HARD-STOP (recover vs checkpoint — never conflate)
 

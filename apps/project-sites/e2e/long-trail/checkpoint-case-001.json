@@ -51,7 +51,7 @@
   },
   "unit_regressions": {
     "env": "src/__tests__/env_local_dev.test.ts \u2014 GREEN (unchanged).",
-    "frame_ancestors": "src/__tests__/editor_frame_ancestors.test.ts \u2014 GREEN (unchanged; deploy still pending).",
+    "frame_ancestors": "src/__tests__/editor_frame_ancestors.test.ts \u2014 GREEN. Editor CSP DEPLOY CONFIRMED LIVE fire-85: curl -sI https://editor.projectsites.dev returns `frame-ancestors 'self' https://projectsites.dev https://*.projectsites.dev https://bolt-diy-8jf.pages.dev https://bolt.megabyte.space http://localhost:4200 http://localhost:4300`. The prior 'deploy still pending' note was STALE (fix shipped fire-60 9077b8ebb, formally retired fire-80); D-boot iframe legs are UNBLOCKED.",
     "contacts_upsert": "src/__tests__/contacts_upsert.test.ts \u2014 NEW fire-61. Real-SQLite (node:sqlite harness) lock of upsertContact: first-touch insert, REPEAT-submitter update (lower(email) dedupe, latest metadata, last_seen advance), enrich-never-erase, org-scoped identities. RED (module missing) -> GREEN 4/4.",
     "full_suite": "npm test: 895 suites / 14072 tests GREEN after retargeting the moved seam in contact.test.ts + api_routes.test.ts (mock upsertContact instead of dbInsert-for-contacts). tsc --noEmit clean."
   },
@@ -96,7 +96,7 @@
     }
   ],
   "blockers_for_later_phases": [
-    "D-boot iframe legs (#43-45,#53-55): editor.projectsites.dev STILL serves pre-fire-60 frame-ancestors (fire-61 re-verified: prod alias + custom domain lack localhost:4200; the cited Pages deploy 5b23e8bd is a PREVIEW serving frame-ancestors 'none'). Needs a real editor Pages PRODUCTION deploy of public/_headers; this fire was no-deploy by constraint.",
+    "RESOLVED fire-85 (live-verified): D-boot iframe legs (#43-45,#53-55) are NO LONGER BLOCKED. editor.projectsites.dev now serves frame-ancestors INCLUDING http://localhost:4200 + http://localhost:4300 (curl -sI confirmed this fire; fix shipped fire-60 9077b8ebb, retired from BACKLOG infra #10 fire-80). The old fire-61 note ('STILL serves pre-fire-60 frame-ancestors') is STALE — do NOT treat as blocking; drive the D-boot iframe legs live.",
     "Phase F needs the Apps surface driven live (install/remove a disposable app) + tenant-isolation probe (#90) + full ltt-e2e-* cleanup (#91-96).",
     "Local feature flags remain ALL dark (legacy per-org schema, no registry seeds) \u2014 per_site_data / prod_readiness_score legs stay honest dark-404 locally."
   ],
@@ -151,7 +151,7 @@
     "local_db_state": "migrations 0651 + 0652 applied to the local D1 (store fixes, not repo-only)"
   },
   "servers_state_at_checkpoint": "worker wrangler dev :8787 UP (main checkout, hot-reloaded the fire-61 handler edits); ng serve :4200 UP from WORKTREE (warm cache). On resume: docs/local-dev-longtrail.md recipe; remember two-boot ng serve warm.",
-  "resume_recipe": "1) Check servers (curl :8787/health, :4200/). 2) Re-check the editor deploy (curl -sI https://editor.projectsites.dev | grep -i frame-ancestors): if localhost:4200 present, un-fixme D-boot + drop the 4 'Framing' allowlist entries and drive iframe legs live. 3) Else drive Phase F (apps install/remove + isolation + cleanup, case #79-96). 4) Full replay before marking anything done: npx playwright test e2e/long-trail/case-001-money-path.e2e.ts --config e2e/long-trail/playwright.longtrail.config.ts (expect >=7 passed; Phase E is state-aware + rev-idempotent).",
+  "resume_recipe": "1) Check servers (curl :8787/health, :4200/). 2) Editor CSP ALREADY live-verified fire-85 (frame-ancestors includes localhost:4200 + :4300) — D-boot/'Framing' allowlist handling already settled fire-63/79; no re-check needed. 3) Drive Phase F (apps install/remove + isolation + cleanup, case #79-96). 4) Full replay before marking anything done: npx playwright test e2e/long-trail/case-001-money-path.e2e.ts --config e2e/long-trail/playwright.longtrail.config.ts (expect >=7 passed; Phase E is state-aware + rev-idempotent).",
   "safety": {
     "recipient_allowlist": "email ONLY brian@megabyte.space; SMS ONLY the E2E cell (never committed); payments TEST MODE",
     "test_resource_prefix": "ltt-e2e-",
