@@ -24,6 +24,19 @@
  * regeneration uses the SAME resolver the lockfile was written with (a different pnpm major
  * rewrites the lockfile format → false drift).
  *
+ * NON-SEMANTIC METADATA TOLERANCE (fire-87 — fixes the `silRED` class):
+ *   pnpm stamps package entries with `deprecated:` strings it pulls from the npm registry AT
+ *   REGEN TIME (e.g. `@xterm/addon-fit@0.10.0` gained a deprecation notice AFTER the lockfile was
+ *   committed). A `deprecated:` line is a human-readable ANNOTATION ONLY — it carries NO
+ *   resolution, version, or integrity meaning: `--frozen-lockfile` installs the exact SAME tree
+ *   whether the line is present or not. So a registry-side deprecation made CI's regenerated
+ *   lockfile differ from the committed one by annotation lines ALONE, failing this gate with ZERO
+ *   real version drift (and it had already silently RED'd the Feature Architecture gate on main).
+ *   Fix: BOTH sides are normalized — `deprecated:` annotation lines are stripped — before the
+ *   diff. This CANNOT mask real drift: `resolution:` (the integrity hash), `version:`,
+ *   `specifier:`, dependency edges and every other semantic key are still compared verbatim; only
+ *   the pure-prose annotation is ignored. A genuine version/integrity change still fails loudly.
+ *
  * Usage:
  *   node scripts/check-lockfile-drift.mjs          # human output, exit 0/1
  *   node scripts/check-lockfile-drift.mjs --json    # machine summary on stdout, exit 0/1
@@ -75,6 +88,26 @@ function report({ status, drift = 0, sample = [], message, skip = false }) {
   }
   console.error(`  Fix: run 'npx pnpm@${resolvePinnedPnpm()} install --lockfile-only' and commit the updated pnpm-lock.yaml.`);
   process.exit(1);
+}
+
+/**
+ * Strip NON-SEMANTIC `deprecated:` annotation lines so a registry-side deprecation stamped
+ * at regen time doesn't read as drift (fire-87). A lockfile line like
+ *   `    deprecated: This functionality has been moved to @npmcli/fs`
+ * is a human-readable note pnpm copies from the registry — it has NO effect on what
+ * `--frozen-lockfile` installs (resolution/version/integrity are untouched). Removing the WHOLE
+ * line (not blanking it) means a deprecation appearing on EITHER side is ignored symmetrically;
+ * every other line — `resolution:`, `version:`, `specifier:`, dep edges — is preserved verbatim,
+ * so real drift still diffs. Matches `deprecated:` only at a YAML key position (indent + key),
+ * never a `deprecated` substring inside a resolution/integrity value.
+ * @param {string} lock raw pnpm-lock.yaml contents
+ * @returns {string} the contents with `deprecated:` annotation lines removed
+ */
+function stripNonSemanticMetadata(lock) {
+  return lock
+    .split('\n')
+    .filter((line) => !/^\s*deprecated:\s/.test(line))
+    .join('\n');
 }
 
 /** First N unified-diff-ish lines where the two files differ (line-by-line). */
@@ -165,7 +198,21 @@ function main() {
       return;
     }
 
-    const sample = firstDiffLines(original, regenerated);
+    // Byte-identical failed — compare on the SEMANTIC lockfile only (deprecated: annotation
+    // lines stripped from BOTH sides). A diff that was purely a registry-side deprecation stamp
+    // (the fire-87 silRED class) collapses to zero here; any real resolution/version/integrity
+    // change survives the strip and still fails.
+    const originalSemantic = stripNonSemanticMetadata(original);
+    const regeneratedSemantic = stripNonSemanticMetadata(regenerated);
+    if (regeneratedSemantic === originalSemantic) {
+      console.warn(
+        `✓ pnpm-lock.yaml is in sync (differs only by non-semantic deprecated: annotations, ignored).`,
+      );
+      if (wantJson) process.stdout.write(JSON.stringify({ status: 'in-sync', drift: 0, sample: [] }) + '\n');
+      return;
+    }
+
+    const sample = firstDiffLines(originalSemantic, regeneratedSemantic);
     const drift = sample.length;
     report({
       status: 'drift',

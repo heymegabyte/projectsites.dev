@@ -9,6 +9,10 @@
 > `_CF_NATIVE_CONVERGENCE.md`, `_ADMIN_VQA_LEDGER.md`, `_INTERCONNECTEDNESS_LEDGER.md`). This is the
 > INDEX, not a duplicate.
 
+## fire-87 — 2026-10-02 (§7 loop-improvement; FA-gate tolerant of non-semantic pnpm lock `deprecated:` drift — clears carried fire-86 silRED blocker)
+
+- `scripts/check-lockfile-drift.mjs` now strips `deprecated:` annotation lines from BOTH the committed + CI-regen lockfiles before diffing. A registry-side deprecation stamped at regen time (observed near `@xterm/addon-fit@0.10.0`) was failing the Feature Architecture drift gate with ZERO real version change (the `silRED` class). `resolution:`/`version:`/`specifier:`/dep-edges still compared verbatim → real drift still RED. VERIFIED via a deterministic harness vs the real lockfile: metadata-only diff → GREEN, a `0.10.0→0.10.1` version bump → RED, 22 `deprecated:` lines stripped symmetrically. (No deploy — CI gate hardening.)
+
 ## fire-82 — 2026-10-02 (converge; x-ps-serve observability + role-17 money-path clean + analytics cached-first paint + verify-wfp-serving gate + FILE-5 intake absorbed)
 
 Fire: fire-82-converge (2026-10-02). SHIPPED to main + prod-verified:
