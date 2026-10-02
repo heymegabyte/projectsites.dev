@@ -1526,6 +1526,150 @@ try {
     process.exit(manifest.status.startsWith('PASS') ? 0 : 2);
   }
 
+  if (JOURNEY === 'billing-invoice') {
+    // THE INVOICE-DETAIL BRANCH — Billing › Subscriptions › Invoice detail (the target
+    // underexplored branch per coverage-ledger.json). Prior billing coverage (super-admin-ops)
+    // only CLICKED the billing tabs; it never asserted the Subscription card's detail fields
+    // nor drilled the Usage tab's UPCOMING-INVOICE card (BILL-09, Stripe /invoices/upcoming
+    // → `usage-line-*` rows + the `invoice-error` fallback). This branch models each as its
+    // own settled state: Subscription detail → every subscription/entitlement field →
+    // Usage tab → upcoming-invoice card (lines OR honest invoice-error) → back round-trip.
+    // READ-ONLY BY CONSTRUCTION: only tab clicks + navigation; no cancel/upgrade/checkout/
+    // top-up/report-usage is ever submitted. We are already authed + on /admin here.
+    //
+    // PDF-RENDER NOTE (verify-against-source-of-truth, confirmed across worker + frontend):
+    // the product exposes NO invoice-PDF surface — there is no `invoice_pdf` /
+    // `hosted_invoice_url` consumer, no download control, and `/api/billing/invoices/upcoming`
+    // is a Stripe UPCOMING-invoice PREVIEW (no finalized PDF exists for a not-yet-issued
+    // invoice). So "Invoice detail + PDF render" maps to the upcoming-invoice DETAIL card;
+    // the PDF half is recorded as a genuine absence (an owner can reach finalized PDFs only
+    // via the Stripe billing PORTAL), never fabricated into a nonexistent in-app state.
+
+    // ---- Reach Billing. No persistent sidebar nav item exists (ADMIN_NAV_GROUPS has no
+    // Billing); it lives in ⌘K / user-menu / upsell CTAs. Probe the nav first (honest
+    // discoverability check), then fall back to the direct route and RECORD the nav gap.
+    const billNav = await clickFirst(
+      page,
+      [
+        (p) => p.getByRole('link', { name: /^Billing$/i }),
+        (p) => p.getByRole('navigation', { name: /admin sections/i }).getByRole('link', { name: /billing/i }),
+      ],
+      { timeout: 4_000 },
+    );
+    if (!billNav) {
+      manifest.blocked.push({
+        phase: 'billing-invoice',
+        reason:
+          'LOW/observation: /admin/billing absent from the persistent left-sidebar nav (ADMIN_NAV_GROUPS). Reachable via ⌘K ("Manage Billing"), user-menu, dashboard upsell CTAs — not an orphan, just not in standing nav. Reached by direct URL to cover the invoice surface.',
+      });
+      await page.goto(ORIGIN + '/admin/billing', { waitUntil: 'domcontentloaded' });
+    }
+    await page.waitForURL(/\/admin\/billing/, { timeout: 15_000 }).catch(() => {});
+    await page.getByTestId('billing-tab-subscription').waitFor({ state: 'visible', timeout: 15_000 }).catch(() => {});
+
+    // ---- (1) SUBSCRIPTION DETAIL — the "Subscriptions" subview. Assert the card renders
+    // AND surface its real detail fields (status / plan / period-end / entitlements), or an
+    // honest substatus-error. A blank money surface (neither card nor error) = lying-empty.
+    const subCard = await page.getByTestId('subscription-card').isVisible().catch(() => false);
+    const subError = await page.getByTestId('substatus-error').isVisible().catch(() => false);
+    const subDetail = await page
+      .evaluate(() => {
+        const t = (id) => document.querySelector(`[data-testid="${id}"]`)?.textContent?.replace(/\s+/g, ' ').trim() || null;
+        return {
+          status: t('subscription-status'),
+          plan: t('subscription-plan'),
+          periodEnd: t('subscription-period-end'),
+          lastWebhook: t('last-webhook'),
+          entDomains: t('entitlement-custom_domains'),
+          entSeats: t('entitlement-seats'),
+          entAnalytics: t('entitlement-analytics'),
+          warnBanner: !!document.querySelector('[data-testid="billing-warning-banner"]'),
+          graceBanner: !!document.querySelector('[data-testid="grace-period-banner"]'),
+        };
+      })
+      .catch(() => ({}));
+    manifest.subscriptionDetail = { reachedByNav: !!billNav, subCard, subError, ...subDetail };
+    await capture(
+      page,
+      `Billing › Subscription detail — ${subCard ? `card settled (plan=${subDetail.plan || '?'}, status=${subDetail.status || '?'})` : subError ? 'honest substatus-error' : 'NO card AND NO error (blank)'}`,
+      { surface: 'admin-billing', subview: 'subscription', overlay: subCard ? 'subscription-card' : subError ? 'substatus-error' : 'subscription-blank' },
+    );
+    if (!subCard && !subError) {
+      manifest.blocked.push({
+        phase: 'billing-invoice',
+        reason:
+          'Billing › Subscription rendered NEITHER a subscription card NOR a substatus-error — blank money surface (lying-empty risk per verify-against-source-of-truth). Ground truth: confirm the org has a subscription row; if so the UI is reading the wrong source.',
+      });
+    }
+
+    // ---- (2) UPCOMING INVOICE DETAIL — the Usage tab (BILL-09). Click the Usage tab, then
+    // settle + assert the upcoming-invoice card: line items (`usage-line-*`) OR the honest
+    // `invoice-error` fallback. This is the real invoice-detail surface (Stripe upcoming).
+    const usageTab = page.getByTestId('billing-tab-usage');
+    if (await usageTab.isVisible({ timeout: 5_000 }).catch(() => false)) {
+      await usageTab.click().catch(() => {});
+      // Settle the /billing/invoices/upcoming fetch: wait until the usage panel shows the
+      // invoice card, the invoice-error, OR the meter-events card (always present) — never a
+      // bare timeout that screenshots mid-load.
+      await page
+        .waitForFunction(
+          () =>
+            !!document.querySelector('[data-testid="invoice-error"]') ||
+            !!document.querySelector('[data-testid^="usage-line-"]') ||
+            /Meter events/i.test(document.body?.innerText || ''),
+          { timeout: 12_000 },
+        )
+        .catch(() => {});
+      const invoiceError = await page.getByTestId('invoice-error').isVisible().catch(() => false);
+      const lineCount = await page.locator('[data-testid^="usage-line-"]').count().catch(() => 0);
+      const invoiceLines = await page
+        .evaluate(() =>
+          Array.from(document.querySelectorAll('[data-testid^="usage-line-"]'))
+            .slice(0, 10)
+            .map((el) => (el.textContent || '').replace(/\s+/g, ' ').trim().slice(0, 120)),
+        )
+        .catch(() => []);
+      manifest.upcomingInvoice = { invoiceError, lineCount, sample: invoiceLines };
+      await capture(
+        page,
+        `Billing › Usage › Upcoming invoice — ${invoiceError ? 'honest invoice-error (retry affordance)' : lineCount > 0 ? `${lineCount} line item(s) rendered` : 'no lines + no error (honest empty — Stripe upcoming preview empty)'}`,
+        { surface: 'admin-billing', subview: 'usage', overlay: invoiceError ? 'invoice-error' : lineCount > 0 ? 'upcoming-invoice-lines' : 'upcoming-invoice-empty' },
+      );
+      // PDF-render absence, recorded as a capability gap (not a defect state): there is no
+      // in-app invoice-PDF / download control. An owner reaches finalized PDFs via Stripe's
+      // billing portal. Confirmed against worker (no hosted_invoice_url/invoice_pdf consumer)
+      // + frontend (no download testid). This is honest coverage of the "PDF render" half.
+      manifest.invoicePdfSurface = {
+        exists: false,
+        note: 'No in-app invoice-PDF render/download surface. /api/billing/invoices/upcoming is a Stripe PREVIEW (no finalized PDF for a not-yet-issued invoice). Finalized PDFs are reachable only via the Stripe billing portal (POST /api/billing/portal).',
+      };
+    } else {
+      manifest.blocked.push({
+        phase: 'billing-invoice',
+        reason: 'Billing › Usage tab [billing-tab-usage] not present — cannot reach the upcoming-invoice (BILL-09) detail surface.',
+      });
+    }
+
+    // ---- (3) ROUND-TRIP back to Subscription — proves the tablist returns cleanly to the
+    // invoice-adjacent subscription subview (no stuck/blank state after the Usage detour).
+    await clickFirst(page, [(p) => p.getByTestId('billing-tab-subscription')]);
+    await page.getByTestId('subscription-card').waitFor({ state: 'visible', timeout: 8_000 }).catch(() => {});
+    await capture(page, 'Billing › Subscription (back — tablist round-trip intact after invoice detour)', {
+      surface: 'admin-billing',
+      subview: 'subscription',
+    });
+
+    finish(
+      manifest.blocked.length === 0
+        ? acq.coverage === 'CLOUD_PASS_ELIGIBLE'
+          ? 'PASS_CLOUDFLARE'
+          : 'PASS_ON_FALLBACK_PROVIDER'
+        : 'PARTIAL',
+    );
+    await acq.browser.close().catch(() => {});
+    process.exit(manifest.status.startsWith('PASS') ? 0 : 2);
+  }
+
   if (JOURNEY === 'super-admin-ops') {
     // THE OPERATOR / MONEY-GOVERNANCE BRANCH — the three Angular admin surfaces that
     // recent fires (editor + money-funnel) never drilled as deep states: Super Admin

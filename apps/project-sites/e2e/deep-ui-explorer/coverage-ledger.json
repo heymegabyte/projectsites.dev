@@ -2,35 +2,35 @@
   "states": {
     "/::public-home::::d05f796d": {
       "discovered": "2026-09-29T19:57:38.675Z",
-      "visits": 27,
+      "visits": 28,
       "status": "visited",
       "lastAction": "homepage loads (initial state)",
-      "lastVisited": "2026-10-02T05:53:01.539Z",
-      "lastRun": "dux-2026-10-02T05-52-47-703Z"
+      "lastVisited": "2026-10-02T11:27:42.003Z",
+      "lastRun": "dux-2026-10-02T11-27-33-653Z"
     },
     "/signin::signin::::576d826f": {
       "discovered": "2026-09-29T19:57:43.656Z",
-      "visits": 26,
+      "visits": 27,
       "status": "visited",
       "lastAction": "click Sign In (header) → /signin",
-      "lastVisited": "2026-10-02T05:53:07.248Z",
-      "lastRun": "dux-2026-10-02T05-52-47-703Z"
+      "lastVisited": "2026-10-02T11:27:47.760Z",
+      "lastRun": "dux-2026-10-02T11-27-33-653Z"
     },
     "/signin::signin-test-seam::::02622a42": {
       "discovered": "2026-09-29T19:57:48.051Z",
-      "visits": 26,
+      "visits": 27,
       "status": "visited",
       "lastAction": "enter test seam (/signin?test=1) — panel render",
-      "lastVisited": "2026-10-02T05:53:10.359Z",
-      "lastRun": "dux-2026-10-02T05-52-47-703Z"
+      "lastVisited": "2026-10-02T11:27:50.564Z",
+      "lastRun": "dux-2026-10-02T11-27-33-653Z"
     },
     "/admin::admin-dashboard::::fec53253": {
       "discovered": "2026-09-29T19:57:55.718Z",
-      "visits": 28,
+      "visits": 29,
       "status": "visited",
-      "lastAction": "nav → Dashboard (tour closes)",
-      "lastVisited": "2026-10-02T05:53:48.742Z",
-      "lastRun": "dux-2026-10-02T05-52-47-703Z"
+      "lastAction": "test login submit → lands /admin",
+      "lastVisited": "2026-10-02T11:27:55.570Z",
+      "lastRun": "dux-2026-10-02T11-27-33-653Z"
     },
     "/admin/editor::admin-editor-shell::::6eca7550": {
       "discovered": "2026-09-29T19:58:16.461Z",
@@ -730,11 +730,11 @@
     },
     "/admin/billing::admin-billing::::7b9732eb": {
       "discovered": "2026-10-02T02:49:41.867Z",
-      "visits": 4,
+      "visits": 5,
       "status": "visited",
-      "lastAction": "Billing › Subscription (back — tablist round-trip intact)",
-      "lastVisited": "2026-10-02T02:58:01.764Z",
-      "lastRun": "dux-2026-10-02T02-57-00-467Z"
+      "lastAction": "Billing › Subscription (back — tablist round-trip intact after invoice detour)",
+      "lastVisited": "2026-10-02T11:28:15.238Z",
+      "lastRun": "dux-2026-10-02T11-27-33-653Z"
     },
     "/admin/feature-flags::admin-feature-flags::flag-inspect::8712be39": {
       "discovered": "2026-10-02T02:54:51.007Z",
@@ -767,9 +767,35 @@
       "lastAction": "Feature Flags — stage filter → experimental",
       "lastVisited": "2026-10-02T02:57:25.890Z",
       "lastRun": "dux-2026-10-02T02-57-00-467Z"
+    },
+    "/admin/billing::admin-billing::subscription-card::d125b11a": {
+      "discovered": "2026-10-02T11:28:10.014Z",
+      "visits": 1,
+      "status": "visited",
+      "lastAction": "Billing › Subscription detail — card settled (plan=Pro · $50/mo, status=Active)",
+      "lastVisited": "2026-10-02T11:28:10.014Z",
+      "lastRun": "dux-2026-10-02T11-27-33-653Z"
+    },
+    "/admin/billing::admin-billing::upcoming-invoice-lines::d206088e": {
+      "discovered": "2026-10-02T11:28:12.857Z",
+      "visits": 1,
+      "status": "visited",
+      "lastAction": "Billing › Usage › Upcoming invoice — 1 line item(s) rendered",
+      "lastVisited": "2026-10-02T11:28:12.857Z",
+      "lastRun": "dux-2026-10-02T11-27-33-653Z"
     }
   },
   "runs": [
+    {
+      "runId": "dux-2026-10-02T11-27-33-653Z",
+      "journey": "billing-invoice",
+      "status": "PARTIAL",
+      "provider": "cloudflare-browser-run",
+      "coverage": "CLOUD_PASS_ELIGIBLE",
+      "statesVisited": 7,
+      "blockedStates": {},
+      "finishedAt": "2026-10-02T11:28:15.238Z"
+    },
     {
       "runId": "dux-2026-10-02T05-52-47-703Z",
       "journey": "admin-breadth",

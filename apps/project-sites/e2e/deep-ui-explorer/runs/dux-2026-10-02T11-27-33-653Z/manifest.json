@@ -1,0 +1,198 @@
+{
+  "runId": "dux-2026-10-02T11-27-33-653Z",
+  "origin": "https://projectsites.dev",
+  "viewport": {
+    "width": 1440,
+    "height": 900
+  },
+  "startedAt": "2026-10-02T11:27:33.653Z",
+  "provider": "cloudflare-browser-run",
+  "providerCoverage": "CLOUD_PASS_ELIGIBLE",
+  "sessionId": "cf-browser-run:84fa0d1b…:dux-2026-10-02T11-27-33-653Z",
+  "identity": {
+    "status": 200,
+    "email": "brian@megabyte.space",
+    "orgId": "org-brian-001",
+    "isSuperAdmin": true,
+    "orgName": "Brian Z",
+    "expectedEmail": "brian@megabyte.space"
+  },
+  "deepPath": "homepage → sign-in → /admin → Editor → Database → Tables → Actions → History",
+  "status": "PARTIAL",
+  "blocked": [
+    {
+      "phase": "billing-invoice",
+      "reason": "LOW/observation: /admin/billing absent from the persistent left-sidebar nav (ADMIN_NAV_GROUPS). Reachable via ⌘K (\"Manage Billing\"), user-menu, dashboard upsell CTAs — not an orphan, just not in standing nav. Reached by direct URL to cover the invoice surface."
+    }
+  ],
+  "states": [
+    {
+      "id": 1,
+      "key": "/::public-home::::d05f796d",
+      "prevId": null,
+      "action": "homepage loads (initial state)",
+      "url": "https://projectsites.dev/",
+      "title": "ProjectSites — AI Website Builder, Live in 4 Minutes",
+      "coords": {
+        "route": "/",
+        "surface": "public-home"
+      },
+      "screenshot": "01-homepage-loads-initial-state.png",
+      "visibleText": "Project Sites builds and deploys complete AI-generated websites for small business in under 15 minutes on Cloudflare Workers. The AI gateway routes each prompt to the right model by complexity — instant responses via Workers AI (free), routine generation via DeepSeek, premium reasoning via Anthropic Claude or OpenAI. Every publish runs an axe-core accessibility gate at six viewports and a Lighthouse Core Web Vitals gate, blocking deploys that fail WCAG 2.2 AA or LCP under 2.5 seconds. Skip to main content Features Pricing FAQ Developers ES Sign In Get Started AI-powered website delivery for local businesses Tell us your business. We'll build your website. Search your business, sign in, get a gorgeous AI-generated site — hosted, SSL, live. We don't sell websites. We deliver them. Claim Your Site See How It Works View Example Sites your-business.projectsites.dev See the difference Drag the slider to compare a generic small-business site with one built by projectsites.dev. GENERIC COMPETITOR BUILT WITH PROJECTSITES.DEV 2+ Sites Built 99.99% Uptime 4 min Build Time 330+ Edge Locations BUILT ON Cloudflare D1 R2 Workers AI bolt.diy How It Works Three steps to a stunning website 01 Search",
+      "consoleErrors": [],
+      "failedRequests": [
+        "POST https://www.google-analytics.com/g/collect?v=2&tid=G-VBBRRQLDFT&gtm=45je6a10h2v9243930590za200zd9243930590xf1&_p=1790940456754&gcd=13l3l3l3l1l1&npa=0&dma=0&are= :: net::ERR_ABORTED",
+        "POST https://www.google-analytics.com/g/collect?v=2&tid=G-VBBRRQLDFT&gtm=45je6a10h2v9243930590za200zd9243930590xf1&_p=1790940456754&gcd=13l3l3l3l1l1&npa=0&dma=0&_eu= :: net::ERR_ABORTED"
+      ],
+      "ts": "2026-10-02T11:27:42.003Z"
+    },
+    {
+      "id": 2,
+      "key": "/signin::signin::::576d826f",
+      "prevId": 1,
+      "action": "click Sign In (header) → /signin",
+      "url": "https://projectsites.dev/signin",
+      "title": "Sign In — Manage Your AI Website | ProjectSites",
+      "coords": {
+        "route": "/signin",
+        "surface": "signin"
+      },
+      "screenshot": "02-click-sign-in-header-signin.png",
+      "visibleText": "Project Sites builds and deploys complete AI-generated websites for small business in under 15 minutes on Cloudflare Workers. The AI gateway routes each prompt to the right model by complexity — instant responses via Workers AI (free), routine generation via DeepSeek, premium reasoning via Anthropic Claude or OpenAI. Every publish runs an axe-core accessibility gate at six viewports and a Lighthouse Core Web Vitals gate, blocking deploys that fail WCAG 2.2 AA or LCP under 2.5 seconds. Skip to main content Home Pricing Contact Welcome back Sign in to manage your sites. Email Password Sign in OR Continue with Google Continue with GitHub Email me a magic link Enter your email above to get a passwordless magic link. New here? Create an account",
+      "consoleErrors": [],
+      "failedRequests": [
+        "POST https://www.google-analytics.com/g/collect?v=2&tid=G-VBBRRQLDFT&gtm=45je6a10h2v9243930590za200zd9243930590xf1&_p=1790940456754&gcd=13l3l3l3l1l1&npa=0&dma=0&_eu= :: net::ERR_ABORTED",
+        "POST https://www.google-analytics.com/g/collect?v=2&tid=G-VBBRRQLDFT&gtm=45je6a10h2v9243930590za200zd9243930590xf1&_p=1790940456754&gcd=13l3l3l3l1l1&npa=0&dma=0&_eu= :: net::ERR_ABORTED"
+      ],
+      "ts": "2026-10-02T11:27:47.760Z"
+    },
+    {
+      "id": 3,
+      "key": "/signin::signin-test-seam::::02622a42",
+      "prevId": 2,
+      "action": "enter test seam (/signin?test=1) — panel render",
+      "url": "https://projectsites.dev/signin?test=1",
+      "title": "Sign In — Manage Your AI Website | ProjectSites",
+      "coords": {
+        "route": "/signin",
+        "surface": "signin-test-seam"
+      },
+      "screenshot": "03-enter-test-seam-signin-test-1-panel-render.png",
+      "visibleText": "Project Sites builds and deploys complete AI-generated websites for small business in under 15 minutes on Cloudflare Workers. The AI gateway routes each prompt to the right model by complexity — instant responses via Workers AI (free), routine generation via DeepSeek, premium reasoning via Anthropic Claude or OpenAI. Every publish runs an axe-core accessibility gate at six viewports and a Lighthouse Core Web Vitals gate, blocking deploys that fail WCAG 2.2 AA or LCP under 2.5 seconds. Skip to main content Home Pricing Contact Welcome back Sign in to manage your sites. TEST SIGN-IN Sign in (test) Email Password Sign in OR Continue with Google Continue with GitHub Email me a magic link Enter your email above to get a passwordless magic link. New here? Create an account",
+      "consoleErrors": [],
+      "failedRequests": [
+        "POST https://www.google-analytics.com/g/collect?v=2&tid=G-VBBRRQLDFT&gtm=45je6a10h2v9243930590za200zb9243917138zd9243917138xf1&_p=1790940468079&gcd=13l3l3l3l1l1&npa= :: net::ERR_ABORTED",
+        "POST https://www.google-analytics.com/g/collect?v=2&tid=G-VBBRRQLDFT&gtm=45je6a10h2v9243930590za200zb9243917138zd9243917138xf1&_p=1790940468079&gcd=13l3l3l3l1l1&npa= :: net::ERR_ABORTED"
+      ],
+      "ts": "2026-10-02T11:27:50.564Z"
+    },
+    {
+      "id": 4,
+      "key": "/admin::admin-dashboard::::fec53253",
+      "prevId": 3,
+      "action": "test login submit → lands /admin",
+      "url": "https://projectsites.dev/admin",
+      "title": "Dashboard · ProjectSites",
+      "coords": {
+        "route": "/admin",
+        "surface": "admin-dashboard"
+      },
+      "screenshot": "04-test-login-submit-lands-admin.png",
+      "visibleText": "Project Sites builds and deploys complete AI-generated websites for small business in under 15 minutes on Cloudflare Workers. The AI gateway routes each prompt to the right model by complexity — instant responses via Workers AI (free), routine generation via DeepSeek, premium reasoning via Anthropic Claude or OpenAI. Every publish runs an axe-core accessibility gate at six viewports and a Lighthouse Core Web Vitals gate, blocking deploys that fail WCAG 2.2 AA or LCP under 2.5 seconds. Skip to main content Dashboard section L Lone Mountain Global LIVE 1 L WORKSPACE Dashboard Sites Editor Snapshots Analytics CAPABILITIES Forms Apps Hosting Features Social Voice OPERATIONS Logs Feature Flags Lead Scanner System Services KV Inspector R2 Inspector Vectorize Inspector Queues Inspector ACCOUNT Docs Settings Super admin lone-mountain-global.projectsites.dev Dashboard ⌘K Actions 6 ? Dashboard GETTING STARTED Finish setting up your site 2/4 Create your first site Publish your site Add a custom domain Add a domain → Invite a teammate or explore AI features Dismiss checklist Operator cockpit LIVE LIVE · FROM YOUR ACCOUNT, AUTO-REFRESHED EVERY 30S — NO REFRESH NEEDED 1 Sites live site published",
+      "consoleErrors": [],
+      "failedRequests": [
+        "POST https://www.google-analytics.com/g/collect?v=2&tid=G-VBBRRQLDFT&gtm=45je6a10h2v9243930590za200zb9243917138zd9243917138xf1&_p=1790940468079&gcd=13l3l3l3l1l1&npa= :: net::ERR_ABORTED"
+      ],
+      "ts": "2026-10-02T11:27:55.570Z"
+    },
+    {
+      "id": 5,
+      "key": "/admin/billing::admin-billing::subscription-card::d125b11a",
+      "prevId": 4,
+      "action": "Billing › Subscription detail — card settled (plan=Pro · $50/mo, status=Active)",
+      "url": "https://projectsites.dev/admin/billing",
+      "title": "Billing · ProjectSites",
+      "coords": {
+        "route": "/admin/billing",
+        "surface": "admin-billing",
+        "subview": "subscription",
+        "overlay": "subscription-card"
+      },
+      "screenshot": "05-billing-subscription-detail-card-settled-plan-pro-50-mo-stat.png",
+      "visibleText": "Project Sites builds and deploys complete AI-generated websites for small business in under 15 minutes on Cloudflare Workers. The AI gateway routes each prompt to the right model by complexity — instant responses via Workers AI (free), routine generation via DeepSeek, premium reasoning via Anthropic Claude or OpenAI. Every publish runs an axe-core accessibility gate at six viewports and a Lighthouse Core Web Vitals gate, blocking deploys that fail WCAG 2.2 AA or LCP under 2.5 seconds. Skip to main content Billing section L Lone Mountain Global LIVE 1 L WORKSPACE Dashboard Sites Editor Snapshots Analytics CAPABILITIES Forms Apps Hosting Features Social Voice OPERATIONS Logs Feature Flags Lead Scanner System Services KV Inspector R2 Inspector Vectorize Inspector Queues Inspector ACCOUNT Docs Settings Super admin lone-mountain-global.projectsites.dev Billing ⌘K Actions 6 ? PLAN & USAGE Billing PRO · $50/MO AI credits power form routing, chat, and your custom AI endpoints. Per-site cost breakdown + spend alerts below. Subscription Add-ons Wallet Usage / Metering Agency / Connect Affiliates Subscription Your current plan and billing cycle. Active PLAN Pro · $50/mo RENEWS 2026-08-24 19:3",
+      "consoleErrors": [],
+      "failedRequests": [
+        "POST https://www.google-analytics.com/g/collect?v=2&tid=G-VBBRRQLDFT&gtm=45je6a10h2v9243930590za200zb9243917138zd9243917138xf1&_p=1790940468079&gcd=13l3l3l3l1l1&npa= :: net::ERR_ABORTED"
+      ],
+      "ts": "2026-10-02T11:28:10.014Z"
+    },
+    {
+      "id": 6,
+      "key": "/admin/billing::admin-billing::upcoming-invoice-lines::d206088e",
+      "prevId": 5,
+      "action": "Billing › Usage › Upcoming invoice — 1 line item(s) rendered",
+      "url": "https://projectsites.dev/admin/billing?tab=usage",
+      "title": "ProjectSites — AI Website Builder, Live in 4 Minutes",
+      "coords": {
+        "route": "/admin/billing",
+        "surface": "admin-billing",
+        "subview": "usage",
+        "overlay": "upcoming-invoice-lines"
+      },
+      "screenshot": "06-billing-usage-upcoming-invoice-1-line-item-s-rendered.png",
+      "visibleText": "Project Sites builds and deploys complete AI-generated websites for small business in under 15 minutes on Cloudflare Workers. The AI gateway routes each prompt to the right model by complexity — instant responses via Workers AI (free), routine generation via DeepSeek, premium reasoning via Anthropic Claude or OpenAI. Every publish runs an axe-core accessibility gate at six viewports and a Lighthouse Core Web Vitals gate, blocking deploys that fail WCAG 2.2 AA or LCP under 2.5 seconds. Skip to main content Billing section L Lone Mountain Global LIVE 1 L WORKSPACE Dashboard Sites Editor Snapshots Analytics CAPABILITIES Forms Apps Hosting Features Social Voice OPERATIONS Logs Feature Flags Lead Scanner System Services KV Inspector R2 Inspector Vectorize Inspector Queues Inspector ACCOUNT Docs Settings Super admin lone-mountain-global.projectsites.dev Billing ⌘K Actions 6 ? PLAN & USAGE Billing PRO · $50/MO AI credits power form routing, chat, and your custom AI endpoints. Per-site cost breakdown + spend alerts below. Subscription Add-ons Wallet Usage / Metering Agency / Connect Affiliates Usage & Metering Per-site usage events posted to Stripe Meters. Usage charges appear on your next",
+      "consoleErrors": [],
+      "failedRequests": [],
+      "ts": "2026-10-02T11:28:12.857Z"
+    },
+    {
+      "id": 7,
+      "key": "/admin/billing::admin-billing::::7b9732eb",
+      "prevId": 6,
+      "action": "Billing › Subscription (back — tablist round-trip intact after invoice detour)",
+      "url": "https://projectsites.dev/admin/billing?tab=subscription",
+      "title": "ProjectSites — AI Website Builder, Live in 4 Minutes",
+      "coords": {
+        "route": "/admin/billing",
+        "surface": "admin-billing",
+        "subview": "subscription"
+      },
+      "screenshot": "07-billing-subscription-back-tablist-round-trip-intact-after-in.png",
+      "visibleText": "Project Sites builds and deploys complete AI-generated websites for small business in under 15 minutes on Cloudflare Workers. The AI gateway routes each prompt to the right model by complexity — instant responses via Workers AI (free), routine generation via DeepSeek, premium reasoning via Anthropic Claude or OpenAI. Every publish runs an axe-core accessibility gate at six viewports and a Lighthouse Core Web Vitals gate, blocking deploys that fail WCAG 2.2 AA or LCP under 2.5 seconds. Skip to main content Billing section L Lone Mountain Global LIVE 1 L WORKSPACE Dashboard Sites Editor Snapshots Analytics CAPABILITIES Forms Apps Hosting Features Social Voice OPERATIONS Logs Feature Flags Lead Scanner System Services KV Inspector R2 Inspector Vectorize Inspector Queues Inspector ACCOUNT Docs Settings Super admin lone-mountain-global.projectsites.dev Billing ⌘K Actions 6 ? PLAN & USAGE Billing PRO · $50/MO AI credits power form routing, chat, and your custom AI endpoints. Per-site cost breakdown + spend alerts below. Subscription Add-ons Wallet Usage / Metering Agency / Connect Affiliates Subscription Your current plan and billing cycle. Active PLAN Pro · $50/mo RENEWS 2026-08-24 19:3",
+      "consoleErrors": [],
+      "failedRequests": [],
+      "ts": "2026-10-02T11:28:15.238Z"
+    }
+  ],
+  "providerEndpoint": "wss://api.cloudflare.com/client/v4/accounts/<acct>/browser-run/devtools/browser?keep_alive=600000",
+  "providerAttempts": [],
+  "journey": "billing-invoice",
+  "playwrightBase": "…/apps/project-sites/frontend",
+  "subscriptionDetail": {
+    "reachedByNav": false,
+    "subCard": true,
+    "subError": false,
+    "status": "Active",
+    "plan": "Pro · $50/mo",
+    "periodEnd": "2026-08-24 19:35:41",
+    "lastWebhook": null,
+    "entDomains": "10",
+    "entSeats": "10",
+    "entAnalytics": "Included",
+    "warnBanner": false,
+    "graceBanner": false
+  },
+  "upcomingInvoice": {
+    "invoiceError": false,
+    "lineCount": 1,
+    "sample": [
+      "Pro plan $50.00"
+    ]
+  },
+  "invoicePdfSurface": {
+    "exists": false,
+    "note": "No in-app invoice-PDF render/download surface. /api/billing/invoices/upcoming is a Stripe PREVIEW (no finalized PDF for a not-yet-issued invoice). Finalized PDFs are reachable only via the Stripe billing portal (POST /api/billing/portal)."
+  },
+  "finishedAt": "2026-10-02T11:28:15.238Z",
+  "elapsedMs": 41585
+}
