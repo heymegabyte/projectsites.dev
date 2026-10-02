@@ -605,4 +605,4 @@ launchd banner → in-session cron. Next task-selection now reads the merged fro
 - Role 17 (Deep UI Explorer): produced a plan (did not execute the run); explorer pipeline confirmed LIVE (same-day cloudflare-browser-run CLOUD_PASS, brian@megabyte.space isSuperAdmin). Role-16 long-trail deferred this fire (avoid 2 browser roles on one stack; checkpoint-case-001 resumes next fire).
 - Gates: tsc 0 · validate:features PASS 0-drift · lefthook pre-commit (resurrection-guard + feature-drift) PASS
 - loop-improvement: check-safe-fetch-redirect.mjs SSRF redirect-follow detector (Detect+Surface rung, audit-arc ladder) + salvaged the dead lead's ageMin lock-diagnostics helper
-- prod-verify: SEE_DEPLOY_SECTION
+- prod-verify: worker deployed v625fa920-dcde-4ac3-91c1-bd5f904c8968; homepage 200 (title+H1, money-path entry), HSTS+CSP+nosniff intact, /api/health ok (kv+r2), soft-404 correct. SSRF fix live (hardening; no regression).
