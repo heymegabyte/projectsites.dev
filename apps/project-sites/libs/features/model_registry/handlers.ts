@@ -143,8 +143,8 @@ modelRegistry.get('/v1/models', async (c) => {
   // Feature flag gate — 404 (never 403) when disabled, before auth (no leak).
   if (!(await isFlagOn(c.env, FLAG_KEY, {}))) return darkNotFound(c);
 
-  const unauthorized = await requireApiKey(c);
-  if (unauthorized) return unauthorized;
+  const authError = await requireApiKey(c);
+  if (authError) return authError;
 
   const data = [
     ...VIRTUAL_SERVICE_MODELS.map((v) => virtualEntry(v.id, v.description)),
@@ -171,8 +171,8 @@ modelRegistry.get('/v1/models', async (c) => {
 modelRegistry.get('/v1/models/:id', async (c) => {
   if (!(await isFlagOn(c.env, FLAG_KEY, {}))) return darkNotFound(c);
 
-  const unauthorized = await requireApiKey(c);
-  if (unauthorized) return unauthorized;
+  const authError = await requireApiKey(c);
+  if (authError) return authError;
 
   const id = c.req.param('id');
 
