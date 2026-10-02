@@ -1405,3 +1405,25 @@
 - [frontend P2] Editor "site-not-found" empty-state actionability — assert a navigable "pick/create a site" CTA, not a dead-end on a stale/foreign siteId.
 
 ### CF-scout (R-E): no new releases / no urgent deprecations since fire-54 sweep. Standing pilots unchanged.
+
+## fire-78 replenish — 2026-10-02
+
+**Done this fire:** WebGL per-site `webgl`-block override → buildPrompt (`f256a4c7f`); golden-path admin-ops long spec authored (`b3ee9d3f7`, skipped pending E2E_TEST_PASSWORD).
+**Closed-stale (do NOT re-open):** fire-58 voice-number killswitch — already live `65cc02b68`.
+
+**Next-wave (Product Discovery — North-Star speed/cost → money-path → quality):**
+1. [container-warm-pool] pre-boot a warm container pool so builds skip 1-3min cold-boot DO init · accept: p50 search→live −≥60s vs 5m29s baseline over 3 gp-09 cycles (build_metrics.wall_ms) · site-generation.ts:655-705 + container DO · arch · 🔑Brian-gated (standing compute cost)
+2. [skip-container-for-template-customize] route deterministic seed/template-customize fast-path builds OFF the 15min container onto a Worker/Workflow step · accept: fast-path <90s, container_minutes=0 · build_llm_credit.ts:35 + site-generation.ts · arch · decision-independent — BIGGEST $/build lever
+3. [parallel-finalize-validate-visual] run validate-build + visual-inspection + benchmark-and-learn concurrently (no mutation dep) · accept: tail-phase wall_ms −≥30s, 3 verdicts persist · site-generation.ts finalize chain · arch · decision-independent
+4. [money-path-headless-verify-rail] gp-05/LB-1 CI money-path drives checkout via real browser (CF Browser Run/Turnstile) or *.workers.dev bypass — apex non-GET=403 cf-mitigated (RECONFIRMED fire-78) · accept: CI spec asserts checkout.stripe.com redirect · e2e/ + run-the-loop.yml · testing · decision-independent — BLOCKS LB-1 green
+5. [checkout-post-challenge-exempt] decide/doc a WAF skip-rule so Turnstile-token'd browser POSTs to conversion/claim checkout aren't challenged · accept: browser POST w/ valid token returns app response not CF interstitial · zone WAF + conversion_checkout/handlers.ts · money-path · 🔑Brian-gated (security posture)
+6. [cheaper-model-quality-hold] A/B content-gen model (Workers-AI Llama 3.3 70B FP8 free) w/ vision+Flesch floor · accept: ≥90% builds hold vision≥8 + Flesch≥52, est_cost drops · site-generation.ts content step + build_budget.ts · discovery · decision-independent
+7. [gp09-disposable-cycle-harness] automate non-destructive gp-09 recreate-cycle measurement (disposable gp09-<ts> site) → 3-cycle p50/p95 + $/build verdict for LB-3 · accept: one cmd asserts <5min/≤$1 each · e2e/ + build_metrics.ts · testing · decision-independent
+8. [claim-flow-flag-promote] add promotion gate flipping claim_flow experimental→beta only after BL 1312/1314/1319 land · accept: checklist asserts frontend caller + prod E2E + both funnel events · claim_flow/feature.manifest.ts · money-path · 🔑Brian-gated (live revenue)
+9. [build-metrics-summary-promote] promote build_metrics_summary super-admin card (rows record, flag dark) so <5min/≤$1 trend is visible · accept: flag on + super-admin → GET /api/admin/build-metrics/summary 200 w/ p50/p95 + est_cost chart · build_metrics.ts + registry.ts · product · decision-independent
+10. [media-ai-ssrf-consolidate] media_ai/handlers.ts:108 image-proxy uses weaker isProxyableImageUrl in its own redirect loop (re-validates every hop — no bypass, but 2nd SSRF-guard impl = drift); consolidate onto safeFetch/assertPublicHttpUrl · cleanup · decision-independent (security Rec)
+11. [fire78-admin-ops-run] run e2e/fire78-admin-ops.spec.ts with E2E_TEST_PASSWORD (real browser) — verify href-hardened Domains/Billing locators + the Analytics display-vs-store lying-empty catch · testing · decision-independent
+
+**Broken/suspect money-path (re-confirm live each fire):**
+- apex POST /api/conversion/checkout + /api/sites/:id/claim/checkout → 403 cf-mitigated (CONFIRMED fire-78) — whole paid funnel unverifiable headlessly; items 4+5 close it (extends BL:457/1099).
+- claim_flow return pages exist but NO frontend POST to claim/checkout (BL:1312) + unpaid top-bar may lack a clickable $29/mo deep-link (1314) — confirm live on an unpaid {slug}.projectsites.dev.

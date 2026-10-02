@@ -628,3 +628,16 @@ FAN-OUT ATTRITION (salvaged + re-queued, loop kept running):
 STALE CARRIED FINDINGS re-confirmed + archived (discipline paid off): build_metrics card self-hides on 404 (already flag-gated); editor `frame-ancestors` serves correct scoped value live.
 
 LOOP-IMPROVEMENT (section 7): promoted SSRF + dead-toggle detectors to BLOCKING push gates (audit-arc "Promote" rung) — both classes now regression-locked in CI.
+
+## fire-78 — 2026-10-02 (converge; WebGL per-site override + carried-blocker reconcile + golden-path salvage)
+
+**Lease:** fire-78-converge (claimed clean; heartbeat inline per phase). Scheduler `589089ab` already armed (15-min).
+**Shipped (main `694336212..b3ee9d3f7`; worker Version `5acb9634-3150-4945-b3bd-6ed3333a2341`):**
+- `f256a4c7f` feat(generation): flow site-specific `webgl` block override into the build prompt. Emission + `webgl.hero_missing` validator were already wired (prior fire); the remaining gap was **(b) per-site override not flowed** — `theme_style.ts webglHeroConfigFor(category,hint,override)` merge + `SiteGenerationParams.webgl` → buildPrompt. +9 Jest cases. (Interconnectedness/shortcoming-#14 original unwired-emission stays closed; this is the override enhancement.)
+- `226e92775` docs(loop): corrected stale LTT cursor (Phase D/action 38 → Phase F/action 60) across GOLDEN-PATHS/GENOME/NEXT-SESSION-BOOTSTRAP + hardened OPERATING-PRINCIPLES browser-role gate ("ONE real-browser driver per fire"). [loop-improvement ✅]
+- `b3ee9d3f7` test(e2e): fire-78 admin-ops long journey (32 actions; Analytics display-vs-store reconcile + no-manual-refresh gate + documented-absence Resources probe + anonymous-visitor published-site check). SALVAGED from a cut-off agent's uncommitted worktree; href-hardened the Domains/Billing dashboard-card locators (concatenated accessible name defeated anchored name-match). Skipped-by-default pending E2E_TEST_PASSWORD.
+**Verify (green before commit):** `tsc --noEmit` clean · Jest **173/173** (theme_style + site_generation_workflow + voice_numbers_flag) · validate-feature-drift PASS (0/0).
+**Prod proof:** deployed `--env production`; `/health` 200 (KV+R2 ok) · `/` 200 styled (HSTS+CSP+X-Frame intact, title "Live in 4 Minutes", H1 present) · `/api/sites/search?q=vito` 200 · apex `POST /api/conversion/checkout` **403 cf-mitigated** (reconfirmed — paid funnel unverifiable headlessly).
+**Carried-blocker reconcile (§5):** fire-58 "voice-number purchase lacks killswitch" = **CLOSED-STALE** — already fixed `65cc02b68` (`voice.ts:197-203` `requireOrgFlag('voice_numbers')` FIRST, 404-when-off; `voice_numbers_flag.test.ts` regression exists). Vindicates the re-confirm-carried-findings rule; do not re-open.
+**Sweeps (read-only, clean):** Security (Opus) 0 findings — IDOR/SSRF/secrets/CSP hold (SSRF re-validates every redirect hop; import_crawler gap closed). Architecture — validate-features 0 violations · detect-orphans 0 · 0 dead flags/toggles; WebGLHero confirmed wired (site-generation.ts:54-55/527-528/565-567/2648, validator @1773).
+**Intel:** fast-path baseline **5m29s / $0.071**; the ~15min container (not AI tokens) dominates $/build. Spend: 7 agents (3 mutating + 1 test + 3 read-only), ~1.6M subagent tokens.
