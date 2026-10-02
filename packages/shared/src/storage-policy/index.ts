@@ -7,3 +7,4 @@
  * `import { selectFileStorage, LARGE_FILE_THRESHOLD_BYTES } from '@bolt/shared'`.
  */
 export * from './routing.js';
+export * from './provisioning.js';
