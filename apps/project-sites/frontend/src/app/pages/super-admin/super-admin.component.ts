@@ -14,6 +14,7 @@ import { ToastService } from '../../services/toast.service';
 import { AdminStateService } from '../admin/admin-state.service';
 import { RollingCounterComponent } from '../../components/rolling-counter/rolling-counter.component';
 import { RevealDirective } from '../../directives/reveal.directive';
+import { BuildMetricsCardComponent } from './build-metrics-card.component';
 
 /**
  * Cost category row — single source of truth for every billable action.
@@ -199,7 +200,7 @@ interface UserDetail {
 @Component({
   selector: 'app-super-admin',
   standalone: true,
-  imports: [FormsModule, RollingCounterComponent, RevealDirective],
+  imports: [FormsModule, RollingCounterComponent, RevealDirective, BuildMetricsCardComponent],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <section class="sa-root">
@@ -514,6 +515,12 @@ interface UserDetail {
               }
             }
           </div>
+
+          <!-- 5. Generation speed + cost (north star, fire-75) — flag-gated
+               (build_metrics, DARK by default → self-hides). Reads the always-on
+               build_metrics D1 instrument via GET /api/admin/build-metrics/summary.
+               Self-contained: owns its own fetch + visibility-aware poll. -->
+          <app-build-metrics-card />
         </section>
 
         <!-- Site Operations — every site across every org, searchable + sortable +
