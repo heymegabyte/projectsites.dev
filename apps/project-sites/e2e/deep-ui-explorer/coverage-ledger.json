@@ -2,43 +2,43 @@
   "states": {
     "/::public-home::::d05f796d": {
       "discovered": "2026-09-29T19:57:38.675Z",
-      "visits": 32,
+      "visits": 34,
       "status": "visited",
       "lastAction": "homepage loads (initial state)",
-      "lastVisited": "2026-10-02T15:21:39.536Z",
-      "lastRun": "dux-2026-10-02T15-21-31-243Z"
+      "lastVisited": "2026-10-02T19:59:47.723Z",
+      "lastRun": "dux-2026-10-02T19-59-37-857Z"
     },
     "/signin::signin::::576d826f": {
       "discovered": "2026-09-29T19:57:43.656Z",
-      "visits": 31,
+      "visits": 33,
       "status": "visited",
-      "lastAction": "click Sign In (header) → /signin",
-      "lastVisited": "2026-10-02T15:21:45.835Z",
-      "lastRun": "dux-2026-10-02T15-21-31-243Z"
+      "lastAction": "click Sign In (header) \u2192 /signin",
+      "lastVisited": "2026-10-02T19:59:51.077Z",
+      "lastRun": "dux-2026-10-02T19-59-37-857Z"
     },
     "/signin::signin-test-seam::::02622a42": {
       "discovered": "2026-09-29T19:57:48.051Z",
-      "visits": 31,
+      "visits": 33,
       "status": "visited",
-      "lastAction": "enter test seam (/signin?test=1) — panel render",
-      "lastVisited": "2026-10-02T15:21:48.570Z",
-      "lastRun": "dux-2026-10-02T15-21-31-243Z"
+      "lastAction": "enter test seam (/signin?test=1) \u2014 panel render",
+      "lastVisited": "2026-10-02T19:59:54.570Z",
+      "lastRun": "dux-2026-10-02T19-59-37-857Z"
     },
     "/admin::admin-dashboard::::fec53253": {
       "discovered": "2026-09-29T19:57:55.718Z",
-      "visits": 34,
+      "visits": 36,
       "status": "visited",
-      "lastAction": "test login submit → lands /admin",
-      "lastVisited": "2026-10-02T15:21:52.286Z",
-      "lastRun": "dux-2026-10-02T15-21-31-243Z"
+      "lastAction": "test login submit \u2192 lands /admin",
+      "lastVisited": "2026-10-02T19:59:59.974Z",
+      "lastRun": "dux-2026-10-02T19-59-37-857Z"
     },
     "/admin/editor::admin-editor-shell::::6eca7550": {
       "discovered": "2026-09-29T19:58:16.461Z",
-      "visits": 16,
+      "visits": 17,
       "status": "visited",
-      "lastAction": "click Editor nav → /admin/editor (iframe mounts)",
-      "lastVisited": "2026-10-02T14:43:34.638Z",
-      "lastRun": "dux-2026-10-02T14-42-49-426Z"
+      "lastAction": "click Editor nav \u2192 /admin/editor (iframe mounts)",
+      "lastVisited": "2026-10-02T19:53:59.554Z",
+      "lastRun": "dux-2026-10-02T19-53-31-632Z"
     },
     "/admin/editor::editor-workbench::::ea74008d": {
       "discovered": "2026-09-29T19:58:22.511Z",
@@ -50,17 +50,17 @@
     },
     "/admin/editor::editor-database::::25fc7ab7": {
       "discovered": "2026-09-29T19:58:40.949Z",
-      "visits": 9,
+      "visits": 10,
       "status": "visited",
       "lastAction": "open Database tab",
-      "lastVisited": "2026-10-02T14:43:51.371Z",
-      "lastRun": "dux-2026-10-02T14-42-49-426Z"
+      "lastVisited": "2026-10-02T19:54:13.026Z",
+      "lastRun": "dux-2026-10-02T19-53-31-632Z"
     },
     "/admin/editor::editor-database::::8876121d": {
       "discovered": "2026-09-29T19:58:54.195Z",
       "visits": 6,
       "status": "visited",
-      "lastAction": "Database › Tables sub-view",
+      "lastAction": "Database \u203a Tables sub-view",
       "lastVisited": "2026-10-02T14:43:55.509Z",
       "lastRun": "dux-2026-10-02T14-42-49-426Z"
     },
@@ -68,7 +68,7 @@
       "discovered": "2026-09-29T19:59:03.952Z",
       "visits": 6,
       "status": "visited",
-      "lastAction": "open Tables › Actions menu",
+      "lastAction": "open Tables \u203a Actions menu",
       "lastVisited": "2026-10-02T14:44:00.021Z",
       "lastRun": "dux-2026-10-02T14-42-49-426Z"
     },
@@ -76,7 +76,7 @@
       "discovered": "2026-09-29T19:59:12.638Z",
       "visits": 6,
       "status": "visited",
-      "lastAction": "choose History → Time-Travel overlay opens",
+      "lastAction": "choose History \u2192 Time-Travel overlay opens",
       "lastVisited": "2026-10-02T14:44:03.653Z",
       "lastRun": "dux-2026-10-02T14-42-49-426Z"
     },
@@ -90,17 +90,17 @@
     },
     "/admin/editor::editor-database::::10f58d63": {
       "discovered": "2026-09-29T19:59:21.758Z",
-      "visits": 12,
+      "visits": 13,
       "status": "visited",
-      "lastAction": "Escape closes History overlay → back to Tables",
-      "lastVisited": "2026-10-02T14:44:07.530Z",
-      "lastRun": "dux-2026-10-02T14-42-49-426Z"
+      "lastAction": "dismiss CSV/JSON Import (Escape) \u2192 Tables intact",
+      "lastVisited": "2026-10-02T19:55:04.034Z",
+      "lastRun": "dux-2026-10-02T19-53-31-632Z"
     },
     "/admin/snapshots::admin-snapshots::::96210135": {
       "discovered": "2026-09-29T22:18:08.762Z",
       "visits": 2,
       "status": "visited",
-      "lastAction": "nav → Snapshots",
+      "lastAction": "nav \u2192 Snapshots",
       "lastVisited": "2026-10-02T05:53:16.676Z",
       "lastRun": "dux-2026-10-02T05-52-47-703Z"
     },
@@ -108,7 +108,7 @@
       "discovered": "2026-09-29T22:18:16.560Z",
       "visits": 2,
       "status": "visited",
-      "lastAction": "nav → Analytics",
+      "lastAction": "nav \u2192 Analytics",
       "lastVisited": "2026-10-02T05:53:20.243Z",
       "lastRun": "dux-2026-10-02T05-52-47-703Z"
     },
@@ -116,7 +116,7 @@
       "discovered": "2026-09-29T22:18:20.926Z",
       "visits": 3,
       "status": "visited",
-      "lastAction": "nav → Forms",
+      "lastAction": "nav \u2192 Forms",
       "lastVisited": "2026-10-02T14:46:51.009Z",
       "lastRun": "dux-2026-10-02T14-46-20-930Z"
     },
@@ -124,7 +124,7 @@
       "discovered": "2026-09-29T22:18:25.448Z",
       "visits": 3,
       "status": "visited",
-      "lastAction": "nav → Apps",
+      "lastAction": "nav \u2192 Apps",
       "lastVisited": "2026-10-02T14:46:58.376Z",
       "lastRun": "dux-2026-10-02T14-46-20-930Z"
     },
@@ -132,7 +132,7 @@
       "discovered": "2026-09-29T22:18:36.448Z",
       "visits": 2,
       "status": "visited",
-      "lastAction": "nav → Hosting",
+      "lastAction": "nav \u2192 Hosting",
       "lastVisited": "2026-10-02T05:53:27.274Z",
       "lastRun": "dux-2026-10-02T05-52-47-703Z"
     },
@@ -140,7 +140,7 @@
       "discovered": "2026-09-29T22:19:34.382Z",
       "visits": 2,
       "status": "visited",
-      "lastAction": "nav → Features",
+      "lastAction": "nav \u2192 Features",
       "lastVisited": "2026-10-02T05:53:29.094Z",
       "lastRun": "dux-2026-10-02T05-52-47-703Z"
     },
@@ -148,7 +148,7 @@
       "discovered": "2026-09-29T22:19:37.545Z",
       "visits": 2,
       "status": "visited",
-      "lastAction": "nav → Social",
+      "lastAction": "nav \u2192 Social",
       "lastVisited": "2026-10-02T05:53:32.426Z",
       "lastRun": "dux-2026-10-02T05-52-47-703Z"
     },
@@ -156,7 +156,7 @@
       "discovered": "2026-09-29T22:19:40.479Z",
       "visits": 2,
       "status": "visited",
-      "lastAction": "nav → Voice",
+      "lastAction": "nav \u2192 Voice",
       "lastVisited": "2026-10-02T05:53:35.051Z",
       "lastRun": "dux-2026-10-02T05-52-47-703Z"
     },
@@ -164,7 +164,7 @@
       "discovered": "2026-09-29T22:19:43.747Z",
       "visits": 3,
       "status": "visited",
-      "lastAction": "nav → Logs",
+      "lastAction": "nav \u2192 Logs",
       "lastVisited": "2026-10-02T14:46:54.283Z",
       "lastRun": "dux-2026-10-02T14-46-20-930Z"
     },
@@ -172,7 +172,7 @@
       "discovered": "2026-09-29T22:19:47.956Z",
       "visits": 2,
       "status": "visited",
-      "lastAction": "nav → Feature Flags",
+      "lastAction": "nav \u2192 Feature Flags",
       "lastVisited": "2026-10-02T05:53:39.152Z",
       "lastRun": "dux-2026-10-02T05-52-47-703Z"
     },
@@ -180,7 +180,7 @@
       "discovered": "2026-09-29T22:19:50.840Z",
       "visits": 2,
       "status": "visited",
-      "lastAction": "nav → System Services",
+      "lastAction": "nav \u2192 System Services",
       "lastVisited": "2026-10-02T05:53:41.031Z",
       "lastRun": "dux-2026-10-02T05-52-47-703Z"
     },
@@ -188,7 +188,7 @@
       "discovered": "2026-09-29T22:19:53.679Z",
       "visits": 2,
       "status": "visited",
-      "lastAction": "nav → Settings",
+      "lastAction": "nav \u2192 Settings",
       "lastVisited": "2026-10-02T05:53:43.110Z",
       "lastRun": "dux-2026-10-02T05-52-47-703Z"
     },
@@ -196,7 +196,7 @@
       "discovered": "2026-09-29T22:19:57.208Z",
       "visits": 2,
       "status": "visited",
-      "lastAction": "nav → Super admin",
+      "lastAction": "nav \u2192 Super admin",
       "lastVisited": "2026-10-02T05:53:46.309Z",
       "lastRun": "dux-2026-10-02T05-52-47-703Z"
     },
@@ -268,7 +268,7 @@
       "discovered": "2026-09-29T22:54:45.510Z",
       "visits": 6,
       "status": "visited",
-      "lastAction": "Resources › Media library sub-view",
+      "lastAction": "Resources \u203a Media library sub-view",
       "lastVisited": "2026-10-02T00:02:36.725Z",
       "lastRun": "dux-2026-10-02T00-01-53-253Z"
     },
@@ -276,7 +276,7 @@
       "discovered": "2026-09-29T23:17:41.604Z",
       "visits": 5,
       "status": "visited",
-      "lastAction": "Resources › Site files sub-view",
+      "lastAction": "Resources \u203a Site files sub-view",
       "lastVisited": "2026-10-02T00:02:39.699Z",
       "lastRun": "dux-2026-10-02T00-01-53-253Z"
     },
@@ -284,7 +284,7 @@
       "discovered": "2026-09-29T23:17:50.088Z",
       "visits": 5,
       "status": "visited",
-      "lastAction": "Resources › Buckets sub-view",
+      "lastAction": "Resources \u203a Buckets sub-view",
       "lastVisited": "2026-10-02T00:02:42.508Z",
       "lastRun": "dux-2026-10-02T00-01-53-253Z"
     },
@@ -316,7 +316,7 @@
       "discovered": "2026-09-30T00:11:28.428Z",
       "visits": 1,
       "status": "visited",
-      "lastAction": "hero search \"Vito\" → results state",
+      "lastAction": "hero search \"Vito\" \u2192 results state",
       "lastVisited": "2026-09-30T00:11:28.428Z",
       "lastRun": "dux-2026-09-30T00-11-13-824Z"
     },
@@ -324,7 +324,7 @@
       "discovered": "2026-09-30T00:11:31.950Z",
       "visits": 1,
       "status": "visited",
-      "lastAction": "full business query → suggestion list",
+      "lastAction": "full business query \u2192 suggestion list",
       "lastVisited": "2026-09-30T00:11:31.950Z",
       "lastRun": "dux-2026-09-30T00-11-13-824Z"
     },
@@ -340,7 +340,7 @@
       "discovered": "2026-09-30T00:11:52.047Z",
       "visits": 1,
       "status": "visited",
-      "lastAction": "required-field blur-empty → inline error state",
+      "lastAction": "required-field blur-empty \u2192 inline error state",
       "lastVisited": "2026-09-30T00:11:52.047Z",
       "lastRun": "dux-2026-09-30T00-11-13-824Z"
     },
@@ -348,7 +348,7 @@
       "discovered": "2026-09-30T03:11:14.858Z",
       "visits": 3,
       "status": "visited",
-      "lastAction": "nav → Settings (root, General tab)",
+      "lastAction": "nav \u2192 Settings (root, General tab)",
       "lastVisited": "2026-10-02T15:21:55.188Z",
       "lastRun": "dux-2026-10-02T15-21-31-243Z"
     },
@@ -356,7 +356,7 @@
       "discovered": "2026-09-30T03:11:20.542Z",
       "visits": 1,
       "status": "visited",
-      "lastAction": "Settings › API Tokens tab — list state (0 token row(s))",
+      "lastAction": "Settings \u203a API Tokens tab \u2014 list state (0 token row(s))",
       "lastVisited": "2026-09-30T03:11:20.542Z",
       "lastRun": "dux-2026-09-30T03-10-52-037Z"
     },
@@ -364,7 +364,7 @@
       "discovered": "2026-09-30T03:11:24.728Z",
       "visits": 1,
       "status": "visited",
-      "lastAction": "open New API Token dialog (name+scopes+expiry — NO mint)",
+      "lastAction": "open New API Token dialog (name+scopes+expiry \u2014 NO mint)",
       "lastVisited": "2026-09-30T03:11:24.728Z",
       "lastRun": "dux-2026-09-30T03-10-52-037Z"
     },
@@ -372,7 +372,7 @@
       "discovered": "2026-09-30T03:11:27.174Z",
       "visits": 1,
       "status": "visited",
-      "lastAction": "dismiss create dialog (Escape, no mint) → list intact",
+      "lastAction": "dismiss create dialog (Escape, no mint) \u2192 list intact",
       "lastVisited": "2026-09-30T03:11:27.174Z",
       "lastRun": "dux-2026-09-30T03-10-52-037Z"
     },
@@ -380,47 +380,47 @@
       "discovered": "2026-09-30T03:11:30.554Z",
       "visits": 3,
       "status": "visited",
-      "lastAction": "tab → General (settings-depth sweep complete)",
+      "lastAction": "tab \u2192 General (settings-depth sweep complete)",
       "lastVisited": "2026-10-02T15:23:14.363Z",
       "lastRun": "dux-2026-10-02T15-21-31-243Z"
     },
     "/admin/editor::editor-database::::7fcc98ea": {
       "discovered": "2026-10-01T19:41:31.877Z",
-      "visits": 3,
+      "visits": 4,
       "status": "visited",
-      "lastAction": "Database › SQL sub-view",
-      "lastVisited": "2026-10-01T23:03:15.878Z",
-      "lastRun": "dux-2026-10-01T23-02-38-857Z"
+      "lastAction": "Database \u203a SQL sub-view",
+      "lastVisited": "2026-10-02T19:54:16.372Z",
+      "lastRun": "dux-2026-10-02T19-53-31-632Z"
     },
     "/admin/editor::editor-database::kv-locked-upsell::976b1e89": {
       "discovered": "2026-10-01T19:41:35.093Z",
-      "visits": 3,
+      "visits": 4,
       "status": "visited",
-      "lastAction": "Database › KV sub-view (honest $10/mo locked-upsell — not unlocked)",
-      "lastVisited": "2026-10-01T23:03:18.468Z",
-      "lastRun": "dux-2026-10-01T23-02-38-857Z"
+      "lastAction": "Database \u203a KV sub-view (honest $10/mo locked-upsell \u2014 not unlocked)",
+      "lastVisited": "2026-10-02T19:54:19.499Z",
+      "lastRun": "dux-2026-10-02T19-53-31-632Z"
     },
     "/admin/editor::editor-database::missing-action-schema::4616e8ff": {
       "discovered": "2026-10-01T19:41:40.776Z",
-      "visits": 1,
+      "visits": 2,
       "status": "visited",
-      "lastAction": "Tables › Schema builder (New Table) overlay trigger NOT reachable",
-      "lastVisited": "2026-10-01T19:41:40.776Z",
-      "lastRun": "dux-2026-10-01T19-40-45-868Z"
+      "lastAction": "Tables \u203a Create Table (local schema modal) trigger NOT reachable",
+      "lastVisited": "2026-10-02T19:55:32.986Z",
+      "lastRun": "dux-2026-10-02T19-53-31-632Z"
     },
     "/admin/editor::editor-database::missing-action-seed::cda0a5f5": {
       "discovered": "2026-10-01T19:42:12.756Z",
-      "visits": 2,
+      "visits": 3,
       "status": "visited",
-      "lastAction": "Tables › AI-Seed trigger NOT reachable",
-      "lastVisited": "2026-10-01T23:03:30.795Z",
-      "lastRun": "dux-2026-10-01T23-02-38-857Z"
+      "lastAction": "Tables \u203a AI-Seed trigger NOT reachable",
+      "lastVisited": "2026-10-02T19:54:33.207Z",
+      "lastRun": "dux-2026-10-02T19-53-31-632Z"
     },
     "/admin/editor::editor-database::missing-action-import::494c64d5": {
       "discovered": "2026-10-01T19:43:53.071Z",
       "visits": 1,
       "status": "visited",
-      "lastAction": "Tables › CSV/JSON Import overlay trigger NOT reachable",
+      "lastAction": "Tables \u203a CSV/JSON Import overlay trigger NOT reachable",
       "lastVisited": "2026-10-01T19:43:53.071Z",
       "lastRun": "dux-2026-10-01T19-40-45-868Z"
     },
@@ -428,7 +428,7 @@
       "discovered": "2026-10-01T19:47:16.872Z",
       "visits": 1,
       "status": "visited",
-      "lastAction": "Database › Tables (empty launchpad) — for action overlays",
+      "lastAction": "Database \u203a Tables (empty launchpad) \u2014 for action overlays",
       "lastVisited": "2026-10-01T19:47:16.872Z",
       "lastRun": "dux-2026-10-01T19-46-13-202Z"
     },
@@ -436,23 +436,23 @@
       "discovered": "2026-10-01T19:47:22.934Z",
       "visits": 1,
       "status": "visited",
-      "lastAction": "Tables › AI-Seed settled (open-then-dismiss — no submit/seed/import)",
+      "lastAction": "Tables \u203a AI-Seed settled (open-then-dismiss \u2014 no submit/seed/import)",
       "lastVisited": "2026-10-01T19:47:22.934Z",
       "lastRun": "dux-2026-10-01T19-46-13-202Z"
     },
     "/admin/editor::editor-database::action-import-settled::f98b5c81": {
       "discovered": "2026-10-01T19:47:31.719Z",
-      "visits": 2,
+      "visits": 3,
       "status": "visited",
-      "lastAction": "Tables › CSV/JSON Import settled (open-then-dismiss — no submit/seed/import)",
-      "lastVisited": "2026-10-01T23:03:59.362Z",
-      "lastRun": "dux-2026-10-01T23-02-38-857Z"
+      "lastAction": "Tables \u203a CSV/JSON Import settled (open-then-dismiss \u2014 no submit/seed/import)",
+      "lastVisited": "2026-10-02T19:55:02.093Z",
+      "lastRun": "dux-2026-10-02T19-53-31-632Z"
     },
     "/admin/editor::editor-database::create-table-modal-settled::92031d14": {
       "discovered": "2026-10-01T19:47:40.247Z",
       "visits": 2,
       "status": "visited",
-      "lastAction": "Tables › Create Table (local schema modal) settled (open-then-dismiss — no submit/seed/import)",
+      "lastAction": "Tables \u203a Create Table (local schema modal) settled (open-then-dismiss \u2014 no submit/seed/import)",
       "lastVisited": "2026-10-01T23:04:29.649Z",
       "lastRun": "dux-2026-10-01T23-02-38-857Z"
     },
@@ -460,7 +460,7 @@
       "discovered": "2026-10-01T22:08:45.781Z",
       "visits": 1,
       "status": "visited",
-      "lastAction": "top-tab → Preview (aria-pressed=true ✓ effect-seen)",
+      "lastAction": "top-tab \u2192 Preview (aria-pressed=true \u2713 effect-seen)",
       "lastVisited": "2026-10-01T22:08:45.781Z",
       "lastRun": "dux-2026-10-01T22-08-14-184Z"
     },
@@ -468,7 +468,7 @@
       "discovered": "2026-10-01T22:08:48.826Z",
       "visits": 1,
       "status": "visited",
-      "lastAction": "top-tab → Database (aria-pressed=true ✓ effect-seen)",
+      "lastAction": "top-tab \u2192 Database (aria-pressed=true \u2713 effect-seen)",
       "lastVisited": "2026-10-01T22:08:48.826Z",
       "lastRun": "dux-2026-10-01T22-08-14-184Z"
     },
@@ -476,7 +476,7 @@
       "discovered": "2026-10-01T22:08:52.016Z",
       "visits": 1,
       "status": "visited",
-      "lastAction": "top-tab → Code (aria-pressed=true ✓ effect-seen)",
+      "lastAction": "top-tab \u2192 Code (aria-pressed=true \u2713 effect-seen)",
       "lastVisited": "2026-10-01T22:08:52.016Z",
       "lastRun": "dux-2026-10-01T22-08-14-184Z"
     },
@@ -492,7 +492,7 @@
       "discovered": "2026-10-01T22:08:59.292Z",
       "visits": 1,
       "status": "visited",
-      "lastAction": "toggle sticky-scope: aria-pressed true→false ✓ effect-seen",
+      "lastAction": "toggle sticky-scope: aria-pressed true\u2192false \u2713 effect-seen",
       "lastVisited": "2026-10-01T22:08:59.292Z",
       "lastRun": "dux-2026-10-01T22-08-14-184Z"
     },
@@ -500,7 +500,7 @@
       "discovered": "2026-10-01T22:09:04.364Z",
       "visits": 1,
       "status": "visited",
-      "lastAction": "toggle minimap: aria-pressed false→true ✓ effect-seen",
+      "lastAction": "toggle minimap: aria-pressed false\u2192true \u2713 effect-seen",
       "lastVisited": "2026-10-01T22:09:04.364Z",
       "lastRun": "dux-2026-10-01T22-08-14-184Z"
     },
@@ -508,7 +508,7 @@
       "discovered": "2026-10-01T22:09:10.348Z",
       "visits": 1,
       "status": "visited",
-      "lastAction": "toggle inline-diff: aria-pressed false→true ✓ effect-seen",
+      "lastAction": "toggle inline-diff: aria-pressed false\u2192true \u2713 effect-seen",
       "lastVisited": "2026-10-01T22:09:10.348Z",
       "lastRun": "dux-2026-10-01T22-08-14-184Z"
     },
@@ -516,23 +516,23 @@
       "discovered": "2026-10-01T22:09:15.998Z",
       "visits": 1,
       "status": "visited",
-      "lastAction": "toggle split-pane: aria-pressed false→true ✓ effect-seen",
+      "lastAction": "toggle split-pane: aria-pressed false\u2192true \u2713 effect-seen",
       "lastVisited": "2026-10-01T22:09:15.998Z",
       "lastRun": "dux-2026-10-01T22-08-14-184Z"
     },
     "/admin/editor::editor-database::::7236fe9f": {
       "discovered": "2026-10-01T23:03:21.227Z",
-      "visits": 1,
+      "visits": 2,
       "status": "visited",
-      "lastAction": "Database › Tables (populated grid) — for action overlays",
-      "lastVisited": "2026-10-01T23:03:21.227Z",
-      "lastRun": "dux-2026-10-01T23-02-38-857Z"
+      "lastAction": "Database \u203a Tables (populated grid) \u2014 for action overlays",
+      "lastVisited": "2026-10-02T19:54:22.594Z",
+      "lastRun": "dux-2026-10-02T19-53-31-632Z"
     },
     "/admin/settings::admin-settings::::1837dd58": {
       "discovered": "2026-10-02T00:00:22.800Z",
       "visits": 2,
       "status": "visited",
-      "lastAction": "Settings › Team tab — settled panel",
+      "lastAction": "Settings \u203a Team tab \u2014 settled panel",
       "lastVisited": "2026-10-02T15:21:57.978Z",
       "lastRun": "dux-2026-10-02T15-21-31-243Z"
     },
@@ -540,7 +540,7 @@
       "discovered": "2026-10-02T00:00:29.305Z",
       "visits": 2,
       "status": "visited",
-      "lastAction": "Settings › AI Chat tab — settled panel",
+      "lastAction": "Settings \u203a AI Chat tab \u2014 settled panel",
       "lastVisited": "2026-10-02T15:22:05.280Z",
       "lastRun": "dux-2026-10-02T15-21-31-243Z"
     },
@@ -548,7 +548,7 @@
       "discovered": "2026-10-02T00:00:36.580Z",
       "visits": 2,
       "status": "visited",
-      "lastAction": "Settings › MCP tab — settled panel",
+      "lastAction": "Settings \u203a MCP tab \u2014 settled panel",
       "lastVisited": "2026-10-02T15:22:13.080Z",
       "lastRun": "dux-2026-10-02T15-21-31-243Z"
     },
@@ -556,7 +556,7 @@
       "discovered": "2026-10-02T00:00:43.447Z",
       "visits": 2,
       "status": "visited",
-      "lastAction": "Settings › AI Env Vars tab — settled panel",
+      "lastAction": "Settings \u203a AI Env Vars tab \u2014 settled panel",
       "lastVisited": "2026-10-02T15:22:20.386Z",
       "lastRun": "dux-2026-10-02T15-21-31-243Z"
     },
@@ -564,7 +564,7 @@
       "discovered": "2026-10-02T00:00:50.461Z",
       "visits": 2,
       "status": "visited",
-      "lastAction": "Settings › Webhooks tab — settled panel",
+      "lastAction": "Settings \u203a Webhooks tab \u2014 settled panel",
       "lastVisited": "2026-10-02T15:22:27.801Z",
       "lastRun": "dux-2026-10-02T15-21-31-243Z"
     },
@@ -572,7 +572,7 @@
       "discovered": "2026-10-02T00:01:22.648Z",
       "visits": 2,
       "status": "visited",
-      "lastAction": "Settings › Email tab — settled panel",
+      "lastAction": "Settings \u203a Email tab \u2014 settled panel",
       "lastVisited": "2026-10-02T15:23:00.076Z",
       "lastRun": "dux-2026-10-02T15-21-31-243Z"
     },
@@ -580,7 +580,7 @@
       "discovered": "2026-10-02T00:01:29.516Z",
       "visits": 2,
       "status": "visited",
-      "lastAction": "Settings › Domains tab — settled panel",
+      "lastAction": "Settings \u203a Domains tab \u2014 settled panel",
       "lastVisited": "2026-10-02T15:23:07.245Z",
       "lastRun": "dux-2026-10-02T15-21-31-243Z"
     },
@@ -588,7 +588,7 @@
       "discovered": "2026-10-02T00:52:35.992Z",
       "visits": 8,
       "status": "visited",
-      "lastAction": "back to Dashboard (site-detail → cockpit round-trip intact)",
+      "lastAction": "back to Dashboard (site-detail \u2192 cockpit round-trip intact)",
       "lastVisited": "2026-10-02T13:37:38.154Z",
       "lastRun": "dux-2026-10-02T13-36-46-855Z"
     },
@@ -596,7 +596,7 @@
       "discovered": "2026-10-02T00:52:38.216Z",
       "visits": 3,
       "status": "visited",
-      "lastAction": "dashboard search → honest no-match panel",
+      "lastAction": "dashboard search \u2192 honest no-match panel",
       "lastVisited": "2026-10-02T13:37:16.542Z",
       "lastRun": "dux-2026-10-02T13-36-46-855Z"
     },
@@ -620,7 +620,7 @@
       "discovered": "2026-10-02T00:57:07.065Z",
       "visits": 1,
       "status": "visited",
-      "lastAction": "Sites list (direct URL — no nav path) — populated grid (1 site card(s))",
+      "lastAction": "Sites list (direct URL \u2014 no nav path) \u2014 populated grid (1 site card(s))",
       "lastVisited": "2026-10-02T00:57:07.065Z",
       "lastRun": "dux-2026-10-02T00-56-26-721Z"
     },
@@ -628,7 +628,7 @@
       "discovered": "2026-10-02T00:57:10.661Z",
       "visits": 2,
       "status": "visited",
-      "lastAction": "Sites list search → honest no-match panel",
+      "lastAction": "Sites list search \u2192 honest no-match panel",
       "lastVisited": "2026-10-02T13:37:27.518Z",
       "lastRun": "dux-2026-10-02T13-36-46-855Z"
     },
@@ -636,7 +636,7 @@
       "discovered": "2026-10-02T00:57:14.238Z",
       "visits": 2,
       "status": "visited",
-      "lastAction": "clear Sites search → full grid restored",
+      "lastAction": "clear Sites search \u2192 full grid restored",
       "lastVisited": "2026-10-02T13:37:31.355Z",
       "lastRun": "dux-2026-10-02T13-36-46-855Z"
     },
@@ -644,7 +644,7 @@
       "discovered": "2026-10-02T00:57:17.708Z",
       "visits": 2,
       "status": "visited",
-      "lastAction": "open site card (site-card-lone-mountain-global) → site detail route",
+      "lastAction": "open site card (site-card-lone-mountain-global) \u2192 site detail route",
       "lastVisited": "2026-10-02T13:37:34.653Z",
       "lastRun": "dux-2026-10-02T13-36-46-855Z"
     },
@@ -652,7 +652,7 @@
       "discovered": "2026-10-02T02:48:54.543Z",
       "visits": 4,
       "status": "visited",
-      "lastAction": "Super Admin — fleet cockpit settled (2 site ops row(s))",
+      "lastAction": "Super Admin \u2014 fleet cockpit settled (2 site ops row(s))",
       "lastVisited": "2026-10-02T02:57:16.544Z",
       "lastRun": "dux-2026-10-02T02-57-00-467Z"
     },
@@ -660,7 +660,7 @@
       "discovered": "2026-10-02T02:48:58.283Z",
       "visits": 4,
       "status": "visited",
-      "lastAction": "Super Admin — site ops row → 360° drawer (read-only; \"Lone Mountain Global\")",
+      "lastAction": "Super Admin \u2014 site ops row \u2192 360\u00b0 drawer (read-only; \"Lone Mountain Global\")",
       "lastVisited": "2026-10-02T02:57:18.700Z",
       "lastRun": "dux-2026-10-02T02-57-00-467Z"
     },
@@ -668,7 +668,7 @@
       "discovered": "2026-10-02T02:49:00.843Z",
       "visits": 4,
       "status": "visited",
-      "lastAction": "Super Admin — dismiss drawer → fleet list intact",
+      "lastAction": "Super Admin \u2014 dismiss drawer \u2192 fleet list intact",
       "lastVisited": "2026-10-02T02:57:20.622Z",
       "lastRun": "dux-2026-10-02T02-57-00-467Z"
     },
@@ -676,7 +676,7 @@
       "discovered": "2026-10-02T02:49:03.943Z",
       "visits": 4,
       "status": "visited",
-      "lastAction": "Feature Flags — registry settled (77 flag row(s))",
+      "lastAction": "Feature Flags \u2014 registry settled (77 flag row(s))",
       "lastVisited": "2026-10-02T02:57:23.939Z",
       "lastRun": "dux-2026-10-02T02-57-00-467Z"
     },
@@ -684,7 +684,7 @@
       "discovered": "2026-10-02T02:49:26.758Z",
       "visits": 4,
       "status": "visited",
-      "lastAction": "Billing (direct URL — no nav path) — Subscription tab settled",
+      "lastAction": "Billing (direct URL \u2014 no nav path) \u2014 Subscription tab settled",
       "lastVisited": "2026-10-02T02:57:49.884Z",
       "lastRun": "dux-2026-10-02T02-57-00-467Z"
     },
@@ -692,7 +692,7 @@
       "discovered": "2026-10-02T02:49:29.156Z",
       "visits": 4,
       "status": "visited",
-      "lastAction": "Billing › Wallet / credits balance tab — settled",
+      "lastAction": "Billing \u203a Wallet / credits balance tab \u2014 settled",
       "lastVisited": "2026-10-02T02:57:51.982Z",
       "lastRun": "dux-2026-10-02T02-57-00-467Z"
     },
@@ -700,7 +700,7 @@
       "discovered": "2026-10-02T02:49:31.350Z",
       "visits": 4,
       "status": "visited",
-      "lastAction": "Billing › Add-ons tab — settled",
+      "lastAction": "Billing \u203a Add-ons tab \u2014 settled",
       "lastVisited": "2026-10-02T02:57:53.853Z",
       "lastRun": "dux-2026-10-02T02-57-00-467Z"
     },
@@ -708,7 +708,7 @@
       "discovered": "2026-10-02T02:49:34.632Z",
       "visits": 4,
       "status": "visited",
-      "lastAction": "Billing › Usage tab — settled",
+      "lastAction": "Billing \u203a Usage tab \u2014 settled",
       "lastVisited": "2026-10-02T02:57:56.172Z",
       "lastRun": "dux-2026-10-02T02-57-00-467Z"
     },
@@ -716,7 +716,7 @@
       "discovered": "2026-10-02T02:49:37.540Z",
       "visits": 4,
       "status": "visited",
-      "lastAction": "Billing › Agency / Connect tab — settled",
+      "lastAction": "Billing \u203a Agency / Connect tab \u2014 settled",
       "lastVisited": "2026-10-02T02:57:58.103Z",
       "lastRun": "dux-2026-10-02T02-57-00-467Z"
     },
@@ -724,23 +724,23 @@
       "discovered": "2026-10-02T02:49:39.766Z",
       "visits": 4,
       "status": "visited",
-      "lastAction": "Billing › Affiliates tab — settled",
+      "lastAction": "Billing \u203a Affiliates tab \u2014 settled",
       "lastVisited": "2026-10-02T02:57:59.902Z",
       "lastRun": "dux-2026-10-02T02-57-00-467Z"
     },
     "/admin/billing::admin-billing::::7b9732eb": {
       "discovered": "2026-10-02T02:49:41.867Z",
-      "visits": 5,
+      "visits": 6,
       "status": "visited",
-      "lastAction": "Billing › Subscription (back — tablist round-trip intact after invoice detour)",
-      "lastVisited": "2026-10-02T11:28:15.238Z",
-      "lastRun": "dux-2026-10-02T11-27-33-653Z"
+      "lastAction": "Billing \u203a Subscription (back \u2014 tablist round-trip intact after invoice detour)",
+      "lastVisited": "2026-10-02T20:00:22.761Z",
+      "lastRun": "dux-2026-10-02T19-59-37-857Z"
     },
     "/admin/feature-flags::admin-feature-flags::flag-inspect::8712be39": {
       "discovered": "2026-10-02T02:54:51.007Z",
       "visits": 2,
       "status": "visited",
-      "lastAction": "Feature Flags — flag Inspect panel (why + checklist + eval-trace, read-only)",
+      "lastAction": "Feature Flags \u2014 flag Inspect panel (why + checklist + eval-trace, read-only)",
       "lastVisited": "2026-10-02T02:57:29.691Z",
       "lastRun": "dux-2026-10-02T02-57-00-467Z"
     },
@@ -748,7 +748,7 @@
       "discovered": "2026-10-02T02:54:55.037Z",
       "visits": 2,
       "status": "visited",
-      "lastAction": "Feature Flags — danger/killswitch panel opened (read-only; NOT confirmed)",
+      "lastAction": "Feature Flags \u2014 danger/killswitch panel opened (read-only; NOT confirmed)",
       "lastVisited": "2026-10-02T02:57:33.656Z",
       "lastRun": "dux-2026-10-02T02-57-00-467Z"
     },
@@ -756,7 +756,7 @@
       "discovered": "2026-10-02T02:54:57.792Z",
       "visits": 2,
       "status": "visited",
-      "lastAction": "Feature Flags — cancel danger panel → registry intact (no flag mutated)",
+      "lastAction": "Feature Flags \u2014 cancel danger panel \u2192 registry intact (no flag mutated)",
       "lastVisited": "2026-10-02T02:57:36.071Z",
       "lastRun": "dux-2026-10-02T02-57-00-467Z"
     },
@@ -764,36 +764,56 @@
       "discovered": "2026-10-02T02:57:25.890Z",
       "visits": 1,
       "status": "visited",
-      "lastAction": "Feature Flags — stage filter → experimental",
+      "lastAction": "Feature Flags \u2014 stage filter \u2192 experimental",
       "lastVisited": "2026-10-02T02:57:25.890Z",
       "lastRun": "dux-2026-10-02T02-57-00-467Z"
     },
     "/admin/billing::admin-billing::subscription-card::d125b11a": {
       "discovered": "2026-10-02T11:28:10.014Z",
-      "visits": 1,
+      "visits": 2,
       "status": "visited",
-      "lastAction": "Billing › Subscription detail — card settled (plan=Pro · $50/mo, status=Active)",
-      "lastVisited": "2026-10-02T11:28:10.014Z",
-      "lastRun": "dux-2026-10-02T11-27-33-653Z"
+      "lastAction": "Billing \u203a Subscription detail \u2014 card settled (plan=Pro \u00b7 $50/mo, status=Active)",
+      "lastVisited": "2026-10-02T20:00:16.531Z",
+      "lastRun": "dux-2026-10-02T19-59-37-857Z"
     },
     "/admin/billing::admin-billing::upcoming-invoice-lines::d206088e": {
       "discovered": "2026-10-02T11:28:12.857Z",
-      "visits": 1,
+      "visits": 2,
       "status": "visited",
-      "lastAction": "Billing › Usage › Upcoming invoice — 1 line item(s) rendered",
-      "lastVisited": "2026-10-02T11:28:12.857Z",
-      "lastRun": "dux-2026-10-02T11-27-33-653Z"
+      "lastAction": "Billing \u203a Usage \u203a Upcoming invoice \u2014 1 line item(s) rendered",
+      "lastVisited": "2026-10-02T20:00:19.925Z",
+      "lastRun": "dux-2026-10-02T19-59-37-857Z"
     },
     "/admin/sites::admin-sites::::ba17c4b9": {
       "discovered": "2026-10-02T13:37:23.682Z",
       "visits": 1,
       "status": "visited",
-      "lastAction": "Sites list (via nav link) — populated grid (1 site card(s))",
+      "lastAction": "Sites list (via nav link) \u2014 populated grid (1 site card(s))",
       "lastVisited": "2026-10-02T13:37:23.682Z",
       "lastRun": "dux-2026-10-02T13-36-46-855Z"
     }
   },
   "runs": [
+    {
+      "runId": "dux-2026-10-02T19-59-37-857Z",
+      "journey": "billing-invoice",
+      "status": "PARTIAL",
+      "provider": "cloudflare-browser-run",
+      "coverage": "CLOUD_PASS_ELIGIBLE",
+      "statesVisited": 7,
+      "blockedStates": {},
+      "finishedAt": "2026-10-02T20:00:22.762Z"
+    },
+    {
+      "runId": "dux-2026-10-02T19-53-31-632Z",
+      "journey": "database-subtree",
+      "status": "PARTIAL",
+      "provider": "cloudflare-browser-run",
+      "coverage": "CLOUD_PASS_ELIGIBLE",
+      "statesVisited": 13,
+      "blockedStates": {},
+      "finishedAt": "2026-10-02T19:55:32.986Z"
+    },
     {
       "runId": "dux-2026-10-02T15-21-31-243Z",
       "journey": "settings-depth",
@@ -1056,24 +1076,81 @@
       "statesVisited": 12,
       "blockedStates": {},
       "finishedAt": "2026-09-29T22:34:51.179Z"
-    },
+    }
+  ],
+  "fireNotes": [
     {
-      "runId": "dux-2026-09-29T22-19-12-412Z",
-      "status": "PASS_CLOUDFLARE",
+      "fire": "fire-88",
+      "role": "deep-ui-explorer (role 17)",
+      "at": "2026-10-02T20:03:19.226787Z",
       "provider": "cloudflare-browser-run",
-      "coverage": "CLOUD_PASS_ELIGIBLE",
-      "statesVisited": 13,
-      "blockedStates": {},
-      "finishedAt": "2026-09-29T22:20:00.351Z"
-    },
-    {
-      "runId": "dux-2026-09-29T22-17-35-142Z",
-      "status": "BLOCKED",
-      "provider": "cloudflare-browser-run",
-      "coverage": "CLOUD_PASS_ELIGIBLE",
-      "statesVisited": 9,
-      "blockedStates": {},
-      "finishedAt": "2026-09-29T22:18:37.083Z"
+      "coverage": "CLOUD_PASS_ELIGIBLE (CF-PASS)",
+      "identity": "brian@megabyte.space / isSuperAdmin",
+      "journeys": [
+        {
+          "journey": "database-subtree",
+          "run": "dux-2026-10-02T19-53-31-632Z",
+          "status": "PARTIAL",
+          "states": 13,
+          "consoleErrors": 0,
+          "failedRequests": 0,
+          "vision": "13/13 reviewed, 0 real P0/P1, scores 8-10/10"
+        },
+        {
+          "journey": "billing-invoice",
+          "run": "dux-2026-10-02T19-59-37-857Z",
+          "status": "PARTIAL",
+          "states": 7,
+          "consoleErrors": 0,
+          "failedRequests": 0,
+          "vision": "7/7 reviewed, 1 vision-P0 was boilerplate false-alarm, scores 8-10/10"
+        }
+      ],
+      "groundTruthReconcile": {
+        "surface": "editor Data tab \u203a Tables (site lone-mountain-global, id 8ebf551b-272d-4abc-a15f-386f69c22ee5\u2026 actually 8ebf551b-272d-4abc-a15f-386f69c22ea5)",
+        "perSiteD1": "9932bc86-ac04-4daa-88be-78afad53cb69 (ACTIVE, distinct from master ea3e839a\u2026 \u2014 isolation confirmed)",
+        "display": [
+          "customers",
+          "my_table",
+          "orders",
+          "products"
+        ],
+        "store": [
+          "customers",
+          "my_table",
+          "orders",
+          "products"
+        ],
+        "verdict": "MATCH \u2014 display reconciles with per-site D1 store; verified-populated, not lying-empty"
+      },
+      "findings": [
+        {
+          "severity": "LOW-explorer",
+          "verdict": "VERIFIED",
+          "what": "database-subtree labels states 10 (AI-Seed) + 13 (Create Table) 'trigger NOT reachable' + 2 manifest blocks (seed/schema never settled), but screenshots show state 13 schema-builder overlay FULLY OPEN and state 10 grid HAS the 'Actions \u25be' menu (AI-Seed lives inside it). Explorer selector gap, NOT a product defect \u2014 triggers are behind Actions \u25be; Create-Table DID open."
+        },
+        {
+          "severity": "LOW-observation",
+          "verdict": "VERIFIED",
+          "what": "/admin/billing absent from persistent left-sidebar nav (ADMIN_NAV_GROUPS); reachable via \u2318K ('Manage Billing'), user-menu, dashboard upsell CTAs. Not an orphan, but a discoverability gap for a money surface."
+        },
+        {
+          "severity": "INFO",
+          "verdict": "VERIFIED",
+          "what": "No in-app invoice-PDF render/download surface; /api/billing/invoices/upcoming is a Stripe PREVIEW. Finalized PDFs reachable only via Stripe billing portal. Honest absence, not a defect."
+        },
+        {
+          "severity": "INFO-HYPOTHESIS",
+          "verdict": "HYPOTHESIS",
+          "what": "3 failed GA network requests observed on signin seam (architecture_hypothesis, clamped). Likely analytics beacon blocked in headless; not a functional defect."
+        }
+      ],
+      "nextSurfaceToRotate": "editor Resources \u203a Advanced (CF resources inventory) OR admin Apps/Hosting cluster \u2014 both thin in ledger (editor-resources has coverage but Apps/Hosting have 1 state each)",
+      "backlogCandidates": [
+        "DUX-FIX: database-subtree journey should open 'Actions \u25be' menu before asserting AI-Seed trigger, and treat the opened schema-builder overlay as success for Create-Table (remove stale 'NOT reachable' false-negatives + the 2 seed/schema blocks).",
+        "UX: add Billing to the persistent admin left-sidebar nav (ADMIN_NAV_GROUPS) \u2014 money surface currently only \u2318K/user-menu discoverable.",
+        "VISION-TUNE: vision-review emits a boilerplate a11y_perf P0 ('run automated accessibility tests') with observed='no issues visible' \u2014 clamp/suppress generic no-finding P0s so p0/p1 count stays honest."
+      ]
     }
   ]
 }
