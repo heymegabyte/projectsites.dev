@@ -348,7 +348,7 @@ run Playwright/CF-Browser-Run against a LIVE local stack, so their execution env
   browser must NOT be driven by concurrent agents + the lead at once; serialize real-browser
   verification to ONE driver per fire (the lead owns prod-verify, OR exactly ONE browser agent) —
   else the sessions collide (navigation/snapshot races on a shared context).
-- Roles 16/17 MUST run `node .claude/scripts/browser-role-preflight.mjs` FIRST and treat exit 1 as BLOCKED (never "passed"), citing the exact failing check (D-85-b, fire-86).
+- Roles 16/17 MUST run the preflight FIRST — canonical `node apps/project-sites/scripts/browser-role-preflight.mjs` (the `.claude/scripts/` path is a thin shim to it) — and treat exit 1 as BLOCKED (never "passed"), citing the exact failing check (D-85-b, fire-86).
 
 ## Deep UI Explorer / Visual Intelligence (role 17 — invariants)
 
