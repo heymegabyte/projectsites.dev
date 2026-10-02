@@ -1544,7 +1544,7 @@ describe('AdminAnalyticsComponent (cached-first progressive paint — fire-60)',
     expect(c.loading()).withContext('all sources settled').toBeFalse();
   });
 
-  it('first-ever visit bounds the skeleton at 3s, then paints whatever responded (honest zeros)', () => {
+  it('first-ever visit bounds the cold-start skeleton UNDER 3s, then paints whatever responded (honest zeros)', () => {
     jasmine.clock().install();
     try {
       configure('s-bound');
@@ -1564,16 +1564,24 @@ describe('AdminAnalyticsComponent (cached-first progressive paint — fire-60)',
       expect((fixture.nativeElement as HTMLElement).querySelector('[data-testid="kpi-pageviews"] .skel'))
         .withContext('bounded skeleton while nothing paintable has arrived')
         .not.toBeNull();
-      jasmine.clock().tick(3001);
+      // fire-82 — the cold-start skeleton must still be up at 1s (the fast D1
+      // summary gets room to land first) …
+      jasmine.clock().tick(1_000);
+      fixture.detectChanges();
+      expect((fixture.nativeElement as HTMLElement).querySelector('[data-testid="kpi-pageviews"] .skel'))
+        .withContext('skeleton still bounded before the 1.2s cold-start bound')
+        .not.toBeNull();
+      // … and released WELL BEFORE the 3s target (acceptance: cold first paint < 3s).
+      jasmine.clock().tick(300); // total 1.3s < 3s
       fixture.detectChanges();
       expect(c.envelope())
-        .withContext('past the bound, the responded source paints even at zero')
+        .withContext('past the sub-3s bound, the responded source paints even at zero')
         .not.toBeNull();
       expect(c.envelope()?.pageviews).toBe(0);
       expect(
         (fixture.nativeElement as HTMLElement).querySelector('[data-testid="kpi-pageviews"] .skel'),
       )
-        .withContext('skeleton released at the bound')
+        .withContext('cold-start skeleton released under 3s')
         .toBeNull();
     } finally {
       jasmine.clock().uninstall();

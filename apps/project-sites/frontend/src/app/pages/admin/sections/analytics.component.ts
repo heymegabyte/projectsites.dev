@@ -77,12 +77,17 @@ export interface AnalyticsDrill {
 const REFRESH_INTERVAL_SEC = 60;
 
 /**
- * First-ever-visit skeleton bound (fire-60). With the per-card decoupled fetch,
- * the skeleton normally clears the instant the FIRST source answers; past this
- * bound, whatever HAS responded is painted — even an honest all-zero first-party
- * summary — with the quiet updating hint covering the still-streaming rest.
+ * First-ever-visit skeleton bound (fire-60; tightened fire-82 to clear the
+ * cold-start wall well UNDER the 3s target). With the per-card decoupled fetch,
+ * the skeleton normally clears the instant the FIRST source answers (the fast
+ * first-party D1 summary is typically sub-second); past this bound, whatever HAS
+ * responded is painted — even an honest all-zero first-party summary — with the
+ * quiet updating hint covering the still-streaming rest. 1.2s gives the fast
+ * summary room to land first yet releases the skeleton far below 3s even when
+ * every source is slow, so cold first paint is always < 3s (never a >10s wall
+ * waiting on the CF edge aggregate's 10s timeout).
  */
-const FIRST_PAINT_BOUND_MS = 3_000;
+const FIRST_PAINT_BOUND_MS = 1_200;
 
 /** One cached, fully-settled analytics view (see {@link AnalyticsViewCache}). */
 interface AnalyticsViewCacheEntry {
@@ -3333,8 +3338,10 @@ export class AdminAnalyticsComponent implements OnInit, OnDestroy {
       }
     };
 
-    // First-ever visit (no cache): bound the skeleton — past this, merge() may
-    // paint the first-party summary even at zero traffic. Cleared on cancel.
+    // First-ever visit (no cache): bound the cold-start skeleton to
+    // FIRST_PAINT_BOUND_MS (1.2s, fire-82) — past this, merge() may paint the
+    // first-party summary even at zero traffic, so cold first paint is always
+    // < 3s instead of waiting on the CF aggregate's 10s timeout. Cleared on cancel.
     const boundTimer = setTimeout(() => {
       pastBound = true;
       merge();
