@@ -138,6 +138,60 @@ describe('DatabasePanel — consolidated per-site data surface (concise nav)', (
     expect(within(overlay).getByTestId('import-dropzone')).toBeTruthy();
   });
 
+  it('routes "New Table" through the SHARED schema overlay — never the local sitedb-create-table modal (money-path, GBP#2)', () => {
+    render(<DatabasePanel />);
+
+    // Open the embedded header Actions menu, then choose New Table.
+    fireEvent.click(screen.getByTestId('sitedb-actions'));
+    fireEvent.click(screen.getByTestId('sitedb-action-new-table'));
+
+    // It MUST mount the shared DatabaseActionOverlay hosting the guided Schema builder…
+    const overlay = screen.getByTestId('database-action-overlay');
+    expect(overlay).toBeTruthy();
+    expect(within(overlay).getByTestId('schema-builder')).toBeTruthy();
+
+    // …and MUST NOT open SiteTablesPanel's OWN local create-table modal (the dead-end this fixes).
+    expect(screen.queryByTestId('sitedb-create-table')).toBeNull();
+  });
+
+  it('routes the empty-launchpad "New table" tile through the SHARED schema overlay (never the local modal)', async () => {
+    render(<DatabasePanel />);
+
+    // Reply with an empty DB so the launchpad (with its New-table tile) renders.
+    await waitFor(() => {
+      const req = postToParentSpy.mock.calls.find(
+        (c) => (c[0] as { type?: string })?.type === 'PS_SITEDB_TABLES_REQUEST',
+      );
+      expect(req).toBeTruthy();
+    });
+
+    const tablesReqId = postToParentSpy.mock.calls
+      .map((c) => c[0])
+      .reverse()
+      .find((m: unknown) => (m as { type?: string })?.type === 'PS_SITEDB_TABLES_REQUEST') as {
+      correlationId?: string;
+    };
+
+    await act(async () => {
+      for (const handler of parentHandlers) {
+        handler({
+          type: 'PS_SITEDB_TABLES_RESPONSE',
+          correlationId: tablesReqId?.correlationId,
+          ok: true,
+          databaseId: 'db',
+          provisioned: true,
+          tables: [],
+        });
+      }
+    });
+
+    fireEvent.click(screen.getByTestId('sitedb-empty-newtable'));
+
+    const overlay = screen.getByTestId('database-action-overlay');
+    expect(within(overlay).getByTestId('schema-builder')).toBeTruthy();
+    expect(screen.queryByTestId('sitedb-create-table')).toBeNull();
+  });
+
   it('opens the AI-seed panel overlay + asks the per-site bridge for the table list from the empty launchpad', async () => {
     render(<DatabasePanel />);
 
@@ -178,6 +232,81 @@ describe('DatabasePanel — consolidated per-site data surface (concise nav)', (
       (c) => (c[0] as { type?: string })?.type === 'PS_SITEDB_TABLES_REQUEST',
     );
     expect(tablesCall).toBeTruthy();
+  });
+
+  it('AI-Seed empty state is never a dead-end — its inline "Create Table" CTA opens the shared schema overlay', async () => {
+    render(<DatabasePanel />);
+
+    // Empty DB → the Tables launchpad renders; open the AI-seed overlay from it.
+    await waitFor(() => {
+      const req = postToParentSpy.mock.calls.find(
+        (c) => (c[0] as { type?: string })?.type === 'PS_SITEDB_TABLES_REQUEST',
+      );
+      expect(req).toBeTruthy();
+    });
+
+    const firstTablesReqId = postToParentSpy.mock.calls
+      .map((c) => c[0])
+      .reverse()
+      .find((m: unknown) => (m as { type?: string })?.type === 'PS_SITEDB_TABLES_REQUEST') as {
+      correlationId?: string;
+    };
+
+    await act(async () => {
+      for (const handler of parentHandlers) {
+        handler({
+          type: 'PS_SITEDB_TABLES_RESPONSE',
+          correlationId: firstTablesReqId?.correlationId,
+          ok: true,
+          databaseId: 'db',
+          provisioned: true,
+          tables: [],
+        });
+      }
+    });
+
+    fireEvent.click(screen.getByTestId('sitedb-empty-seed'));
+
+    // The AI-seed panel fetches tables on mount; answer with an empty DB → its "create a table first" state.
+    await waitFor(() => {
+      const seedReq = postToParentSpy.mock.calls
+        .map((c) => c[0])
+        .reverse()
+        .find((m: unknown) => (m as { type?: string })?.type === 'PS_SITEDB_TABLES_REQUEST') as {
+        correlationId?: string;
+      };
+      expect(seedReq).toBeTruthy();
+    });
+
+    const seedTablesReqId = postToParentSpy.mock.calls
+      .map((c) => c[0])
+      .reverse()
+      .find((m: unknown) => (m as { type?: string })?.type === 'PS_SITEDB_TABLES_REQUEST') as {
+      correlationId?: string;
+    };
+
+    await act(async () => {
+      for (const handler of parentHandlers) {
+        handler({
+          type: 'PS_SITEDB_TABLES_RESPONSE',
+          correlationId: seedTablesReqId?.correlationId,
+          ok: true,
+          databaseId: 'db',
+          provisioned: true,
+          tables: [],
+        });
+      }
+    });
+
+    // The empty AI-seed state MUST carry an inline Create-Table CTA (an owner is never stuck with no way out)…
+    const cta = screen.getByTestId('seed-empty-create-table');
+    expect(cta).toBeTruthy();
+    fireEvent.click(cta);
+
+    // …which routes to the SHARED schema overlay (not a dead note, not the local modal).
+    const overlay = screen.getByTestId('database-action-overlay');
+    expect(within(overlay).getByTestId('schema-builder')).toBeTruthy();
+    expect(screen.queryByTestId('sitedb-create-table')).toBeNull();
   });
 
   it('SQL is a first-class entry — selecting it mounts the SQL navigator (textarea + run + Ask toggle)', () => {

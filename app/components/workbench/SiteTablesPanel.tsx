@@ -445,9 +445,6 @@ export interface SiteTablesPanelProps {
   /** Optional: open the CSV/JSON Import panel (the "⬆ Import CSV" empty-state + toolbar button). */
   onImportCsv?: () => void;
 
-  /** Optional: jump to the SQL view with the NEW TABLE template (an alternate create flow for power users). */
-  onNewTableSql?: () => void;
-
   /** Optional: open the History (Time-travel) panel — wired into the Tables "Actions" dropdown. */
   onHistory?: () => void;
 
@@ -460,7 +457,7 @@ export interface SiteTablesPanelProps {
 }
 
 export const SiteTablesPanel = memo(
-  ({ onCreateTable, onSeedWithAi, onImportCsv, onNewTableSql, onHistory, openTableRequest }: SiteTablesPanelProps = {}) => {
+  ({ onCreateTable, onSeedWithAi, onImportCsv, onHistory, openTableRequest }: SiteTablesPanelProps = {}) => {
     const [tables, setTables] = useState<TablesState>({ status: 'loading' });
     const [selectedTable, setSelectedTable] = useState<string | null>(null);
     const [rows, setRows] = useState<RowsState>({ status: 'idle' });
@@ -2608,7 +2605,7 @@ export const SiteTablesPanel = memo(
       <div className="h-full flex flex-col bg-bolt-elements-background-depth-1 text-bolt-elements-textPrimary [color-scheme:dark] accent-[color:var(--ps-accent,#00e5ff)]">
         <Header
           editable={selectedTable !== null && pkCols.length > 0}
-          onNewTable={() => setCreateTableOpen(true)}
+          onNewTable={() => (onCreateTable ? onCreateTable() : setCreateTableOpen(true))}
           onImport={() => (onImportCsv ? onImportCsv() : flashComingSoon('Import'))}
           onHistory={() => (onHistory ? onHistory() : flashComingSoon('History'))}
           subtitle={
@@ -2698,8 +2695,7 @@ export const SiteTablesPanel = memo(
             onOpen={openTable}
             onRetry={() => void loadTables()}
             onComingSoon={flashComingSoon}
-            onCreateTable={() => setCreateTableOpen(true)}
-            onNewTableSql={onNewTableSql}
+            onCreateTable={() => (onCreateTable ? onCreateTable() : setCreateTableOpen(true))}
             onDropTable={(name) => setDropTarget(name)}
             onSeedWithAi={() => void seedWithAi()}
             onLoadSample={() => void loadSampleData()}
@@ -3571,7 +3567,6 @@ const TableListView = memo(
     onRetry,
     onComingSoon,
     onCreateTable,
-    onNewTableSql,
     onDropTable,
     onSeedWithAi,
     onLoadSample,
@@ -3583,7 +3578,6 @@ const TableListView = memo(
     onRetry: () => void;
     onComingSoon: (label: string) => void;
     onCreateTable?: () => void;
-    onNewTableSql?: () => void;
     onDropTable: (name: string) => void;
     onSeedWithAi: () => void;
     onLoadSample: () => void;
@@ -3619,9 +3613,7 @@ const TableListView = memo(
         <EmptyLaunchpad
           onSeedWithAi={onSeedWithAi}
           onLoadSample={onLoadSample}
-          onCreateTable={() =>
-            onCreateTable ? onCreateTable() : onNewTableSql ? onNewTableSql() : onComingSoon('New table')
-          }
+          onCreateTable={() => (onCreateTable ? onCreateTable() : onComingSoon('New table'))}
           onImportCsv={() => (onImportCsv ? onImportCsv() : onComingSoon('Import CSV'))}
           quickFill={quickFill}
         />

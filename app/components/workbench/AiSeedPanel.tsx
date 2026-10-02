@@ -74,7 +74,16 @@ interface ExecResult {
 /** Columns that the DB fills itself — never asked of the AI, never inserted. */
 const AUTO_COLUMNS = new Set(['id', 'rowid', 'created_at', 'updated_at', 'submitted_at']);
 
-export const AiSeedPanel = memo(() => {
+export interface AiSeedPanelProps {
+  /**
+   * Optional: open the guided Schema builder to create the FIRST table. Wired by {@link DatabasePanel} to
+   * swap this overlay to the schema builder, so the "no tables yet" empty state is a launchpad — never a
+   * dead-end. When absent (standalone), the empty state falls back to a plain "create a table first" note.
+   */
+  onCreateTable?: () => void;
+}
+
+export const AiSeedPanel = memo(({ onCreateTable }: AiSeedPanelProps = {}) => {
   const [tables, setTables] = useState<string[]>([]);
   const [tablesState, setTablesState] = useState<'loading' | 'ready' | 'disabled' | 'error'>('loading');
   const [selectedTable, setSelectedTable] = useState('');
@@ -389,6 +398,20 @@ export const AiSeedPanel = memo(() => {
         <EmptyNote icon="i-ph:table" title="Create a table first">
           Add a table in the Schema builder, then come back to fill it with realistic sample data.
         </EmptyNote>
+        {/* Never a dead-end: the CTA opens the guided Schema builder so an owner can make their first
+            table right here (per embarrassingly-easy-to-use + real-time-data-no-manual-refresh siblings). */}
+        {onCreateTable && (
+          <div className="flex justify-center">
+            <button
+              type="button"
+              onClick={onCreateTable}
+              data-testid="seed-empty-create-table"
+              className="min-h-[24px] text-[13px] font-semibold px-4 py-2 rounded-lg flex items-center gap-2 bg-bolt-elements-item-contentAccent text-[#061018] hover:shadow-[0_4px_18px_-4px_rgba(0,229,255,0.55)] hover:-translate-y-px motion-reduce:hover:translate-y-0 transition-all duration-150 motion-reduce:transition-none focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-offset-bolt-elements-background-depth-1 focus-visible:ring-bolt-elements-item-contentAccent cursor-pointer"
+            >
+              <div className="i-ph:plus-circle text-base" aria-hidden /> Create Table
+            </button>
+          </div>
+        )}
       </Shell>
     );
   }

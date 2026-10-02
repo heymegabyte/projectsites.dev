@@ -211,7 +211,6 @@ export const DatabasePanel = memo(() => {
                 onCreateTable={() => setTableAction('schema')}
                 onSeedWithAi={() => setTableAction('seed')}
                 onImportCsv={() => setTableAction('import')}
-                onNewTableSql={() => setSubView('sql')}
                 onHistory={() => setTableAction('history')}
                 openTableRequest={openTable}
               />
@@ -226,7 +225,11 @@ export const DatabasePanel = memo(() => {
 
         {/* Tables-view action overlay — Import / History / Schema / AI-seed, on top of the grid. */}
         {subView === 'table' && tableAction && (
-          <TableActionOverlay action={tableAction} onClose={closeAction} />
+          <TableActionOverlay
+            action={tableAction}
+            onClose={closeAction}
+            onSwitchToSchema={() => setTableAction('schema')}
+          />
         )}
 
         {/*
@@ -257,7 +260,17 @@ const ACTION_META: Record<TableAction, { title: string; icon: string }> = {
  * {@link TimeTravelPanel}, {@link SchemaBuilder}, {@link AiSeedPanel} reachable + interconnected without
  * cluttering the top nav. Esc / backdrop / the close button dismiss it (restores focus to the grid).
  */
-const TableActionOverlay = memo(({ action, onClose }: { action: TableAction; onClose: () => void }) => {
+const TableActionOverlay = memo(
+  ({
+    action,
+    onClose,
+    onSwitchToSchema,
+  }: {
+    action: TableAction;
+    onClose: () => void;
+    /** Swap this overlay to the guided Schema builder (the AI-seed empty state's "Create Table" CTA). */
+    onSwitchToSchema: () => void;
+  }) => {
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (e.key === 'Escape') {
@@ -303,12 +316,13 @@ const TableActionOverlay = memo(({ action, onClose }: { action: TableAction; onC
           {action === 'import' && <ImportPanel />}
           {action === 'history' && <TimeTravelPanel />}
           {action === 'schema' && <SchemaBuilder />}
-          {action === 'seed' && <AiSeedPanel />}
+          {action === 'seed' && <AiSeedPanel onCreateTable={onSwitchToSchema} />}
         </div>
       </div>
     </div>
-  );
-});
+    );
+  },
+);
 
 TableActionOverlay.displayName = 'DatabasePanel.TableActionOverlay';
 
