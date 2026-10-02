@@ -91,6 +91,7 @@ import {
               (ngModelChange)="inviteEmail.set($event)"
               (blur)="emailTouched.set(true)"
               [disabled]="seatsFull()"
+              [attr.title]="inviteBlockReason() || null"
               [attr.aria-invalid]="showEmailError()"
               aria-describedby="team-invite-email-error"
               placeholder="teammate@example.com"
@@ -118,6 +119,7 @@ import {
               [ngModel]="inviteRole()"
               (ngModelChange)="inviteRole.set($event)"
               [disabled]="seatsFull()"
+              [attr.title]="inviteBlockReason() || null"
               data-testid="team-invite-role"
               class="min-h-[44px] rounded-lg border border-white/[0.1] bg-dark-surface px-3 text-[0.9rem] text-white outline-none focus-visible:border-primary focus-visible:ring-2 focus-visible:ring-primary/40 disabled:cursor-not-allowed disabled:opacity-50"
             >
@@ -130,6 +132,8 @@ import {
           <button
             type="submit"
             [disabled]="inviting() || !emailValid() || seatsFull()"
+            [attr.title]="inviteBlockReason() || null"
+            [attr.aria-label]="inviteBlockReason() || null"
             data-testid="team-invite-submit"
             class="min-h-[44px] self-end max-md:self-stretch rounded-lg bg-primary px-4 text-[0.9rem] font-bold text-dark transition-colors motion-safe:transition-all hover:bg-primary/90 focus-visible:ring-2 focus-visible:ring-primary/50 disabled:cursor-not-allowed disabled:opacity-50"
           >
@@ -281,6 +285,19 @@ export class TeamComponent {
   );
   /** How many owners the org has — drives the last-owner remove guard. */
   readonly ownerCount = computed(() => this.members().filter((m) => m.role === 'owner').length);
+
+  /**
+   * Why the invite form is locked, in plain words — mirrors hosting's
+   * publishBlockReason pattern so every disabled invite control carries its
+   * own reason (title + aria-label), never a silent dead control. Empty string
+   * when the form is usable. Per embarrassingly-easy-to-use + logo-contrast's
+   * sibling action-button-must-gate-on-server-precondition.
+   */
+  readonly inviteBlockReason = computed(() =>
+    this.seatsFull()
+      ? 'Seat limit reached — upgrade your plan in Billing to invite more members.'
+      : '',
+  );
 
   constructor() {
     void this.load();
