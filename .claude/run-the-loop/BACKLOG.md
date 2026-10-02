@@ -1261,3 +1261,11 @@
 9. **[gen-quality] Stock-photo relevance classifier** — hero media weights business-name/trade signal, not industry-pack default. ACCEPTANCE: no gift-shop photo on a trade business.
 10. **[infra] editor frame-ancestors 'none' blocks iframe embed** — prod `editor.projectsites.dev` `_headers` must allow admin + localhost:4200 origins. ACCEPTANCE: Long-Trail D-boot legs #43-45/#53-55 go live. (DISCOVERIES fire-69)
 11. **[explorer] Settings tab per-action selectors** — re-probe Team/MCP/Webhooks/Domains with tab-specific primary-action selectors (generic invite|add|connect|create regex missed them). ACCEPTANCE: dialog-open states exercised. (R17 next cursor)
+
+### fire-71 next-wave (replenish)
+
+- gp-09 North-Star recreate-cycle measurement — REFRAME non-destructive: create a disposable `gp09-<ts>` site, run search→build→live then a recreate cycle on IT, measure wall-clock (<5min) + $/build (≤$1) + Resources-Advanced reconcile (vision ≥8/10). Do NOT destroy a named site (canonical answer #4). Lead candidate next fire.
+- Long-Trail case-001 Phase F (role-16) — app install/remove + tenant isolation (#90) + cleanup (#91-96); assert node_modules + .dev.vars + a BOOTED local stack BEFORE claiming coverage. Editor frame-ancestors CSP blocker is RESOLVED live.
+- WebGL template-repo wiring — A2 closed the WORKER side (prompt emit + validator). STILL OPEN (fire-69 D3): copy `templates/webgl/` into the Dockerfile clone + render `<WebGLHero>` in the remote `template.projectsites.dev`; then a live `getContext('webgl')` prod proof on a regen.
+- Frontend logs-tab real-browser verify — confirm a NON-super-admin sees only Audit Trail (Explorer/Traces hidden) + a super-admin sees all three, live on /admin/logs (role-17 next sweep).
+- (maintenance) MEMORY.md compaction — project memory index ~19.6KB approaching the 24.4KB read limit; a deliberate merge-clusters pass (no pointer loss), not a reflex drop.
