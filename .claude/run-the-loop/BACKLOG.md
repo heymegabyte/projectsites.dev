@@ -1380,3 +1380,28 @@
   - priority: low · category: testing · discovered_by: fire-76-role17
 - [ ] **AWOS-03: SiteEvent Durable Object emitter** — thin SiteEventLog DO accepting SiteEventSchema-validated writes → SQLite append + list(site,{since,type}) read; per-event-type payload schemas + D1/R2 persistence after. Builds on fire-76 SiteEvent base schema.
   - priority: medium · category: architecture · discovered_by: fire-76-AWOS-02
+
+## fire-77 replenish (2026-10-02) — next-wave items
+
+### Re-queued (fan-out attrition / standing roles)
+- [testing/golden-path P1] Money-path LONG journey (role 4) + fire-72 editor-iframe-crash LIVE re-confirm — homepage->search->signin(test seam)->open existing site->editor Workbench: assert no `TypeError` in `@ai-sdk/react` useMemo; screenshot each step. (R-B died fire-77, nothing salvageable.)
+- [testing P1 - STANDING] Deep UI Explorer (role 17) — RUN WITH `test-writer`/`general-purpose`, NEVER `visual-qa` (no Write tool; recurrence of r17W fire-77). CF Browser Run CDP, authed admin graph exploration + vision per state. All creds present (CF_BROWSER_RUN_TOKEN via get-secret, len 54).
+- [testing P1 - STANDING] Long-Trail case-001 Phase F (action 60/~96) — NEWLY UNBLOCKED: prod editor now serves `frame-ancestors ... http://localhost:4200`, so D-boot iframe legs (#43-45/#53-55) + Phase F cleanup (#79-96) can go live; delete the D-boot `test.fixme` + 4 Framing allowlist entries. Lease stale (runId fire-69). MAIN checkout only.
+
+### Brand-quality cluster (R-D discovery — generation pipeline; design-taste held, objective defects execute-surgical)
+- [brand-quality P1] Accent-text-on-bg AA contrast <4.5:1 in 8 verticals (`templates/verticals/*/vertical.json` webgl.palette[1]; logistics #c9a227 on #f7f5ef=2.22:1) — validate generated accent vs bg at gen time; acceptance: palette[1] >=4.5:1 for text use OR flagged decoration-only.
+- [brand-quality P2] Muted palette[2] <1.2:1 in ALL verticals — audit as decoration-only (never text) OR recolor to >=3:1 large-text.
+- [brand-quality P2] Medical + Nonprofit ship white as palette[0] on light bg (1.07-1.09:1, degenerate) — recolor palette[0] to >=4.5:1 OR move white to palette[2].
+- [brand-quality P2 - needs-live-confirm] Restaurant webgl.background #1a0f0a -> dark wordmark on dark canvas (logo-contrast) — verify header wordmark visible over ember WebGL on a generated restaurant site.
+- [brand-quality P1] WebGL hero gen-consumption gate still `report` not `strict` (`build_validators.ts:1195 validateWebglHeroPresent`) — confirm promoted to strict + a generated site actually mounts `<WebGLHero>`; else unwired ships green.
+- [brand-quality P3] Hero H1 falls back to pack-default generic ("Your {category} in {city}", `hero_copy.ts:399`) when no AI copy — gate H1 to include business name.
+- [brand-quality P3] Hero image category-generic not business-specific (`hero_image.ts heroImageForVertical`) — AI-vision relevance gate or user-upload override.
+- [architecture P3] Verticals are recolored siblings (no per-vertical dimensional visual language) — tracked future evolution, not a blocking defect.
+
+### Money-path gaps (R-E discovery — deduped vs frontier)
+- [frontend P1] Waiting-page build-failed -> recovery CTA audit (`waiting.component.html:187` status()==='error') — assert a concrete next action (retry/edit/contact), not a dead "failed" chip.
+- [test P2] Create 0-match -> manual-build continuity E2E (`create.component.html:341`) — a no-result search still reaches a successful build-start via manual entry.
+- [test P2] `/search` provider-outage degraded-path E2E (`search.component.ts:97`) — assert graceful degrade + manual path builds (homepage sibling covers homepage only).
+- [frontend P2] Editor "site-not-found" empty-state actionability — assert a navigable "pick/create a site" CTA, not a dead-end on a stale/foreign siteId.
+
+### CF-scout (R-E): no new releases / no urgent deprecations since fire-54 sweep. Standing pilots unchanged.

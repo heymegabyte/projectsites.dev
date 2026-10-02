@@ -14,13 +14,13 @@
  * fixed the ONE it missed (`libs/features/media_ai/handlers.ts` HEAD probe). This
  * detector makes the whole CLASS visible so the next one can't hide.
  *
- * STATUS: SOFT-INFO (Detect + Surface rungs of the audit-arc maturity ladder). It is
- * deliberately NOT wired into the blocking `check` chain yet — 4 pre-existing code
- * sites (lead_enrichment ×2, system_status, domains) are un-audited and may be
- * legitimately fixed-host. Once each is migrated to safeFetch OR annotated
- * `// safe-fetch-ok: <reason>` (fixed provider host, not user-influenced), run with
- * `--ci` and PROMOTE it to a hard gate (`apps/project-sites/package.json` `check`).
- * See `.claude/run-the-loop/BACKLOG.md` (SSRF redirect-follow migrate+promote slice).
+ * STATUS: PROMOTED to a BLOCKING push gate (fire-77) — wired into
+ * `.github/workflows/feature-architecture.yml` (runs with `--ci` alongside the other
+ * detector steps). The 4 previously-unaudited sites are resolved: lead_enrichment ×2 +
+ * domains (RDAP) migrated to `safeFetch`; system_status annotated `// safe-fetch-ok`
+ * (hardcoded first-party INTEGRATION_TARGETS, no user-influenced URL). Any NEW
+ * `redirect:'follow'` on a variable URL must migrate to `safeFetch` OR carry a justified
+ * `// safe-fetch-ok` marker on the same/preceding line, or this gate fails the build.
  *
  * Precision (per validator-precision-discipline — prefer false-NEGATIVES): we flag
  * ONLY an explicit `redirect: 'follow'` literal in real (non-comment) code. A bare

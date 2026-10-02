@@ -606,3 +606,25 @@ launchd banner → in-session cron. Next task-selection now reads the merged fro
 - Gates: tsc 0 · validate:features PASS 0-drift · lefthook pre-commit (resurrection-guard + feature-drift) PASS
 - loop-improvement: check-safe-fetch-redirect.mjs SSRF redirect-follow detector (Detect+Surface rung, audit-arc ladder) + salvaged the dead lead's ageMin lock-diagnostics helper
 - prod-verify: worker deployed v625fa920-dcde-4ac3-91c1-bd5f904c8968; homepage 200 (title+H1, money-path entry), HSTS+CSP+nosniff intact, /api/health ok (kv+r2), soft-404 correct. SSRF fix live (hardening; no regression).
+
+## fire-77 — 2026-10-02 (converge; SSRF push-gate promote + over-limit Upgrade CTA + discovery)
+Lease fire-77-convergence. Weight: security + money-path product + discovery (no new arch/UX pass).
+
+SHIPPED (main + prod):
+- Security + loop-improvement — `16b05c6cc` — PROMOTED `check-safe-fetch-redirect.mjs` + `check-dead-toggle-state.mjs` from soft-info to BLOCKING push gates in `feature-architecture.yml`; migrated 3 un-`safeFetch`'d `redirect:'follow'` sites (lead_enrichment x2, domains RDAP) + annotated system_status first-party `// safe-fetch-ok`. tsc + 33 units green; touched-suite 373/373.
+- Money-path product — `4457d93d6` — over-limit site-create (403 `BUILD_LIMIT_REACHED`) now renders an action-armed "Upgrade" toast -> `/admin/billing` instead of a dead generic toast (embarrassingly-easy + action-button-must-gate-on-server-precondition). TDD RED (`Expected undefined to be 'Upgrade'`) -> GREEN (`create.component.spec` 19/19).
+- Doc — `check-safe-fetch-redirect.mjs` header soft-info -> blocking-gate (adversarial-reviewer Rec, shipped inline).
+
+DEPLOY + PROD-VERIFY:
+- Worker Version `fc784a1d-acef-4f00-b7d0-c9d34e9da9bf` (startup 138ms; transient DNS blip on first attempt, retried green). Prod: homepage 200 - /api/health ok (kv+r2) - HSTS+CSP intact - /api/domains/search 200 (RDAP safeFetch path live, not 500).
+- Frontend R2 300/300; /create 200 + new bundle (`chunk-C7LTKA34.js`). CTA logic unit-proven; live over-limit render needs an at-cap org (verification boundary).
+
+ADVERSARIAL REVIEW (Opus security-reviewer): PASS — safeFetch re-validates every redirect hop; `// safe-fetch-ok` genuinely first-party (test fetchImpl can't leak to prod); CTA exact-matches code + preserves generic path + authed route + dismissable sticky toast; no flag-on / IDOR / swallowed-error / lying-empty.
+
+FAN-OUT ATTRITION (salvaged + re-queued, loop kept running):
+- R-B money-path golden journey (test-writer) DIED — "Stream idle timeout", subagent_tokens:0 after 29 tool_uses; wrote nothing to disk -> nothing to salvage. Money-path LONG journey + fire-72 editor-crash LIVE re-confirm RE-QUEUED.
+- R-C Deep UI Explorer (role 17) MIS-ASSIGNED to `visual-qa` (no Write tool -> recon only) — recurrence of memory `r17W`. RE-QUEUED with `test-writer`.
+
+STALE CARRIED FINDINGS re-confirmed + archived (discipline paid off): build_metrics card self-hides on 404 (already flag-gated); editor `frame-ancestors` serves correct scoped value live.
+
+LOOP-IMPROVEMENT (section 7): promoted SSRF + dead-toggle detectors to BLOCKING push gates (audit-arc "Promote" rung) — both classes now regression-locked in CI.
