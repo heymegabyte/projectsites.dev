@@ -103,7 +103,7 @@ describe('check-get-read-idor · scanGetHandler', () => {
       expect(files.some((f) => f.endsWith('.d.ts'))).toBe(false);
     });
 
-    it("confirms src/index.ts actually registers the inline GET-by-siteId handlers this guard covers", () => {
+    it('confirms src/index.ts actually registers the inline GET-by-siteId handlers this guard covers', () => {
       // Sanity: if these handlers ever move out of index.ts the blind-spot shrinks, but while
       // they're inline the scanner MUST see them (the whole point of the top-level scan).
       const text = readFileSync(join(APP_DIR, 'src', 'index.ts'), 'utf8');
