@@ -50,6 +50,8 @@ These invariants are enforced programmatically in `src/services/build_validators
 | JS chunk size | No JS chunk > 750KB raw (~250KB gzip) — code-split by route | `js.chunk_too_large` |
 | Lightbox | JS bundle contains `data-zoomable` AND `data-gallery` strings | `lightbox.zoomable_missing`, `lightbox.gallery_missing` |
 | WebGL hero | When the site's vertical pack carries a `webgl` block (opt `hasWebglPack`, always true today), the bundle/HTML MUST mount the ambient `WebGLHero` (`webgl-hero-layer` / `createWebGLHero` / `WebGLHero`) — closes the fire-71 generation-consumption gap | `webgl.hero_missing` |
+| Wordmark contrast | The HTML TEXT wordmark (Header `<span>` fallback — MOST sites lack `logo-wordmark.png`) must NOT render dark-on-dark: a `wordmark`-classed element with a near-black inline `color:` / dark text token (`text-[#0..]`/`-900`/`-950`/`text-ink`) AND no halo (`text-shadow`/`drop-shadow`) AND no own `bg-*` backing fails. Per `logo-contrast`: light token + halo, or dark backing. (fire-80, gp-09 c2) | `contrast.wordmark_dark_on_dark` |
+| Eyebrow contrast | The hero EYEBROW (kicker above H1) must clear WCAG AA with a SOLID token, never opacity-on-a-muted-token: `text-white/<70` or a muted/subtle token further dimmed by `opacity-*` fails. Per `text-contrast`: use `text-accent` / the `--ink-accent` OKLCH mix at full opacity. (fire-80, gp-09 c2) | `contrast.eyebrow_low_contrast` |
 
 **Mode flag (in workflow `validate-build` step):** currently `report` (logs to D1 audit, never throws). Flip to `strict` once template ships clean across all benchmarks (megabyte-labs, njsk, nyfb, vito's, soup kitchen).
 

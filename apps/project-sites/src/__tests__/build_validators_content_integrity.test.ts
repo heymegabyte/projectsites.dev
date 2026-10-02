@@ -15,6 +15,8 @@ import {
   validateHeroNotPackDefault,
   validateAdjacentDuplicateWords,
   validateHeaderLogoAssetExistence,
+  validateWordmarkContrast,
+  validateEyebrowContrast,
   type BuildFile,
 } from '../services/build_validators';
 
@@ -197,5 +199,150 @@ describe('validateHeaderLogoAssetExistence — header-referenced logo-wordmark 4
       ),
     ];
     expect(validateHeaderLogoAssetExistence(files)).toEqual([]);
+  });
+});
+
+/**
+ * fire-80 — reproduces gp-09 cycle-2 vision defect (a): the HTML TEXT wordmark (the common render
+ * path — most generated sites lack a `/logo-wordmark.png`, so the Header falls back to a styled
+ * `<span>` of the business name) ships with a DARK text color/token, rendering DARK-ON-DARK and
+ * illegible in the nav. Per `logo-contrast`: a light-text wordmark must sit on a dark backing OR
+ * carry a halo; a dark text token on the transparent/dark nav is the defect. The gate scans the
+ * shipped JS bundle (where the React Header renders) for a wordmark span styled with a near-black /
+ * dark-token color AND lacking any halo (`text-shadow`/`drop-shadow`) or explicit dark-backing.
+ */
+describe('validateWordmarkContrast — dark-on-dark text wordmark class (fire-80, gp-09 c2)', () => {
+  it('flags a text wordmark span rendered with a near-black hex color (dark-on-dark, no halo)', () => {
+    const files = [
+      file('index.html', '<!DOCTYPE html><html><body><script src="/assets/h.js"></script></body></html>'),
+      // React Header renders the business NAME as a styled span with an inline near-black color and
+      // no halo — illegible over the dark/transparent nav.
+      file(
+        'assets/h.js',
+        'function Header(){return e("span",{className:"wordmark",style:{color:"#0a0a1a"}},businessName)}',
+      ),
+    ];
+    const v = validateWordmarkContrast(files);
+    expect(v.length).toBeGreaterThanOrEqual(1);
+    expect(v[0].code).toBe('contrast.wordmark_dark_on_dark');
+    expect(v[0].severity).toBe('error');
+  });
+
+  it('flags a text wordmark styled with a dark THEME token class (text-[#0...]/text-ink-900) sans halo', () => {
+    const files = [
+      file('index.html', '<!DOCTYPE html><html><body><script src="/assets/h.js"></script></body></html>'),
+      file(
+        'assets/h.js',
+        'e("span",{className:"wordmark font-bold text-[#111827] whitespace-nowrap"},business)',
+      ),
+    ];
+    const v = validateWordmarkContrast(files);
+    expect(v.length).toBeGreaterThanOrEqual(1);
+    expect(v[0].code).toBe('contrast.wordmark_dark_on_dark');
+  });
+
+  it('PASSES a text wordmark with a light token + a text-shadow halo (the logo-contrast fix)', () => {
+    const files = [
+      file('index.html', '<!DOCTYPE html><html><body><script src="/assets/h.js"></script></body></html>'),
+      // Light token (text-text / text-white) + halo via [text-shadow:...] — legible on any nav.
+      file(
+        'assets/h.js',
+        'e("span",{className:"wordmark text-text whitespace-nowrap [text-shadow:0_1px_3px_rgba(0,0,0,0.55)]"},business)',
+      ),
+    ];
+    expect(validateWordmarkContrast(files)).toEqual([]);
+  });
+
+  it('PASSES a dark-colored wordmark that sits on an explicit dark backing (bg-* on the same span)', () => {
+    const files = [
+      file('index.html', '<!DOCTYPE html><html><body><script src="/assets/h.js"></script></body></html>'),
+      // A dark text token is fine when the element carries its OWN light/dark backing — contrast is local.
+      file(
+        'assets/h.js',
+        'e("span",{className:"wordmark text-[#111827] bg-surface rounded-lg px-2"},business)',
+      ),
+    ];
+    expect(validateWordmarkContrast(files)).toEqual([]);
+  });
+
+  it('PASSES an IMAGE wordmark (no text span) — the img path is covered by header-logo-asset gate', () => {
+    const files = [
+      file('index.html', '<!DOCTYPE html><html><body><script src="/assets/h.js"></script></body></html>'),
+      file('assets/h.js', 'e("img",{src:"/logo-wordmark.png",alt:business,className:"h-12"})'),
+      file('logo-wordmark.png', undefined, 12000),
+    ];
+    expect(validateWordmarkContrast(files)).toEqual([]);
+  });
+
+  it('does NOT scan non-JS/HTML files', () => {
+    const files = [file('data.json', '{"wordmark":"color:#0a0a1a"}')];
+    expect(validateWordmarkContrast(files)).toEqual([]);
+  });
+});
+
+/**
+ * fire-80 — reproduces gp-09 cycle-2 vision defect (b): the hero EYEBROW (the small uppercase label
+ * above the H1) uses OPACITY-ON-A-MUTED-TOKEN (`text-text-subtle`, `text-white/40`, `opacity-50` on
+ * a muted color), which `text-contrast` flags as a silent WCAG-AA failure — a muted token further
+ * faded by opacity rarely clears 4.5:1. The fix is a SOLID brand/OKLCH token (`text-accent`,
+ * `--ink-accent`), never opacity on muted. The gate scans the shipped bundle/HTML for an eyebrow
+ * element styled with the faded-muted anti-pattern.
+ */
+describe('validateEyebrowContrast — opacity-on-muted eyebrow AA-fail class (fire-80, gp-09 c2)', () => {
+  it('flags an eyebrow using a low-opacity white utility (text-white/40 → fails AA on dark)', () => {
+    const files = [
+      file('index.html', '<!DOCTYPE html><html><body><script src="/assets/hero.js"></script></body></html>'),
+      file(
+        'assets/hero.js',
+        'e("p",{className:"eyebrow uppercase tracking-widest text-white/40"},"EST. 2008")',
+      ),
+    ];
+    const v = validateEyebrowContrast(files);
+    expect(v.length).toBeGreaterThanOrEqual(1);
+    expect(v[0].code).toBe('contrast.eyebrow_low_contrast');
+    expect(v[0].severity).toBe('error');
+  });
+
+  it('flags an eyebrow on a muted token further dimmed by an opacity-* class', () => {
+    const files = [
+      file('index.html', '<!DOCTYPE html><html><body><script src="/assets/hero.js"></script></body></html>'),
+      file(
+        'assets/hero.js',
+        'e("span",{className:"eyebrow text-text-subtle opacity-60 uppercase"},"WELCOME")',
+      ),
+    ];
+    const v = validateEyebrowContrast(files);
+    expect(v.length).toBeGreaterThanOrEqual(1);
+    expect(v[0].code).toBe('contrast.eyebrow_low_contrast');
+  });
+
+  it('PASSES an eyebrow on a solid brand accent token (the text-contrast fix)', () => {
+    const files = [
+      file('index.html', '<!DOCTYPE html><html><body><script src="/assets/hero.js"></script></body></html>'),
+      // Solid accent token at full opacity — the --ink-accent / text-accent pattern clears AA.
+      file(
+        'assets/hero.js',
+        'e("p",{className:"eyebrow uppercase tracking-widest text-accent"},"EST. 2008")',
+      ),
+    ];
+    expect(validateEyebrowContrast(files)).toEqual([]);
+  });
+
+  it('PASSES an eyebrow with a solid muted token at FULL opacity (text-text-muted, no opacity fade)', () => {
+    // text-text-muted alone is a legitimate AA-safe mid token; only opacity-fading it fails.
+    const files = [
+      file('index.html', '<!DOCTYPE html><html><body><script src="/assets/hero.js"></script></body></html>'),
+      file('assets/hero.js', 'e("p",{className:"eyebrow uppercase text-text-muted"},"WELCOME")'),
+    ];
+    expect(validateEyebrowContrast(files)).toEqual([]);
+  });
+
+  it('does NOT false-positive on a low-opacity utility that is NOT on an eyebrow element', () => {
+    const files = [
+      file('index.html', '<!DOCTYPE html><html><body><script src="/assets/hero.js"></script></body></html>'),
+      // A decorative divider using text-white/40 — not an eyebrow, must not trip the gate.
+      file('assets/hero.js', 'e("span",{className:"divider text-white/40"},"•")'),
+    ];
+    expect(validateEyebrowContrast(files)).toEqual([]);
   });
 });

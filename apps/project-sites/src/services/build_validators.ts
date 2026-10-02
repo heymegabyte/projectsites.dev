@@ -975,6 +975,125 @@ export const validateHeaderLogoAssetExistence = (files: BuildFile[]): Violation[
   return out;
 };
 
+/**
+ * Element-className extractor for the bundled React render path. The Header/Hero are rendered
+ * CLIENT-SIDE (`e("span",{className:"…"},…)` / `e("p",{className:"…"},…)` in the minified JS, or a
+ * literal `<span class="…">` when SSR'd), so a contrast defect on a wordmark/eyebrow lives as a
+ * className STRING inside the JS bundle — never as styled markup in the server HTML shell. This
+ * pulls every element whose className contains `needle` (e.g. `wordmark`, `eyebrow`), returning each
+ * match's full className text PLUS any inline `style={{…}}` / `style="…"` block attached to the same
+ * element, so the contrast gates can inspect both the Tailwind classes and inline colors. Scans the
+ * common React-createElement (`e("tag",{className:"…"…})`) + JSX (`className="…"`) + HTML
+ * (`class="…"`) shapes. Deterministic + allocation-light.
+ */
+const extractStyledElements = (source: string, needle: string): string[] => {
+  const out: string[] = [];
+  // React createElement: e("span",{ ...props... }, children) — capture the props object text so we
+  // see className + an adjacent inline style object. Non-greedy to the matching-ish close brace.
+  const CREATE_RE = /\be\(\s*["'][a-z0-9]+["']\s*,\s*(\{[\s\S]{0,400}?\})/gi;
+  for (const m of source.matchAll(CREATE_RE)) {
+    const props = m[1];
+    if (new RegExp(`(?:className|class)\\s*:\\s*["'\`][^"'\`]*\\b${needle}\\b`, 'i').test(props)) {
+      out.push(props);
+    }
+  }
+  // JSX / HTML: className="… needle …" or class="… needle …" — capture the attribute's full value
+  // plus any inline style="…" on the same tag (scan a small forward window from the class attr).
+  const ATTR_RE = new RegExp(
+    `(?:className|class)\\s*=\\s*["'\`]([^"'\`]*\\b${needle}\\b[^"'\`]*)["'\`]([\\s\\S]{0,200})`,
+    'gi',
+  );
+  for (const m of source.matchAll(ATTR_RE)) {
+    const styleWin = /style\s*=\s*["'{][^"'}]{0,160}/i.exec(m[2]);
+    out.push(`${m[1]}${styleWin ? ` ${styleWin[0]}` : ''}`);
+  }
+  return out;
+};
+
+/** A near-black / dark color — `#0xx`–`#3xx` hex (any low-luminance leading nibble) in a text context. */
+const DARK_HEX_RE = /#(?:[0-3][0-9a-f]{2}|[0-3][0-9a-f]{5})\b/i;
+/** A dark Tailwind token: `text-[#0..]` arbitrary-value, or a `-900/-950/black/ink/foreground` dark scale. */
+const DARK_TEXT_TOKEN_RE =
+  /\btext-\[#(?:[0-3][0-9a-f]{2}|[0-3][0-9a-f]{5})\]|\btext-(?:black|ink|foreground|neutral-9\d{2}|gray-9\d{2}|slate-9\d{2}|zinc-9\d{2}|stone-9\d{2}|\w*-950)\b/i;
+/** A halo (shadow) that rescues legibility over an unknown-polarity nav, per `logo-contrast`. */
+const HALO_RE = /text-shadow|drop-shadow|\[text-shadow:/i;
+/** An explicit own-element backing (so a dark text color is locally contrast-safe). */
+const OWN_BACKING_RE = /\bbg-(?!transparent\b)[\w[\]#./-]+/i;
+
+/**
+ * Wordmark contrast — the HTML TEXT wordmark (the Header's `<span>` fallback, used whenever a site
+ * has no `/logo-wordmark.png`, i.e. MOST generated sites) must never render DARK-ON-DARK in the nav.
+ * Per `logo-contrast`: a light-text wordmark needs a dark backing OR a `text-shadow` halo; a dark
+ * text token on the transparent/dark nav is the defect. This gate finds a wordmark-classed element
+ * in the shipped bundle/HTML and flags it `error` when it carries a near-black inline color OR a
+ * dark Tailwind text token AND has NEITHER a halo NOR its own `bg-*` backing. An IMAGE wordmark
+ * (no text span — the `logo-wordmark.png` path) is covered by {@link validateHeaderLogoAssetExistence}
+ * and passes here. Ref: fire-80 gp-09 cycle-2 vision (wordmark illegible dark-on-dark).
+ */
+export const validateWordmarkContrast = (files: BuildFile[]): Violation[] => {
+  const out: Violation[] = [];
+  for (const file of files) {
+    if (!isText(file.path) || !file.text) continue;
+    if (!/\bwordmark\b/.test(file.text)) continue;
+    for (const el of extractStyledElements(file.text, 'wordmark')) {
+      // `color:#0a0a1a` (CSS) OR `color:"#0a0a1a"` (JS inline-style object) — tolerate the quote.
+      const inlineColor = /color\s*:\s*["']?(#[0-9a-f]{3,8})/i.exec(el);
+      const darkInline = inlineColor ? DARK_HEX_RE.test(inlineColor[1]) : false;
+      const darkToken = DARK_TEXT_TOKEN_RE.test(el);
+      if (!darkInline && !darkToken) continue; // not a dark-colored wordmark → fine
+      if (HALO_RE.test(el) || OWN_BACKING_RE.test(el)) continue; // dark but rescued by halo/backing
+      out.push({
+        code: 'contrast.wordmark_dark_on_dark',
+        severity: 'error',
+        message:
+          'Text wordmark renders DARK-ON-DARK in the nav (dark color/token, no halo, no backing) — illegible. Per logo-contrast: use a light token (text-text) + a [text-shadow:...] halo, OR give the wordmark its own dark backing / pick the dark/light logo variant by hero luminance.',
+        file: file.path,
+      });
+      break; // one signal per file; minified bundles repeat the string
+    }
+  }
+  return out;
+};
+
+/** A white/light utility faded by a low opacity suffix (`text-white/40`, `text-foreground/50`) — <70% fails AA. */
+const LOW_OPACITY_LIGHT_RE =
+  /\btext-(?:white|foreground|ink|neutral-50|gray-50|slate-50|zinc-50)\/(?:[0-5]?\d|6[0-9])\b/i;
+/** A muted/subtle text token — AA-safe at full opacity, but a silent fail when further opacity-dimmed. */
+const MUTED_TOKEN_RE = /\btext-(?:\w*-)?(?:muted|subtle)(?:-foreground)?\b/i;
+/** A separate opacity utility on the element (`opacity-60`, `opacity-[0.5]`) that dims whatever color it has. */
+const OPACITY_CLASS_RE = /\bopacity-(?:\[0?\.\d+\]|[0-5]?\d|6[0-9])\b/i;
+
+/**
+ * Eyebrow contrast — the hero EYEBROW (the small uppercase kicker above the H1) must clear WCAG AA
+ * with a SOLID brand/OKLCH token, never opacity-on-a-muted-token. Per `text-contrast`: a muted token
+ * (`text-text-subtle`/`text-*-muted`) further faded by an `opacity-*` class, OR a low-opacity light
+ * utility (`text-white/40`), rarely clears 4.5:1 and fails silently (axe often misses it over a
+ * gradient/hero). This gate finds an eyebrow-classed element in the shipped bundle/HTML and flags it
+ * `error` on either anti-pattern. A solid accent token (`text-accent`) or a muted token at FULL
+ * opacity passes. Ref: fire-80 gp-09 cycle-2 vision (hero eyebrow fails AA contrast).
+ */
+export const validateEyebrowContrast = (files: BuildFile[]): Violation[] => {
+  const out: Violation[] = [];
+  for (const file of files) {
+    if (!isText(file.path) || !file.text) continue;
+    if (!/\beyebrow\b/.test(file.text)) continue;
+    for (const el of extractStyledElements(file.text, 'eyebrow')) {
+      const lowOpacityLight = LOW_OPACITY_LIGHT_RE.test(el);
+      const fadedMuted = MUTED_TOKEN_RE.test(el) && OPACITY_CLASS_RE.test(el);
+      if (!lowOpacityLight && !fadedMuted) continue; // solid token → AA-safe
+      out.push({
+        code: 'contrast.eyebrow_low_contrast',
+        severity: 'error',
+        message:
+          'Hero eyebrow uses opacity-on-a-muted-token (silent WCAG-AA fail) — a faded white/muted color rarely clears 4.5:1 over the hero. Per text-contrast: use a SOLID brand token (text-accent / the --ink-accent OKLCH mix) at full opacity, never opacity-* on a muted color.',
+        file: file.path,
+      });
+      break;
+    }
+  }
+  return out;
+};
+
 /** Banned slop words anywhere in HTML body text — enforces concrete copy over AI filler. */
 export const validateBannedWords = (files: BuildFile[]): Violation[] => {
   const out: Violation[] = [];
@@ -1766,6 +1885,8 @@ export const validateBuild = (
     ...validateHeroNotPackDefault(files),
     ...validateAdjacentDuplicateWords(files),
     ...validateHeaderLogoAssetExistence(files),
+    ...validateWordmarkContrast(files),
+    ...validateEyebrowContrast(files),
     ...validateNoBrandPlaceholders(files),
     ...validateBrandNameMatch(files, opts.expectedBusinessName),
     ...validateJsBundleSize(files),
