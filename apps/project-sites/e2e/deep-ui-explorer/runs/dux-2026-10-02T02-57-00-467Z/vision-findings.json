@@ -1,0 +1,1042 @@
+{
+  "runId": "dux-2026-10-02T02-57-00-467Z",
+  "reviewedAt": "2026-10-02T03:01:40.074Z",
+  "gateway": "https://gateway.ai.cloudflare.com/v1/<acct>/projectsites",
+  "statesReviewed": 19,
+  "reviewerFailures": 0,
+  "totalCostUsd": 0,
+  "results": [
+    {
+      "stateId": 1,
+      "key": "/::public-home::::d05f796d",
+      "action": "homepage loads (initial state)",
+      "screenshot": "01-homepage-loads-initial-state.png",
+      "escalated": false,
+      "score10": 10,
+      "summary": "The homepage loads successfully with a clear call-to-action and navigation menu.",
+      "findings": [
+        {
+          "dimension": "aesthetics",
+          "severity": "p3",
+          "confidence": 1,
+          "observed": "The page has a clean and modern design with a prominent hero section.",
+          "expected": "A visually appealing homepage with a clear value proposition.",
+          "proposal": "No changes needed.",
+          "acceptanceTest": "The page should have a visually appealing design.",
+          "persona": "small-business owner",
+          "region": "top section",
+          "sourceOwnerHypothesis": "likely styles.css",
+          "effort": "s",
+          "clampedFrom": "p0"
+        },
+        {
+          "dimension": "function",
+          "severity": "p3",
+          "confidence": 1,
+          "observed": "The navigation menu is visible and clickable.",
+          "expected": "A functional navigation menu.",
+          "proposal": "No changes needed.",
+          "acceptanceTest": "The navigation menu should be clickable.",
+          "persona": "small-business owner",
+          "region": "top navigation",
+          "sourceOwnerHypothesis": "likely main.js",
+          "effort": "s",
+          "clampedFrom": "p0"
+        },
+        {
+          "dimension": "a11y_perf",
+          "severity": "p3",
+          "confidence": 0.5,
+          "observed": "No obvious accessibility issues are visible.",
+          "expected": "The page should be accessible.",
+          "proposal": "Run accessibility tests to ensure compliance.",
+          "acceptanceTest": "The page should pass accessibility tests.",
+          "persona": "small-business owner",
+          "region": "entire page",
+          "sourceOwnerHypothesis": "likely styles.css and main.js",
+          "effort": "m",
+          "clampedFrom": "p0"
+        },
+        {
+          "dimension": "architecture_hypothesis",
+          "severity": "p3",
+          "confidence": 0.5,
+          "observed": "The page seems to be using a modern web framework.",
+          "expected": "The page is built using a modern web framework.",
+          "proposal": "Inspect code to confirm framework and architecture.",
+          "acceptanceTest": "The page should be built using a modern web framework.",
+          "persona": "developer",
+          "region": "entire page",
+          "sourceOwnerHypothesis": "likely main.js and framework documentation",
+          "effort": "l",
+          "clampedFrom": "p0"
+        }
+      ],
+      "meta": {
+        "provider": "workers-ai-via-ai-gateway",
+        "model": "@cf/meta/llama-4-scout-17b-16e-instruct",
+        "latencyMs": 9463,
+        "tokens": {
+          "input": 3042,
+          "output": 532
+        },
+        "costUsd": 0
+      }
+    },
+    {
+      "stateId": 2,
+      "key": "/signin::signin::::576d826f",
+      "action": "click Sign In (header) → /signin",
+      "screenshot": "02-click-sign-in-header-signin.png",
+      "escalated": false,
+      "score10": 10,
+      "summary": "The sign-in page loads correctly with all expected elements.",
+      "findings": [
+        {
+          "dimension": "aesthetics",
+          "severity": "p3",
+          "confidence": 1,
+          "observed": "The sign-in form is visually appealing and centered on the page.",
+          "expected": "The sign-in form should be visually appealing and centered on the page.",
+          "proposal": "No changes needed.",
+          "acceptanceTest": "The form is centered and visually appealing.",
+          "persona": "user",
+          "region": "center of the page",
+          "sourceOwnerHypothesis": "",
+          "effort": "s",
+          "clampedFrom": "p0"
+        },
+        {
+          "dimension": "structure",
+          "severity": "p3",
+          "confidence": 1,
+          "observed": "The sign-in form has fields for email and password, and buttons to sign in with email, Google, GitHub, or a magic link.",
+          "expected": "The sign-in form should have fields for email and password, and buttons to sign in with email, Google, GitHub, or a magic link.",
+          "proposal": "No changes needed.",
+          "acceptanceTest": "The form has the expected fields and buttons.",
+          "persona": "user",
+          "region": "center of the page",
+          "sourceOwnerHypothesis": "",
+          "effort": "s",
+          "clampedFrom": "p0"
+        },
+        {
+          "dimension": "function",
+          "severity": "p3",
+          "confidence": 1,
+          "observed": "The sign-in form fields and buttons are interactive.",
+          "expected": "The sign-in form fields and buttons should be interactive.",
+          "proposal": "No changes needed.",
+          "acceptanceTest": "The form fields and buttons are interactive.",
+          "persona": "user",
+          "region": "center of the page",
+          "sourceOwnerHypothesis": "",
+          "effort": "s",
+          "clampedFrom": "p0"
+        },
+        {
+          "dimension": "a11y_perf",
+          "severity": "p3",
+          "confidence": 0,
+          "observed": "No accessibility issues are visible.",
+          "expected": "The page should be accessible.",
+          "proposal": "No changes needed.",
+          "acceptanceTest": "The page passes accessibility checks.",
+          "persona": "user",
+          "region": "entire page",
+          "sourceOwnerHypothesis": "",
+          "effort": "s",
+          "clampedFrom": "p0"
+        },
+        {
+          "dimension": "business_value",
+          "severity": "p3",
+          "confidence": 1,
+          "observed": "The sign-in page allows users to access their sites.",
+          "expected": "The sign-in page should allow users to access their sites.",
+          "proposal": "No changes needed.",
+          "acceptanceTest": "The sign-in page allows users to access their sites.",
+          "persona": "user",
+          "region": "center of the page",
+          "sourceOwnerHypothesis": "",
+          "effort": "s",
+          "clampedFrom": "p0"
+        }
+      ],
+      "meta": {
+        "provider": "workers-ai-via-ai-gateway",
+        "model": "@cf/meta/llama-4-scout-17b-16e-instruct",
+        "latencyMs": 13639,
+        "tokens": {
+          "input": 2936,
+          "output": 764
+        },
+        "costUsd": 0
+      }
+    },
+    {
+      "stateId": 3,
+      "key": "/signin::signin-test-seam::::02622a42",
+      "action": "enter test seam (/signin?test=1) — panel render",
+      "screenshot": "03-enter-test-seam-signin-test-1-panel-render.png",
+      "escalated": false,
+      "score10": 10,
+      "summary": "The sign-in page renders correctly with a test seam.",
+      "findings": [],
+      "meta": {
+        "provider": "workers-ai-via-ai-gateway",
+        "model": "@cf/meta/llama-4-scout-17b-16e-instruct",
+        "latencyMs": 1328,
+        "tokens": {
+          "input": 3045,
+          "output": 37
+        },
+        "costUsd": 0
+      }
+    },
+    {
+      "stateId": 4,
+      "key": "/admin::admin-dashboard::::fec53253",
+      "action": "test login submit → lands /admin",
+      "screenshot": "04-test-login-submit-lands-admin.png",
+      "escalated": false,
+      "score10": 9,
+      "summary": "The dashboard loads with a clear getting started checklist and operator cockpit, indicating a successful login and initial setup guidance.",
+      "findings": [
+        {
+          "dimension": "aesthetics",
+          "severity": "p2",
+          "confidence": 0.8,
+          "observed": "The UI is visually appealing with a clear dark theme, but some elements seem slightly misaligned or have inconsistent spacing.",
+          "expected": "A polished and consistent design throughout the dashboard.",
+          "proposal": "Review CSS for consistent spacing and alignment.",
+          "acceptanceTest": "Visual inspection for consistent design elements.",
+          "persona": "Small business owner",
+          "region": "top navigation and getting started section",
+          "sourceOwnerHypothesis": "likely styles.css",
+          "effort": "m"
+        },
+        {
+          "dimension": "function",
+          "severity": "p3",
+          "confidence": 1,
+          "observed": "The getting started checklist is visible and actionable.",
+          "expected": "The checklist items should be clickable and lead to relevant sections.",
+          "proposal": "Verify checklist item links and functionality.",
+          "acceptanceTest": "Click on each checklist item and verify navigation.",
+          "persona": "Small business owner",
+          "region": "getting started section",
+          "sourceOwnerHypothesis": "likely dashboard.js",
+          "effort": "s",
+          "clampedFrom": "p0"
+        },
+        {
+          "dimension": "a11y_perf",
+          "severity": "p3",
+          "confidence": 0.5,
+          "observed": "No immediate accessibility issues are visible.",
+          "expected": "The dashboard should follow accessibility guidelines.",
+          "proposal": "Run automated accessibility tests.",
+          "acceptanceTest": "Run axe-core accessibility tests.",
+          "persona": "All users",
+          "region": "entire dashboard",
+          "sourceOwnerHypothesis": "likely dashboard.js and styles.css",
+          "effort": "m"
+        },
+        {
+          "dimension": "business_value",
+          "severity": "p3",
+          "confidence": 1,
+          "observed": "The operator cockpit shows 1 site live and 1 total site, indicating a successful site setup.",
+          "expected": "The cockpit should accurately reflect site status and metrics.",
+          "proposal": "Verify data accuracy in the operator cockpit.",
+          "acceptanceTest": "Verify site counts and status match actual data.",
+          "persona": "Small business owner",
+          "region": "operator cockpit",
+          "sourceOwnerHypothesis": "likely dashboard.js and API calls",
+          "effort": "m",
+          "clampedFrom": "p0"
+        },
+        {
+          "dimension": "architecture_hypothesis",
+          "severity": "p3",
+          "confidence": 0.8,
+          "observed": "The dashboard seems to be built with a modern tech stack, possibly using React or a similar framework.",
+          "expected": "The architecture should support scalability and performance.",
+          "proposal": "Review tech stack and architecture documentation.",
+          "acceptanceTest": "Review documentation and code structure.",
+          "persona": "Developer",
+          "region": "entire dashboard",
+          "sourceOwnerHypothesis": "likely React or similar, Cloudflare Workers",
+          "effort": "l",
+          "clampedFrom": "p0"
+        }
+      ],
+      "meta": {
+        "provider": "workers-ai-via-ai-gateway",
+        "model": "@cf/meta/llama-4-scout-17b-16e-instruct",
+        "latencyMs": 13983,
+        "tokens": {
+          "input": 2981,
+          "output": 706
+        },
+        "costUsd": 0
+      }
+    },
+    {
+      "stateId": 5,
+      "key": "/admin/super-admin::admin-super-admin::::54eaa582",
+      "action": "Super Admin — fleet cockpit settled (2 site ops row(s))",
+      "screenshot": "05-super-admin-fleet-cockpit-settled-2-site-ops-row-s.png",
+      "escalated": false,
+      "score10": 10,
+      "summary": "The Super Admin page displays correctly with all sections and data rendered as expected.",
+      "findings": [],
+      "meta": {
+        "provider": "workers-ai-via-ai-gateway",
+        "model": "@cf/meta/llama-4-scout-17b-16e-instruct",
+        "latencyMs": 1860,
+        "tokens": {
+          "input": 3083,
+          "output": 41
+        },
+        "costUsd": 0
+      }
+    },
+    {
+      "stateId": 6,
+      "key": "/admin/super-admin::admin-super-admin::ops-row-drawer::f86e5d52",
+      "action": "Super Admin — site ops row → 360° drawer (read-only; \"Lone Mountain Global\")",
+      "screenshot": "06-super-admin-site-ops-row-360-drawer-read-only-lone-mountain-.png",
+      "escalated": false,
+      "score10": 10,
+      "summary": "The 360° drawer for 'Lone Mountain Global' site operations is displayed correctly with site details and actions.",
+      "findings": [],
+      "meta": {
+        "provider": "workers-ai-via-ai-gateway",
+        "model": "@cf/meta/llama-4-scout-17b-16e-instruct",
+        "latencyMs": 1967,
+        "tokens": {
+          "input": 2941,
+          "output": 47
+        },
+        "costUsd": 0
+      }
+    },
+    {
+      "stateId": 7,
+      "key": "/admin/super-admin::admin-super-admin::::4e7bd6d8",
+      "action": "Super Admin — dismiss drawer → fleet list intact",
+      "screenshot": "07-super-admin-dismiss-drawer-fleet-list-intact.png",
+      "escalated": false,
+      "score10": 10,
+      "summary": "The Super Admin page appears to be functioning as expected, displaying site operations and account information without any visible errors or inconsistencies.",
+      "findings": [],
+      "meta": {
+        "provider": "workers-ai-via-ai-gateway",
+        "model": "@cf/meta/llama-4-scout-17b-16e-instruct",
+        "latencyMs": 1994,
+        "tokens": {
+          "input": 3032,
+          "output": 50
+        },
+        "costUsd": 0
+      }
+    },
+    {
+      "stateId": 8,
+      "key": "/admin/feature-flags::admin-feature-flags::::3e81298c",
+      "action": "Feature Flags — registry settled (77 flag row(s))",
+      "screenshot": "08-feature-flags-registry-settled-77-flag-row-s.png",
+      "escalated": false,
+      "score10": 10,
+      "summary": "The Feature Flags page displays a list of 77 registered flags with filtering and search functionality.",
+      "findings": [
+        {
+          "dimension": "aesthetics",
+          "severity": "p3",
+          "confidence": 1,
+          "observed": "The page has a clean and organized layout with clear categorization of feature flags.",
+          "expected": "A visually appealing and easy-to-navigate interface.",
+          "proposal": "No changes needed.",
+          "acceptanceTest": "The page layout is consistent with other admin pages.",
+          "persona": "Super Admin",
+          "region": "top and center of the screenshot",
+          "sourceOwnerHypothesis": "likely styles.css or similar",
+          "effort": "s",
+          "clampedFrom": "p0"
+        },
+        {
+          "dimension": "structure",
+          "severity": "p3",
+          "confidence": 1,
+          "observed": "The page has a search bar and filtering options (all, experimental, beta, stable, deprecated, killswitch).",
+          "expected": "A functional search and filtering system.",
+          "proposal": "No changes needed.",
+          "acceptanceTest": "The search bar and filters are interactive.",
+          "persona": "Super Admin",
+          "region": "top center of the screenshot",
+          "sourceOwnerHypothesis": "likely feature_flags.js or similar",
+          "effort": "s",
+          "clampedFrom": "p0"
+        },
+        {
+          "dimension": "function",
+          "severity": "p3",
+          "confidence": 1,
+          "observed": "The page displays a list of 77 registered feature flags with their status (on/off) and type (experimental, beta, stable, etc.).",
+          "expected": "A functional list of feature flags with their status and type.",
+          "proposal": "No changes needed.",
+          "acceptanceTest": "The list of feature flags is populated and interactive.",
+          "persona": "Super Admin",
+          "region": "main content of the screenshot",
+          "sourceOwnerHypothesis": "likely feature_flags.js or similar",
+          "effort": "s",
+          "clampedFrom": "p0"
+        },
+        {
+          "dimension": "a11y_perf",
+          "severity": "p3",
+          "confidence": 0.5,
+          "observed": "No obvious accessibility issues are visible in the screenshot.",
+          "expected": "The page should be accessible and performant.",
+          "proposal": "No changes needed, but further testing required.",
+          "acceptanceTest": "The page passes accessibility tests (e.g. axe-core).",
+          "persona": "All users",
+          "region": "entire screenshot",
+          "sourceOwnerHypothesis": "likely styles.css or similar",
+          "effort": "m",
+          "clampedFrom": "p0"
+        },
+        {
+          "dimension": "business_value",
+          "severity": "p3",
+          "confidence": 1,
+          "observed": "The page provides a centralized view of feature flags for the Super Admin.",
+          "expected": "A centralized view of feature flags for easy management.",
+          "proposal": "No changes needed.",
+          "acceptanceTest": "The page provides a list of feature flags that can be managed.",
+          "persona": "Super Admin",
+          "region": "entire screenshot",
+          "sourceOwnerHypothesis": "likely feature_flags.js or similar",
+          "effort": "s",
+          "clampedFrom": "p0"
+        },
+        {
+          "dimension": "architecture_hypothesis",
+          "severity": "p3",
+          "confidence": 0.5,
+          "observed": "The page appears to be a single-page application with a JavaScript-heavy frontend.",
+          "expected": "A scalable and maintainable architecture.",
+          "proposal": "Further investigation required to confirm architecture.",
+          "acceptanceTest": "The page architecture is consistent with other pages in the application.",
+          "persona": "Developer",
+          "region": "entire screenshot",
+          "sourceOwnerHypothesis": "likely main.js or similar",
+          "effort": "l",
+          "clampedFrom": "p0"
+        }
+      ],
+      "meta": {
+        "provider": "workers-ai-via-ai-gateway",
+        "model": "@cf/meta/llama-4-scout-17b-16e-instruct",
+        "latencyMs": 17540,
+        "tokens": {
+          "input": 3037,
+          "output": 862
+        },
+        "costUsd": 0
+      }
+    },
+    {
+      "stateId": 9,
+      "key": "/admin/feature-flags::admin-feature-flags::stage-filtered::032c6cd1",
+      "action": "Feature Flags — stage filter → experimental",
+      "screenshot": "09-feature-flags-stage-filter-experimental.png",
+      "escalated": false,
+      "score10": 10,
+      "summary": "The Feature Flags page loads correctly with 53 experimental flags shown.",
+      "findings": [
+        {
+          "dimension": "function",
+          "severity": "p3",
+          "confidence": 1,
+          "observed": "The Feature Flags page displays 53 experimental flags out of 77 registered flags.",
+          "expected": "The page should display the correct number of experimental flags.",
+          "proposal": "Verify that the count of experimental flags matches the total registered flags.",
+          "acceptanceTest": "Verify that the experimental flag count is 53 out of 77 total flags.",
+          "persona": "Super Admin",
+          "region": "top of the Feature Flags table",
+          "sourceOwnerHypothesis": "likely feature-flags.ts",
+          "effort": "s",
+          "clampedFrom": "p0"
+        },
+        {
+          "dimension": "aesthetics",
+          "severity": "p3",
+          "confidence": 1,
+          "observed": "The UI appears clean and organized with clear categorization of flags.",
+          "expected": "The UI should be visually appealing and easy to navigate.",
+          "proposal": "No changes needed.",
+          "acceptanceTest": "Visually verify the layout and design of the Feature Flags page.",
+          "persona": "Super Admin",
+          "region": "entire page",
+          "sourceOwnerHypothesis": "likely styles.css or main layout component",
+          "effort": "s",
+          "clampedFrom": "p0"
+        },
+        {
+          "dimension": "architecture_hypothesis",
+          "severity": "p3",
+          "confidence": 0.8,
+          "observed": "The Feature Flags page fetches and displays data correctly.",
+          "expected": "The page should fetch data from the correct API endpoint.",
+          "proposal": "Verify that the API endpoint for feature flags is correctly implemented.",
+          "acceptanceTest": "Verify that the API request for feature flags returns the correct data.",
+          "persona": "Developer",
+          "region": "network requests",
+          "sourceOwnerHypothesis": "likely feature-flags-api.ts",
+          "effort": "m",
+          "clampedFrom": "p0"
+        }
+      ],
+      "meta": {
+        "provider": "workers-ai-via-ai-gateway",
+        "model": "@cf/meta/llama-4-scout-17b-16e-instruct",
+        "latencyMs": 9815,
+        "tokens": {
+          "input": 2954,
+          "output": 459
+        },
+        "costUsd": 0
+      }
+    },
+    {
+      "stateId": 10,
+      "key": "/admin/feature-flags::admin-feature-flags::flag-inspect::8712be39",
+      "action": "Feature Flags — flag Inspect panel (why + checklist + eval-trace, read-only)",
+      "screenshot": "10-feature-flags-flag-inspect-panel-why-checklist-eval-trace-re.png",
+      "escalated": false,
+      "score10": 10,
+      "summary": "The Feature Flags inspect panel displays correctly with checklist, what it does, smoke test, and resolved state information.",
+      "findings": [
+        {
+          "dimension": "aesthetics",
+          "severity": "p3",
+          "confidence": 1,
+          "observed": "The inspect panel layout is clean and organized, with clear sections for checklist, what it does, smoke test, and resolved state.",
+          "expected": "The inspect panel should display a clear and organized layout.",
+          "proposal": "No changes needed.",
+          "acceptanceTest": "Visual inspection of the inspect panel layout.",
+          "persona": "Super Admin",
+          "region": "inspect panel",
+          "sourceOwnerHypothesis": "",
+          "effort": "s",
+          "clampedFrom": "p0"
+        },
+        {
+          "dimension": "function",
+          "severity": "p3",
+          "confidence": 1,
+          "observed": "The inspect panel displays the correct information for the selected feature flag, including checklist, what it does, smoke test, and resolved state.",
+          "expected": "The inspect panel should display the correct information for the selected feature flag.",
+          "proposal": "No changes needed.",
+          "acceptanceTest": "Verify the inspect panel displays the correct information for a feature flag.",
+          "persona": "Super Admin",
+          "region": "inspect panel",
+          "sourceOwnerHypothesis": "",
+          "effort": "s",
+          "clampedFrom": "p0"
+        }
+      ],
+      "meta": {
+        "provider": "workers-ai-via-ai-gateway",
+        "model": "@cf/meta/llama-4-scout-17b-16e-instruct",
+        "latencyMs": 9113,
+        "tokens": {
+          "input": 3042,
+          "output": 414
+        },
+        "costUsd": 0
+      }
+    },
+    {
+      "stateId": 11,
+      "key": "/admin/feature-flags::admin-feature-flags::danger-panel::353d33b4",
+      "action": "Feature Flags — danger/killswitch panel opened (read-only; NOT confirmed)",
+      "screenshot": "11-feature-flags-danger-killswitch-panel-opened-read-only-not-c.png",
+      "escalated": true,
+      "score10": 10,
+      "summary": "The danger/killswitch panel is open and displaying the correct information for the 'abandoned_build_nudge' feature flag.",
+      "findings": [
+        {
+          "dimension": "function",
+          "severity": "p3",
+          "confidence": 1,
+          "observed": "The panel displays a warning message and a text input for a reason.",
+          "expected": "The panel should display a warning message and a text input for a reason.",
+          "proposal": "None",
+          "acceptanceTest": "The panel is visible and contains the expected elements.",
+          "persona": "Super Admin",
+          "region": "center of the screen",
+          "sourceOwnerHypothesis": "likely feature-flag component",
+          "effort": "s",
+          "clampedFrom": "p0"
+        },
+        {
+          "dimension": "aesthetics",
+          "severity": "p3",
+          "confidence": 1,
+          "observed": "The panel has a warning icon and a red border.",
+          "expected": "The panel should have a warning icon and a red border.",
+          "proposal": "None",
+          "acceptanceTest": "The panel has a warning icon and a red border.",
+          "persona": "Super Admin",
+          "region": "center of the screen",
+          "sourceOwnerHypothesis": "likely feature-flag component",
+          "effort": "s",
+          "clampedFrom": "p0"
+        },
+        {
+          "dimension": "architecture_hypothesis",
+          "severity": "p0",
+          "confidence": 0.8,
+          "observed": "The panel is triggered by a specific feature flag.",
+          "expected": "The panel should be triggered by a specific feature flag and send a request to the server to disable the flag.",
+          "proposal": "Verify that the panel sends a request to the server to disable the flag when the 'KILLSWITCH — disabled for all users' button is clicked.",
+          "acceptanceTest": "Verify that the panel sends a request to the server to disable the flag.",
+          "persona": "Super Admin",
+          "region": "center of the screen",
+          "sourceOwnerHypothesis": "likely feature-flag component",
+          "effort": "m"
+        }
+      ],
+      "meta": {
+        "provider": "workers-ai-via-ai-gateway",
+        "model": "@cf/meta/llama-4-scout-17b-16e-instruct",
+        "latencyMs": 291,
+        "tokens": {
+          "input": 2966,
+          "output": 479
+        },
+        "costUsd": 0
+      }
+    },
+    {
+      "stateId": 12,
+      "key": "/admin/feature-flags::admin-feature-flags::::3d22c029",
+      "action": "Feature Flags — cancel danger panel → registry intact (no flag mutated)",
+      "screenshot": "12-feature-flags-cancel-danger-panel-registry-intact-no-flag-mu.png",
+      "escalated": false,
+      "score10": 10,
+      "summary": "The Feature Flags page appears to be in a stable state with no visible errors or inconsistencies.",
+      "findings": [],
+      "meta": {
+        "provider": "workers-ai-via-ai-gateway",
+        "model": "@cf/meta/llama-4-scout-17b-16e-instruct",
+        "latencyMs": 2004,
+        "tokens": {
+          "input": 2966,
+          "output": 42
+        },
+        "costUsd": 0
+      }
+    },
+    {
+      "stateId": 13,
+      "key": "/admin/billing::admin-billing::reached-by-direct-url::e21af27a",
+      "action": "Billing (direct URL — no nav path) — Subscription tab settled",
+      "screenshot": "13-billing-direct-url-no-nav-path-subscription-tab-settled.png",
+      "escalated": false,
+      "score10": 9,
+      "summary": "The Billing page is well-structured and easy to navigate, displaying key information about the current plan, usage, and entitlements.",
+      "findings": [
+        {
+          "dimension": "aesthetics",
+          "severity": "p2",
+          "confidence": 0.8,
+          "observed": "The page has a clean and modern design, with clear typography and sufficient whitespace.",
+          "expected": "A visually appealing and consistent design throughout the application.",
+          "proposal": "Consider adding more visual cues to highlight important information, such as the plan renewal date.",
+          "acceptanceTest": "The page has a consistent font family and size throughout.",
+          "persona": "Admin",
+          "region": "top navigation and header",
+          "sourceOwnerHypothesis": "likely styles.css",
+          "effort": "m"
+        },
+        {
+          "dimension": "structure",
+          "severity": "p3",
+          "confidence": 0.9,
+          "observed": "The page is divided into clear sections, including Subscription, Plan usage, and Credit wallet.",
+          "expected": "A logical and consistent structure for the page sections.",
+          "proposal": "Consider adding anchors or links to quickly navigate between sections.",
+          "acceptanceTest": "The page sections have clear headings and are easily identifiable.",
+          "persona": "Admin",
+          "region": "main content",
+          "sourceOwnerHypothesis": "likely page template",
+          "effort": "s",
+          "clampedFrom": "p1"
+        },
+        {
+          "dimension": "function",
+          "severity": "p3",
+          "confidence": 1,
+          "observed": "The page displays key information about the current plan, including the plan name, entitlements, and renewal date.",
+          "expected": "The page accurately displays the current plan information.",
+          "proposal": "None",
+          "acceptanceTest": "The plan information is accurately displayed and matches the expected values.",
+          "persona": "Admin",
+          "region": "Subscription section",
+          "sourceOwnerHypothesis": "likely billing API",
+          "effort": "l",
+          "clampedFrom": "p0"
+        },
+        {
+          "dimension": "a11y_perf",
+          "severity": "p3",
+          "confidence": 0.5,
+          "observed": "The page appears to be accessible, with clear labels and no obvious issues.",
+          "expected": "The page meets accessibility standards and is usable for all users.",
+          "proposal": "Consider running automated accessibility tests to identify potential issues.",
+          "acceptanceTest": "The page passes automated accessibility tests.",
+          "persona": "Admin",
+          "region": "entire page",
+          "sourceOwnerHypothesis": "likely unknown",
+          "effort": "l"
+        },
+        {
+          "dimension": "business_value",
+          "severity": "p3",
+          "confidence": 1,
+          "observed": "The page provides key information about the current plan and usage, allowing the admin to manage billing and make informed decisions.",
+          "expected": "The page provides valuable information for the admin to manage billing and make informed decisions.",
+          "proposal": "None",
+          "acceptanceTest": "The page provides accurate and relevant information for billing management.",
+          "persona": "Admin",
+          "region": "entire page",
+          "sourceOwnerHypothesis": "likely billing API and page template",
+          "effort": "l",
+          "clampedFrom": "p0"
+        },
+        {
+          "dimension": "architecture_hypothesis",
+          "severity": "p3",
+          "confidence": 0.8,
+          "observed": "The page appears to be connected to a billing API, displaying accurate information about the current plan and usage.",
+          "expected": "The page is connected to a billing API and accurately displays plan information.",
+          "proposal": "Consider adding more features to the page, such as the ability to update plan information or view detailed usage statistics.",
+          "acceptanceTest": "The page accurately displays plan information and allows for easy management of billing.",
+          "persona": "Admin",
+          "region": "entire page",
+          "sourceOwnerHypothesis": "likely billing API and page template",
+          "effort": "l",
+          "clampedFrom": "p0"
+        }
+      ],
+      "meta": {
+        "provider": "workers-ai-via-ai-gateway",
+        "model": "@cf/meta/llama-4-scout-17b-16e-instruct",
+        "latencyMs": 19748,
+        "tokens": {
+          "input": 2962,
+          "output": 899
+        },
+        "costUsd": 0
+      }
+    },
+    {
+      "stateId": 14,
+      "key": "/admin/billing::admin-billing::wallet-balance::b064d7ee",
+      "action": "Billing › Wallet / credits balance tab — settled",
+      "screenshot": "14-billing-wallet-credits-balance-tab-settled.png",
+      "escalated": false,
+      "score10": 10,
+      "summary": "The Wallet balance tab is displayed correctly with a balance of $0.00 and 1,888 AI credits remaining.",
+      "findings": [
+        {
+          "dimension": "function",
+          "severity": "p3",
+          "confidence": 1,
+          "observed": "The Wallet balance tab is displayed with a balance of $0.00 and 1,888 AI credits remaining.",
+          "expected": "The Wallet balance tab should display the current balance and AI credits remaining.",
+          "proposal": "No changes needed.",
+          "acceptanceTest": "Verify that the Wallet balance tab displays the correct balance and AI credits remaining.",
+          "persona": "Admin",
+          "region": "Wallet balance tab",
+          "sourceOwnerHypothesis": "",
+          "effort": "s",
+          "clampedFrom": "p0"
+        },
+        {
+          "dimension": "aesthetics",
+          "severity": "p3",
+          "confidence": 1,
+          "observed": "The UI is consistent with the rest of the application.",
+          "expected": "The UI should be consistent with the rest of the application.",
+          "proposal": "No changes needed.",
+          "acceptanceTest": "Verify that the UI is consistent with the rest of the application.",
+          "persona": "Admin",
+          "region": "Wallet balance tab",
+          "sourceOwnerHypothesis": "",
+          "effort": "s",
+          "clampedFrom": "p0"
+        }
+      ],
+      "meta": {
+        "provider": "workers-ai-via-ai-gateway",
+        "model": "@cf/meta/llama-4-scout-17b-16e-instruct",
+        "latencyMs": 28123,
+        "tokens": {
+          "input": 2961,
+          "output": 395
+        },
+        "costUsd": 0
+      }
+    },
+    {
+      "stateId": 15,
+      "key": "/admin/billing::admin-billing::::179ce497",
+      "action": "Billing › Add-ons tab — settled",
+      "screenshot": "15-billing-add-ons-tab-settled.png",
+      "escalated": false,
+      "score10": 10,
+      "summary": "The Add-ons tab in the Billing section is displayed correctly with four add-on options.",
+      "findings": [
+        {
+          "dimension": "structure",
+          "severity": "p3",
+          "confidence": 1,
+          "observed": "The Add-ons tab is active and displays four add-on options: Extra Sites, Extra Storage, Extra Team Seats, and AI Boost.",
+          "expected": "The Add-ons tab should display available add-ons for purchase.",
+          "proposal": "No changes needed.",
+          "acceptanceTest": "The four add-on options are visible and have 'Purchase' buttons.",
+          "persona": "Admin user",
+          "region": "Billing > Add-ons tab",
+          "sourceOwnerHypothesis": "billing.js",
+          "effort": "s",
+          "clampedFrom": "p0"
+        },
+        {
+          "dimension": "function",
+          "severity": "p3",
+          "confidence": 1,
+          "observed": "Each add-on option has a 'Purchase' button that is clickable.",
+          "expected": "The 'Purchase' buttons should be interactive.",
+          "proposal": "No changes needed.",
+          "acceptanceTest": "The 'Purchase' buttons are clickable and do not show any errors.",
+          "persona": "Admin user",
+          "region": "Billing > Add-ons tab",
+          "sourceOwnerHypothesis": "billing.js",
+          "effort": "s",
+          "clampedFrom": "p0"
+        },
+        {
+          "dimension": "aesthetics",
+          "severity": "p3",
+          "confidence": 1,
+          "observed": "The layout and design of the Add-ons tab are consistent with the rest of the application.",
+          "expected": "The Add-ons tab should have a consistent design.",
+          "proposal": "No changes needed.",
+          "acceptanceTest": "The layout and design are consistent with the rest of the application.",
+          "persona": "Admin user",
+          "region": "Billing > Add-ons tab",
+          "sourceOwnerHypothesis": "styles.css",
+          "effort": "s",
+          "clampedFrom": "p0"
+        },
+        {
+          "dimension": "architecture_hypothesis",
+          "severity": "p3",
+          "confidence": 0.5,
+          "observed": "The add-on options and prices are hardcoded in the UI.",
+          "expected": "The add-on options and prices might be fetched from an API or a database.",
+          "proposal": "Consider fetching add-on options and prices dynamically.",
+          "acceptanceTest": "Verify that add-on options and prices are fetched correctly from the API or database.",
+          "persona": "Developer",
+          "region": "Backend API",
+          "sourceOwnerHypothesis": "billing_api.js",
+          "effort": "m",
+          "clampedFrom": "p0"
+        }
+      ],
+      "meta": {
+        "provider": "workers-ai-via-ai-gateway",
+        "model": "@cf/meta/llama-4-scout-17b-16e-instruct",
+        "latencyMs": 15740,
+        "tokens": {
+          "input": 2956,
+          "output": 593
+        },
+        "costUsd": 0
+      }
+    },
+    {
+      "stateId": 16,
+      "key": "/admin/billing::admin-billing::::b5b77096",
+      "action": "Billing › Usage tab — settled",
+      "screenshot": "16-billing-usage-tab-settled.png",
+      "escalated": false,
+      "score10": 10,
+      "summary": "The Usage tab in the Billing section is displayed correctly, showing various sections such as Usage & Metering, Meter Events, Per-project AI credit caps, and 30-day forecast.",
+      "findings": [
+        {
+          "dimension": "function",
+          "severity": "p3",
+          "confidence": 1,
+          "observed": "The Usage tab is active and displays relevant information.",
+          "expected": "The Usage tab should display relevant information.",
+          "proposal": "No changes needed.",
+          "acceptanceTest": "The Usage tab is displayed and interactive.",
+          "persona": "Admin",
+          "region": "top section",
+          "sourceOwnerHypothesis": "",
+          "effort": "s",
+          "clampedFrom": "p0"
+        },
+        {
+          "dimension": "aesthetics",
+          "severity": "p3",
+          "confidence": 1,
+          "observed": "The layout and design of the Usage tab appear clean and organized.",
+          "expected": "The layout and design of the Usage tab should appear clean and organized.",
+          "proposal": "No changes needed.",
+          "acceptanceTest": "The layout and design of the Usage tab appear clean and organized.",
+          "persona": "Admin",
+          "region": "entire section",
+          "sourceOwnerHypothesis": "",
+          "effort": "s",
+          "clampedFrom": "p0"
+        }
+      ],
+      "meta": {
+        "provider": "workers-ai-via-ai-gateway",
+        "model": "@cf/meta/llama-4-scout-17b-16e-instruct",
+        "latencyMs": 11895,
+        "tokens": {
+          "input": 2955,
+          "output": 407
+        },
+        "costUsd": 0
+      }
+    },
+    {
+      "stateId": 17,
+      "key": "/admin/billing::admin-billing::::6a1fc9f6",
+      "action": "Billing › Agency / Connect tab — settled",
+      "screenshot": "17-billing-agency-connect-tab-settled.png",
+      "escalated": false,
+      "score10": 10,
+      "summary": "The Agency / Connect tab is settled and displayed correctly.",
+      "findings": [],
+      "meta": {
+        "provider": "workers-ai-via-ai-gateway",
+        "model": "@cf/meta/llama-4-scout-17b-16e-instruct",
+        "latencyMs": 1499,
+        "tokens": {
+          "input": 2945,
+          "output": 35
+        },
+        "costUsd": 0
+      }
+    },
+    {
+      "stateId": 18,
+      "key": "/admin/billing::admin-billing::::e58ac51b",
+      "action": "Billing › Affiliates tab — settled",
+      "screenshot": "18-billing-affiliates-tab-settled.png",
+      "escalated": false,
+      "score10": 10,
+      "summary": "The Affiliates tab in the Billing section displays a pending payout of $25.00 for a single affiliate.",
+      "findings": [
+        {
+          "dimension": "function",
+          "severity": "p3",
+          "confidence": 1,
+          "observed": "The Affiliates tab shows a pending payout of $25.00 for affiliate 'aff_org_br'.",
+          "expected": "The Affiliates tab should display a list of affiliates and their corresponding payouts.",
+          "proposal": "No changes needed.",
+          "acceptanceTest": "Verify that the Affiliates tab displays the correct payout information for each affiliate.",
+          "persona": "Admin",
+          "region": "Affiliates tab",
+          "sourceOwnerHypothesis": "affiliates.js",
+          "effort": "s",
+          "clampedFrom": "p0"
+        }
+      ],
+      "meta": {
+        "provider": "workers-ai-via-ai-gateway",
+        "model": "@cf/meta/llama-4-scout-17b-16e-instruct",
+        "latencyMs": 5712,
+        "tokens": {
+          "input": 2937,
+          "output": 195
+        },
+        "costUsd": 0
+      }
+    },
+    {
+      "stateId": 19,
+      "key": "/admin/billing::admin-billing::::7b9732eb",
+      "action": "Billing › Subscription (back — tablist round-trip intact)",
+      "screenshot": "19-billing-subscription-back-tablist-round-trip-intact.png",
+      "escalated": false,
+      "score10": 10,
+      "summary": "The Billing > Subscription page is displayed correctly with all expected information.",
+      "findings": [
+        {
+          "dimension": "structure",
+          "severity": "p3",
+          "confidence": 1,
+          "observed": "The page has a clear and organized structure, with a header, tabs, and sections for subscription details, plan usage, and credit wallet.",
+          "expected": "The page should have a clear and organized structure.",
+          "proposal": "No changes needed.",
+          "acceptanceTest": "The page should render with the expected sections and tabs.",
+          "persona": "Admin user",
+          "region": "Entire page",
+          "sourceOwnerHypothesis": "",
+          "effort": "s",
+          "clampedFrom": "p0"
+        },
+        {
+          "dimension": "function",
+          "severity": "p3",
+          "confidence": 1,
+          "observed": "The page displays the correct subscription details, including plan, entitlements, and renewal date.",
+          "expected": "The page should display the correct subscription details.",
+          "proposal": "No changes needed.",
+          "acceptanceTest": "The page should display the correct subscription details.",
+          "persona": "Admin user",
+          "region": "Subscription section",
+          "sourceOwnerHypothesis": "",
+          "effort": "s",
+          "clampedFrom": "p0"
+        },
+        {
+          "dimension": "a11y_perf",
+          "severity": "p3",
+          "confidence": 1,
+          "observed": "The page appears to be accessible, with clear labels and no obvious issues.",
+          "expected": "The page should be accessible.",
+          "proposal": "No changes needed.",
+          "acceptanceTest": "The page should pass accessibility checks.",
+          "persona": "Admin user",
+          "region": "Entire page",
+          "sourceOwnerHypothesis": "",
+          "effort": "s",
+          "clampedFrom": "p0"
+        }
+      ],
+      "meta": {
+        "provider": "workers-ai-via-ai-gateway",
+        "model": "@cf/meta/llama-4-scout-17b-16e-instruct",
+        "latencyMs": 12030,
+        "tokens": {
+          "input": 2934,
+          "output": 510
+        },
+        "costUsd": 0
+      }
+    }
+  ]
+}

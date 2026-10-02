@@ -543,8 +543,13 @@ try {
   // coverage — the four view-mode toggles (sticky scope / minimap / inline-diff /
   // split, each asserted by its aria-pressed FLIP then restored) + the Code/Preview/
   // Database top-tab switch (asserted by aria-pressed becoming true + panel mount),
-  // read-only; default database-history grinds the deep editor path (Tables →
-  // Actions → History). Rotate per fire via the coverage ledger.
+  // read-only; super-admin-ops grinds the OPERATOR / money-governance branch — the
+  // Super Admin fleet cockpit (credits summary + ops-row 360° drawer), Feature Flags
+  // (stage filter + per-flag Inspect + the danger/killswitch panel opened-then-
+  // CANCELLED), and Billing (Subscription + Wallet-credits + Add-ons + Usage + Connect
+  // + Affiliates tabs), ALL read-only — every mutating control observed or opened-then-
+  // escaped, zero toggle/confirm/purchase/checkout; default database-history grinds the
+  // deep editor path (Tables → Actions → History). Rotate per fire via the coverage ledger.
   const JOURNEY = process.env.EXPLORER_JOURNEY || 'database-history';
   if (JOURNEY === 'admin-breadth') {
     const SECTIONS = (
@@ -1507,6 +1512,318 @@ try {
       await capture(page, 'back to Dashboard (site-detail → cockpit round-trip intact)', {
         surface: 'admin-dashboard',
         subview: 'landing',
+      });
+    }
+
+    finish(
+      manifest.blocked.length === 0
+        ? acq.coverage === 'CLOUD_PASS_ELIGIBLE'
+          ? 'PASS_CLOUDFLARE'
+          : 'PASS_ON_FALLBACK_PROVIDER'
+        : 'PARTIAL',
+    );
+    await acq.browser.close().catch(() => {});
+    process.exit(manifest.status.startsWith('PASS') ? 0 : 2);
+  }
+
+  if (JOURNEY === 'super-admin-ops') {
+    // THE OPERATOR / MONEY-GOVERNANCE BRANCH — the three Angular admin surfaces that
+    // recent fires (editor + money-funnel) never drilled as deep states: Super Admin
+    // (fleet credits + ops tables), Feature Flags (stage filter + per-flag inspect +
+    // the danger/emergency panels), and Billing (all tabs incl. the Wallet/credit
+    // surfaces). READ-ONLY BY CONSTRUCTION: every mutating control (markup factor,
+    // billable toggle, wallet Adjust, flag Enable/Disable/Killswitch, payload Apply,
+    // Upgrade/Purchase/Add-credit/checkout, Stripe portal/onboard) is OBSERVED or
+    // opened-then-Escaped — never submitted/confirmed. A single search box is typed
+    // (no-match) then cleared. We are already authed + on /admin here.
+    // Super Admin + Feature Flags are SUPER-ADMIN-GATED; the test identity's
+    // isSuperAdmin was asserted above (me.isSuperAdmin). If a surface renders its
+    // forbidden/gate state anyway, that's RECORDED (honest), not fabricated around.
+    const superOk = manifest.identity && manifest.identity.isSuperAdmin;
+
+    // ---- (1) SUPER ADMIN — /admin/super-admin ------------------------------
+    const saNav = await clickFirst(page, [
+      (p) => p.getByRole('link', { name: /^Super admin$/i }),
+      (p) => p.getByRole('link', { name: /super\s*admin/i }),
+    ]);
+    await page.waitForURL(/\/admin\/super-admin/, { timeout: 15_000 }).catch(() => {});
+    // Settle the fleet/credits/ops fetches: the credits summary card is the anchor.
+    await page.getByTestId('sa-credits').waitFor({ state: 'visible', timeout: 15_000 }).catch(() => {});
+    const saForbidden = await page.locator('.sa-forbidden').isVisible().catch(() => false);
+    const saOpsRows = await page.locator('[data-testid^="sa-ops-row-"]').count().catch(() => 0);
+    await capture(
+      page,
+      saNav
+        ? saForbidden
+          ? 'Super Admin — forbidden state (not super-admin for this identity)'
+          : `Super Admin — fleet cockpit settled (${saOpsRows} site ops row(s))`
+        : 'Super admin nav link NOT FOUND',
+      {
+        surface: 'admin-super-admin',
+        subview: 'overview',
+        overlay: saNav ? (saForbidden ? 'forbidden' : '') : 'missing-nav-link',
+      },
+    );
+    if (!saNav) {
+      manifest.blocked.push({ phase: 'super-admin-ops', reason: 'Super admin nav link not found in sidebar' });
+    } else if (saForbidden && superOk) {
+      // Client says super-admin yet the page forbids → a real gate/identity drift.
+      manifest.blocked.push({
+        phase: 'super-admin-ops',
+        reason: 'Super Admin rendered forbidden despite /api/auth/me isSuperAdmin=true (client/server gate drift)',
+      });
+    } else if (!saForbidden) {
+      // The fleet credits summary is the money-governance anchor — it must render a
+      // number or an explicit "unified billing missing" notice, never a blank.
+      const ubMissing = await page.getByTestId('sa-credits-ub-missing').isVisible().catch(() => false);
+      const creditsSummary = await page.getByTestId('sa-credits-summary').isVisible().catch(() => false);
+      if (!ubMissing && !creditsSummary) {
+        manifest.blocked.push({
+          phase: 'super-admin-ops',
+          reason: 'Super Admin credits card showed neither a summary nor the unified-billing-missing notice (blank money surface)',
+        });
+      }
+      // Open ONE ops-site row → its 360° drawer (read-only; the drawer is the row's
+      // detail surface — no Adjust/toggle is touched). Close via the scrim.
+      if (saOpsRows > 0) {
+        const rowOpened = await clickFirst(page, [(p) => p.locator('[data-testid^="sa-ops-row-"]').first()]);
+        if (rowOpened) {
+          await page.getByTestId('sa-drawer').waitFor({ state: 'visible', timeout: 8_000 }).catch(() => {});
+          const drawerTitle = await page.getByTestId('sa-drawer-title').innerText().catch(() => '');
+          await capture(page, `Super Admin — site ops row → 360° drawer (read-only; "${drawerTitle.slice(0, 40)}")`, {
+            surface: 'admin-super-admin',
+            subview: 'overview',
+            overlay: 'ops-row-drawer',
+          });
+          // Close via the scrim (not the Adjust action) → back to the fleet list.
+          await clickFirst(page, [
+            (p) => p.getByTestId('sa-drawer-scrim'),
+            (p) => p.keyboard.press('Escape') && null,
+          ]).catch(() => {});
+          await page.keyboard.press('Escape').catch(() => {});
+          await capture(page, 'Super Admin — dismiss drawer → fleet list intact', {
+            surface: 'admin-super-admin',
+            subview: 'overview',
+          });
+        }
+      } else {
+        console.warn('  (Super Admin — 0 ops rows; row-drawer state skipped honestly)');
+      }
+    }
+
+    // ---- (2) FEATURE FLAGS — /admin/feature-flags --------------------------
+    if (!budgetExceeded()) {
+      const ffNav = await clickFirst(page, [
+        (p) => p.getByRole('link', { name: /^Feature Flags$/i }),
+        (p) => p.getByRole('link', { name: /feature\s*flags/i }),
+      ]);
+      await page.waitForURL(/\/admin\/feature-flags/, { timeout: 15_000 }).catch(() => {});
+      await page.getByTestId('ff-layer-heading').waitFor({ state: 'visible', timeout: 15_000 }).catch(() => {});
+      // The list renders after the base GET /api/feature-flags resolves AND the
+      // super-admin override merge re-renders — `ff-layer-heading` visible does NOT
+      // mean the cards are in the DOM yet (the override fetch lands later), so counting
+      // immediately false-negatives to 0 even though 77 cards are about to paint
+      // (verified: the registry is NOT empty — the base endpoint returns 77 flags).
+      // Wait (bounded) for the FIRST flag-row to attach, or for the real empty/error
+      // state, before counting. Only then is "0 rows" a HONEST empty signal.
+      await Promise.race([
+        page.locator('[data-testid="flag-row"]').first().waitFor({ state: 'attached', timeout: 15_000 }),
+        page.getByTestId('ff-blocked-banner').waitFor({ state: 'visible', timeout: 15_000 }),
+        page.getByText(/no feature flags registered/i).waitFor({ state: 'visible', timeout: 15_000 }),
+      ]).catch(() => {});
+      // Count via a raw CSS-attr locator AND a live-DOM eval, taking the max — the
+      // `getByTestId` sugar intermittently resolved 0 against freshly-painted Angular
+      // `<li data-testid="flag-row">` cards (verified rendered in the screenshot) when
+      // the super-admin override merge re-rendered mid-query; the DOM eval is authoritative.
+      const ffRowsLoc = await page.locator('[data-testid="flag-row"]').count().catch(() => 0);
+      const ffRowsDom = await page
+        .evaluate(() => document.querySelectorAll('[data-testid="flag-row"]').length)
+        .catch(() => 0);
+      const ffRows = Math.max(ffRowsLoc, ffRowsDom);
+      const ffBlocked = await page.getByTestId('ff-blocked-banner').isVisible().catch(() => false);
+      await capture(
+        page,
+        ffNav ? `Feature Flags — registry settled (${ffRows} flag row(s)${ffBlocked ? ', blocked-banner shown' : ''})` : 'Feature Flags nav link NOT FOUND',
+        {
+          surface: 'admin-feature-flags',
+          subview: 'all',
+          overlay: ffNav ? (ffBlocked ? 'blocked-banner' : '') : 'missing-nav-link',
+        },
+      );
+      if (!ffNav) {
+        manifest.blocked.push({ phase: 'super-admin-ops', reason: 'Feature Flags nav link not found in sidebar' });
+      } else {
+        if (ffRows === 0 && !ffBlocked) {
+          // Reached only AFTER the bounded wait for a row / empty-state / error above —
+          // so this is a TRUE empty (or the error card), not a pre-settle miscount.
+          manifest.blocked.push({
+            phase: 'super-admin-ops',
+            reason: 'Feature Flags settled to 0 flag rows with no blocked-banner (genuine empty/error governance surface — base GET /api/feature-flags should return the 77-flag registry; reconcile against the endpoint)',
+          });
+        }
+        // Stage filter tabs — flip to a non-default stage then back (aria-selected
+        // asserts the tablist works), read-only. The chip's accessible NAME is the
+        // stage word PLUS its count span ("experimental 53"), so an anchored
+        // `/^experimental$/` never matches — match the leading word (`/^experimental\b/`).
+        const stageTab = await clickFirst(page, [
+          (p) => p.getByRole('tab', { name: /^experimental\b/i }),
+          (p) => p.locator('.ff-stage-chip', { hasText: /experimental/i }),
+        ]);
+        if (stageTab) {
+          await capture(page, 'Feature Flags — stage filter → experimental', {
+            surface: 'admin-feature-flags',
+            subview: 'experimental',
+            overlay: 'stage-filtered',
+          });
+          await clickFirst(page, [
+            (p) => p.getByRole('tab', { name: /^all\b/i }),
+            (p) => p.locator('.ff-stage-chip', { hasText: /^all/i }),
+          ]);
+        }
+        // Open ONE flag's Inspect panel (the flag's read-only detail — why/checklist/
+        // eval-trace). No toggle is touched.
+        if (ffRows > 0) {
+          const inspectOpened = await clickFirst(page, [
+            (p) => p.locator('[data-testid="flag-row"]').first().getByRole('button', { name: /inspect/i }),
+            (p) => p.getByRole('button', { name: /^Inspect$/i }),
+          ]);
+          await capture(page, inspectOpened ? 'Feature Flags — flag Inspect panel (why + checklist + eval-trace, read-only)' : 'flag Inspect trigger NOT FOUND', {
+            surface: 'admin-feature-flags',
+            subview: 'all',
+            overlay: inspectOpened ? 'flag-inspect' : 'missing-inspect',
+          });
+          // The destructive governance surfaces: open the Killswitch/danger panel
+          // READ-ONLY (settle → capture → cancel), NEVER confirm. The cancel path is
+          // itself part of the contract (an operator must be able to back out).
+          const dangerOpened = await clickFirst(
+            page,
+            [
+              (p) => p.getByRole('button', { name: /killswitch/i }),
+              (p) => p.getByRole('button', { name: /disable globally/i }),
+            ],
+            { timeout: 4_000 },
+          );
+          if (dangerOpened) {
+            const dangerPanel = await page.getByTestId('ff-danger-panel').isVisible({ timeout: 3_000 }).catch(() => false);
+            const emergencyPanel = await page.getByTestId('ff-emergency-panel').isVisible({ timeout: 2_000 }).catch(() => false);
+            await capture(page, 'Feature Flags — danger/killswitch panel opened (read-only; NOT confirmed)', {
+              surface: 'admin-feature-flags',
+              subview: 'all',
+              overlay: dangerPanel ? 'danger-panel' : emergencyPanel ? 'emergency-panel' : 'danger-inline',
+            });
+            // Back out via the explicit cancel (contract: a doomed action must be
+            // escapable) — the confirm button is never clicked.
+            const cancelled = await clickFirst(page, [
+              (p) => p.getByTestId('ff-danger-cancel'),
+              (p) => p.getByTestId('ff-emergency-cancel'),
+              (p) => p.getByRole('button', { name: /^Cancel$/i }),
+            ]);
+            await page.keyboard.press('Escape').catch(() => {});
+            await capture(page, 'Feature Flags — cancel danger panel → registry intact (no flag mutated)', {
+              surface: 'admin-feature-flags',
+              subview: 'all',
+            });
+            if (!cancelled) {
+              manifest.blocked.push({
+                phase: 'super-admin-ops',
+                reason: 'Feature Flags danger/killswitch panel had no reachable Cancel — a destructive action with no back-out (embarrassingly-easy + safety gap)',
+              });
+            }
+          } else {
+            console.warn('  (Feature Flags — no killswitch/disable trigger on first row; danger-panel state skipped honestly)');
+          }
+        }
+      }
+    }
+
+    // ---- (3) BILLING & CREDITS — /admin/billing ----------------------------
+    // Owner-level (NOT super-admin-gated). No sidebar nav entry exists (DOM map:
+    // reached via Dashboard/Settings link or direct URL) — probe the nav first, then
+    // fall back to the direct route and RECORD the missing-nav as a finding.
+    if (!budgetExceeded()) {
+      const billNav = await clickFirst(
+        page,
+        [
+          (p) => p.getByRole('link', { name: /^Billing$/i }),
+          (p) => p.getByRole('navigation', { name: /admin sections/i }).getByRole('link', { name: /billing/i }),
+        ],
+        { timeout: 4_000 },
+      );
+      if (!billNav) {
+        // NOTE (verified against the full source, per verify-against-source-of-truth —
+        // absence must be confirmed across the whole tree, not asserted from one miss):
+        // /admin/billing is NOT in the persistent sidebar (ADMIN_NAV_GROUPS has no
+        // Billing item), but it IS reachable via the command palette ("G B" / "Manage
+        // Billing"), the user-menu, the dashboard upgrade card, and many upsell CTAs.
+        // So this is a NAV-PLACEMENT observation (billing lives in ⌘K + upsells, not the
+        // left nav) — a weak interconnectedness/discoverability note, NOT an unreachable
+        // orphan. Recorded at low severity; reached here by direct URL to still cover it.
+        manifest.blocked.push({
+          phase: 'super-admin-ops',
+          reason:
+            'LOW/observation: /admin/billing (owner billing + credits) is absent from the persistent left-sidebar nav (ADMIN_NAV_GROUPS). It IS reachable via the command palette ("G B"/"Manage Billing"), user-menu, and dashboard/upsell CTAs — so NOT an unreachable orphan, just not in the standing nav. Consider an Account-group "Billing" item for discoverability. Owner: frontend navigation (admin-nav.model.ts).',
+        });
+        await page.goto(ORIGIN + '/admin/billing', { waitUntil: 'domcontentloaded' });
+      }
+      await page.waitForURL(/\/admin\/billing/, { timeout: 15_000 }).catch(() => {});
+      await page.getByTestId('billing-tab-subscription').waitFor({ state: 'visible', timeout: 15_000 }).catch(() => {});
+      const subCard = await page.getByTestId('subscription-card').isVisible().catch(() => false);
+      await capture(
+        page,
+        `Billing (${billNav ? 'via nav link' : 'direct URL — no nav path'}) — Subscription tab settled${subCard ? '' : ' (no subscription card)'}`,
+        {
+          surface: 'admin-billing',
+          subview: 'subscription',
+          overlay: billNav ? '' : 'reached-by-direct-url',
+        },
+      );
+      // Walk the remaining billing tabs by their stable testids — each a distinct money
+      // state (add-ons / wallet-credits / usage / metering / connect / affiliates).
+      // READ-ONLY: only the tab is clicked; no purchase/top-up/checkout is touched.
+      const BILL_TABS = [
+        ['billing-tab-wallet', 'wallet', 'Wallet / credits balance'],
+        ['billing-tab-addons', 'addons', 'Add-ons'],
+        ['billing-tab-usage', 'usage', 'Usage'],
+        ['billing-tab-agency', 'agency', 'Agency / Connect'],
+        ['billing-tab-affiliates', 'affiliates', 'Affiliates'],
+      ];
+      for (const [tid, subview, label] of BILL_TABS) {
+        if (budgetExceeded()) {
+          manifest.blocked.push({ phase: 'super-admin-ops', reason: `budget exhausted before Billing › ${label}` });
+          break;
+        }
+        const tab = page.getByTestId(tid);
+        if (!(await tab.isVisible({ timeout: 4_000 }).catch(() => false))) {
+          console.warn(`  (Billing › ${label} tab [${tid}] not present — skipping honestly)`);
+          continue;
+        }
+        await tab.click().catch(() => {});
+        await page.waitForTimeout(400);
+        // Wallet is the credit surface — assert it shows a balance (number) or an
+        // honest empty/retry, never a silent blank.
+        let overlay = '';
+        if (tid === 'billing-tab-wallet') {
+          const bal = await page.getByTestId('wallet-balance').isVisible().catch(() => false);
+          const retry = await page.getByTestId('wallet-retry').isVisible().catch(() => false);
+          overlay = bal ? 'wallet-balance' : retry ? 'wallet-retry' : 'wallet-blank';
+          if (!bal && !retry) {
+            manifest.blocked.push({
+              phase: 'super-admin-ops',
+              reason: 'Billing › Wallet showed neither a balance nor a retry affordance (blank credit surface — lying-empty risk per verify-against-source-of-truth)',
+            });
+          }
+        }
+        await capture(page, `Billing › ${label} tab — settled`, {
+          surface: 'admin-billing',
+          subview,
+          overlay,
+        });
+      }
+      // Return to Subscription — proves the tablist round-trips cleanly.
+      await clickFirst(page, [(p) => p.getByTestId('billing-tab-subscription')]);
+      await capture(page, 'Billing › Subscription (back — tablist round-trip intact)', {
+        surface: 'admin-billing',
+        subview: 'subscription',
       });
     }
 
