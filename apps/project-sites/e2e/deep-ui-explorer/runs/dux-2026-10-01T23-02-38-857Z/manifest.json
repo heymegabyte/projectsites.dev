@@ -1,0 +1,310 @@
+{
+  "runId": "dux-2026-10-01T23-02-38-857Z",
+  "origin": "https://projectsites.dev",
+  "viewport": {
+    "width": 1440,
+    "height": 900
+  },
+  "startedAt": "2026-10-01T23:02:38.858Z",
+  "provider": "cloudflare-browser-run",
+  "providerCoverage": "CLOUD_PASS_ELIGIBLE",
+  "sessionId": "cf-browser-run:84fa0d1b…:dux-2026-10-01T23-02-38-857Z",
+  "identity": {
+    "status": 200,
+    "email": "brian@megabyte.space",
+    "orgId": "org-brian-001",
+    "isSuperAdmin": true,
+    "orgName": "Brian Z",
+    "expectedEmail": "brian@megabyte.space"
+  },
+  "deepPath": "homepage → sign-in → /admin → Editor → Database → Tables → Actions → History",
+  "status": "PARTIAL",
+  "blocked": [
+    {
+      "phase": "database-subtree",
+      "reason": "seed surface never settled (trigger unreachable or did not open)"
+    }
+  ],
+  "states": [
+    {
+      "id": 1,
+      "key": "/::public-home::::d05f796d",
+      "prevId": null,
+      "action": "homepage loads (initial state)",
+      "url": "https://projectsites.dev/",
+      "title": "ProjectSites — AI Website Builder, Live in 4 Minutes",
+      "coords": {
+        "route": "/",
+        "surface": "public-home"
+      },
+      "screenshot": "01-homepage-loads-initial-state.png",
+      "visibleText": "Project Sites builds and deploys complete AI-generated websites for small business in under 15 minutes on Cloudflare Workers. The AI gateway routes each prompt to the right model by complexity — instant responses via Workers AI (free), routine generation via DeepSeek, premium reasoning via Anthropic Claude or OpenAI. Every publish runs an axe-core accessibility gate at six viewports and a Lighthouse Core Web Vitals gate, blocking deploys that fail WCAG 2.2 AA or LCP under 2.5 seconds. Skip to main content Features Pricing FAQ Developers ES Sign In Get Started AI-powered website delivery for local businesses Tell us your business. We'll build your website. Search your business, sign in, get a gorgeous AI-generated site — hosted, SSL, live. We don't sell websites. We deliver them. Claim Your Site See How It Works View Example Sites your-business.projectsites.dev See the difference Drag the slider to compare a generic small-business site with one built by projectsites.dev. GENERIC COMPETITOR BUILT WITH PROJECTSITES.DEV 2+ Sites Built 99.99% Uptime 4 min Build Time 330+ Edge Locations BUILT ON Cloudflare D1 R2 Workers AI bolt.diy How It Works Three steps to a stunning website 01 Search",
+      "consoleErrors": [],
+      "failedRequests": [
+        "POST https://www.google-analytics.com/g/collect?v=2&tid=G-VBBRRQLDFT&gtm=45je69u2v9243930590za200zb9243917138zd9243917138xf1&_p=1790895760493&gcd=13l3l3l3l1l1&npa=0& :: net::ERR_ABORTED",
+        "POST https://www.google-analytics.com/g/collect?v=2&tid=G-VBBRRQLDFT&gtm=45je69u2v9243930590za200zb9243917138zd9243917138xf1&_p=1790895760493&gcd=13l3l3l3l1l1&npa=0& :: net::ERR_ABORTED"
+      ],
+      "ts": "2026-10-01T23:02:44.959Z"
+    },
+    {
+      "id": 2,
+      "key": "/signin::signin::::576d826f",
+      "prevId": 1,
+      "action": "click Sign In (header) → /signin",
+      "url": "https://projectsites.dev/signin",
+      "title": "Sign In — Manage Your AI Website | ProjectSites",
+      "coords": {
+        "route": "/signin",
+        "surface": "signin"
+      },
+      "screenshot": "02-click-sign-in-header-signin.png",
+      "visibleText": "Project Sites builds and deploys complete AI-generated websites for small business in under 15 minutes on Cloudflare Workers. The AI gateway routes each prompt to the right model by complexity — instant responses via Workers AI (free), routine generation via DeepSeek, premium reasoning via Anthropic Claude or OpenAI. Every publish runs an axe-core accessibility gate at six viewports and a Lighthouse Core Web Vitals gate, blocking deploys that fail WCAG 2.2 AA or LCP under 2.5 seconds. Skip to main content Home Pricing Contact Welcome back Sign in to manage your sites. Email Password Sign in OR Continue with Google Continue with GitHub Email me a magic link Enter your email above to get a passwordless magic link. New here? Create an account",
+      "consoleErrors": [],
+      "failedRequests": [],
+      "ts": "2026-10-01T23:02:46.420Z"
+    },
+    {
+      "id": 3,
+      "key": "/signin::signin-test-seam::::02622a42",
+      "prevId": 2,
+      "action": "enter test seam (/signin?test=1) — panel render",
+      "url": "https://projectsites.dev/signin?test=1",
+      "title": "Sign In — Manage Your AI Website | ProjectSites",
+      "coords": {
+        "route": "/signin",
+        "surface": "signin-test-seam"
+      },
+      "screenshot": "03-enter-test-seam-signin-test-1-panel-render.png",
+      "visibleText": "Project Sites builds and deploys complete AI-generated websites for small business in under 15 minutes on Cloudflare Workers. The AI gateway routes each prompt to the right model by complexity — instant responses via Workers AI (free), routine generation via DeepSeek, premium reasoning via Anthropic Claude or OpenAI. Every publish runs an axe-core accessibility gate at six viewports and a Lighthouse Core Web Vitals gate, blocking deploys that fail WCAG 2.2 AA or LCP under 2.5 seconds. Skip to main content Home Pricing Contact Welcome back Sign in to manage your sites. TEST SIGN-IN Sign in (test) Email Password Sign in OR Continue with Google Continue with GitHub Email me a magic link Enter your email above to get a passwordless magic link. New here? Create an account",
+      "consoleErrors": [],
+      "failedRequests": [
+        "POST https://www.google-analytics.com/g/collect?v=2&tid=G-VBBRRQLDFT&gtm=45je69u2v9243930590za200zb9243917138zd9243917138xf1&_p=1790895766600&gcd=13l3l3l3l1l1&npa=0& :: net::ERR_ABORTED",
+        "POST https://www.google-analytics.com/g/collect?v=2&tid=G-VBBRRQLDFT&gtm=45je69u2v9243930590za200zb9243917138zd9243917138xf1&_p=1790895766600&gcd=13l3l3l3l1l1&npa=0& :: net::ERR_ABORTED"
+      ],
+      "ts": "2026-10-01T23:02:48.772Z"
+    },
+    {
+      "id": 4,
+      "key": "/admin::admin-dashboard::::fec53253",
+      "prevId": 3,
+      "action": "test login submit → lands /admin",
+      "url": "https://projectsites.dev/admin",
+      "title": "Dashboard · ProjectSites",
+      "coords": {
+        "route": "/admin",
+        "surface": "admin-dashboard"
+      },
+      "screenshot": "04-test-login-submit-lands-admin.png",
+      "visibleText": "Project Sites builds and deploys complete AI-generated websites for small business in under 15 minutes on Cloudflare Workers. The AI gateway routes each prompt to the right model by complexity — instant responses via Workers AI (free), routine generation via DeepSeek, premium reasoning via Anthropic Claude or OpenAI. Every publish runs an axe-core accessibility gate at six viewports and a Lighthouse Core Web Vitals gate, blocking deploys that fail WCAG 2.2 AA or LCP under 2.5 seconds. Skip to main content Dashboard section L Lone Mountain Global LIVE 1 L WORKSPACE Dashboard Editor Snapshots Analytics CAPABILITIES Forms Apps Hosting Features Social Voice OPERATIONS Logs Feature Flags Lead Scanner System Services KV Inspector R2 Inspector Vectorize Inspector Queues Inspector ACCOUNT Docs Settings Super admin lone-mountain-global.projectsites.dev Dashboard ⌘K Actions 6 ? Dashboard GETTING STARTED Finish setting up your site 2/4 Create your first site Publish your site Add a custom domain Add a domain → Invite a teammate or explore AI features Dismiss checklist Operator cockpit LIVE LIVE · FROM YOUR ACCOUNT, AUTO-REFRESHED EVERY 30S — NO REFRESH NEEDED 1 Sites live site published + ser",
+      "consoleErrors": [],
+      "failedRequests": [
+        "POST https://www.google-analytics.com/g/collect?v=2&tid=G-VBBRRQLDFT&gtm=45je69u2v9243930590za200zb9243917138zd9243917138xf1&_p=1790895766600&gcd=13l3l3l3l1l1&npa=0& :: net::ERR_ABORTED"
+      ],
+      "ts": "2026-10-01T23:02:52.596Z"
+    },
+    {
+      "id": 5,
+      "key": "/admin/editor::admin-editor-shell::::6eca7550",
+      "prevId": 4,
+      "action": "click Editor nav → /admin/editor (iframe mounts)",
+      "url": "https://projectsites.dev/admin/editor",
+      "title": "Editor · ProjectSites",
+      "coords": {
+        "route": "/admin/editor",
+        "surface": "admin-editor-shell"
+      },
+      "screenshot": "05-click-editor-nav-admin-editor-iframe-mounts.png",
+      "visibleText": "Project Sites builds and deploys complete AI-generated websites for small business in under 15 minutes on Cloudflare Workers. The AI gateway routes each prompt to the right model by complexity — instant responses via Workers AI (free), routine generation via DeepSeek, premium reasoning via Anthropic Claude or OpenAI. Every publish runs an axe-core accessibility gate at six viewports and a Lighthouse Core Web Vitals gate, blocking deploys that fail WCAG 2.2 AA or LCP under 2.5 seconds. Skip to main content Editor section L Lone Mountain Global LIVE 1 L WORKSPACE Dashboard Editor Snapshots Analytics CAPABILITIES Forms Apps Hosting Features Social Voice OPERATIONS Logs Feature Flags Lead Scanner System Services KV Inspector R2 Inspector Vectorize Inspector Queues Inspector ACCOUNT Docs Settings Super admin lone-mountain-global.projectsites.dev Editor ⌘K Actions 6 ? Site editor",
+      "consoleErrors": [],
+      "failedRequests": [
+        "POST https://www.google-analytics.com/g/collect?v=2&tid=G-VBBRRQLDFT&gtm=45je69u2v9243930590za200zb9243917138zd9243917138xf1&_p=1790895766600&gcd=13l3l3l3l1l1&npa=0& :: net::ERR_ABORTED",
+        "POST https://www.google-analytics.com/g/collect?v=2&tid=G-VBBRRQLDFT&gtm=45je69u2v9243930590za200zb9243917138zd9243917138xf1&_p=1790895766600&gcd=13l3l3l3l1l1&npa=0& :: net::ERR_ABORTED"
+      ],
+      "ts": "2026-10-01T23:02:59.669Z"
+    },
+    {
+      "id": 6,
+      "key": "/admin/editor::editor-database::::25fc7ab7",
+      "prevId": 5,
+      "action": "open Database tab",
+      "url": "https://projectsites.dev/admin/editor",
+      "title": "Editor · ProjectSites",
+      "coords": {
+        "route": "/admin/editor",
+        "surface": "editor-database",
+        "iframe": "editor"
+      },
+      "screenshot": "06-open-database-tab.png",
+      "visibleText": "Project Sites builds and deploys complete AI-generated websites for small business in under 15 minutes on Cloudflare Workers. The AI gateway routes each prompt to the right model by complexity — instant responses via Workers AI (free), routine generation via DeepSeek, premium reasoning via Anthropic Claude or OpenAI. Every publish runs an axe-core accessibility gate at six viewports and a Lighthouse Core Web Vitals gate, blocking deploys that fail WCAG 2.2 AA or LCP under 2.5 seconds. Skip to main content Editor section L Lone Mountain Global LIVE 1 L WORKSPACE Dashboard Editor Snapshots Analytics CAPABILITIES Forms Apps Hosting Features Social Voice OPERATIONS Logs Feature Flags Lead Scanner System Services KV Inspector R2 Inspector Vectorize Inspector Queues Inspector ACCOUNT Docs Settings Super admin lone-mountain-global.projectsites.dev Editor ⌘K Actions 6 ? Site editor",
+      "consoleErrors": [],
+      "failedRequests": [
+        "POST https://www.google-analytics.com/g/collect?v=2&tid=G-VBBRRQLDFT&gtm=45je69u2v9243930590za200zb9243917138zd9243917138xf1&_p=1790895766600&gcd=13l3l3l3l1l1&npa=0& :: net::ERR_ABORTED"
+      ],
+      "ts": "2026-10-01T23:03:12.788Z"
+    },
+    {
+      "id": 7,
+      "key": "/admin/editor::editor-database::::7fcc98ea",
+      "prevId": 6,
+      "action": "Database › SQL sub-view",
+      "url": "https://projectsites.dev/admin/editor",
+      "title": "Editor · ProjectSites",
+      "coords": {
+        "route": "/admin/editor",
+        "surface": "editor-database",
+        "subview": "sql",
+        "overlay": "",
+        "iframe": "editor"
+      },
+      "screenshot": "07-database-sql-sub-view.png",
+      "visibleText": "Project Sites builds and deploys complete AI-generated websites for small business in under 15 minutes on Cloudflare Workers. The AI gateway routes each prompt to the right model by complexity — instant responses via Workers AI (free), routine generation via DeepSeek, premium reasoning via Anthropic Claude or OpenAI. Every publish runs an axe-core accessibility gate at six viewports and a Lighthouse Core Web Vitals gate, blocking deploys that fail WCAG 2.2 AA or LCP under 2.5 seconds. Skip to main content Editor section L Lone Mountain Global LIVE 1 L WORKSPACE Dashboard Editor Snapshots Analytics CAPABILITIES Forms Apps Hosting Features Social Voice OPERATIONS Logs Feature Flags Lead Scanner System Services KV Inspector R2 Inspector Vectorize Inspector Queues Inspector ACCOUNT Docs Settings Super admin lone-mountain-global.projectsites.dev Editor ⌘K Actions 6 ? Site editor",
+      "consoleErrors": [],
+      "failedRequests": [],
+      "ts": "2026-10-01T23:03:15.878Z"
+    },
+    {
+      "id": 8,
+      "key": "/admin/editor::editor-database::kv-locked-upsell::976b1e89",
+      "prevId": 7,
+      "action": "Database › KV sub-view (honest $10/mo locked-upsell — not unlocked)",
+      "url": "https://projectsites.dev/admin/editor",
+      "title": "Editor · ProjectSites",
+      "coords": {
+        "route": "/admin/editor",
+        "surface": "editor-database",
+        "subview": "kv",
+        "overlay": "kv-locked-upsell",
+        "iframe": "editor"
+      },
+      "screenshot": "08-database-kv-sub-view-honest-10-mo-locked-upsell-not-unlocked.png",
+      "visibleText": "Project Sites builds and deploys complete AI-generated websites for small business in under 15 minutes on Cloudflare Workers. The AI gateway routes each prompt to the right model by complexity — instant responses via Workers AI (free), routine generation via DeepSeek, premium reasoning via Anthropic Claude or OpenAI. Every publish runs an axe-core accessibility gate at six viewports and a Lighthouse Core Web Vitals gate, blocking deploys that fail WCAG 2.2 AA or LCP under 2.5 seconds. Skip to main content Editor section L Lone Mountain Global LIVE 1 L WORKSPACE Dashboard Editor Snapshots Analytics CAPABILITIES Forms Apps Hosting Features Social Voice OPERATIONS Logs Feature Flags Lead Scanner System Services KV Inspector R2 Inspector Vectorize Inspector Queues Inspector ACCOUNT Docs Settings Super admin lone-mountain-global.projectsites.dev Editor ⌘K Actions 6 ? Site editor",
+      "consoleErrors": [],
+      "failedRequests": [],
+      "ts": "2026-10-01T23:03:18.468Z"
+    },
+    {
+      "id": 9,
+      "key": "/admin/editor::editor-database::::7236fe9f",
+      "prevId": 8,
+      "action": "Database › Tables (populated grid) — for action overlays",
+      "url": "https://projectsites.dev/admin/editor",
+      "title": "Editor · ProjectSites",
+      "coords": {
+        "route": "/admin/editor",
+        "surface": "editor-database",
+        "subview": "tables",
+        "overlay": "",
+        "iframe": "editor"
+      },
+      "screenshot": "09-database-tables-populated-grid-for-action-overlays.png",
+      "visibleText": "Project Sites builds and deploys complete AI-generated websites for small business in under 15 minutes on Cloudflare Workers. The AI gateway routes each prompt to the right model by complexity — instant responses via Workers AI (free), routine generation via DeepSeek, premium reasoning via Anthropic Claude or OpenAI. Every publish runs an axe-core accessibility gate at six viewports and a Lighthouse Core Web Vitals gate, blocking deploys that fail WCAG 2.2 AA or LCP under 2.5 seconds. Skip to main content Editor section L Lone Mountain Global LIVE 1 L WORKSPACE Dashboard Editor Snapshots Analytics CAPABILITIES Forms Apps Hosting Features Social Voice OPERATIONS Logs Feature Flags Lead Scanner System Services KV Inspector R2 Inspector Vectorize Inspector Queues Inspector ACCOUNT Docs Settings Super admin lone-mountain-global.projectsites.dev Editor ⌘K Actions 6 ? Site editor",
+      "consoleErrors": [],
+      "failedRequests": [],
+      "ts": "2026-10-01T23:03:21.227Z"
+    },
+    {
+      "id": 10,
+      "key": "/admin/editor::editor-database::missing-action-seed::cda0a5f5",
+      "prevId": 9,
+      "action": "Tables › AI-Seed trigger NOT reachable",
+      "url": "https://projectsites.dev/admin/editor",
+      "title": "Editor · ProjectSites",
+      "coords": {
+        "route": "/admin/editor",
+        "surface": "editor-database",
+        "subview": "tables",
+        "overlay": "missing-action-seed",
+        "iframe": "editor"
+      },
+      "screenshot": "10-tables-ai-seed-trigger-not-reachable.png",
+      "visibleText": "Project Sites builds and deploys complete AI-generated websites for small business in under 15 minutes on Cloudflare Workers. The AI gateway routes each prompt to the right model by complexity — instant responses via Workers AI (free), routine generation via DeepSeek, premium reasoning via Anthropic Claude or OpenAI. Every publish runs an axe-core accessibility gate at six viewports and a Lighthouse Core Web Vitals gate, blocking deploys that fail WCAG 2.2 AA or LCP under 2.5 seconds. Skip to main content Editor section L Lone Mountain Global LIVE 1 L WORKSPACE Dashboard Editor Snapshots Analytics CAPABILITIES Forms Apps Hosting Features Social Voice OPERATIONS Logs Feature Flags Lead Scanner System Services KV Inspector R2 Inspector Vectorize Inspector Queues Inspector ACCOUNT Docs Settings Super admin lone-mountain-global.projectsites.dev Editor ⌘K Actions 6 ? Site editor",
+      "consoleErrors": [],
+      "failedRequests": [],
+      "ts": "2026-10-01T23:03:30.795Z"
+    },
+    {
+      "id": 11,
+      "key": "/admin/editor::editor-database::action-import-settled::f98b5c81",
+      "prevId": 10,
+      "action": "Tables › CSV/JSON Import settled (open-then-dismiss — no submit/seed/import)",
+      "url": "https://projectsites.dev/admin/editor",
+      "title": "Editor · ProjectSites",
+      "coords": {
+        "route": "/admin/editor",
+        "surface": "editor-database",
+        "subview": "tables",
+        "overlay": "action-import-settled",
+        "iframe": "editor"
+      },
+      "screenshot": "11-tables-csv-json-import-settled-open-then-dismiss-no-submit-s.png",
+      "visibleText": "Project Sites builds and deploys complete AI-generated websites for small business in under 15 minutes on Cloudflare Workers. The AI gateway routes each prompt to the right model by complexity — instant responses via Workers AI (free), routine generation via DeepSeek, premium reasoning via Anthropic Claude or OpenAI. Every publish runs an axe-core accessibility gate at six viewports and a Lighthouse Core Web Vitals gate, blocking deploys that fail WCAG 2.2 AA or LCP under 2.5 seconds. Skip to main content Editor section L Lone Mountain Global LIVE 1 L WORKSPACE Dashboard Editor Snapshots Analytics CAPABILITIES Forms Apps Hosting Features Social Voice OPERATIONS Logs Feature Flags Lead Scanner System Services KV Inspector R2 Inspector Vectorize Inspector Queues Inspector ACCOUNT Docs Settings Super admin lone-mountain-global.projectsites.dev Editor ⌘K Actions 6 ? Site editor",
+      "consoleErrors": [],
+      "failedRequests": [],
+      "ts": "2026-10-01T23:03:59.362Z"
+    },
+    {
+      "id": 12,
+      "key": "/admin/editor::editor-database::::10f58d63",
+      "prevId": 11,
+      "action": "dismiss CSV/JSON Import (Escape) → Tables intact",
+      "url": "https://projectsites.dev/admin/editor",
+      "title": "Editor · ProjectSites",
+      "coords": {
+        "route": "/admin/editor",
+        "surface": "editor-database",
+        "subview": "tables",
+        "iframe": "editor"
+      },
+      "screenshot": "12-dismiss-csv-json-import-escape-tables-intact.png",
+      "visibleText": "Project Sites builds and deploys complete AI-generated websites for small business in under 15 minutes on Cloudflare Workers. The AI gateway routes each prompt to the right model by complexity — instant responses via Workers AI (free), routine generation via DeepSeek, premium reasoning via Anthropic Claude or OpenAI. Every publish runs an axe-core accessibility gate at six viewports and a Lighthouse Core Web Vitals gate, blocking deploys that fail WCAG 2.2 AA or LCP under 2.5 seconds. Skip to main content Editor section L Lone Mountain Global LIVE 1 L WORKSPACE Dashboard Editor Snapshots Analytics CAPABILITIES Forms Apps Hosting Features Social Voice OPERATIONS Logs Feature Flags Lead Scanner System Services KV Inspector R2 Inspector Vectorize Inspector Queues Inspector ACCOUNT Docs Settings Super admin lone-mountain-global.projectsites.dev Editor ⌘K Actions 6 ? Site editor",
+      "consoleErrors": [],
+      "failedRequests": [],
+      "ts": "2026-10-01T23:04:01.274Z"
+    },
+    {
+      "id": 13,
+      "key": "/admin/editor::editor-database::create-table-modal-settled::92031d14",
+      "prevId": 12,
+      "action": "Tables › Create Table (local schema modal) settled (open-then-dismiss — no submit/seed/import)",
+      "url": "https://projectsites.dev/admin/editor",
+      "title": "Editor · ProjectSites",
+      "coords": {
+        "route": "/admin/editor",
+        "surface": "editor-database",
+        "subview": "tables",
+        "overlay": "create-table-modal-settled",
+        "iframe": "editor"
+      },
+      "screenshot": "13-tables-create-table-local-schema-modal-settled-open-then-dis.png",
+      "visibleText": "Project Sites builds and deploys complete AI-generated websites for small business in under 15 minutes on Cloudflare Workers. The AI gateway routes each prompt to the right model by complexity — instant responses via Workers AI (free), routine generation via DeepSeek, premium reasoning via Anthropic Claude or OpenAI. Every publish runs an axe-core accessibility gate at six viewports and a Lighthouse Core Web Vitals gate, blocking deploys that fail WCAG 2.2 AA or LCP under 2.5 seconds. Skip to main content Editor section L Lone Mountain Global LIVE 1 L WORKSPACE Dashboard Editor Snapshots Analytics CAPABILITIES Forms Apps Hosting Features Social Voice OPERATIONS Logs Feature Flags Lead Scanner System Services KV Inspector R2 Inspector Vectorize Inspector Queues Inspector ACCOUNT Docs Settings Super admin lone-mountain-global.projectsites.dev Editor ⌘K Actions 6 ? Site editor",
+      "consoleErrors": [],
+      "failedRequests": [],
+      "ts": "2026-10-01T23:04:29.649Z"
+    },
+    {
+      "id": 14,
+      "key": "/admin/editor::editor-database::::10f58d63",
+      "prevId": 13,
+      "action": "dismiss Create Table (local schema modal) (Escape) → Tables intact",
+      "url": "https://projectsites.dev/admin/editor",
+      "title": "Editor · ProjectSites",
+      "coords": {
+        "route": "/admin/editor",
+        "surface": "editor-database",
+        "subview": "tables",
+        "iframe": "editor"
+      },
+      "screenshot": "14-dismiss-create-table-local-schema-modal-escape-tables-intact.png",
+      "visibleText": "Project Sites builds and deploys complete AI-generated websites for small business in under 15 minutes on Cloudflare Workers. The AI gateway routes each prompt to the right model by complexity — instant responses via Workers AI (free), routine generation via DeepSeek, premium reasoning via Anthropic Claude or OpenAI. Every publish runs an axe-core accessibility gate at six viewports and a Lighthouse Core Web Vitals gate, blocking deploys that fail WCAG 2.2 AA or LCP under 2.5 seconds. Skip to main content Editor section L Lone Mountain Global LIVE 1 L WORKSPACE Dashboard Editor Snapshots Analytics CAPABILITIES Forms Apps Hosting Features Social Voice OPERATIONS Logs Feature Flags Lead Scanner System Services KV Inspector R2 Inspector Vectorize Inspector Queues Inspector ACCOUNT Docs Settings Super admin lone-mountain-global.projectsites.dev Editor ⌘K Actions 6 ? Site editor",
+      "consoleErrors": [],
+      "failedRequests": [],
+      "ts": "2026-10-01T23:04:31.229Z"
+    }
+  ],
+  "providerEndpoint": "wss://api.cloudflare.com/client/v4/accounts/<acct>/browser-run/devtools/browser?keep_alive=600000",
+  "providerAttempts": [],
+  "journey": "database-subtree",
+  "playwrightBase": "…/apps/project-sites/frontend",
+  "finishedAt": "2026-10-01T23:04:31.229Z",
+  "elapsedMs": 112371
+}

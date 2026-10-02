@@ -59,6 +59,43 @@ const DIMENSIONS = [
 ];
 const SEVERITIES = ['p0', 'p1', 'p2', 'p3'];
 
+// Fallback-vision severity clamp. The Workers-AI Llama Scout vision model (tier-3
+// fallback used when OpenAI 429 + Anthropic $0) over-labels positive/neutral/aesthetic
+// observations as p0/p1, flooding the backlog with false-criticals. When a verdict comes
+// from that fallback, a finding may stay p0/p1 ONLY if it names a CONCRETE defect; every
+// other finding is demoted to p3. "Concrete defect" = broken layout, contrast/AA failure,
+// a console/JS error, a dead/doomed control, or a 4xx/5xx — detected from the finding's own
+// text + its dimension (structure/function/a11y_perf are the defect-bearing dimensions;
+// aesthetics/business_value/architecture_hypothesis are advisory and never fallback-critical).
+const CONCRETE_DEFECT_RE =
+  /\b(broke\w*|overlap\w*|overflow\w*|cut off|cut-off|clipp\w*|misalign\w*|unreadable|illegible|invisible|contrast|wcag|fails? aa|a11y|console error|js error|javascript error|exception|stack trace|uncaught|\b4\d{2}\b|\b5\d{2}\b|404|500|502|503|dead\b|doomed|disabled|broken link|blank (?:screen|page)|white screen|not clickable|unclickable|crash\w*|empty state (?:while|but)|lying.?empty)\b/i;
+const DEFECT_DIMENSIONS = new Set(['structure', 'function', 'a11y_perf']);
+
+/**
+ * True when a finding genuinely describes a concrete, reproducible defect — the only kind
+ * allowed to remain p0/p1 under the fallback-vision clamp.
+ */
+function namesConcreteDefect(f) {
+  if (DEFECT_DIMENSIONS.has(f.dimension) && CONCRETE_DEFECT_RE.test(`${f.observed} ${f.expected}`)) {
+    return true;
+  }
+  // A defect phrased under any dimension still counts if the text is unambiguously a defect.
+  return CONCRETE_DEFECT_RE.test(`${f.observed} ${f.expected} ${f.proposal}`);
+}
+
+/**
+ * Recalibrate one finding's severity for the Workers-AI fallback provider: a p0/p1 survives
+ * only when it names a concrete defect; otherwise it is demoted to p3 (positive/neutral/
+ * aesthetic-nice observations never ride as fallback-criticals). p2/p3 pass through unchanged.
+ * Returns a NEW finding object; never mutates the input. Pure — unit-testable in --selftest.
+ */
+function clampFallbackSeverity(f) {
+  if ((f.severity === 'p0' || f.severity === 'p1') && !namesConcreteDefect(f)) {
+    return { ...f, severity: 'p3', clampedFrom: f.severity };
+  }
+  return f;
+}
+
 /** Locate the run dir: explicit arg or the newest run under screenshots/deep-ui-explorer. */
 function findRunDir() {
   if (process.argv[2]) return resolve(process.argv[2]);
@@ -269,6 +306,11 @@ async function reviewOne(model, prompt, imageB64) {
       try {
         const r = await call();
         const verdict = parseVerdict(r.text);
+        // Fallback-vision severity clamp: Workers-AI Llama Scout over-labels positives as
+        // p0/p1 — demote any non-concrete-defect critical to p3 so the backlog stays honest.
+        if (r.provider === 'workers-ai-via-ai-gateway') {
+          verdict.findings = verdict.findings.map(clampFallbackSeverity);
+        }
         return { ...verdict, meta: { provider: r.provider, model: r.model, latencyMs: r.latencyMs, tokens: r.tokens, costUsd: r.costUsd } };
       } catch (err) {
         lastErr = err;
@@ -281,6 +323,69 @@ async function reviewOne(model, prompt, imageB64) {
 }
 
 // ---------------------------------------------------------------------------
+// `--selftest`: feed sample findings through the fallback clamp and assert the expected
+// severities, with NO network + NO run dir. Exits 0 on pass, 1 on any mismatch.
+if (process.argv.includes('--selftest')) {
+  const samples = [
+    {
+      label: 'real defect (p0 → stays p0)',
+      finding: {
+        dimension: 'function',
+        severity: 'p0',
+        observed: 'Clicking "Save" throws an uncaught exception; a console error appears and the row never persists.',
+        expected: 'Save persists the row with no console error.',
+        proposal: 'Guard the handler and surface a typed error.',
+      },
+      expect: 'p0',
+    },
+    {
+      label: 'positive observation (p1 → demoted p3)',
+      finding: {
+        dimension: 'aesthetics',
+        severity: 'p1',
+        observed: 'The hero gradient is beautiful and the spacing feels premium and well balanced.',
+        expected: 'Keep the polished look.',
+        proposal: 'No change needed.',
+      },
+      expect: 'p3',
+    },
+    {
+      label: 'neutral/aesthetic nice-to-have (p1 → demoted p3)',
+      finding: {
+        dimension: 'business_value',
+        severity: 'p1',
+        observed: 'Could add a testimonials carousel to build a little more trust on the pricing page.',
+        expected: 'An optional trust enhancement.',
+        proposal: 'Consider a carousel later.',
+      },
+      expect: 'p3',
+    },
+  ];
+  let failed = 0;
+  for (const s of samples) {
+    const got = clampFallbackSeverity(s.finding).severity;
+    const ok = got === s.expect;
+    if (!ok) failed++;
+    console.warn(`  [${ok ? 'PASS' : 'FAIL'}] ${s.label}: expected ${s.expect}, got ${got}`);
+  }
+  // Non-fallback findings (p2/p3) must pass through the clamp untouched.
+  const passthrough = clampFallbackSeverity({
+    dimension: 'function',
+    severity: 'p2',
+    observed: 'x',
+    expected: 'y',
+    proposal: 'z',
+  });
+  if (passthrough.severity !== 'p2') {
+    failed++;
+    console.warn(`  [FAIL] p2 passthrough: expected p2, got ${passthrough.severity}`);
+  } else {
+    console.warn('  [PASS] p2 finding passes through unchanged');
+  }
+  console.warn(failed ? `∎ selftest FAILED (${failed})` : '∎ selftest PASSED (4/4)');
+  process.exit(failed ? 1 : 0);
+}
+
 const runDir = findRunDir();
 const manifest = JSON.parse(readFileSync(join(runDir, 'manifest.json'), 'utf8'));
 if (!OPENAI_KEY && !ANTHROPIC_KEY) {

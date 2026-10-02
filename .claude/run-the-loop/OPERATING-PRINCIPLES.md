@@ -340,6 +340,14 @@ execution contract above (MAIN checkout, assert deps, Write-capable specialist).
   RED → root cause → GREEN → replay the exact breadcrumb → re-capture → continue the journey.
 - **Privacy at the boundary.** Password inputs masked before capture; token-shaped strings
   scrubbed from any context leaving the machine; artifacts stay in gitignored run dirs.
+- **Fallback-vision severity is clamped — Workers-AI positives never p0/p1.** When the active
+  vision provider is the tier-3 Workers-AI Llama Scout fallback (OpenAI 429 + Anthropic $0), it
+  over-labels positive/neutral/aesthetic observations as p0/p1, flooding the backlog with
+  false-criticals. A fallback verdict's finding may remain p0/p1 ONLY if it names a CONCRETE,
+  reproducible defect (broken layout, contrast/AA failure, console/JS error, dead/doomed control,
+  4xx/5xx); every positive / neutral / aesthetic-nice observation is demoted to p3. OpenAI + Anthropic
+  verdicts are trusted uncapped. Enforced in `vision-review.mjs` (`clampFallbackSeverity`, applied only
+  when `provider === 'workers-ai-via-ai-gateway'`); regression-guarded by `node vision-review.mjs --selftest`.
 
 ## Fire mutual exclusion (the lease)
 

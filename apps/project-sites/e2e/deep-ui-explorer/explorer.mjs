@@ -720,6 +720,131 @@ try {
     process.exit(manifest.status.startsWith('PASS') ? 0 : 2);
   }
 
+  if (JOURNEY === 'settings-depth') {
+    // Settings — the SIBLING tabs with zero prior live coverage. Only `general`
+    // (nav-visit only) and `api-tokens` (full journey) have ledger entries; the
+    // live component (settings.component.ts TABS, verified from source) also
+    // renders Team / AI Chat / MCP / AI Env Vars / Webhooks / Email / Domains —
+    // seven unvisited states. Discover the tab set LIVE from the panel's OWN
+    // tablist (aria-label="Settings sections" — never hardcode), visit every
+    // tab EXCEPT api-tokens (already covered by its own journey), capture the
+    // settled panel, and probe each for a primary create/add/connect action —
+    // opened READ-ONLY (settle → capture → Escape), never submit/save/send/
+    // delete/connect. Zero mutation by construction — a breadth drill, not CRUD.
+    const navClicked = await clickFirst(page, [
+      (p) => p.getByRole('link', { name: /^Settings$/ }),
+      (p) => p.getByRole('link', { name: /settings/i }),
+    ]);
+    await page.waitForURL(/\/admin\/settings/, { timeout: 15_000 }).catch(() => {});
+    await capture(page, navClicked ? 'nav → Settings (root, General tab)' : 'Settings nav link NOT FOUND', {
+      surface: 'admin-settings',
+      subview: 'general',
+      overlay: navClicked ? '' : 'missing-nav-link',
+    });
+    if (!navClicked) {
+      manifest.blocked.push({ phase: 'settings-depth', reason: 'Settings nav link not found' });
+      throw new Error('BLOCKED:settings-nav');
+    }
+
+    // Discover the real tab set from the panel's OWN tablist — the labels drive
+    // both the regex match AND the human-readable action string.
+    const tabLabels = await page
+      .locator('[role="tablist"][aria-label="Settings sections"] [role="tab"]')
+      .allInnerTexts()
+      .catch(() => []);
+    const allTabs = tabLabels.map((t) => t.trim()).filter((t) => t && t.length < 30);
+    console.warn(`  discovered Settings tabs: ${allTabs.join(' · ') || '(none)'}`);
+    if (!allTabs.length) {
+      manifest.blocked.push({
+        phase: 'settings-depth',
+        reason: 'Settings tablist (aria-label="Settings sections") empty/absent — panel drift',
+      });
+      throw new Error('BLOCKED:settings-tablist');
+    }
+
+    // Visit every tab except General (landing state) and API Tokens (owned by
+    // the settings-api-tokens journey — avoid duplicate coverage).
+    const unexplored = allTabs.filter((t) => !/^general$/i.test(t) && !/^api tokens$/i.test(t));
+    for (const name of unexplored) {
+      if (budgetExceeded()) {
+        manifest.blocked.push({ phase: 'settings-depth', reason: `budget exhausted before "${name}"` });
+        break;
+      }
+      const escaped = name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+      const clicked = await clickFirst(page, [(p) => p.getByRole('tab', { name: new RegExp(`^${escaped}$`, 'i') })]);
+      const subview = name.toLowerCase().replace(/\s+/g, '-');
+      await capture(page, clicked ? `Settings › ${name} tab — settled panel` : `Settings tab "${name}" NOT FOUND`, {
+        surface: 'admin-settings',
+        subview,
+        overlay: clicked ? '' : 'missing-tab',
+      });
+      if (!clicked) {
+        manifest.blocked.push({ phase: 'settings-depth', reason: `Settings tab "${name}" not found in tablist` });
+        continue;
+      }
+
+      // Probe for a primary "create/add/connect/invite" affordance and open it
+      // READ-ONLY (capture the settled form/dialog), then Escape — never submit.
+      // Covers Team's "Invite member", MCP's provider connect tiles, Webhooks'
+      // "Add endpoint", Domains' "Connect domain" / "Search domains".
+      const primaryTrigger = await clickFirst(
+        page,
+        [
+          (p) =>
+            p.getByRole('button', {
+              name: /invite member|add endpoint|connect domain|search domains|add key|create|^add$|^connect$/i,
+            }),
+        ],
+        { timeout: 5_000 },
+      );
+      if (primaryTrigger) {
+        await page.waitForTimeout(400); // dialog/panel mount settle
+        const dialogVisible = await page
+          .getByRole('dialog')
+          .isVisible({ timeout: 4_000 })
+          .catch(() => false);
+        await capture(page, `Settings › ${name} — primary action opened (read-only; no submit)`, {
+          surface: 'admin-settings',
+          subview,
+          overlay: dialogVisible ? 'primary-action-dialog' : 'primary-action-inline',
+        });
+        await page.keyboard.press('Escape');
+        const stillOpen = dialogVisible
+          ? await page.getByRole('dialog').isVisible({ timeout: 2_000 }).catch(() => false)
+          : false;
+        if (stillOpen) {
+          manifest.blocked.push({
+            phase: 'settings-depth',
+            reason: `Escape did not dismiss the "${name}" primary-action dialog`,
+          });
+        }
+        await capture(page, `Settings › ${name} — dismiss primary action (Escape) → tab intact`, {
+          surface: 'admin-settings',
+          subview,
+        });
+      } else {
+        console.warn(`  (Settings › ${name} — no primary-action trigger found; list/read-only tab)`);
+      }
+    }
+
+    // ---- Back to General — proves tab nav returns cleanly after the full sweep.
+    await clickFirst(page, [(p) => p.getByRole('tab', { name: /^General$/i })]);
+    await capture(page, 'tab → General (settings-depth sweep complete)', {
+      surface: 'admin-settings',
+      subview: 'general',
+    });
+
+    finish(
+      manifest.blocked.length === 0
+        ? acq.coverage === 'CLOUD_PASS_ELIGIBLE'
+          ? 'PASS_CLOUDFLARE'
+          : 'PASS_ON_FALLBACK_PROVIDER'
+        : 'PARTIAL',
+    );
+    await acq.browser.close().catch(() => {});
+    process.exit(manifest.status.startsWith('PASS') ? 0 : 2);
+  }
+
   if (JOURNEY === 'resources-deep') {
     // Editor → Resources tab → every subview pill (discovered from the LIVE
     // tablist, not hardcoded) — doubles as the live probe that fire-54's
