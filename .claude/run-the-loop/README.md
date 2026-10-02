@@ -28,6 +28,12 @@
 - **`VISUAL-COVERAGE.md`** *(new this fire)* — visual-coverage map + rotation of visual debt.
 - **`BROWSER-OPERATING-LAYER.md`** *(new this fire)* — browser modes · profile vault · freeze.
 - **`CF-RELEASES.md`** — CF release-scout ledger (GUID-deduped; explicit decision per release).
+- **`MASTER-PROMPT.md`** *(REV-2026-10-02-awos-master — ADOPTED instruction revision)* — Brian's
+  consolidated Autonomous Website OS contract: 50 architecture sections · GP-01..52 golden-path
+  verification contract (`./gp-register.json` + `scripts/validate-gp-register.mjs`) · WLK table
+  (absorbed in BACKLOG § WALKTHROUGH) · 50-lens research queue. Work it via `BACKLOG.md § AWOS`;
+  read sections on demand — NEVER paste it wholesale into agent briefs (its §E).
+- **`PENDING-DIRECTIVES.md`** — between-cycles directive inbox (Directive 3 adopted; 1 & 2 pending).
 - **`salvage/`** — rescued commits/diffs from dead worker agents (salvage before delete).
 - Also here: `CAMPAIGN-cf-native-ai.md` (campaign sub-ledger) · `NEXT-SESSION-BOOTSTRAP.md`
   (fresh-session pointer) · `.fire-lease.json` (live lease state).

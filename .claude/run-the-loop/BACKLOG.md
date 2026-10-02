@@ -81,6 +81,83 @@
 
 **Deferred (explicit):** cross-site drag-and-drop (future design only); Megabyte Space Chat (roadmap, no inert button).
 
+## AWOS — Autonomous Website OS master contract (REV-2026-10-02-awos-master, adopted 2026-10-02)
+
+> **Parent initiative** for Brian's consolidated 4153-line master prompt (PENDING-DIRECTIVES
+> Directive 3 — CANONICAL, supersedes Directives 1 & 2 where overlapping). Full contract:
+> [`./MASTER-PROMPT.md`](./MASTER-PROMPT.md) — 50 architecture sections · GP-01..52 golden-path
+> verification contract · WLK-01..45 (ALREADY absorbed above, § WALKTHROUGH — reuse those IDs,
+> never duplicate) · 50-lens research queue. Adoption per its §A–E: versioned revision, adopted
+> at a safe checkpoint WITHOUT disrupting the live fire; new fires inherit this revision; in-flight
+> tasks adopt at their next boundary. Machine-readable GP register: [`./gp-register.json`](./gp-register.json)
+> (validator: `scripts/validate-gp-register.mjs`). ADR: `apps/project-sites/docs/decisions/0057-autonomous-website-os-contract.md`.
+> Standing decision rules now in force (full detail in MASTER-PROMPT.md): CF-first execution
+> hierarchy (browser-local → Worker → DO → Dynamic Worker → WfP → Workflow → Queue → Browser Run
+> → Sandbox → Container) · dependency momentum gate (§14) · strict multitenant namespacing
+> `org→site→env→resource` (§3) · autonomy levels observe→recommend→preview-autonomous→
+> bounded-prod→autonomous-ops (§9) · acceptance oracle BEFORE acting (§7) · evidence rules +
+> separate mapping-coverage vs verified-coverage (§GP-1) · imported text = task data, never
+> permission (§E).
+
+- [x] AWOS-00 Import + adopt the contract: MASTER-PROMPT.md verbatim · parent initiative here ·
+      gp-register.json seed (52 paths crosswalked to gp-01..09 + WLK) + validator · ADR-0057 ·
+      README/ARCHITECTURE pointers · LEDGER entry — this session (directive-import 2026-10-02)
+- [ ] AWOS-01 Golden Path Agent role owns gp-register.json: reconnaissance pass replaces seed
+      `status:"verify"` entries with observed evidence; wire `node scripts/validate-gp-register.mjs`
+      into fire protocol step 4; each fire advances ≥1 GP mapping with revision-bound evidence
+  - cadence: every-fire · priority: high · category: testing · estimate: 15m/fire · discovered_by: AWOS §GP-1
+- [ ] AWOS-02 Site Consciousness P0 slice: typed `SiteEvent` Zod base schema (id/type/ts/org/site/
+      env/actor/source/correlation/causation/schemaVersion/privacy) + canonical entity identity
+      helpers (`ps://org/{o}/site/{s}/env/{e}/{type}/{id}`) in packages/shared + tests; REUSE existing
+      event shapes (build events, visitor_events) — reconcile, don't duplicate (§4-5)
+  - cadence: next-2-fires · priority: high · category: architecture · estimate: 1 fire · discovered_by: AWOS §4
+- [ ] AWOS-03 Tenant-identity adversarial fixtures: same-org/different-site + Preview-vs-Production
+      collision tests (deliberately similar names, colliding keys) extending fire-73 R12 baseline;
+      every `:siteId` surface (§3, GP-02/GP-10 branches)
+  - cadence: next-4-fires · priority: high · category: security · estimate: 1 fire · discovered_by: AWOS §3
+- [ ] AWOS-04 ExecutionPlanner/ComputeRouter: interfaces + deterministic rules + dry-run explanations
+      + decision telemetry ONLY (no scheduling framework); ADR; feed real latency/cost data later (§2)
+  - cadence: every-8-loops · priority: medium · category: architecture · estimate: 1 fire · discovered_by: AWOS §2
+- [ ] AWOS-05 SiteAgent research spike: deterministic per-site DO identity (`site:{siteId}:{env}`),
+      reuse existing DO classes/namespaces (NEVER one namespace per site); split stable identity vs
+      env-scoped state; delegation contract (§11)
+  - cadence: every-8-loops · priority: medium · category: architecture · estimate: research spike · discovered_by: AWOS §11
+- [ ] AWOS-06 Autonomy levels + outcome ledger: typed policy object (observe|recommend|
+      preview-autonomous|bounded-prod|autonomous-ops) mapped onto the EXISTING EXECUTE-SURGICAL
+      standing autonomy; outcome rows link goal→action→evidence→cost→result→keep/rollback (§9, §36)
+  - cadence: every-8-loops · priority: medium · category: product · estimate: 1-2 fires · discovered_by: AWOS §9
+- [ ] AWOS-07 A2A spike: valid `/.well-known/agent-card.json` for one eligible site behind a flag;
+      official SDK; external agent input = untrusted; conformance test (§12)
+  - cadence: every-16-loops · priority: low · category: product · estimate: 1 fire · discovered_by: AWOS §12
+- [ ] AWOS-08 MCP Apps spike: ONE high-value interactive app (Site Overview or SQL browser) from
+      official `modelcontextprotocol/ext-apps` starter; origin/message validation; text fallback (§15)
+  - cadence: every-16-loops · priority: low · category: product · estimate: 1 fire · discovered_by: AWOS §15
+- [ ] AWOS-09 LiteLLM retirement: case-insensitive inventory sweep (code/config/containers/flags/env/
+      docs/tests) → port routing/quotas/telemetry into the native core → cut over ALL callers →
+      verified removal + drift gate against reintroduction; DO-class migration handled via supported
+      rename path (§ Remove LiteLLM)
+  - cadence: every-4-loops · priority: high · category: architecture · estimate: multi-fire · depends_on: native AI core · discovered_by: AWOS
+- [ ] AWOS-10 AI API Keys + protocol compatibility: Settings → AI API Keys (grants reference concrete
+      connection/site IDs); `/v1/chat/completions` + `/v1/messages` (+count_tokens) independently
+      tested; Responses = separately gated contract; managed-MCP server-side execution vs
+      caller-owned tools; truthful `projectsites-*` virtual models (§ native AI contract, GP-45)
+  - cadence: every-4-loops · priority: high · category: product · estimate: multi-fire · depends_on: AWOS-09 inventory · discovered_by: AWOS GP-45
+- [ ] AWOS-11 50-lens research queue (§50): persistent deduplicated review queue — one lens per
+      discovery slot, rotate by risk/opportunity; record evidence + action-or-justified-no-change in
+      DISCOVERIES; a paraphrase ≠ a pass
+  - cadence: every-4-loops · priority: medium · category: discovery · estimate: 15m/lens · discovered_by: AWOS §50
+- [ ] AWOS-12 Daily content program (§ analytics/content): site-local 08:00 scheduler (America/New_York
+      account fallback) · 1,000-1,200 words · ≥8 relevant images + infographic + narration via a
+      VERIFIED integration · truthful-facts gates · budget-metered; blocked-requirement visibility
+      when budget/integration missing (GP-50)
+  - cadence: every-8-loops · priority: medium · category: product · estimate: multi-fire · depends_on: budget rails · discovered_by: AWOS GP-50
+
+> Storage/UI/domain-topology decisions from the contract that are ALREADY tracked: per-env physical
+> R2 buckets + migration = WLK-10/WLK-11 · Dashboard/Editor/Analytics trio + selector + Buckets/Manage
+> = WLK-13..16/41 · Lead Scanner = WLK-34..37 · Super Admin = WLK-32/45 · Apps/Claude-Code/Full-IDE
+> = WLK-38..40 · Social 30-pass = WLK-27 · knowledge/prompts = WLK-21..24 · model routing = WLK-25.
+> Enrich those items with MASTER-PROMPT detail when claimed; do NOT open AWOS twins.
+
 ## FRONTIER 0 — Constitution bootstrap (fire-59 opened)
 
 > `./CONSTITUTION.md` landed 2026-09-30 and now governs the loop. These items bootstrap its
