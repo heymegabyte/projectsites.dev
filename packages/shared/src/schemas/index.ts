@@ -20,6 +20,7 @@
  * | `analytics`   | `analyticsDailySchema`, `funnelEventSchema`, `usageEventSchema` + inferred types |
  * | `hostname`    | `hostnameRecordSchema`, `createHostnameSchema`, `hostnameStatusSchema` + `HostnameRecord`, `HostnameStatus` |
  * | `api`         | `apiErrorCodes`, `apiErrorSchema`, `healthCheckSchema` + `ApiErrorCode`, `ApiError`, `HealthCheck` |
+ * | `site-event`  | `SiteEventSchema`, `siteEventActorSchema` + `SiteEvent`, `SiteEventActor`   |
  *
  * @example
  * ```ts
@@ -56,3 +57,4 @@ export * from './forms.js';
 export * from './voice.js';
 export * from './media.js';
 export * from './site-repository.js';
+export * from './site-event.js';
