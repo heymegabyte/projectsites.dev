@@ -36,6 +36,12 @@ const HARD_TIMEOUT_MS = 90_000; // absolute cap — a cold WebContainer boot + n
 const CHAT_GRACE_MS = 10_000; // after the chat paints, wait this long for the true preview-ready signal before dismissing
 const SAVE_TIMEOUT_MS = 30_000;
 const EDITOR_BASE = 'https://editor.projectsites.dev';
+// The editor iframe is ALWAYS the prod editor (EDITOR_BASE), whose CSP connect-src allows only
+// the prod API origins (https://projectsites.dev / *.projectsites.dev) — never an http: scheme.
+// So importChatFrom MUST target the public API origin, NOT window.location.origin (which is
+// http://localhost:4200 in dev, or any non-prod admin host) — a local/admin-origin URL is
+// refused at fetch time INSIDE the iframe, silently stranding chat import. (fire-80, case-001.)
+const PUBLIC_API_ORIGIN = 'https://projectsites.dev';
 const ALLOWED_ORIGINS = ['https://editor.projectsites.dev', 'http://localhost:5173'];
 
 // PS_DATA_REQUEST browse-filter operators — mirrors the worker's FILTER_OPS. We only forward an op
@@ -690,7 +696,7 @@ export class BoltEmbedService {
     // `current_build_version`, so it still correctly starts a fresh chat instead
     // of firing a guaranteed-404 `/api/sites/by-slug/:slug/chat` import.
     if (site.current_build_version) {
-      params.set('importChatFrom', `${window.location.origin}/api/sites/by-slug/${site.slug}/chat`);
+      params.set('importChatFrom', `${PUBLIC_API_ORIGIN}/api/sites/by-slug/${site.slug}/chat`);
     }
     if (opts.file) params.set('file', opts.file);
     if (opts.line && Number.isFinite(opts.line) && opts.line > 0)

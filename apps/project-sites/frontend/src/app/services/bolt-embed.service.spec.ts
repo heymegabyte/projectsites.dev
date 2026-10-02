@@ -116,6 +116,24 @@ describe('BoltEmbedService — importChatFrom gating (publish-aware, no 404 cons
     expect(url).toContain('live-site');
   });
 
+  it("importChatFrom MUST point at the public API origin (https://projectsites.dev), never the embedding admin origin — the editor iframe's own CSP connect-src has no http: scheme, so a local-admin-origin URL is refused at fetch time (regression: fire-80, case-001 Phase D)", () => {
+    const svc = bootSvc();
+    svc.bootForSite({
+      id: 's1',
+      slug: 'live-site',
+      business_name: 'Live',
+      status: 'published',
+      current_build_version: '2026-05-04T23-09-02-051Z',
+    });
+    const url = String(svc.iframeUrl() ?? '');
+    const match = /importChatFrom=([^&]+)/.exec(url);
+    expect(match).withContext('importChatFrom param must be present').not.toBeNull();
+    const decoded = decodeURIComponent(match ? match[1] : '');
+    expect(decoded).toContain('https://projectsites.dev/api/sites/by-slug/live-site/chat');
+    expect(decoded).not.toContain('localhost');
+    expect(decoded.startsWith('http://')).toBe(false);
+  });
+
   it('OMITS importChatFrom for an UNPUBLISHED site (no R2 manifest → would 404 on every admin route)', () => {
     const svc = bootSvc();
     svc.bootForSite({ id: 's2', slug: 'draft-site', business_name: 'Draft', status: 'draft' });

@@ -335,7 +335,7 @@ describe('AdminApiTokensComponent (TanStack table sort)', () => {
 import { provideRouter } from '@angular/router';
 describe('AdminApiTokensComponent (flag-disabled banner link is underlined)', () => {
   afterEach(() => TestBed.resetTestingModule());
-  it('the in-text Feature Flags link carries the underline affordance', () => {
+  it('the in-text Feature Flags link carries the underline affordance', async () => {
     TestBed.configureTestingModule({
       imports: [AdminApiTokensComponent],
       providers: [
@@ -346,6 +346,12 @@ describe('AdminApiTokensComponent (flag-disabled banner link is underlined)', ()
       ],
     });
     const fx = TestBed.createComponent(AdminApiTokensComponent);
+    // Settle the constructor auto-load FIRST: loadTokens() clears flagDisabled at the start of each
+    // fetch and only re-sets it from the async 404 — forcing the flag before the load settles is
+    // clobbered the moment Karma's execution order shifts (fire-80: a new sibling spec shifted the
+    // order and flaked this at `link === null`). Settle, THEN force the banner state. (CLAUDE.md §9.)
+    fx.detectChanges();
+    await fx.whenStable();
     fx.componentInstance.flagDisabled.set(true); // force the flag-disabled banner to render
     fx.detectChanges();
     const link = (fx.nativeElement as HTMLElement).querySelector('[data-testid="api-tokens-flag-gate"] a[routerLink="/admin/feature-flags"]') as HTMLAnchorElement | null;
