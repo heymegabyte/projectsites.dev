@@ -631,6 +631,54 @@ describe('serveSiteFromR2', () => {
     expect(body).not.toContain('ps-bar-inner');
   });
 
+  // gp01-served-origin: the injected app.js must tell the served client WHICH
+  // origin to call back to. Without data-api, app.js falls back to the hardwired
+  // 'https://projectsites.dev' (app_js.ts line ~109) — so a site served from a
+  // custom hostname (or preview/local) POSTs forms + analytics to the wrong
+  // origin (cross-origin → CORS/404), silently breaking the money path's
+  // contact-form + conversion beacon. Inject data-api derived from the serving
+  // host so the client stays same-origin with the host it was served from.
+  describe('app.js data-api (served-origin, gp01)', () => {
+    it('injects data-api pointing at a custom serving host', async () => {
+      const env = createMockEnv({
+        'sites/my-biz/v1/index.html': '<html><body>Content</body></html>',
+      });
+      const response = await serveSiteFromR2(env, baseSite, '/', 'www.example.com');
+      const html = await response.text();
+      expect(html).toContain('data-api="https://www.example.com"');
+      // the script tag src stays the canonical CDN origin (one source of truth)
+      expect(html).toContain('src="https://projectsites.dev/app.js"');
+    });
+
+    it('injects data-api for a projectsites.dev subdomain host', async () => {
+      const env = createMockEnv({
+        'sites/my-biz/v1/index.html': '<html><body>Content</body></html>',
+      });
+      const response = await serveSiteFromR2(env, baseSite, '/', 'my-biz.projectsites.dev');
+      const html = await response.text();
+      expect(html).toContain('data-api="https://my-biz.projectsites.dev"');
+    });
+
+    it('omits data-api when no host is known (client keeps its safe default)', async () => {
+      const env = createMockEnv({
+        'sites/my-biz/v1/index.html': '<html><body>Content</body></html>',
+      });
+      const response = await serveSiteFromR2(env, baseSite, '/');
+      const html = await response.text();
+      expect(html).not.toContain('data-api=');
+    });
+
+    it('ignores a malformed host (keeps the client default, no injection)', async () => {
+      const env = createMockEnv({
+        'sites/my-biz/v1/index.html': '<html><body>Content</body></html>',
+      });
+      // a host carrying illegal chars must never reach the attribute unescaped
+      const response = await serveSiteFromR2(env, baseSite, '/', 'bad host"<>');
+      const html = await response.text();
+      expect(html).not.toContain('data-api=');
+    });
+  });
+
   // ── Building placeholder (no build artifact yet) — MUST NOT be indexed ──
   // A site with current_build_version === null serves a branded "Building..."
   // page for its entire ~40-min build window. Without noindex, Googlebot

@@ -687,16 +687,21 @@ async function serveSiteFromR2Inner(
   // correct. A hit skips the R2 fetch + injection → edge-speed TTFB. HTML docs only; the visit
   // meter still fires on hit (below) so analytics/usage never undercount a cache hit.
   const isHtmlDoc = !filePath.includes('.') || filePath.endsWith('.html');
+  // The Cache API (`caches.default`) is present in the Workers runtime but absent
+  // in the jest/unit env — treat it as optional so serving never depends on it
+  // (fail-soft to a normal R2 fetch when unavailable, exactly like a cache miss).
+  const edgeCache =
+    typeof caches !== 'undefined' && caches?.default ? caches.default : null;
   const edgeKey =
-    host && isHtmlDoc && version
+    edgeCache && host && isHtmlDoc && version
       ? new Request(
           `https://ps-edge.internal/${host}/${encodeURIComponent(version)}${filePath}?p=${
             site.plan && site.plan !== 'free' ? 1 : 0
           }`,
         )
       : null;
-  if (edgeKey) {
-    const hit = await caches.default.match(edgeKey);
+  if (edgeKey && edgeCache) {
+    const hit = await edgeCache.match(edgeKey);
     if (hit) {
       void (async () => {
         try {
@@ -833,6 +838,7 @@ async function serveSiteFromR2Inner(
           env,
           status,
           requestPath,
+          host,
         );
       }
     }
@@ -860,18 +866,19 @@ async function serveSiteFromR2Inner(
     })();
   }
 
-  const resp = await buildSiteResponse(object, site, contentType, env, 200, requestPath);
+  const resp = await buildSiteResponse(object, site, contentType, env, 200, requestPath, host);
   // Populate the edge cache (AL-394) for the next visitor — only a real 200 HTML doc, so a
   // transient 404/503/asset never gets stored. `s-maxage=3600` on the response drives the TTL;
   // the version-keyed edgeKey means a rebuild simply writes a new key (old one expires unused).
   if (
     edgeKey &&
+    edgeCache &&
     resp.status === 200 &&
     (resp.headers.get('content-type') || '').includes('text/html')
   ) {
     resp.headers.set('x-ps-edge', 'miss');
     try {
-      await caches.default.put(edgeKey, resp.clone());
+      await edgeCache.put(edgeKey, resp.clone());
     } catch {
       /* best-effort edge cache; never block serving */
     }
@@ -1814,6 +1821,7 @@ async function buildSiteResponse(
   env?: Env,
   htmlStatus = 200,
   requestPath = '/',
+  host?: string,
 ): Promise<Response> {
   const headers = new Headers({
     'Content-Type': contentType,
@@ -1992,7 +2000,21 @@ async function buildSiteResponse(
           /* claim pitch is an enhancement — never block serving */
         }
       }
-      const appScript = `<script defer src="https://${DOMAINS.SITES_BASE}/app.js" data-slug="${safeSlug}" data-paid="${paid}"${claimAttrs}></script>`;
+      // gp01-served-origin: tell the served client which origin to call back to.
+      // app.js (app_js.ts) reads `data-api` and otherwise falls back to the
+      // hardwired `https://${DOMAINS.SITES_BASE}` — which breaks the money path
+      // (contact-form POST + analytics beacon go cross-origin → CORS/404) for any
+      // site served from a CUSTOM HOSTNAME, a preview host, or local dev. Inject
+      // `data-api="https://<servingHost>"` so the client stays same-origin with
+      // the host it was served from. The <script> src stays the canonical CDN
+      // origin (one byte-identical app.js for every site). Only inject for a
+      // well-formed hostname — a malformed/attacker host never reaches the
+      // attribute, so the client keeps its safe hard-coded default.
+      let apiAttr = '';
+      if (host && /^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?(\.[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?)+$/i.test(host)) {
+        apiAttr = ` data-api="https://${host}"`;
+      }
+      const appScript = `<script defer src="https://${DOMAINS.SITES_BASE}/app.js" data-slug="${safeSlug}" data-paid="${paid}"${apiAttr}${claimAttrs}></script>`;
       html = /<\/body>/i.test(html)
         ? html.replace(/<\/body>/i, `${appScript}\n</body>`)
         : html + appScript;
