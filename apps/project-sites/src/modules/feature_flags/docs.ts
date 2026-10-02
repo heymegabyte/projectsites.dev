@@ -217,6 +217,21 @@ export const FLAG_DOCS: Record<string, FlagDocs> = {
       'Off (default) → GET /api/sites/:id/cost returns 404 (never 403)',
     ],
   },
+  pricing_config_v2: {
+    checklist: [
+      'Pricing-engine-v2 (PRICING-MODEL.md Wave 2, fire-86) — layers a super-admin-editable pricing_config over the Wave-1 pricing_engine',
+      'Sources the cost-metering unit prices + the flat per-site platform fee from the pricing_config D1 table instead of hardcoded constants',
+      'Read by the cost rollups (GET /api/sites/:id/cost + /api/apps/instances/:id/cost) so a price change takes effect without a redeploy',
+      'Super-admin-only writes; values are Zod-validated + audit-logged; never client-supplied',
+      'Off (default, DARK) → the engine falls back to the Wave-1 hardcoded published unit prices + $50/site fee (always a safe fallback)',
+    ],
+    explanation:
+      'Pricing-engine-v2 (PRICING-MODEL.md Wave 2, fire-86). Layers a super-admin-editable pricing_config D1 table over the Wave-1 pricing_engine so the cost-metering unit prices (Worker req+CPU, D1 rows+storage, R2 ops+storage) and the flat per-site platform fee can be tuned live without a redeploy. The owner-scoped cost rollups read the active config when the flag is ON; writes are super-admin-only, Zod-validated, and audit-logged. Off (default, DARK) → the engine uses the Wave-1 hardcoded published prices + $50/site fee, so turning the flag off is always a safe fallback.',
+    smoke_test: [
+      'Enable → super-admin edits a unit price in pricing_config → GET /api/sites/:id/cost reflects the new price without a redeploy',
+      'Off (default) → the cost rollup uses the Wave-1 hardcoded prices (no pricing_config read)',
+    ],
+  },
   validator_strict: {
     checklist: [
       "Per-org strict build-validation canary — ON for an org forces VALIDATOR_MODE=strict for that org's builds",
