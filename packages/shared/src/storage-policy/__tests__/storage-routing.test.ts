@@ -42,12 +42,9 @@ describe('selectFileStorage — exact threshold cases', () => {
 });
 
 describe('selectFileStorage — invalid sizes throw RangeError', () => {
-  it.each([-1, 1.5, NaN, Infinity, -Infinity, Number.MAX_SAFE_INTEGER + 1])(
-    'throws for %p',
-    (bad) => {
-      expect(() => selectFileStorage(bad as number)).toThrow(RangeError);
-    },
-  );
+  it.each([-1, 1.5, NaN, Infinity, -Infinity, Number.MAX_SAFE_INTEGER + 1])('throws for %p', (bad) => {
+    expect(() => selectFileStorage(bad as number)).toThrow(RangeError);
+  });
 });
 
 describe('isMediaTier / isOrdinaryTier', () => {
@@ -65,12 +62,9 @@ describe('fileByteLengthSchema', () => {
     expect(fileByteLengthSchema.parse(30_000_001)).toBe(30_000_001);
   });
 
-  it.each([-1, 2.5, NaN, Number.MAX_SAFE_INTEGER + 1, '100' as unknown as number])(
-    'rejects %p',
-    (bad) => {
-      expect(fileByteLengthSchema.safeParse(bad).success).toBe(false);
-    },
-  );
+  it.each([-1, 2.5, NaN, Number.MAX_SAFE_INTEGER + 1, '100' as unknown as number])('rejects %p', (bad) => {
+    expect(fileByteLengthSchema.safeParse(bad).success).toBe(false);
+  });
 });
 
 describe('safeSelectFileStorage — untrusted declared size', () => {

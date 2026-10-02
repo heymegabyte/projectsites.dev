@@ -16,7 +16,7 @@
 - **The client can never choose a tier or bypass the policy.** The server resolves the destination
   from the verified byte length at finalization; browser metadata is never trusted as proof.
 - Files: `routing.ts` (threshold + `StorageRoleSchema` + `selectFileStorage` + `safeSelectFileStorage`
-  + `fileByteLength` schema + `isMediaTier`/`isOrdinaryTier`).
+  - `fileByteLength` schema + `isMediaTier`/`isOrdinaryTier`).
 
 Later Cycle-1+ slices build on this: `AccountStorage`/`ProjectStorage`/`AssetVersion`/`UploadSession`/
 `ReleaseManifest` contracts, the `ArtifactsRepositoryProvider`, the versioned asset manifest, and the
