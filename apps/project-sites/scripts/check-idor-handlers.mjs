@@ -25,7 +25,21 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 import { dirname, join, relative } from 'node:path';
 
 const APP_DIR = join(dirname(fileURLToPath(import.meta.url)), '..');
+/**
+ * Recursively-walked dirs (every `.ts` under them is scanned).
+ * NOTE: deliberately does NOT include the whole `src/` tree — that would drag in
+ * `src/services`, `src/prompts`, etc. with no route registrations (noise). `src/routes`
+ * + `libs` hold the route-registering files, PLUS the top-level `src/*.ts` below.
+ */
 const SCAN_DIRS = [join(APP_DIR, 'src', 'routes'), join(APP_DIR, 'libs')];
+/**
+ * Top-level `src/*.ts` files (NON-recursive) — `src/index.ts` registers inline
+ * `app.post('/api/sites/:siteId/…')` handlers directly on the Hono app, which escaped the
+ * dir-only SCAN_DIRS above and so dodged this per-handler IDOR gate entirely (fire-83). Scan
+ * every `.ts` sitting directly in `src/` (NOT node_modules/dist/subdirs) so those inline
+ * handlers are covered. `src/routes/*` is still reached via the recursive walk above.
+ */
+const SRC_TOP_LEVEL = join(APP_DIR, 'src');
 
 /**
  * Ownership idioms — the codebase's full gate family, enumerated across the fire-17/18
@@ -36,6 +50,13 @@ const OWNERSHIP = [
   // shared / per-file ownership helpers (each verifies the resource belongs to the caller's
   // org). Enumerated across the fire-17/18/19 IDOR sweep — keep in sync as new helpers land.
   /\b(?:requireOwnedSite|loadSiteAndAuth|assertSiteOwned|assertSiteOwnership|assertOwner|gateOwnedSite|siteOwned|loadInstance|loadAgent|loadOwnedSite|loadOwnedSubmission|loadAuthorizedSite|ownsSiteData|ownsSite|requireSiteMembership|siteOrgId|restoreSnapshot)\b/,
+  // local per-file GATE helpers that bundle (auth → flag-404 → ownership-404 → resolve) and are
+  // awaited at the top of a handler, then whose returned handle performs the write — the ownership
+  // idiom lives INSIDE the helper, not the handler body, so the direct-idiom patterns above miss it.
+  // `gate(c, siteId)` (r2_buckets) + `gateResolveAndRequireTable(c, siteId, table)` /
+  // `gateResolveTable(...)` (site_data_api) both 404 a foreign/missing site via ownsSiteData.
+  // Narrow to `await gate…(` with a `siteId`/`c,` arg so it can't match an unrelated `gate`.
+  /\bawait\s+gate(?:AndBucket|Resolve[A-Za-z]*|[A-Za-z]*)?\s*\(\s*c\s*,/,
   // super-admin surfaces are cross-org BY DESIGN (not per-tenant IDOR)
   /\bisSuperAdmin\b/,
   /\brequireSuperAdmin\b/,
@@ -101,6 +122,11 @@ export function scanMutationHandler(routePath, body) {
   return { flagged: true };
 }
 
+/** A scannable `.ts` source file (not a declaration, not a test). */
+function isScannableTs(name) {
+  return name.endsWith('.ts') && !name.endsWith('.d.ts') && !name.endsWith('.test.ts');
+}
+
 function walk(dir) {
   const out = [];
   if (!existsSync(dir)) return out;
@@ -109,21 +135,30 @@ function walk(dir) {
     if (ent.isDirectory()) {
       if (ent.name === '__tests__' || ent.name === 'node_modules') continue;
       out.push(...walk(p));
-    } else if (
-      ent.name.endsWith('.ts') &&
-      !ent.name.endsWith('.d.ts') &&
-      !ent.name.endsWith('.test.ts')
-    ) {
+    } else if (isScannableTs(ent.name)) {
       out.push(p);
     }
   }
   return out;
 }
 
+/** Top-level `.ts` files sitting DIRECTLY in `dir` — no recursion (subdirs handled by {@link walk}). */
+function topLevelTs(dir) {
+  const out = [];
+  if (!existsSync(dir)) return out;
+  for (const ent of readdirSync(dir, { withFileTypes: true })) {
+    if (ent.isFile() && isScannableTs(ent.name)) out.push(join(dir, ent.name));
+  }
+  return out;
+}
+
 function run() {
   const findings = [];
-  for (const dir of SCAN_DIRS) {
-    for (const file of walk(dir)) {
+  // Recursive dir walks + the NON-recursive top-level `src/*.ts` (e.g. src/index.ts) that
+  // registers inline `:siteId` handlers. Dedupe so a file reachable via both paths is scanned once.
+  const files = [...new Set([...SCAN_DIRS.flatMap(walk), ...topLevelTs(SRC_TOP_LEVEL)])];
+  {
+    for (const file of files) {
       const text = readFileSync(file, 'utf8');
       const rel = relative(APP_DIR, file);
       // Handler boundaries: `<router>.<method>('path', ...)` for mutating methods.
