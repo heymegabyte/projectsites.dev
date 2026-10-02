@@ -91,6 +91,11 @@ export function scanGetHandler(routePath, body) {
   return { flagged: true };
 }
 
+/** @returns {boolean} a real source `.ts` (not a type-decl, not a test). */
+function isScannableTs(name) {
+  return name.endsWith('.ts') && !name.endsWith('.d.ts') && !name.endsWith('.test.ts');
+}
+
 function walk(dir) {
   const out = [];
   if (!existsSync(dir)) return out;
@@ -99,19 +104,49 @@ function walk(dir) {
     if (ent.isDirectory()) {
       if (ent.name === '__tests__' || ent.name === 'node_modules') continue;
       out.push(...walk(p));
-    } else if (ent.name.endsWith('.ts') && !ent.name.endsWith('.d.ts') && !ent.name.endsWith('.test.ts')) {
+    } else if (isScannableTs(ent.name)) {
       out.push(p);
     }
   }
   return out;
 }
 
-function run() {
-  const APP_DIR = join(dirname(fileURLToPath(import.meta.url)), '..');
+/** Top-level `.ts` files sitting DIRECTLY in `dir` — no recursion (subdirs handled by {@link walk}). */
+function topLevelTs(dir) {
+  const out = [];
+  if (!existsSync(dir)) return out;
+  for (const ent of readdirSync(dir, { withFileTypes: true })) {
+    if (ent.isFile() && isScannableTs(ent.name)) out.push(join(dir, ent.name));
+  }
+  return out;
+}
+
+/** Absolute path to the Worker package root (the dir ABOVE `scripts/`). */
+function appDir() {
+  return join(dirname(fileURLToPath(import.meta.url)), '..');
+}
+
+/**
+ * The full set of source files this detector scans. Recursive `src/routes` + `libs` walks PLUS
+ * the NON-recursive top-level `src/*.ts` (e.g. `src/index.ts`) that registers inline
+ * `app.get('/api/sites/:siteId/…')` READ handlers directly on the Hono app — those escaped the
+ * dir-only scan and so dodged the GET-read IDOR gate entirely (twin of the fire-83 mutation-side
+ * blind-spot that `check-idor-handlers.mjs` already closed). Dedupe so a file reachable via both
+ * paths is scanned once.
+ * @returns {string[]} absolute file paths.
+ */
+export function collectScanFiles() {
+  const APP_DIR = appDir();
   const SCAN_DIRS = [join(APP_DIR, 'src', 'routes'), join(APP_DIR, 'libs')];
+  const SRC_TOP_LEVEL = join(APP_DIR, 'src');
+  return [...new Set([...SCAN_DIRS.flatMap(walk), ...topLevelTs(SRC_TOP_LEVEL)])];
+}
+
+function run() {
+  const APP_DIR = appDir();
   const findings = [];
-  for (const dir of SCAN_DIRS) {
-    for (const file of walk(dir)) {
+  {
+    for (const file of collectScanFiles()) {
       const text = readFileSync(file, 'utf8');
       const rel = relative(APP_DIR, file);
       const re = /\b[a-zA-Z][\w$]*\.(get)\(\s*['"`]([^'"`]+)['"`]/g;
