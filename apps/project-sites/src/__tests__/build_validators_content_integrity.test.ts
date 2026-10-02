@@ -402,7 +402,7 @@ describe('validateNoBuildPromptLeak — leaked generation prompt / AI preamble /
   });
 
   it('flags an "I\'ll create the website" meta-preamble and a leaked ``` code fence', () => {
-    for (const body of ['<p>I\'ll create the website now.</p>', '<p>```html</p>']) {
+    for (const body of ["<p>I'll create the website now.</p>", '<p>```html</p>']) {
       const v = validateNoBuildPromptLeak([file('index.html', shell('X', '', body))]);
       expect(v[0]?.code).toBe('copy.build_prompt_leaked');
     }
@@ -469,7 +469,10 @@ describe('validateNoEmptyNap — present-but-empty address/phone block (fire-83)
   });
 
   it('does NOT flag a filled itemprop telephone', () => {
-    const f = file('index.html', shell('X', '', '<span itemprop="telephone">(973) 555-0142</span>'));
+    const f = file(
+      'index.html',
+      shell('X', '', '<span itemprop="telephone">(973) 555-0142</span>'),
+    );
     expect(validateNoEmptyNap([f])).toEqual([]);
   });
 
