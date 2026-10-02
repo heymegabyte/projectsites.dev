@@ -1,39 +1,37 @@
-# CHECKPOINT — Nebula Waiting Experience (editor loading), revs 2–14
+# CHECKPOINT — Nebula Waiting Experience (continuing toward "50 loops", app-wide)
 
-**Rev 1 SHIPPED + LIVE** (commit `5fa7023c5`, editor Pages `803c92dc`, editor 200):
-- `app/components/chat/NebulaLoader.tsx` — zero-dep raw-WebGL nebula (domain-warped fbm,
-  purple/cyan/pink palette, star field, faint heart knots, bloom, vignette; rAF +
-  visibility-pause + adaptive DPR + pointer attraction + `u_prog` luminosity;
-  reduced-motion = one calm frame; graceful no-WebGL return).
-- `app/components/chat/EditorLoadingVisual.tsx` — nebula backdrop + TINY foreground (one
-  spinner + rotating 2–5 word status + optional hairline bar); role=status; CSS-orb fallback.
-- `app/styles/index.scss` — `ps-nebula-*` + `ps-editor-loader--nebula` (reduced-motion freezes).
+**SHIPPED + LIVE (editor loading):**
+- Rev 1 `5fa7023c5` — zero-dep WebGL nebula replacing the CSS orb.
+- Rev 2 `93ddfe3ed` — HBO-grade cinematic batch (folds ~10 loops): 7-octave double domain-warp
+  fbm · ACES filmic tonemap + gamma · film grain · per-channel chromatic edge-bleed · breathing
+  hot-pink love-explosion core · two parallax twinkling star layers · u_burst completion flash
+  (ramps on `leaving`, dissolves into editor) · fuller catchy message set. Deployed editor Pages
+  `801bcb78`; live bundle `EditorLoadingVisual-*.js` carries `u_burst` (verified).
 
-**WHY CHECKPOINT (not thrash):** rev 1 built from near-full context (~186k/200k). Revs 2–14 are
-visual render-inspect polish — each needs a REAL screenshot+critique cycle (CF Browser Run; the
-deep-ui-explorer proved the authed editor embed boots there), run in a FRESH MAIN session (NOT a
-background agent — Brian's standing correction). Apply the 7 self-critique questions per pass.
+**DOCTRINE (the "make all instructions embody this" ask) — DONE:**
+- Global rule `~/.claude/plugins/heymegabyte-claude-skills/rules/nebula-waiting-experience.md`
+  (`159f19d`, registered in `_packs/design.yml`): cinematic HBO-grade nebula is THE loading
+  standard for EVERY waiting/generating/deploying/AI-thinking/navigating state everywhere;
+  one shared primitive; perf + reduced-motion non-negotiables; the 7-question iteration doctrine.
 
-## Revs 2–14 ladder (each: edit → render via CF Browser Run → vision-critique → keep better)
-2. Richer fbm (6→7 octaves + 2nd warp); keep 60fps at mobile DPR cap.
-3. Hot-pink "love explosion": brighten heart-knot bloom + slow radial center pulse (energy, not emoji).
-4. Plasma wisps: curl-ish flow-field advection so strands drift.
-5. Star depth: 2–3 parallax layers + per-star twinkle; adaptive density.
-6. Pointer attraction inertia (lerp u_ptr toward cursor).
-7. progress→nebula: luminosity + palette shift to cyan as progress→1; wire real build/deploy progress into the prop.
-8. Completion pulse: on `leaving`, cyan/pink burst + nebula expands/dissolves INTO the editor.
-9. Messages on REAL op-state (Creating/Generating/Deploying/…); add blur-out to the crossfade.
-10. Foreground shrink pass (7 questions; bias to LESS chrome — maybe drop the pill bg).
-11. Perf: adaptive octave/particle count by measured frame time; dynamic resolution scaling.
-12. WebGPU enhancement path (feature-detect, fall back to WebGL) only if it adds real richness.
-13. A11y: reduced-motion still gorgeous (rich static frame); AA contrast on message over brightest nebula.
-14. "Unmistakably this product": lock to brand tokens (#060610/#00e5ff/#7c3aed + hot pink); final vision ≥9/10.
+## Continuing loops (fresh render-inspect session via CF Browser Run — vision ≥9/10 each)
+Shader/UI polish on `app/components/chat/NebulaLoader.tsx` + `EditorLoadingVisual.tsx`:
+- flow-field (curl) wisp advection so strands drift, not scroll
+- pointer inertia (lerp u_ptr) + touch + device-orientation parallax
+- progress→palette shift (violet→cyan as progress→1) + progress-reactive core intensity
+- message blur-OUT on change (have blur-in); op-state-driven copy wired from the real loader controller
+- adaptive octave/particle count by measured frame time; dynamic resolution (0.75x when budget blown)
+- foreground shrink pass (drop the pill bg if nebula contrast suffices; smaller spinner)
+- WebGPU enhancement path (feature-detect, WebGL fallback)
+- a11y: AA message contrast over brightest nebula; richer reduced-motion static frame
 
-## Reuse (prompt's broader intent)
-Polished → extract a shared `<NebulaWaiting progress message/>` and adopt app-wide for
-generation/deploy/AI-thinking/navigation waits (not just the editor). Add as a backlog item.
+## APPLY EVERYWHERE (the other half of the ask — adopt the shared primitive)
+Extract `<NebulaWaiting progress message burst/>` from NebulaLoader and adopt on:
+- site generation / build-stream loader · deploy state · AI thinking/streaming · route navigation
+  (>400ms) · publish · long workflows. Each: replace its one-off spinner, verify 200 + reduced-motion.
+Add a BACKLOG item for the extraction + per-surface adoption.
 
 ## Resume
-Fresh session: read this + `NebulaLoader.tsx`, open the editor loading state via CF Browser Run,
-screenshot, grind 2→14 with vision critique. Deploy: `npm run build` → `wrangler pages deploy
-build/client --project-name=bolt-diy --branch=main` → verify editor 200.
+Fresh session: read this + `NebulaLoader.tsx` + the global rule; open each loading surface via CF
+Browser Run; screenshot → vision-critique → push further (never tether). Deploy editor:
+`npm run build` → `wrangler pages deploy build/client --project-name=bolt-diy --branch=main` → 200.
