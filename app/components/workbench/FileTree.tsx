@@ -4,7 +4,7 @@ import { classNames } from '~/utils/classNames';
 import { createScopedLogger, renderLogger } from '~/utils/logger';
 import * as ContextMenu from '@radix-ui/react-context-menu';
 import type { FileHistory } from '~/types/actions';
-import { diffLines, type Change } from 'diff';
+import { computeFileDiffStat } from './file-diff-stat';
 import { workbenchStore } from '~/lib/stores/workbench';
 import { toast } from 'react-toastify';
 import { path } from '~/utils/path';
@@ -984,40 +984,7 @@ function File({
 
   const fileModifications = fileHistory[fullPath];
 
-  const { additions, deletions } = useMemo(() => {
-    if (!fileModifications?.originalContent) {
-      return { additions: 0, deletions: 0 };
-    }
-
-    const normalizedOriginal = fileModifications.originalContent.replace(/\r\n/g, '\n');
-    const normalizedCurrent =
-      fileModifications.versions[fileModifications.versions.length - 1]?.content.replace(/\r\n/g, '\n') || '';
-
-    if (normalizedOriginal === normalizedCurrent) {
-      return { additions: 0, deletions: 0 };
-    }
-
-    const changes = diffLines(normalizedOriginal, normalizedCurrent, {
-      newlineIsToken: false,
-      ignoreWhitespace: true,
-      ignoreCase: false,
-    });
-
-    return changes.reduce(
-      (acc: { additions: number; deletions: number }, change: Change) => {
-        if (change.added) {
-          acc.additions += change.value.split('\n').length;
-        }
-
-        if (change.removed) {
-          acc.deletions += change.value.split('\n').length;
-        }
-
-        return acc;
-      },
-      { additions: 0, deletions: 0 },
-    );
-  }, [fileModifications]);
+  const { additions, deletions } = useMemo(() => computeFileDiffStat(fileModifications), [fileModifications]);
 
   const showStats = additions > 0 || deletions > 0;
 
