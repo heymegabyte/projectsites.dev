@@ -412,7 +412,10 @@ describe('attemptDelivery', () => {
       if (url === delivery.url) {
         return {
           status: 302,
-          headers: { get: (n: string) => (n.toLowerCase() === 'location' ? 'http://169.254.169.254/latest/meta-data' : null) },
+          headers: {
+            get: (n: string) =>
+              n.toLowerCase() === 'location' ? 'http://169.254.169.254/latest/meta-data' : null,
+          },
         } as unknown as Response;
       }
       // If the guard were broken we'd reach here and happily "deliver" a 2xx.
@@ -435,7 +438,9 @@ describe('attemptDelivery', () => {
       if (url === delivery.url) {
         return {
           status: 302,
-          headers: { get: (n: string) => (n.toLowerCase() === 'location' ? 'http://10.0.0.5:6379/' : null) },
+          headers: {
+            get: (n: string) => (n.toLowerCase() === 'location' ? 'http://10.0.0.5:6379/' : null),
+          },
         } as unknown as Response;
       }
       return { status: 200, headers: { get: () => null } } as unknown as Response;
