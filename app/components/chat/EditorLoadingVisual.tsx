@@ -16,11 +16,14 @@ interface EditorLoadingVisualProps {
   message?: string;
 }
 
-/** Concise 2–5 word ambient statuses — prefer a real `message` prop when known. */
+/** Concise, catchy 2–5 word ambient statuses — prefer a real `message` prop when known. */
 const MESSAGES = [
   'Building your universe…',
   'Igniting the nebula…',
   'Making pixels behave…',
+  'Summoning stardust…',
+  'Bending a little light…',
+  'Warming the plasma…',
   'Rendering…',
   'Almost there…',
 ];
@@ -41,6 +44,7 @@ const MESSAGES = [
 export const EditorLoadingVisual = memo(
   ({ leaving = false, onTransitionEnd, progress, message }: EditorLoadingVisualProps) => {
     const [idx, setIdx] = useState(0);
+    const [burst, setBurst] = useState(0);
     const reduced =
       typeof window !== 'undefined' && window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
 
@@ -53,6 +57,25 @@ export const EditorLoadingVisual = memo(
 
       return () => clearInterval(id);
     }, [message, reduced]);
+
+    // Completion burst: when the screen starts leaving, flare the nebula (cyan/pink
+    // energy pulse) then let it dissolve into the editor beneath the parent fade.
+    useEffect(() => {
+      if (!leaving) {
+        return undefined;
+      }
+
+      let raf = 0;
+      const start = performance.now();
+      const tick = (now: number) => {
+        const k = Math.min(1, (now - start) / 680);
+        setBurst(k < 1 ? Math.sin(k * Math.PI) : 0); // rise then settle
+        raf = k < 1 ? requestAnimationFrame(tick) : 0;
+      };
+      raf = requestAnimationFrame(tick);
+
+      return () => cancelAnimationFrame(raf);
+    }, [leaving]);
 
     const status = message ?? MESSAGES[idx];
 
@@ -68,7 +91,7 @@ export const EditorLoadingVisual = memo(
         aria-label="Loading your editor"
         onTransitionEnd={onTransitionEnd}
       >
-        <NebulaLoader progress={progress} />
+        <NebulaLoader progress={progress} burst={burst} />
 
         {/* Tiny CSS fallback mark — visible only if WebGL never paints. */}
         <span className="ps-editor-loader__orb ps-editor-loader__orb--fallback" aria-hidden="true" />
