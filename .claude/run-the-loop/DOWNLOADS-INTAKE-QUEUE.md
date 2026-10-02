@@ -15,7 +15,7 @@ small optimization cycles on specific elements over one mega-pass).
 ## Drain order (oldest-value-first, net-new before already-absorbed)
 
 1. **FILE 3** — ✅ ABSORBED fire-81 (swarm/delegation axis → BACKLOG § fire-81 replenish; starter slice = provider entitlement registry).
-2. **FILE 5** — CF-native voice (partial; = REALTIME-VOICE-DIRECTIVE, not yet persisted).
+2. **FILE 5** — ✅ ABSORBED fire-82 (CF-native voice -> BACKLOG § fire-82 replenish FILE-5 epic + `FILE5-VOICE-DECOMPOSITION.md`; DIRECTIVE-2 verbatim-persist still pending).
 3. **FILE 1** — Resources 7-tab editor — ✅ ABSORBED fire-80 (COMBINED §S5 + DIRECTIVE 3 fold + gp GP-13).
 4. **FILE 4** — AWOS master (already adopted REV-2026-10-02-awos-master → MASTER-PROMPT.md; verify-then-absorb).
 5. **FILE 2** — shipping F001–F100 (largely in AWOS WALKTHROUGH/gp-register; verify no dup, then absorb).
@@ -32,8 +32,8 @@ Epics:
 - Media funding governance (existing-benefits-first; Unified Billing exceptions by justification)
 - Browser Run / Stagehand v2.5.x consolidation + verify Cloudflare Agents availability
 
-### FILE 5 — `ProjectSites-Cloudflare-native-master-prompt.md` (65K, 2026-09-28) — status: `queued`
-Spirit: CF-native convergence loop, 5 workstreams (A Voice/all-call media · B Twilio/SMS/Stripe · C Editor Claude-Code/Sandbox/browser · D ProjectSites MCP broker · E CF-native surfaces); 13-item acceptance; real browser video + transcript replay; consent/compliance. **Absorbed: PARTIAL** (= REALTIME-VOICE-DIRECTIVE, not yet persisted; PENDING-DIRECTIVES §DIRECTIVE 2).
+### FILE 5 — `ProjectSites-Cloudflare-native-master-prompt.md` (65K, 2026-09-28) — status: `absorbed` (2026-10-02, fire-82)
+Spirit: CF-native convergence loop, 5 workstreams (A Voice/all-call media · B Twilio/SMS/Stripe · C Editor Claude-Code/Sandbox/browser · D ProjectSites MCP broker · E CF-native surfaces); 13-item acceptance; real browser video + transcript replay; consent/compliance. **Absorbed: YES** (fire-82 — full-fidelity drain -> BACKLOG § fire-82 replenish FILE-5 epic + `.claude/run-the-loop/FILE5-VOICE-DECOMPOSITION.md`; DIRECTIVE-2 verbatim-persist still pending per PENDING-DIRECTIVES; archive copy safe to rm manually).
 Epics:
 - Voice page (tabs: Numbers, Conversations, Agent config, Test Console, MCPs, Share)
 - Twilio voice/SMS provisioning: real quote → Stripe payment → number activation

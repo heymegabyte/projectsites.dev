@@ -9,6 +9,19 @@
 > `_CF_NATIVE_CONVERGENCE.md`, `_ADMIN_VQA_LEDGER.md`, `_INTERCONNECTEDNESS_LEDGER.md`). This is the
 > INDEX, not a duplicate.
 
+## fire-82 — 2026-10-02 (converge; x-ps-serve observability + role-17 money-path clean + analytics cached-first paint + verify-wfp-serving gate + FILE-5 intake absorbed)
+
+Fire: fire-82-converge (2026-10-02). SHIPPED to main + prod-verified:
+- `c82563d1e` **feat(serving): emit `x-ps-serve` on EVERY published-site response** — wrapped `serveSiteFromR2`→`serveSiteFromR2Inner`, stamps `x-ps-serve: r2` on all ~8 R2 branches (the WfP branch already set `wfp`). jest 137/137 + new 4-test suite. PROD: `lonemountainglobal.projectsites.dev` → `x-ps-serve: r2` LIVE.
+- `1e5ef2f41` **test(explorer): role-17 Deep UI Explorer STANDING** — CF Browser Run CLOUD pass, 12 money-path states, 0 console errors, 0 concrete defects (money path clean); fire-70 Sites-nav orphan confirmed RESOLVED; vision fell to Workers-AI fallback (clamp worked).
+- `7e8340a0f` **perf(admin): analytics cached-first/progressive paint** — `FIRST_PAINT_BOUND_MS` 3000→1200; cold skeleton <1.3s (was >10s). PROD: `/admin` serves `main-TH5NO3LG.js` (hash-verified).
+- `0e18620f1` **chore(loop): `verify-wfp-serving.mjs` gate** + retired stale NEXT-SESSION-BOOTSTRAP.
+- `7aa24923c` **fix(loop): gate exempts apex marketing from MISSING check** (honesty).
+- **Deploys:** worker version `fd9128cc-bc93-456c-a9c2-1f7289eaf296` (`--env production`); frontend R2 300/300 + CDN purged.
+- **Gates:** worker tsc clean · jest 137/137 · `validate:features` PASS (49 manifests, 0 drift) · frontend tsc + ng build green · orphan sweep clean.
+- **Loop-improvement §7:** `verify-wfp-serving.mjs` — first deterministic catch of a published site silently on R2 despite WfP canonical (the lonemountainglobal class had NO prior gate).
+- **Roster:** A role-17 explorer · B serving observability · C analytics perf · D loop-improvement · E §0.5 FILE-5 intake · F arch sweep. Role-16 Long-Trail stood down (one browser driver/fire). Subagent spend ~1.3M.
+
 ## fire-81 — converge: money-path AI-build E2E + SSRF webhook guard + brand-H1 validator + preflight token honesty (+ adversarial self-catch)
 
 - **Money-path P1 closed (coverage):** `e2e/money-path/ai-build-to-live.e2e.ts` — causal AI-build coverage (create→workflow→published→live `x-ps-serve:wfp` 200 + real `<h1>`); paid build cost-gated behind `E2E_RUN_PAID_BUILD`, default path asserts the causal postcondition on the most-recent published site. SHA `ad23d879a`. Parses (1 test).
