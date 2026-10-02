@@ -112,6 +112,10 @@ import type { NavIconName } from '../../pages/admin/navigation/admin-nav.model';
           <path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20" />
           <path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z" />
         }
+        @case ('billing') {
+          <rect x="2" y="5" width="20" height="14" rx="2" />
+          <line x1="2" y1="10" x2="22" y2="10" />
+        }
         @case ('settings') {
           <circle cx="12" cy="12" r="3" />
           <path

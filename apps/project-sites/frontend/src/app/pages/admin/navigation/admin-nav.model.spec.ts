@@ -45,6 +45,7 @@ describe('admin-nav.model', () => {
       '/admin/vectorize-inspector',
       '/admin/queues-inspector',
       '/admin/docs',
+      '/admin/billing',
       '/admin/settings',
       '/admin/super-admin',
     ]) {

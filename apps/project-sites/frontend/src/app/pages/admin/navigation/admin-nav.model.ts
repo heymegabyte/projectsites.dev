@@ -35,6 +35,7 @@ export type NavIconName =
   | 'leads'
   | 'system-services'
   | 'docs'
+  | 'billing'
   | 'settings'
   | 'super-admin';
 
@@ -188,6 +189,12 @@ export const ADMIN_NAV_GROUPS: readonly AdminNavGroup[] = [
     id: 'account',
     items: [
       { icon: 'docs', id: 'docs', label: 'Docs', route: '/admin/docs' },
+      // Billing — the owner's money surface. Route + component shipped
+      // (`app.routes.ts` `path: 'billing'` → AdminBillingComponent) but was never
+      // nav-linked → reachable only via ⌘K or the user menu. A paying owner should
+      // reach plan/invoices in one obvious click (embarrassingly-easy +
+      // interconnectedness; Deep UI Explorer fire-88 billing-cluster finding).
+      { icon: 'billing', id: 'billing', label: 'Billing', route: '/admin/billing' },
       { icon: 'settings', id: 'settings', label: 'Settings', route: '/admin/settings' },
       // Previously tucked inside a "More tools" disclosure — promoted to a
       // first-class Account destination (route unchanged) so it renders cleanly
