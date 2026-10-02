@@ -173,13 +173,30 @@ export const ADMIN_CONTRACT = [
     api: [], signal: 'cost|markup|wallet|adjust|margin|operator', shell: 'super-admin-shell', minLen: 120, severity: 'hard',
     notes: 'Server-gated on users.is_super_admin=1; non-super sees a Restricted page (not a crash).' },
 
+  // ── Recently-shipped render routes (wired fire-75 — were UNCOVERED drift) ─────
+  // Bare /admin/sites now RENDERS the site list (was an alias→/admin until 178ba8987).
+  { slug: 'sites', route: '/admin/sites', label: 'Sites', kind: 'section', guard: 'auth', flag: null,
+    api: [], signal: 'site|manage|status|build|create|live', shell: 'sb-table-sites', minLen: 100, severity: 'soft',
+    notes: 'Visibility-aware poll (no manual refresh); cards open /admin/sites/:id. Empty = Create-Site launchpad.' },
+  { slug: 'editor-detail', route: '/admin/editor/:siteId', label: 'Editor (site)', kind: 'dynamic', guard: 'auth', flag: null,
+    api: [], signal: 'editor|bolt|preview|file|project', shell: 'editor-shell', minLen: 80, severity: 'soft',
+    notes: 'Deep-linkable editor — same AdminEditorComponent as /admin/editor, reads :siteId.' },
+  { slug: 'hosting', route: '/admin/hosting', label: 'Hosting', kind: 'section', guard: 'auth', flag: 'site_wfp_hosting',
+    api: [], signal: 'hosting|publish|live|domain|deploy|host', shell: 'hosting-live', minLen: 80, severity: 'soft',
+    notes: 'Flag-gated (site_wfp_hosting) — DARK shows hosting-gated card, not a crash. Visibility-aware poll.' },
+  { slug: 'claim-success', route: '/admin/claim/success', label: 'Claim Success', kind: 'section', guard: 'auth', flag: null,
+    api: [], signal: 'claim|success|unlock|site|next|congrat', shell: 'claim-success', minLen: 60, severity: 'soft',
+    notes: 'Stripe checkout return (success). Reads ?session_id.' },
+  { slug: 'claim-cancel', route: '/admin/claim/cancel', label: 'Claim Cancelled', kind: 'section', guard: 'auth', flag: null,
+    api: [], signal: 'claim|cancel|checkout|return|retry', shell: 'claim-cancel', minLen: 60, severity: 'soft',
+    notes: 'Stripe checkout return (cancel).' },
+
   // ── Aliases — assert the REDIRECT resolves, never a not-found shell ───────────
   { slug: 'alias-traces', route: '/admin/traces', label: 'AI Traces', kind: 'alias', guard: 'auth', flag: null,
     api: [], signal: '', shell: '', minLen: 0, redirectTo: '/admin/logs?tab=traces', severity: 'hard' },
-  // Bare /admin/sites has no list page of its own — the dashboard ('' → /admin) is
-  // the site list; app.routes.ts redirects 'sites' → '' so a natural URL guess lands.
-  { slug: 'alias-sites', route: '/admin/sites', label: 'Sites', kind: 'alias', guard: 'auth', flag: null,
-    api: [], signal: '', shell: '', minLen: 0, redirectTo: '/admin', severity: 'hard' },
+  // /admin/user-settings → /admin/user (natural URL guess for the user profile page).
+  { slug: 'alias-user-settings', route: '/admin/user-settings', label: 'User Settings', kind: 'alias', guard: 'auth', flag: null,
+    api: [], signal: '', shell: '', minLen: 0, redirectTo: '/admin/user', severity: 'hard' },
   { slug: 'alias-seo', route: '/admin/seo', label: 'SEO', kind: 'alias', guard: 'auth', flag: null,
     api: [], signal: '', shell: '', minLen: 0, redirectTo: '/admin/site-features', severity: 'hard' },
   { slug: 'alias-mcp', route: '/admin/mcp', label: 'MCP', kind: 'alias', guard: 'auth', flag: null,
