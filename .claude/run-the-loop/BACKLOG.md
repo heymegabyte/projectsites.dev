@@ -299,7 +299,7 @@
     + generate route + D1 job queue (queued generation, workflow callback flips status — mirror the
     existing `POST /api/media/generate/video` shape). Ground-truthed fire-42.
 
-- [ ] Pricing config engine (Wave 2) — D1 `pricing_config` table behind `pricing_engine_v2`
+- [x] ✅ DONE (fire-86, SHAs f5bdec95c + e81b3e3e2) Pricing config engine (Wave 2) — D1 `pricing_config` table (migration 0657) APPLIED to prod + flag-gated read behind `pricing_config_v2` (default OFF). Admin edit UI = later slice (see fire-86 replenish).
   - cadence: every-8-loops
   - priority: med
   - category: feature
@@ -1498,7 +1498,15 @@
 
 ## Replenish — fire-85 (2026-10-02)
 
+- [~] D-85-a PARTIALLY DONE (fire-86, SHA 249efb845) — SiteEvent shape consolidated onto the shared schema (`site_event_dispatch` now its first src consumer via `Pick<SiteEvent,'type'>`); detect-orphans gained SERVICE_MODULE class. STILL OPEN: emit a real event + wire `handleSiteEvent` as consumer (see fire-86 replenish `wire-site-event-dispatch`).
 - [ ] AWOS-03 Wire SiteEvent emission + unify duplicated shape (retires D-85-a orphan + the AWOS-02 "reconcile, don't duplicate" drift). Emit a `SiteEvent` validated against the shared `packages/shared` `SiteEventSchema` on >=1 real mutation (e.g. `site:published`); wire `handleSiteEvent` (currently ZERO callers) as the consumer; delete the parallel `{type,payload}` shape in `apps/project-sites/src/services/site_event_dispatch.ts`. AC: >=1 event type emitted+persisted + shared-schema validated + zero duplicated shapes + drift-check clean. cadence: next-fire · priority: high · category: architecture/feature · discovered_by: fire-85 A4+A6 · owner: role-1/6
 - [ ] WLK-29 Logs "View trace" deep-link -> REAL CF Traces API (currently hardcoded/unverified `?tab=traces&trace=<id>`). AC: clicking "View trace" on a log row opens the matching trace filtered by trace_id against the live Traces endpoint. cadence: next-fire · priority: medium · category: observability · discovered_by: fire-85 A6 · owner: role-10/11
 - [ ] gp-09-completion Money-path LONG journey must continue PAST generate -> publish -> load live `{slug}.projectsites.dev` -> FAIL on any console error / asset 404. AC: fresh build -> publish -> CF Browser Run at the live subdomain, zero console errors. cadence: next-fire · priority: high · category: testing/golden-path · discovered_by: fire-85 A6 · owner: role-4/16
 - [ ] Long-Trail case-001 Phase F (actions 60-96) RE-QUEUED — BLOCKED fire-85 by browser-role auto-worktree (D-85-b); MUST run in a guaranteed MAIN checkout with bootable node_modules (or apply the node_modules symlink self-heal). cadence: next-fire · priority: high · category: testing · owner: role-16
+
+### fire-86 replenish (next-wave) — 2026-10-02
+- [ ] [golden-path/editor-data-tab] RE-QUEUED from fire-86 (agent returned mid-journey, env was fine): LONG journey through editor Data tab — verify the 7 pill buttons are clickable + empty-launchpad actions reachable; TDD RED->fix->GREEN->continue to a created table+row. files: apps/project-sites/e2e + editor Data-tab components. (shippable)
+- [ ] [arch/drain-unwired-services] 134 pre-existing unwired src/services/* modules surfaced by detect-orphans SERVICE_MODULE (advisory). Drain-then-promote arc: verify each (knip-unused-not-always-dead), wire or delete with rationale, then promote the gate blocking. (shippable, multi-fire)
+- [ ] [standing/role-16-17-resume] Long-Trail case-001 Phase F (actions 60-96: disposable app install/remove->tenant isolation->cleanup) + Deep UI Explorer (Editor Data Platform P1 + billing invoice detail completion) — NOW UNBLOCKED by the fire-86 browser-role-preflight; resume next fire in MAIN checkout. (shippable)
+- [ ] [arch/wire-site-event-dispatch] site_event_dispatch.handleSiteEvent still has zero non-test callers — wire it to a real webhook-dispatch path OR allowlist it in detect-orphans with rationale (reviewer rec). (shippable)
+- [ ] [feature/pricing-admin-ui] Super-admin pricing_config editor UI (the later slice): table exists + seeded in prod D1, flag pricing_config_v2 default-OFF ready to flip once the edit UI + per-row audit ship. (shippable)

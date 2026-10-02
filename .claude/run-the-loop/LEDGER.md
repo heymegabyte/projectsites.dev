@@ -727,3 +727,15 @@ LOOP-IMPROVEMENT (section 7): promoted SSRF + dead-toggle detectors to BLOCKING 
 **Loop-improvement (§7):** live-reconfirm invariant + stale-checkpoint fix (A3); bonus D-85-b.
 
 **Not run:** long golden journey — role 16/17 need MAIN checkout; fleet auto-worktreed them. Honest BLOCKED, re-queued. Spend ~1.8M subagent tokens.
+
+## fire-86-converge (2026-10-02) — 6-agent fan-out + convergence + adversarial-review, all green, deployed + prod-verified
+- D-85-b CLOSED — browser-role preflight gate (.claude/scripts/browser-role-preflight.mjs thin-shim -> canonical apps/project-sites/scripts/browser-role-preflight.mjs); OPERATING-PRINCIPLES mandates it FIRST, exit 1 = BLOCKED. SHAs 6eb546071 + 510c33f7a. [LOOP-IMPROVEMENT §7]
+- D-85-a FIXED — SiteEvent shape consolidated onto shared schema (site_event_dispatch now its first src consumer via Pick<SiteEvent,'type'>; reserved AWOS-02 contract documented); detect-orphans gains SERVICE_MODULE class (ADVISORY — surfaced 134 pre-existing unwired service modules). SHA 249efb845.
+- error-handler-refactor — extracted src/lib/error_pages.ts (branded HTML + escaping), thinned middleware + error_render; 28/28 tests green; RFC7807 envelope byte-intact (prod-verified). SHA ba2dc3139.
+- pricing-engine-v2 — additive migration 0657_pricing_config (renumbered from 0655; 0656 pre-existed) APPLIED to prod D1 (9 seed rows verified) + flag-gated read behind pricing_config_v2 (default OFF, zero behavior change); 7 unit tests. SHAs f5bdec95c + e81b3e3e2.
+- entitlement-locked-controls — team invite seat-lock now shows reason+CTA on 3 disabled controls (inviteBlockReason computed); billing/site-features audited already-compliant. SHA 10941917d.
+- COVERAGE drift — registered orphan fire78-admin-ops.spec.ts (347 specs now all in COVERAGE.yml; unblocked the Feature Architecture CI gate). SHA c039bf97a.
+- Adversarial review (Opus): NO REGRESSIONS on pricing identity / flag-off / error envelope / SiteEvent narrowing / locked controls / orphan-gate advisory.
+- Convergence gates: worker tsc 0, 87 touched tests, validate:features PASS, frontend tsc 0, e2e-inventory 347 PASS.
+- Deploy: worker Version fe1a093b-d7d7-44ab-8b4c-ce1acaeaf0e0; frontend 300 files -> R2. Prod-verify: / 200 · /api/health 200 + HSTS/CSP · bogus /api/* -> NOT_FOUND JSON 404 · bogus HTML -> real 404 + branded page · /admin 200.
+- Attrition: golden-path agent (role 4, Editor Data-tab journey) returned mid-journey, no commit — re-queued (see BACKLOG).
