@@ -966,6 +966,19 @@
 - [ ] Template VERSION stamped into every build (`_brand.json.template_version` + D1 column) +
   safe upgrade path for older generated sites preserving owner edits. Acceptance: new builds
   carry version; upgrade dry-run on one older site preserves edits. Est: M.
+- [x] (fire-84, code written-and-unverified for lead fold — node_modules absent in worktree) CSS-render-integrity gate: `validateNoInlineStyleChild` in `build_validators.ts`
+  fails the build `error` when a shipped JS bundle renders a component inline `<style>{string}`
+  (React 19 silently drops it → section ships UNSTYLED, 0 console errors; god-tier anti-pattern
+  #React19, template had it in 22 components fire-51). Scans `.js`/`.mjs` for
+  `e("style",…,<stringChild>)` + `dangerouslySetInnerHTML` + JSX `<style>{…}`; `precedence` prop +
+  linked stylesheet + static HTML `<style>` pass. Wired into `validateBuild` + 11 tests in
+  `build_validators_content_integrity.test.ts` (regex traced 9/9 standalone). Est: M (DONE).
+- [ ] Delivered-site CSS/style-integrity catalog sweep (template repo, role 18 next fire): grep
+  `template.projectsites.dev/src/components/**` for ALL `<style>{` / inline-`<style>`-with-child
+  occurrences, migrate each to the app's linked `index.css` keeping prefixed classnames (per the
+  `validateNoInlineStyleChild` smell), and add a template-repo CI check mirroring the gate so the
+  class can't regress. Acceptance: 0 inline `<style>{string}` in template components + CI green +
+  one rebuilt site screenshot-verified styled. Est: M. (Pairs with the component-catalog slice.)
 
 ## cf-releases (role 14 scout duty — ~every 4 fires)
 

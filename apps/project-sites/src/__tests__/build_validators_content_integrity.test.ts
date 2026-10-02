@@ -19,6 +19,7 @@ import {
   validateEyebrowContrast,
   validateNoBuildPromptLeak,
   validateNoEmptyNap,
+  validateNoInlineStyleChild,
   type BuildFile,
 } from '../services/build_validators';
 
@@ -479,5 +480,146 @@ describe('validateNoEmptyNap — present-but-empty address/phone block (fire-83)
   it('does NOT scan a 404 shell for empty NAP (non-content shell exclusion)', () => {
     const f = file('500.html', shell('Error', '', '<address>N/A</address>'));
     expect(validateNoEmptyNap([f])).toEqual([]);
+  });
+});
+
+/**
+ * fire-84 — React-19-drops-inline-<style>{string} class (god-tier anti-pattern #React19).
+ * React 19 treats `<style>` as a hoistable resource; a component that renders a `<style>` with a
+ * STRING child (`e("style", null, cssString)` minified, or `<style>{css}</style>` in JSX) client-
+ * side is NOT inserted into the DOM — the scoped CSS never lands, so the section ships UNSTYLED and
+ * SILENTLY (0 console errors; invisible to every non-visual gate). The template had this in 22
+ * components → all shipped unstyled (projectsites fire-51). The ONLY guaranteed fix is a LINKED
+ * stylesheet (the app's `index.css`), never an inline `<style>{string}`. This gate scans the shipped
+ * JS bundle for the createElement("style", …, <stringExpr>) shape and fails the build `error`.
+ * A LINK to a stylesheet, a static server-rendered `<style>` in the HTML shell, and a `<style>` with
+ * a `precedence` prop (which React 19 DOES hoist) all pass.
+ */
+describe('validateNoInlineStyleChild — React 19 drops component inline <style>{string} (fire-84)', () => {
+  it('flags a createElement("style", null, cssString) in the shipped JS bundle', () => {
+    const files = [
+      file(
+        'index.html',
+        '<!DOCTYPE html><html><body><div id="root"></div><script src="/assets/stats-abc.js"></script></body></html>',
+      ),
+      // Minified React render of a scoped <style> with a string child — dropped by React 19.
+      file(
+        'assets/stats-abc.js',
+        'function StatsBand(){return e("div",null,e("style",null,".sb{display:grid;gap:1rem}.sb .sr-only{position:absolute;clip:rect(0,0,0,0)}"),e("span",{className:"sb"},n))}',
+      ),
+    ];
+    const v = validateNoInlineStyleChild(files);
+    expect(v.length).toBeGreaterThanOrEqual(1);
+    expect(v[0].code).toBe('css.inline_style_child_dropped');
+    expect(v[0].severity).toBe('error');
+  });
+
+  it('flags a createElement("style", {}, templateLiteralCss) (object-props variant)', () => {
+    const files = [
+      file(
+        'index.html',
+        '<!DOCTYPE html><html><body><script src="/assets/h.js"></script></body></html>',
+      ),
+      file(
+        'assets/h.js',
+        'return e("style",{},`.hero{background:linear-gradient(90deg,#000,#111)}`)',
+      ),
+    ];
+    const v = validateNoInlineStyleChild(files);
+    expect(v.length).toBeGreaterThanOrEqual(1);
+    expect(v[0].code).toBe('css.inline_style_child_dropped');
+  });
+
+  it('flags the dangerouslySetInnerHTML inline-style variant too (e("style",{dangerouslySetInnerHTML:{__html:css}}))', () => {
+    const files = [
+      file(
+        'index.html',
+        '<!DOCTYPE html><html><body><script src="/assets/h.js"></script></body></html>',
+      ),
+      file(
+        'assets/h.js',
+        'e("style",{dangerouslySetInnerHTML:{__html:".x{color:red}"}})',
+      ),
+    ];
+    const v = validateNoInlineStyleChild(files);
+    expect(v.length).toBeGreaterThanOrEqual(1);
+    expect(v[0].code).toBe('css.inline_style_child_dropped');
+  });
+
+  it('flags a JSX-source <style>{cssString}</style> shape (un-minified bundle)', () => {
+    const files = [
+      file(
+        'index.html',
+        '<!DOCTYPE html><html><body><script src="/assets/h.js"></script></body></html>',
+      ),
+      file('assets/h.js', 'const S = () => <style>{`.a{gap:2rem}`}</style>;'),
+    ];
+    const v = validateNoInlineStyleChild(files);
+    expect(v.length).toBeGreaterThanOrEqual(1);
+    expect(v[0].code).toBe('css.inline_style_child_dropped');
+  });
+
+  it('PASSES a <style> rendered with a precedence prop (React 19 hoists it)', () => {
+    const files = [
+      file(
+        'index.html',
+        '<!DOCTYPE html><html><body><script src="/assets/h.js"></script></body></html>',
+      ),
+      // `precedence` opts the <style> into React 19 hoisting — it IS inserted into the DOM.
+      file('assets/h.js', 'e("style",{precedence:"default"},".ok{display:flex}")'),
+    ];
+    expect(validateNoInlineStyleChild(files)).toEqual([]);
+  });
+
+  it('PASSES a linked stylesheet (the logo-contrast-style fix) — e("link",{rel:"stylesheet"})', () => {
+    const files = [
+      file(
+        'index.html',
+        '<!DOCTYPE html><html><head><link rel="stylesheet" href="/assets/index.css"></head><body><script src="/assets/h.js"></script></body></html>',
+      ),
+      file('assets/h.js', 'e("link",{rel:"stylesheet",href:"/assets/index.css"})'),
+      file('assets/index.css', '.sb{display:grid;gap:1rem}'),
+    ];
+    expect(validateNoInlineStyleChild(files)).toEqual([]);
+  });
+
+  it('PASSES a STATIC server-rendered <style> in the HTML shell (not a component render)', () => {
+    // A build-time/SSR <style> literally in the HTML head is inserted by the browser normally —
+    // only a CLIENT component rendering <style>{string} is dropped. Scan JS bundles, not HTML.
+    const files = [
+      file(
+        'index.html',
+        '<!DOCTYPE html><html><head><style>.critical{opacity:1}</style></head><body><h1>x</h1></body></html>',
+      ),
+    ];
+    expect(validateNoInlineStyleChild(files)).toEqual([]);
+  });
+
+  it('does NOT false-positive on a bundle that renders <style> with NO child (e("style",{...}) self-contained)', () => {
+    // No string/`dangerouslySetInnerHTML` child → nothing for React 19 to drop.
+    const files = [
+      file(
+        'index.html',
+        '<!DOCTYPE html><html><body><script src="/assets/h.js"></script></body></html>',
+      ),
+      file('assets/h.js', 'e("style",{nonce:nonceVal})'),
+    ];
+    expect(validateNoInlineStyleChild(files)).toEqual([]);
+  });
+
+  it('does NOT scan non-JS files (an index.css legitimately contains the CSS)', () => {
+    const files = [file('assets/index.css', '.sb{display:grid}.sb .sr-only{clip:rect(0,0,0,0)}')];
+    expect(validateNoInlineStyleChild(files)).toEqual([]);
+  });
+
+  it('passes a clean bundle with styled-via-className only (the happy path)', () => {
+    const files = [
+      file(
+        'index.html',
+        '<!DOCTYPE html><html><head><link rel="stylesheet" href="/assets/index.css"></head><body><script src="/assets/h.js"></script></body></html>',
+      ),
+      file('assets/h.js', 'function Hero(){return e("section",{className:"hero grid gap-4"},kids)}'),
+    ];
+    expect(validateNoInlineStyleChild(files)).toEqual([]);
   });
 });

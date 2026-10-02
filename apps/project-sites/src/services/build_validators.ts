@@ -1293,6 +1293,68 @@ export const validateEyebrowContrast = (files: BuildFile[]): Violation[] => {
   return out;
 };
 
+/**
+ * Component inline `<style>{string}` — the React-19-silent-drop class (god-tier anti-pattern
+ * #React19, projectsites template fire-51: the pattern lived in 22 components → all shipped
+ * UNSTYLED). React 19 treats `<style>` as a HOISTABLE resource; a component that renders a `<style>`
+ * with a STRING child client-side (`e("style", null, cssString)` / `e("style",{},`…`)` minified, or
+ * `<style>{css}</style>` in JSX source, or the `dangerouslySetInnerHTML` variant) is NOT inserted
+ * into the DOM, so the scoped CSS never lands — the section renders as raw unstyled markup, SILENTLY
+ * (0 console errors; invisible to every build/console gate, caught only by screenshotting). The ONLY
+ * guaranteed fix is a LINKED stylesheet (the app's `index.css`), never an inline `<style>{string}`.
+ *
+ * This gate scans the shipped JS bundles for the `createElement("style", <props>, <child…>)` shape
+ * (and its JSX `<style>{…}` / `<style dangerouslySetInnerHTML…>` equivalents) and fails `error` when
+ * a `<style>` carries a child WITHOUT a `precedence` prop. Pass cases: a `precedence`-tagged `<style>`
+ * (React 19 DOES hoist it), a `<link rel="stylesheet">`, a static server-rendered `<style>` in the
+ * HTML shell (inserted normally — only CLIENT component renders are dropped, so HTML is NOT scanned),
+ * and a `<style>` with no child. Deterministic + allocation-light; JS bundles only.
+ */
+export const validateNoInlineStyleChild = (files: BuildFile[]): Violation[] => {
+  const out: Violation[] = [];
+  // React.createElement("style", <props>, <child>): capture the props blob (group 1) + a forward
+  // window (group 2) to decide whether a string/`__html` child follows. `precedence` in the props
+  // opts into React 19 hoisting → safe.
+  const CREATE_STYLE_RE = /\be\(\s*["']style["']\s*,\s*(null|\{[\s\S]{0,300}?\})\s*(,[\s\S]{0,120})?/gi;
+  // JSX source (un-minified bundle): `<style ...>{` with an expression child, or
+  // `<style dangerouslySetInnerHTML=`. `<style>` with no `{` child (e.g. `<style/>`) is ignored.
+  const JSX_STYLE_RE = /<style(?![^>]*\bprecedence\b)[^>]*>\s*\{|<style(?![^>]*\bprecedence\b)[^>]*\bdangerouslySetInnerHTML\b/i;
+
+  for (const file of files) {
+    const p = file.path.toLowerCase();
+    if (!file.text || !(p.endsWith('.js') || p.endsWith('.mjs'))) continue;
+    const text = file.text;
+    let hit = false;
+
+    for (const m of text.matchAll(CREATE_STYLE_RE)) {
+      const props = m[1] ?? '';
+      const after = m[2] ?? '';
+      // `precedence` prop → React 19 hoists the <style>; not a drop. Skip.
+      if (/\bprecedence\b/.test(props)) continue;
+      // A child via dangerouslySetInnerHTML in the props object, OR a positional child (the `,…`
+      // forward window) that is a string/template literal → the dropped-CSS shape.
+      const hasInnerHtmlChild = /dangerouslySetInnerHTML/.test(props);
+      const hasPositionalStringChild = /^,\s*(["'`]|\s*[A-Za-z_$][\w$]*\s*[,)])/.test(after);
+      if (hasInnerHtmlChild || hasPositionalStringChild) {
+        hit = true;
+        break;
+      }
+    }
+    if (!hit && JSX_STYLE_RE.test(text)) hit = true;
+
+    if (hit) {
+      out.push({
+        code: 'css.inline_style_child_dropped',
+        severity: 'error',
+        message:
+          'A component renders an inline <style>{string} in the JS bundle — React 19 treats <style> as a hoistable resource and SILENTLY drops a string-child <style> on the client, so the scoped CSS never lands and the section ships UNSTYLED (0 console errors). Move the CSS to a LINKED stylesheet (the app index.css) keeping the prefixed classnames, or add a `precedence` prop so React 19 hoists it.',
+        file: file.path,
+      });
+    }
+  }
+  return out;
+};
+
 /** Banned slop words anywhere in HTML body text — enforces concrete copy over AI filler. */
 export const validateBannedWords = (files: BuildFile[]): Violation[] => {
   const out: Violation[] = [];
@@ -2089,6 +2151,7 @@ export const validateBuild = (
     ...validateHeaderLogoAssetExistence(files),
     ...validateWordmarkContrast(files),
     ...validateEyebrowContrast(files),
+    ...validateNoInlineStyleChild(files),
     ...validateNoBrandPlaceholders(files),
     ...validateBrandNameMatch(files, opts.expectedBusinessName),
     ...validateJsBundleSize(files),
