@@ -346,6 +346,7 @@ function finish(status, extra = {}) {
   }
   updateLedger({
     runId: RUN_ID,
+    journey: manifest.journey,
     status,
     provider: manifest.provider,
     coverage: manifest.providerCoverage,
@@ -1355,6 +1356,158 @@ try {
           });
         }
       }
+    }
+
+    finish(
+      manifest.blocked.length === 0
+        ? acq.coverage === 'CLOUD_PASS_ELIGIBLE'
+          ? 'PASS_CLOUDFLARE'
+          : 'PASS_ON_FALLBACK_PROVIDER'
+        : 'PARTIAL',
+    );
+    await acq.browser.close().catch(() => {});
+    process.exit(manifest.status.startsWith('PASS') ? 0 : 2);
+  }
+
+  if (JOURNEY === 'money-funnel') {
+    // THE MONEY-PATH DESTINATION (authed half) — the surfaces a paying owner lands on
+    // right after sign-in, which recent fires (editor Data-tab) never explored as states.
+    // The PUBLIC half (homepage → hero search → create wizard) is owned by the
+    // `create-funnel` journey; this one grinds the authed funnel floor:
+    //   admin dashboard landing (cockpit: attention queue + search) →
+    //   Sites list (honest skeleton→empty-launchpad OR populated grid) →
+    //   the Sites list's OWN search filter (typed → no-match state → cleared) →
+    //   a single site card → its detail route → back to the Sites list.
+    // READ-ONLY by construction: the only mutations attempted are a search-box type
+    // (then cleared) and NAVIGATION clicks — no create/delete/publish/claim is touched.
+    // We are already authenticated + on /admin here (the sign-in seam ran above), so the
+    // dashboard landing is the first captured state of this journey.
+    await capture(page, 'admin dashboard landing (money-path destination — post-signin cockpit)', {
+      surface: 'admin-dashboard',
+      subview: 'landing',
+    });
+
+    // The dashboard's own search box is a key affordance (busy owner finds a site fast).
+    // Type a no-match query → assert the honest no-match panel → clear. Zero mutation.
+    const dashSearch = page.getByTestId('dash-search');
+    if (await dashSearch.isVisible({ timeout: 6_000 }).catch(() => false)) {
+      await dashSearch.click();
+      await dashSearch.fill('zzz-no-such-site-zzz');
+      await page.waitForTimeout(400);
+      const dashNoMatch = await page.getByTestId('dash-no-match').isVisible().catch(() => false);
+      await capture(page, `dashboard search → ${dashNoMatch ? 'honest no-match panel' : 'filtered state'}`, {
+        surface: 'admin-dashboard',
+        subview: 'landing',
+        overlay: dashNoMatch ? 'dash-no-match' : 'dash-filtered',
+      });
+      // Clear via the dedicated clear control (keeps the surface at its true resting state).
+      await clickFirst(page, [(p) => p.getByTestId('dash-no-match-clear'), (p) => p.getByTestId('dash-search-clear')]);
+      await capture(page, 'clear dashboard search → cockpit intact', {
+        surface: 'admin-dashboard',
+        subview: 'landing',
+      });
+    } else {
+      console.warn('  (dashboard search box not present — skipping dash-search state honestly)');
+    }
+
+    // ---- Sites list — the owner's portfolio at /admin/sites. FIRST probe the way a
+    // real user would reach it: a sidebar "Sites" nav link. The admin sidebar nav
+    // (admin-nav.model.ts) has Dashboard/Editor/Snapshots/…/Settings but NO "Sites"
+    // item, and the sidebar site-PICKER's selectSite() only sets state (no navigation),
+    // and the command palette's "Sites" section only offers "Switch to <site>" — so the
+    // routed /admin/sites LIST view may be a UI-unreachable orphan. We RECORD that as a
+    // finding (not a BLOCKED), then reach the list directly to still exercise its states.
+    const sitesNav = await clickFirst(
+      page,
+      [
+        (p) => p.getByRole('link', { name: /^Sites$/ }),
+        (p) => p.getByRole('navigation', { name: /admin sections/i }).getByRole('link', { name: /sites/i }),
+      ],
+      { timeout: 4_000 },
+    );
+    if (!sitesNav) {
+      // CONFIRMED interconnectedness gap: no nav affordance reaches the Sites LIST.
+      manifest.blocked.push({
+        phase: 'money-funnel',
+        reason:
+          'NO sidebar "Sites" nav link reaches the /admin/sites LIST — admin-nav.model.ts has no Sites item; the sidebar site-picker selectSite() only sets state (no navigate); the command palette only "Switch to <site>". The routed Sites-list view is a UI-unreachable orphan (interconnectedness + embarrassingly-easy gap). Owner: frontend navigation (admin-nav.model.ts / admin.component).',
+      });
+      // Reach it directly so we still capture + reconcile its real states this fire.
+      await page.goto(ORIGIN + '/admin/sites', { waitUntil: 'domcontentloaded' });
+    }
+    await page.waitForURL(/\/admin\/sites/, { timeout: 15_000 }).catch(() => {});
+    // Let the fetch settle: skeleton → empty launchpad OR populated grid.
+    await page.getByTestId('sites-skeleton').waitFor({ state: 'hidden', timeout: 15_000 }).catch(() => {});
+    const sitesEmpty = await page.getByTestId('sites-empty').isVisible().catch(() => false);
+    const cardCount = await page.locator('a.site-card').count().catch(() => 0);
+    await capture(
+      page,
+      `Sites list (${sitesNav ? 'via nav link' : 'direct URL — no nav path'}) — ${sitesEmpty ? 'empty launchpad (first-site CTA)' : `populated grid (${cardCount} site card(s))`}`,
+      {
+        surface: 'admin-sites',
+        subview: 'list',
+        overlay: sitesEmpty ? 'empty-launchpad' : sitesNav ? '' : 'reached-by-direct-url',
+      },
+    );
+
+    if (sitesEmpty) {
+      // Honest empty state: 0 sites for this org. The empty-CTA is the one obvious next
+      // step (per embarrassingly-easy launchpad doctrine); we OBSERVE it, never click it.
+      const emptyCta = await page.getByTestId('sites-empty-cta').isVisible().catch(() => false);
+      if (!emptyCta) {
+        manifest.blocked.push({
+          phase: 'money-funnel',
+          reason: 'Sites list empty for this org but NO empty-state launchpad CTA present (empty-state-is-launchpad gap)',
+        });
+      }
+    } else if (cardCount > 0) {
+      // ---- Sites list's OWN search filter (distinct from dashboard search).
+      const sitesSearch = page.getByTestId('sites-search');
+      if (await sitesSearch.isVisible({ timeout: 5_000 }).catch(() => false)) {
+        await sitesSearch.click();
+        await sitesSearch.fill('zzz-no-such-site-zzz');
+        await page.waitForTimeout(400);
+        const noMatch = await page.getByTestId('sites-no-match').isVisible().catch(() => false);
+        await capture(page, `Sites list search → ${noMatch ? 'honest no-match panel' : 'filtered'}`, {
+          surface: 'admin-sites',
+          subview: 'list',
+          overlay: noMatch ? 'sites-no-match' : 'sites-filtered',
+        });
+        await clickFirst(page, [(p) => p.getByTestId('sites-search-clear')]);
+        await sitesSearch.fill('');
+        await page.waitForTimeout(300);
+        await capture(page, 'clear Sites search → full grid restored', {
+          surface: 'admin-sites',
+          subview: 'list',
+        });
+      }
+
+      // ---- Open ONE site card → its detail route. Pure navigation; read-only.
+      const firstCard = page.locator('a.site-card').first();
+      const cardName = await firstCard.getAttribute('data-testid').catch(() => null);
+      await firstCard.click().catch(() => {});
+      await page.waitForURL(/\/admin\/sites\/[^/]+/, { timeout: 15_000 }).catch(() => {});
+      const detailH1 = await page.locator('h1').first().innerText().catch(() => '');
+      await capture(page, `open site card (${cardName || 'first'}) → site detail route`, {
+        surface: 'admin-site-detail',
+        subview: 'overview',
+        overlay: detailH1 ? '' : 'detail-no-h1',
+      });
+      if (!detailH1.trim()) {
+        manifest.blocked.push({
+          phase: 'money-funnel',
+          reason: 'site detail route rendered with no <h1> (WCAG 2.4.2 / landing-heading gap)',
+        });
+      }
+
+      // ---- Back to the dashboard — proves the detail→cockpit round-trip is clean
+      // (Dashboard IS a real nav link; Sites list is not, so return to the cockpit).
+      await clickFirst(page, [(p) => p.getByRole('link', { name: /^Dashboard$/ })]);
+      await page.waitForURL(/\/admin(\?|\/?$)/, { timeout: 15_000 }).catch(() => {});
+      await capture(page, 'back to Dashboard (site-detail → cockpit round-trip intact)', {
+        surface: 'admin-dashboard',
+        subview: 'landing',
+      });
     }
 
     finish(

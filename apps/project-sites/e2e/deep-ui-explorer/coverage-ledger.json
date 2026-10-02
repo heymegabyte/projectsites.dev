@@ -2,35 +2,35 @@
   "states": {
     "/::public-home::::d05f796d": {
       "discovered": "2026-09-29T19:57:38.675Z",
-      "visits": 19,
+      "visits": 21,
       "status": "visited",
       "lastAction": "homepage loads (initial state)",
-      "lastVisited": "2026-10-02T00:01:59.971Z",
-      "lastRun": "dux-2026-10-02T00-01-53-253Z"
+      "lastVisited": "2026-10-02T00:56:35.003Z",
+      "lastRun": "dux-2026-10-02T00-56-26-721Z"
     },
     "/signin::signin::::576d826f": {
       "discovered": "2026-09-29T19:57:43.656Z",
-      "visits": 18,
+      "visits": 20,
       "status": "visited",
       "lastAction": "click Sign In (header) → /signin",
-      "lastVisited": "2026-10-02T00:02:02.355Z",
-      "lastRun": "dux-2026-10-02T00-01-53-253Z"
+      "lastVisited": "2026-10-02T00:56:38.028Z",
+      "lastRun": "dux-2026-10-02T00-56-26-721Z"
     },
     "/signin::signin-test-seam::::02622a42": {
       "discovered": "2026-09-29T19:57:48.051Z",
-      "visits": 18,
+      "visits": 20,
       "status": "visited",
       "lastAction": "enter test seam (/signin?test=1) — panel render",
-      "lastVisited": "2026-10-02T00:02:04.699Z",
-      "lastRun": "dux-2026-10-02T00-01-53-253Z"
+      "lastVisited": "2026-10-02T00:56:41.225Z",
+      "lastRun": "dux-2026-10-02T00-56-26-721Z"
     },
     "/admin::admin-dashboard::::fec53253": {
       "discovered": "2026-09-29T19:57:55.718Z",
-      "visits": 19,
+      "visits": 21,
       "status": "visited",
       "lastAction": "test login submit → lands /admin",
-      "lastVisited": "2026-10-02T00:02:07.736Z",
-      "lastRun": "dux-2026-10-02T00-01-53-253Z"
+      "lastVisited": "2026-10-02T00:56:45.467Z",
+      "lastRun": "dux-2026-10-02T00-56-26-721Z"
     },
     "/admin/editor::admin-editor-shell::::6eca7550": {
       "discovered": "2026-09-29T19:58:16.461Z",
@@ -583,9 +583,91 @@
       "lastAction": "Settings › Domains tab — settled panel",
       "lastVisited": "2026-10-02T00:01:29.516Z",
       "lastRun": "dux-2026-10-02T00-00-03-120Z"
+    },
+    "/admin::admin-dashboard::::a75e00f5": {
+      "discovered": "2026-10-02T00:52:35.992Z",
+      "visits": 5,
+      "status": "visited",
+      "lastAction": "back to Dashboard (site-detail → cockpit round-trip intact)",
+      "lastVisited": "2026-10-02T00:57:21.550Z",
+      "lastRun": "dux-2026-10-02T00-56-26-721Z"
+    },
+    "/admin::admin-dashboard::dash-no-match::67d6d61b": {
+      "discovered": "2026-10-02T00:52:38.216Z",
+      "visits": 2,
+      "status": "visited",
+      "lastAction": "dashboard search → honest no-match panel",
+      "lastVisited": "2026-10-02T00:56:51.630Z",
+      "lastRun": "dux-2026-10-02T00-56-26-721Z"
+    },
+    "/admin::admin-sites::missing-nav-link::b71a65db": {
+      "discovered": "2026-10-02T00:53:12.777Z",
+      "visits": 1,
+      "status": "visited",
+      "lastAction": "Sites nav link NOT FOUND",
+      "lastVisited": "2026-10-02T00:53:12.777Z",
+      "lastRun": "dux-2026-10-02T00-52-20-748Z"
+    },
+    "/admin::terminal::::69800ee8": {
+      "discovered": "2026-10-02T00:53:14.633Z",
+      "visits": 1,
+      "status": "visited",
+      "lastAction": "terminal state (BLOCKED:sites-nav)",
+      "lastVisited": "2026-10-02T00:53:14.633Z",
+      "lastRun": "dux-2026-10-02T00-52-20-748Z"
+    },
+    "/admin/sites::admin-sites::reached-by-direct-url::d8e10ab8": {
+      "discovered": "2026-10-02T00:57:07.065Z",
+      "visits": 1,
+      "status": "visited",
+      "lastAction": "Sites list (direct URL — no nav path) — populated grid (1 site card(s))",
+      "lastVisited": "2026-10-02T00:57:07.065Z",
+      "lastRun": "dux-2026-10-02T00-56-26-721Z"
+    },
+    "/admin/sites::admin-sites::sites-no-match::21bf8827": {
+      "discovered": "2026-10-02T00:57:10.661Z",
+      "visits": 1,
+      "status": "visited",
+      "lastAction": "Sites list search → honest no-match panel",
+      "lastVisited": "2026-10-02T00:57:10.661Z",
+      "lastRun": "dux-2026-10-02T00-56-26-721Z"
+    },
+    "/admin/sites::admin-sites::::861c87ee": {
+      "discovered": "2026-10-02T00:57:14.238Z",
+      "visits": 1,
+      "status": "visited",
+      "lastAction": "clear Sites search → full grid restored",
+      "lastVisited": "2026-10-02T00:57:14.238Z",
+      "lastRun": "dux-2026-10-02T00-56-26-721Z"
+    },
+    "/admin/sites/8ebf551b-272d-4abc-a15f-386f69c22ea5::admin-site-detail::::c4130314": {
+      "discovered": "2026-10-02T00:57:17.708Z",
+      "visits": 1,
+      "status": "visited",
+      "lastAction": "open site card (site-card-lone-mountain-global) → site detail route",
+      "lastVisited": "2026-10-02T00:57:17.708Z",
+      "lastRun": "dux-2026-10-02T00-56-26-721Z"
     }
   },
   "runs": [
+    {
+      "runId": "dux-2026-10-02T00-56-26-721Z",
+      "status": "PARTIAL",
+      "provider": "cloudflare-browser-run",
+      "coverage": "CLOUD_PASS_ELIGIBLE",
+      "statesVisited": 12,
+      "blockedStates": {},
+      "finishedAt": "2026-10-02T00:57:21.551Z"
+    },
+    {
+      "runId": "dux-2026-10-02T00-52-20-748Z",
+      "status": "BLOCKED",
+      "provider": "cloudflare-browser-run",
+      "coverage": "CLOUD_PASS_ELIGIBLE",
+      "statesVisited": 9,
+      "blockedStates": {},
+      "finishedAt": "2026-10-02T00:53:14.633Z"
+    },
     {
       "runId": "dux-2026-10-02T00-01-53-253Z",
       "status": "PASS_CLOUDFLARE",
