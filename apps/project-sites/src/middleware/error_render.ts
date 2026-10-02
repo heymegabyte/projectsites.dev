@@ -36,7 +36,6 @@ export function buildErrorEnvelope(opts: {
   return envelope;
 }
 
-
 /**
  * Determine if the request prefers HTML over JSON (browser vs API client).
  */
