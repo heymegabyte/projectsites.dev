@@ -93,9 +93,7 @@ describe('buildStorageManifest — invalid input rejects', () => {
   });
 
   it('rejects unknown keys (strict schema)', () => {
-    expect(() =>
-      buildStorageManifest({ slug: 'acme-co', bucketCount: 4 } as never),
-    ).toThrow();
+    expect(() => buildStorageManifest({ slug: 'acme-co', bucketCount: 4 } as never)).toThrow();
   });
 });
 
