@@ -1513,3 +1513,21 @@
 
 ### fire-86 replenish (cont.) — Feature Architecture lockfile-drift (CI-only)
 - [ci/lockfile-metadata-drift] FA "Lockfile-drift gate" red on main: CI `pnpm@9.14.4` regen adds a `deprecated:` metadata line near `@xterm/addon-fit@0.10.0` absent from the committed `pnpm-lock.yaml`; `check-lockfile-drift` passes LOCALLY + local `pnpm install --lockfile-only` is a no-op (stale registry cache). Fix: regen in a fresh-registry-metadata env (CI artifact, or local after `pnpm store prune`), confirm diff is metadata-only (no version/specifier changes), commit, re-dispatch the FA gate to confirm green. Known recurring class (silRED). (shippable; needs fresh-metadata env)
+
+## fire-88 replenish (2026-10-02)
+Product / money-path (F discovery + D perf):
+- [ ] PERF-P1 /pricing LCP 8.9s→~1.3s — make app-shell route-aware (index.html:353-368 emits per-route static hero) OR SSG/prerender `/`+`/pricing`. HIGH-blast-radius; dedicated slice + CLS verify. (D)
+- [ ] PERF-P2 homepage TBT/TTI — defer GTM+gtag 465KB (index.html:14-26) behind requestIdleCallback/first-interaction. Analytics-owned; coordinate. (D)
+- [ ] LB-2 wire gallery-lightbox.component.ts → homepage (built, unwired; render ≥1 showcase site from real data). (F)
+- [ ] MP-AIBUILD unpaid causal assert — e2e/money-path/ai-build-to-live.e2e.ts assert newest published site serves live `<h1>` + x-ps-serve:wfp 200 (no paid cost). (F)
+- [ ] AWOS-03 wire handleSiteEvent on site:published (site_event_dispatch.ts zero callers → emit+persist+schema-validate ≥1 SiteEvent). (F)
+- [ ] HOME-EMPTY homepage empty-state launchpad (no-showcase → first-action CTA, not blank). (F)
+- [ ] CLEANUP drain billing/brand/hero service-export clusters (134 advisory unwired exports — themed batches; verify-then-wire). (F)
+- [ ] WLK-33 stable-size search across kbd/empty/error/AI-overview states. (F)
+Standing roles re-queue:
+- [ ] role-16 Long-Trail Phase F actions 60-96 (apps lifecycle/tenant-isolation/cleanup) — MUST run MAIN checkout, NEVER auto-worktree (wtBRO). Lease reset.
+- [ ] role-13 Accessibility axe@6bp generated-site + admin (blocked fire-88 on Playwright-MCP orphan lock; prefer CF Browser Run).
+- [ ] role-14 CF Release Scout retry feeds with real Chrome UA / CF Browser Run (WAF-blocked fire-88).
+DUX tooling (A):
+- [ ] DUX-FIX explorer database-subtree: open "Actions ▾" before asserting AI-Seed; treat opened schema-builder as Create-Table success (kill 2 stale false-neg blocks).
+- [ ] DUX-VISION-TUNE suppress boilerplate a11y_perf P0s (observed="no issues") so p0/p1 stays honest.

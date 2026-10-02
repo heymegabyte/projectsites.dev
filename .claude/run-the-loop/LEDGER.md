@@ -752,3 +752,17 @@ The Feature Architecture CI gate was RED on main BEFORE fire-86 — 6 INDEPENDEN
 - unwired-endpoint false-positives (8) → detector now skips fully-dynamic `/*/` shapes + exempts WIRED kv/r2/resources routes (index.ts 1045/1047/629). `cf06b4cc9`
 - SHA-pin → pinned `anthropics/claude-code-action@v1` → `97c5347…` in run-the-loop.yml. `167b536ac`
 6th (lockfile-drift) NOT locally-fixable → BACKLOG: CI `pnpm@9.14.4` regen adds a `deprecated:` metadata line near `@xterm/addon-fit@0.10.0` that the committed lockfile + a local (stale-cache) regen don't reproduce. `check-lockfile-drift` passes LOCALLY; `pnpm install --lockfile-only` = no-op. CI-registry-metadata-freshness drift only (known class, memory `silRED`).
+
+## fire-88 — 2026-10-02 (converge; billing-nav discoverability + Deep UI Explorer editor-Data/billing walk + §7 recent-fires helper; 7-role fan-out, 2 attrition salvaged)
+**Lease:** fire-88-moneypath-convergence (claimed clean exit 0, no coalesce; heartbeat per phase; released §10). Scheduler `589089ab` already armed — no re-arm.
+SHIPPED to main + deployed:
+- **feat(admin) 5f93f230b** — Billing wired into admin sidebar nav (Account group). Money surface was reachable ONLY via ⌘K/user-menu (DUX fire-88 finding, verified vs ADMIN_NAV_GROUPS — same built-but-unwired class as sites/kv/r2 inspectors). +credit-card NavIcon + lockstep spec route. tsc green; Karma 326/2462 green before infra ping-timeout disconnect; ng build @ deploy.
+- **chore(dux) dbc6c06d0** — Deep UI Explorer walk: editor Data tab + billing/super-admin cluster. CF Browser Run CF-PASS, 20 states / 20 vision (8-10/10), 0 fabricated defects. VERIFIED per-site D1 isolation (editor Data = per-site D1 9932bc86 ≠ master ea3e839a; display=store reconciled, 4 tables match).
+- **feat(loop) 6d0651d39** (§7) — scripts/loop-recent-fires.mjs: deterministic last-N fire reader + git cross-check; wired into run-the-loop §0 + OPERATING-PRINCIPLES. Kills the stale-recency read (this fire's orientation miss: "73-77" vs real fire-87).
+Backlogged (high-risk, deferred to focused slices per split-work-into-ledger):
+- PERF /pricing LCP 8.9s FAIL (home 1.3s PASS) — app-shell index.html:353-368 inlines only homepage hero → non-home routes wait for full hydration. Fix=route-aware shell OR SSG. HIGH-blast-radius.
+- PERF homepage TBT 330ms/TTI 8.6s — GTM+gtag 465KB parse-time inject (index.html:14-26); defer behind idle. Analytics-owned territory.
+ATTRITION (salvaged, re-queued, loop kept running per failure-taxonomy):
+- role-16 Long-Trail Phase F — harness AUTO-WORKTREED it (wtBRO) → sparse node_modules → couldn't boot stack → 0 commits. Dead in-progress lease (fresh heartbeat) RESET in checkpoint-case-001.json (would've falsely coalesced next fire). Actions 60-96 re-queued.
+- role-13 Accessibility — Playwright-MCP orphaned Chrome held a profile lock; agent correctly refused to fabricate. Orphan since died. Re-queued.
+- role-14 CF Scout — CF changelog feeds WAF-blocked default UA (honest outage); stack current, 0 deprecations. Retry ~fire-92.

@@ -62,3 +62,8 @@ GUID = `changelog/post/<slug>/` unless noted. Sweep 1 (fire-54, 2026-09-29) — 
   Bearer token with "Browser Run Write" → **PILOT → ADOPTED** same fire: the Deep UI
   Explorer's primary browser (proven session, deep path green). Older Workers-binding
   Browser Rendering remains the Worker-side gateway path.
+
+## Sweep — fire-88 (2026-10-02)
+- FEED OUTAGE: developers.cloudflare.com/changelog RSS WAF-blocked the default fetch UA; GitHub API returned stale v1.x data. No new releases captured (honest outage, NOT "0 releases"). Retry next cycle (~fire-92) with a real Chrome UA (fetch-defaults) or CF Browser Run.
+- STACK CURRENCY (projectsites.dev): wrangler ^4.44.0 · @cloudflare/workers-types ^4.20251011.0 · @cloudflare/containers ^0.3.2 · @cloudflare/playwright ^1.3.0 — all current; 0 blocking CVEs/deprecations.
+- Carry-open (prior sweeps): Browser Run multi-client sessions (PILOT pending in DUX), Workers tracing custom spans (PILOT), Workflow .subscribe() event streaming (BACKLOG), saga rollback handlers (BACKLOG).
