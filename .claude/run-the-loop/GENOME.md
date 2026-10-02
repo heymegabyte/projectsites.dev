@@ -178,8 +178,10 @@
 - **WfP is the DEFAULT serving path** (`x-ps-serve: wfp`, R2 fail-soft). Backfill of WfP slots
   for existing sites in-flight (`scripts/backfill-wfp-slots.mjs`, `5676c8329`); flag
   `site_wfp_hosting` scoped to e2e-test-org pending backfill + rollout widening.
-- **Long-trail TDD case-001**: Phase C GREEN (Settings/API-tokens/Editor, `a0c92ed0a`);
-  Phase D resumes from action 38.
+- **Long-trail TDD case-001**: Phase E GREEN (actions 37→59, `573c15eb9`); resumes
+  **Phase F at action 60** (apps install/remove → tenant-isolation #90 → cleanup #91-96).
+  D-boot iframe legs (#43-45,#53-55) blocked on a real editor Pages production `_headers`
+  deploy with `frame-ancestors http://localhost:4200`.
 - **AI API campaign landed** (fires 57-58): `/v1/chat/completions` (non-streamed + SSE),
   Anthropic-compat `/v1/messages`, provider usage-token split, AI API Keys mint UI behind
   `ai_api_keys` flag.

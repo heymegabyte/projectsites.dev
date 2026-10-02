@@ -326,6 +326,10 @@ run Playwright/CF-Browser-Run against a LIVE local stack, so their execution env
   (role 16 always; role 17's same-fire repair hand-off), the specialist is `test-writer` or
   `general-purpose` — NEVER `visual-qa` (read-only, no Write; mis-assigning it strands the fire,
   fire-63).
+- **ONE real-browser driver per fire — serialize, never share.** The single shared Playwright-MCP
+  browser must NOT be driven by concurrent agents + the lead at once; serialize real-browser
+  verification to ONE driver per fire (the lead owns prod-verify, OR exactly ONE browser agent) —
+  else the sessions collide (navigation/snapshot races on a shared context).
 
 ## Deep UI Explorer / Visual Intelligence (role 17 — invariants)
 

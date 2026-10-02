@@ -12,4 +12,6 @@
    machinery (lease claim first; crons remain CANCELLED per Brian — the
    constitution supersedes the old fire shape but keeps lease/mutex discipline).
 4. State: fire-58 closed clean (ledger 044ac0ebc); deferred fire-58 adversarial
-   review scope-note in LEDGER; case-001 resumes Phase D from action 38.
+   review scope-note in LEDGER; case-001 resumes **Phase F from action 60** (apps
+   install/remove → tenant-isolation #90 → cleanup #91-96; D-boot iframe legs
+   #43-45/#53-55 blocked on editor Pages-prod `frame-ancestors http://localhost:4200`).

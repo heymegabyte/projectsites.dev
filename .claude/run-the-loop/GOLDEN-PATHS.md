@@ -6,7 +6,7 @@ Golden paths are executable product design: long, stateful user journeys written
 
 ## How paths run today (tooling bindings)
 
-- **Long-Trail runner** — `apps/project-sites/e2e/long-trail/` (`case-001-money-path.e2e.ts` + `.md` + `checkpoint-case-001.json` + `playwright.longtrail.config.ts` + `screenshots-local/`). Standing case-001 is `phase_c_green`, last_completed_action **37**; resumes **Phase D at action 38** (Bolt editor: Code edit + Preview live-reload + per-site D1 Data tab isolation — needs the editor iframe in the local stack). gp-01/gp-02 are case-001's Phase A-C / Phase D formalized.
+- **Long-Trail runner** — `apps/project-sites/e2e/long-trail/` (`case-001-money-path.e2e.ts` + `.md` + `checkpoint-case-001.json` + `playwright.longtrail.config.ts` + `screenshots-local/`). Standing case-001 is Phase E GREEN, last_completed_action **59**; resumes **Phase F at action 60** (case #79-96: disposable app install/remove → site survives → tenant isolation #90 → full cleanup #91-96). The D-boot iframe legs (#43-45,#53-55) are BLOCKED on a real editor **Pages production** deploy of `public/_headers` with `frame-ancestors` including `http://localhost:4200` — re-verify live before firing (`curl -sI https://editor.projectsites.dev | grep -i frame-ancestors`). gp-01/gp-02 are case-001's Phase A-C / Phase D formalized.
 - **Deep UI Explorer** — `apps/project-sites/e2e/deep-ui-explorer/{explorer.mjs, vision-review.mjs, coverage-ledger.json}` (loop role 17): crawl-click-screenshot-vision with honest CF-pass/FALLBACK/BLOCKED semantics. gp-07's engine.
 - **Journey spec suite** — `apps/project-sites/e2e/*-journey.spec.ts` (64 specs; inventory `e2e/FEATURES.md` + `COVERAGE.yml`, enforced by `npm run validate:e2e-inventory`). Per-surface depth; golden paths chain across them.
 - **Ground-truth reconciler** — `apps/project-sites/e2e/admin-verify/` (`reconcile-surfaces.mjs`, `_capture-helpers.mjs`, `_browserbase-creds.mjs`): display-vs-D1 reconciliation. gp-04's engine.
@@ -29,7 +29,7 @@ Golden paths are executable product design: long, stateful user journeys written
 
 ### gp-02-editor-database-deep — "Own your data without leaving the editor" (constitution's canonical example)
 - **Persona:** Sam, technical-ish owner. **Goal:** inspect + edit the site's OWN database confidently.
-- **Status:** PARTIAL (= case-001 Phase D, resumes at action 38). **Binds:** long-trail Phase D + editor `specs/` + Data-tab handlers (`libs/features/site_data_api/`).
+- **Status:** PARTIAL (= case-001 Phase D, actions 38-49 GREEN; the Long-Trail cursor has since advanced through Phase E to **action 59**, next **Phase F at action 60**). **Binds:** long-trail Phase D + editor `specs/` + Data-tab handlers (`libs/features/site_data_api/`).
 - **Steps (26):** (1-4) sign in → pick site → open Editor → bolt iframe boots (persistent across sub-routes, one cold-boot per session) → (5-8) Data tab → tables list reads the site's dedicated per-site D1 (NEVER shared platform DB; lazily provisioned) → blank-DB empty state is a launchpad ("Create your first table" / seed sample) → create or pick table → (9-14) rows grid renders → double-click cell → inline edit → Enter commits (optimistic + background reconcile) → Esc cancels → edited value persists on re-select → (15-19) filter by column value → sort asc/desc → paginate → honest totals (no silent cap) → (20-24) SQL console → run `SELECT` against `db/query` endpoint → results in the shared datagrid → run an `UPDATE` → grid reflects it → (25-26) back to Code tab → editor state intact (no iframe reload).
 - **Surfaces:** admin shell, bolt.diy editor iframe, Data tab (tables + grid + SQL console), per-site D1 plane.
 - **Visual evidence:** steps 6 (tables/empty-state), 11 (cell mid-edit), 22 (SQL results).
@@ -111,7 +111,7 @@ Golden paths are executable product design: long, stateful user journeys written
 |---|-----|-------|-------|
 | 1 | Stripe test-checkout automation rail | gp-05 | HIGH (money path end-to-end) |
 | 2 | Failure-injection hooks + universal Retry on `error` status | gp-08 | HIGH (trust; kills stranded rows) |
-| 3 | Editor iframe in long-trail local stack (action-38 blocker) | gp-02 | HIGH (unblocks canonical journey) |
+| 3 | Editor Pages PRODUCTION `_headers` `frame-ancestors http://localhost:4200` for D-boot iframe legs #43-45/#53-55 (Long-Trail cursor at Phase F action 60) | gp-02 | HIGH (unblocks canonical journey) |
 | 4 | Sacrificial real test domain for full DNS→SSL cycle | gp-03 | MED-HIGH |
 | 5 | CF-native registrar purchase in-product | gp-03 | MED-HIGH |
 | 6 | Per-site D1 empty-state launchpad / sample seed | gp-02 | MED |
@@ -132,7 +132,7 @@ Golden paths are executable product design: long, stateful user journeys written
 
 - **Every fire advances ≥1 golden path**: either ≥5 new actions verified GREEN on a RUNNABLE/PARTIAL path, or ≥1 CAPABILITY GAP flipped to shipped (then the step loses its GAP tag — steps are never deleted).
 - Each advance records **visual evidence** at the path's declared moments (screenshots under the owning harness — `long-trail/screenshots-local/` or the explorer ledger) + updates the path's status line here and its checkpoint JSON.
-- The standing Long-Trail lane owns gp-01/gp-02 (case-001 continues from action 38); the Deep UI Explorer lane owns gp-07; other paths rotate through the 15-role roster.
+- The standing Long-Trail lane owns gp-01/gp-02 (case-001 continues from **action 60, Phase F**); the Deep UI Explorer lane owns gp-07; other paths rotate through the 15-role roster.
 - A path untouched for 5 consecutive fires escalates to a standing lane next fire. New journeys enter via the Backlog list → get a full entry when first picked up.
 - Status ratchet: FUTURE → PARTIAL → RUNNABLE only via verified runs; never by edit. Regressions demote the status same-fire and open a LEDGER line.
 
