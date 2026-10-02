@@ -205,6 +205,39 @@ describe('buildPrompt — template-first, ≤14-min', () => {
     const out = buildPrompt(unmatched);
     expect(out).not.toMatch(/## Visual Personality/);
   });
+
+  it('MANDATES mounting the ambient <WebGLHero> with the themed config [fire-71]', () => {
+    const out = buildPrompt(p);
+    // The template ships templates/webgl/WebGLHero.tsx; the build MUST mount it so the
+    // tuned shader reaches the delivered site — gated by validateWebglHeroPresent.
+    expect(out).toMatch(/Ambient WebGL hero/i);
+    expect(out).toContain('<WebGLHero');
+    expect(out).toContain('templates/webgl/');
+    expect(out).toContain('data-testid="webgl-hero-layer"');
+  });
+
+  it('flows a SITE-SPECIFIC `webgl` block into the prompt, overriding the category preset [fire-78]', () => {
+    // fire-78 — before this, buildPrompt only ever emitted a CATEGORY-derived preset;
+    // a per-site webgl block (from research/_brand.json) could not reach the orchestrator.
+    // A site-level override must be MERGED over the preset and serialized into the mount.
+    const withWebgl = {
+      ...p,
+      webgl: { speed: 1.42, intensity: 0.37, background: '#101016' },
+    } as unknown as Parameters<typeof buildPrompt>[0];
+    const out = buildPrompt(withWebgl);
+    // The overridden values appear in the serialized webgl config passed to <WebGLHero>.
+    expect(out).toContain('"speed":1.42');
+    expect(out).toContain('"intensity":0.37');
+    expect(out).toContain('"background":"#101016"');
+  });
+
+  it('omits the override cleanly when no site `webgl` block is present (preset-only) [fire-78]', () => {
+    // No webgl block → the prompt carries the pure category preset: a restaurant/salon
+    // preset keeps its own background, NOT a site-specific one.
+    const out = buildPrompt(p);
+    expect(out).not.toContain('"background":"#101016"');
+    expect(out).toContain('<WebGLHero'); // the mount is still mandated
+  });
 });
 
 // ─── Heartbeat-loop coverage (sequence-driven replay mock) ───────────────────

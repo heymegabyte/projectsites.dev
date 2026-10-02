@@ -864,22 +864,52 @@ export function webglVerticalFor(category?: string | null, designHint?: string |
   return DEFAULT_WEBGL_VERTICAL;
 }
 
+/** The four shader families shipped by `webgl-hero-core.mjs` — the valid `variant` set. */
+const WEBGL_VARIANTS: readonly WebglVariant[] = ['ember', 'rays', 'glint', 'grid'];
+
+/**
+ * A SITE-SPECIFIC WebGL hero override — a partial {@link WebglHeroConfig} a build can
+ * carry (from research / `_brand.json`) to TUNE its ambient hero beyond the category
+ * preset. Every field is optional; only provided fields override the preset (fire-78).
+ */
+export type WebglHeroOverride = Partial<WebglHeroConfig>;
+
 /**
  * Resolve the THEMED {@link WebglHeroConfig} for a build. Every build resolves (the
  * default disposition is "has a webgl pack"), so every generated site carries a tuned
  * ambient hero; the orchestrator mounts `<WebGLHero vertical webgl={this} />` as the
  * hero section's first child. Static-fallback-safe by the component's own contract.
  *
+ * fire-78 — accepts an optional per-site `override` (a partial config from
+ * research/`_brand.json`) MERGED on top of the category preset, so a build can tune its
+ * OWN ambient hero rather than being limited to the category-derived preset. An
+ * absent/empty override is byte-identical to the preset; an out-of-set `variant` is
+ * ignored (keeps the preset's shader family) so a bad datum never corrupts the canvas.
+ *
  * @param category - declared vertical / category.
  * @param designHint - freeform "additional details" (secondary signal).
+ * @param override - optional per-site partial config to merge over the preset.
  * @returns a themed, render-safe config (never throws, always resolvable).
  *
  * @example webglHeroConfigFor('Italian Restaurant') // → { variant:'ember', … }
  * @example webglHeroConfigFor('law firm')           // → { variant:'grid',  … }
+ * @example webglHeroConfigFor('cafe', null, { speed: 1.2 }) // preset ember + speed 1.2
  */
 export function webglHeroConfigFor(
   category?: string | null,
   designHint?: string | null,
+  override?: WebglHeroOverride | null,
 ): WebglHeroConfig {
-  return WEBGL_HERO_PRESETS[webglVerticalFor(category, designHint)] as WebglHeroConfig;
+  const preset = WEBGL_HERO_PRESETS[webglVerticalFor(category, designHint)] as WebglHeroConfig;
+  if (!override || Object.keys(override).length === 0) return preset;
+
+  // Merge only defined override fields over the preset; drop an invalid variant so the
+  // shader family stays one of the four the core renders.
+  const merged: WebglHeroConfig = { ...preset };
+  for (const [key, value] of Object.entries(override) as [keyof WebglHeroConfig, unknown][]) {
+    if (value === undefined || value === null) continue;
+    if (key === 'variant' && !WEBGL_VARIANTS.includes(value as WebglVariant)) continue;
+    (merged as Record<keyof WebglHeroConfig, unknown>)[key] = value;
+  }
+  return merged;
 }

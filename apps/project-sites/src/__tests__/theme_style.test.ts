@@ -751,3 +751,55 @@ describe('webglVerticalFor + webglHeroConfigFor (fire-71 — every build carries
     expect(webglVerticalFor('xyzzy', 'a cozy neighborhood bakery and cafe')).toBe('restaurant');
   });
 });
+
+describe('webglHeroConfigFor — per-site `webgl` override merges over the category preset (fire-78)', () => {
+  // fire-78 — the generation-consumption wiring only ever flowed a CATEGORY-DERIVED
+  // preset; a SITE-SPECIFIC `webgl` block (e.g. from research/_brand.json) could not
+  // override it. The resolver now accepts an optional per-site override that is MERGED
+  // on top of the category preset so a build can tune its OWN ambient hero — while an
+  // absent/empty override stays byte-identical to the pre-fire-78 category preset.
+  it('is byte-identical to the category preset when no override is passed', () => {
+    const base = webglHeroConfigFor('Italian Restaurant');
+    const merged = webglHeroConfigFor('Italian Restaurant', undefined, undefined);
+    expect(merged).toEqual(base);
+    expect(webglHeroConfigFor('Italian Restaurant', undefined, {})).toEqual(base);
+  });
+
+  it('merges a partial site override on top of the resolved category preset', () => {
+    const base = webglHeroConfigFor('Italian Restaurant'); // variant 'ember'
+    const merged = webglHeroConfigFor('Italian Restaurant', undefined, {
+      speed: 1.25,
+      intensity: 0.4,
+    });
+    // Overridden fields win…
+    expect(merged.speed).toBe(1.25);
+    expect(merged.intensity).toBe(0.4);
+    // …every un-overridden field stays the category preset.
+    expect(merged.variant).toBe(base.variant);
+    expect(merged.background).toBe(base.background);
+    expect(merged.palette).toEqual(base.palette);
+    expect(merged.density).toBe(base.density);
+  });
+
+  it('lets a site override the variant + palette + background wholesale', () => {
+    const merged = webglHeroConfigFor('Accounting Firm', undefined, {
+      variant: 'ember',
+      background: '#101016',
+      palette: ['#00e5ff', '#7c3aed', '#1b1838'],
+    });
+    expect(merged.variant).toBe('ember');
+    expect(merged.background).toBe('#101016');
+    expect(merged.palette).toEqual(['#00e5ff', '#7c3aed', '#1b1838']);
+  });
+
+  it('ignores an invalid override variant (keeps the preset variant) + stays render-safe', () => {
+    const base = webglHeroConfigFor('Accounting Firm'); // variant 'grid'
+    const merged = webglHeroConfigFor('Accounting Firm', undefined, {
+      variant: 'bogus' as never,
+    });
+    // An out-of-set variant must NOT corrupt the shader family — fall back to the preset.
+    expect(['ember', 'rays', 'glint', 'grid']).toContain(merged.variant);
+    expect(merged.variant).toBe(base.variant);
+    expect(merged.palette).toHaveLength(3);
+  });
+});

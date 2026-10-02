@@ -53,6 +53,7 @@ import {
   commerceIntentBriefFor,
   webglHeroConfigFor,
   webglVerticalFor,
+  type WebglHeroOverride,
 } from '../services/theme_style.js';
 import {
   categoryFromName,
@@ -373,6 +374,14 @@ export interface SiteGenerationParams {
   minimalMode?: boolean;
   /** Diagnostic: hit /build-stub (no API cost) to validate KV-callback persistence. */
   stubMode?: boolean;
+  /**
+   * SITE-SPECIFIC ambient-WebGL-hero override (fire-78). A partial {@link WebglHeroConfig}
+   * sourced from research / `_brand.json` that TUNES this build's hero beyond the
+   * category-derived preset. When present, {@link buildPrompt} merges it over the preset
+   * ({@link webglHeroConfigFor}) and serializes the result into the `<WebGLHero>` mount —
+   * so a build can carry its own shader tuning. Absent → pure category preset (unchanged).
+   */
+  webgl?: WebglHeroOverride;
 }
 
 /** Container status response shape. */
@@ -524,8 +533,15 @@ export function buildPrompt(params: SiteGenerationParams): string {
   // (aria-hidden decorative canvas, deferred GL, prefers-reduced-motion → gradient-only, never
   // the LCP element), so the headline + CTA render early regardless. The build is then gated by
   // validateWebglHeroPresent (webgl.hero_missing) so a canvas-less build fails.
+  // fire-78 — a SITE-SPECIFIC `webgl` block (from research / _brand.json) is MERGED over
+  // the category preset so a build can tune its OWN ambient hero, not just inherit the
+  // vertical default. Absent → pure category preset (byte-identical to pre-fire-78).
   const webglVariant = webglVerticalFor(params.businessCategory, params.additionalContext);
-  const webglHero = webglHeroConfigFor(params.businessCategory, params.additionalContext);
+  const webglHero = webglHeroConfigFor(
+    params.businessCategory,
+    params.additionalContext,
+    params.webgl,
+  );
 
   return [
     `# Mission: Orchestrate a BREATHTAKINGLY GORGEOUS website for "${safeName}"`,
