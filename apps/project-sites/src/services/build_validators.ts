@@ -1172,6 +1172,56 @@ export const validateLightboxPresence = (files: BuildFile[]): Violation[] => {
 };
 
 /**
+ * WebGL hero presence — closes the generation-consumption gap (fire-70 CONFIRMED-REAL).
+ *
+ * `templates/webgl/WebGLHero.tsx` + `webgl-hero-core.mjs` + per-vertical `webgl` blocks in
+ * `templates/verticals/*\/vertical.json` all EXIST, yet no generated site ever emitted the
+ * component (`grep WebGLHero src` returned nothing) — a built-but-unwired interconnectedness
+ * defect. A build whose vertical pack carries a `webgl` block MUST ship the ambient hero so the
+ * tuned shader actually reaches delivered sites.
+ *
+ * Opt-gated on {@link hasWebglPack}: only verticals that CARRY a `webgl` block are asserted —
+ * builds without one return `[]` (byte-identical to pre-fire-71). We assert the SHIP MARKER, not
+ * a live canvas: the bundle must reference the WebGLHero host layer (`webgl-hero-layer`), its
+ * factory (`createWebGLHero`), or the component name (`WebGLHero`), OR the prerendered HTML must
+ * carry the host `data-testid="webgl-hero-layer"`. The component is static-fallback-safe by
+ * contract (aria-hidden decorative canvas, deferred GL, `prefers-reduced-motion` → gradient-only,
+ * never the LCP element), so this marker is sufficient — the headline/CTA render regardless.
+ *
+ * @param files - the built dist files
+ * @param hasWebglPack - true when the site's vertical content pack carries a `webgl` block
+ * @returns one `webgl.hero_missing` error when the pack has a block but the build omits the hero
+ */
+export const validateWebglHeroPresent = (
+  files: BuildFile[],
+  hasWebglPack?: boolean,
+): Violation[] => {
+  if (!hasWebglPack) return [];
+  const textFiles = files.filter((f) => {
+    const p = f.path.toLowerCase();
+    return (p.endsWith('.js') || p.endsWith('.html')) && f.text;
+  });
+  if (!textFiles.length) return [];
+  const haystack = textFiles.map((f) => f.text || '').join('\n');
+  const mounted =
+    haystack.includes('webgl-hero-layer') ||
+    haystack.includes('createWebGLHero') ||
+    haystack.includes('WebGLHero');
+  if (mounted) return [];
+  return [
+    {
+      code: 'webgl.hero_missing',
+      severity: 'error',
+      message:
+        'The vertical content pack carries a `webgl` block, but the build never mounts the ' +
+        'WebGLHero — no `webgl-hero-layer` / `createWebGLHero` / `WebGLHero` in the JS bundle or ' +
+        'prerendered HTML. Emit `<WebGLHero vertical={…} webgl={pack.webgl} />` as the hero ' +
+        'section’s first child (static-fallback-safe, headline + CTA render early).',
+    },
+  ];
+};
+
+/**
  * Theme-font loader presence — the JS bundle MUST contain the `ps-theme-fonts`
  * marker, i.e. the template's `injectThemeFonts()` (called from `applyBrand`,
  * template commit 58b4fa4) ships.
@@ -1691,7 +1741,7 @@ export function scrubNonRetailCommerceCopy(
 
 export const validateBuild = (
   files: BuildFile[],
-  opts: { sourceRouteCount?: number; expectedBusinessName?: string } = {},
+  opts: { sourceRouteCount?: number; expectedBusinessName?: string; hasWebglPack?: boolean } = {},
 ): ValidationReport => {
   const all: Violation[] = [
     ...validateRequiredFiles(files),
@@ -1720,6 +1770,7 @@ export const validateBuild = (
     ...validateBrandNameMatch(files, opts.expectedBusinessName),
     ...validateJsBundleSize(files),
     ...validateLightboxPresence(files),
+    ...validateWebglHeroPresent(files, opts.hasWebglPack),
     ...validateThemeFontLoader(files),
     ...validateNoClientSecrets(files),
     ...validateContactPath(files),

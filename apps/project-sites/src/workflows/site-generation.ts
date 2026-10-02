@@ -51,6 +51,8 @@ import {
   personalityBriefFor,
   commerceModeFor,
   commerceIntentBriefFor,
+  webglHeroConfigFor,
+  webglVerticalFor,
 } from '../services/theme_style.js';
 import {
   categoryFromName,
@@ -515,6 +517,16 @@ export function buildPrompt(params: SiteGenerationParams): string {
   const commerceMode = commerceModeFor(params.businessCategory, params.additionalContext);
   const commerceBrief = commerceIntentBriefFor(commerceMode);
 
+  // fire-71 — close the WebGL generation-consumption gap. `templates/webgl/WebGLHero.tsx`
+  // + its per-vertical presets existed but NO generated site ever emitted the component
+  // (grep WebGLHero src = 0). Resolve a THEMED ambient-hero config here and tell the
+  // orchestrator to mount <WebGLHero> as the hero section's FIRST child — static-fallback-safe
+  // (aria-hidden decorative canvas, deferred GL, prefers-reduced-motion → gradient-only, never
+  // the LCP element), so the headline + CTA render early regardless. The build is then gated by
+  // validateWebglHeroPresent (webgl.hero_missing) so a canvas-less build fails.
+  const webglVariant = webglVerticalFor(params.businessCategory, params.additionalContext);
+  const webglHero = webglHeroConfigFor(params.businessCategory, params.additionalContext);
+
   return [
     `# Mission: Orchestrate a BREATHTAKINGLY GORGEOUS website for "${safeName}"`,
     '',
@@ -546,6 +558,13 @@ export function buildPrompt(params: SiteGenerationParams): string {
     '',
     `## Conversion Intent: ${commerceMode.toUpperCase()} — the PRIMARY CTAs must match how THIS business is patronized`,
     `${commerceBrief}\nThe hero CTA + every section CTA must reflect this. Choosing e-commerce checkout language ("Shop now" / "Add to cart" / "Free shipping" / "30-day returns" / "Browse collections") on a business that is NOT retail is a wrong-vertical defect, exactly like a wrong-vertical H1 — it makes the delivered site LOSE to the real one. Match the hero image to the same intent: a tasting room / dining room / job-site / consultation / community photo for those modes, never a generic retail storefront or product-rack stock image.`,
+    // fire-71 — MOUNT the ambient WebGL hero (closes the generation-consumption gap). The
+    // template ships templates/webgl/WebGLHero.tsx; this build MUST render it so the tuned,
+    // vertical-themed shader actually reaches the delivered site. BUILD-BREAKING:
+    // validateWebglHeroPresent fails the build (webgl.hero_missing) when the bundle never mounts it.
+    `## Ambient WebGL hero — MANDATORY: mount <WebGLHero> (${webglVariant} / "${webglHero.variant}" variant)`,
+    `The template ships a zero-dependency raw-WebGL hero at \`templates/webgl/\` (\`WebGLHero.tsx\` + \`webgl-hero-core.mjs\` + \`webgl-hero.css\`). COPY \`templates/webgl/\` into the project's \`src/components/\` (keep the folder) and render \`<WebGLHero vertical="${webglVariant}" webgl={${JSON.stringify(webglHero)}} paletteCssVars={['--brand-primary','--brand-accent','--brand-muted']} />\` as the FIRST child inside the hero \`<section>\`, BEHIND the hero content (the section is \`position:relative\`; the hero copy sits in a \`relative z-[1]\` wrapper ABOVE it). This is a decorative, aria-hidden ambient layer — it is NEVER the LCP element and NEVER gates the hero copy.`,
+    `HARD RULES for the WebGL hero (do NOT skip — the build fails without a mounted canvas): (1) the H1 + primary CTA render IMMEDIATELY and are fully visible/legible over the shader — never hidden behind or dependent on it; (2) it is static-fallback-safe by contract — \`prefers-reduced-motion: reduce\` and no-WebGL both fall back to the component's themed CSS gradient automatically, keep that path intact; (3) GL init is already deferred to idle/load so it does not hurt LCP — do not make the canvas eager or give it an \`<img>\`-beating size; (4) leave the \`data-testid="webgl-hero-layer"\` host + \`webgl-hero.css\` link intact (the ship-marker validator looks for them). If you add the hero shader to additional pages, reuse the SAME component — never hand-roll a second one.`,
     // AL-424: the hero IMAGE SUBJECT must show the SPECIFIC products/space of THIS vertical —
     // even for a genuine RETAIL business. A guitar shop's hero must show GUITARS (wall of
     // guitars, a luthier's bench), a bookstore → shelves of books, a florist → flower
@@ -2622,6 +2641,11 @@ export class SiteGenerationWorkflow extends WorkflowEntrypoint<Env, SiteGenerati
           const report = validateBuild(files, {
             ...(sourceRouteCount !== undefined ? { sourceRouteCount } : {}),
             expectedBusinessName: params.businessName,
+            // fire-71: every build resolves a themed WebGL hero config (webglHeroConfigFor
+            // always resolves), so the gate is always active — a build that drops the ambient
+            // WebGLHero fails with webgl.hero_missing. buildPrompt instructs the orchestrator to
+            // mount it; this is the enforcement half.
+            hasWebglPack: true,
           });
           const readiness = scoreReadiness(report);
           await emitBuildEvent(env, params.siteId, {
