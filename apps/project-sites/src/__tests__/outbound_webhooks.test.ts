@@ -400,6 +400,52 @@ describe('attemptDelivery', () => {
       error: 'network_error',
     });
   });
+
+  // CWE-918 blind-SSRF via redirect: a registered (safe) https endpoint that 302-redirects
+  // to an internal host must NOT cause the Worker to POST there. The seed-URL check passes;
+  // the protection must re-validate on EVERY redirect hop (safeFetch, redirect:'manual').
+  it('fails CLOSED when a safe endpoint 302-redirects to cloud metadata (169.254.169.254)', async () => {
+    const posted: string[] = [];
+    const fetchFn = (async (url: string, init?: RequestInit) => {
+      posted.push(url);
+      // The registered (safe) URL answers with a 302 Location to the metadata host.
+      if (url === delivery.url) {
+        return {
+          status: 302,
+          headers: { get: (n: string) => (n.toLowerCase() === 'location' ? 'http://169.254.169.254/latest/meta-data' : null) },
+        } as unknown as Response;
+      }
+      // If the guard were broken we'd reach here and happily "deliver" a 2xx.
+      return { status: 200, headers: { get: () => null } } as unknown as Response;
+    }) as unknown as typeof fetch;
+
+    const res = await attemptDelivery(fetchFn, delivery, 'sig');
+    // Must be a blocked/unsafe outcome — NEVER a delivered 2xx.
+    expect(res.ok).toBe(false);
+    expect(res.statusCode).not.toBeGreaterThanOrEqual(200);
+    expect(res.error).toBe('unsafe_url');
+    // No POST ever reached the metadata host.
+    expect(posted).not.toContain('http://169.254.169.254/latest/meta-data');
+  });
+
+  it('fails CLOSED when a safe endpoint 302-redirects to an RFC1918 host (10.0.0.5)', async () => {
+    const posted: string[] = [];
+    const fetchFn = (async (url: string) => {
+      posted.push(url);
+      if (url === delivery.url) {
+        return {
+          status: 302,
+          headers: { get: (n: string) => (n.toLowerCase() === 'location' ? 'http://10.0.0.5:6379/' : null) },
+        } as unknown as Response;
+      }
+      return { status: 200, headers: { get: () => null } } as unknown as Response;
+    }) as unknown as typeof fetch;
+
+    const res = await attemptDelivery(fetchFn, delivery, 'sig');
+    expect(res.ok).toBe(false);
+    expect(res.error).toBe('unsafe_url');
+    expect(posted).not.toContain('http://10.0.0.5:6379/');
+  });
 });
 
 describe('recordDelivery + listDeliveries', () => {

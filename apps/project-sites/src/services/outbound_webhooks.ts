@@ -16,6 +16,17 @@
 import type { Env } from '../types/env.js';
 import { dbQuery, dbExecute } from './db.js';
 import { encrypt } from './ai_crypto.js';
+import { safeFetch, SafeFetchError } from './safe_fetch.js';
+import { SsrfError, type SsrfPolicy } from './ssrf_guard.js';
+
+/**
+ * SSRF policy for outbound-webhook delivery — mirrors {@link isSafeWebhookUrl}'s
+ * scheme rule (https ONLY; no plaintext delivery) and the default private/reserved
+ * host blocklist. Passed to {@link safeFetch} so the SAME policy re-validates the
+ * initial URL AND every `Location` redirect hop (a 302 to `169.254.169.254` /
+ * `localhost` / an RFC1918 host can no longer bypass a first-hop-only check).
+ */
+const WEBHOOK_SSRF_POLICY: SsrfPolicy = { allowedProtocols: ['https:'] };
 
 /** Max delivery attempts before a delivery is marked permanently failed. */
 export const MAX_DELIVERY_ATTEMPTS = 6;
@@ -349,12 +360,26 @@ export interface DeliveryAttemptResult {
  * Perform ONE delivery attempt for a planned delivery, given the precomputed
  * HMAC signature (the caller decrypts the endpoint secret + `hmacSha256` over
  * `delivery.signatureBase`). POSTs the body with Svix/Stripe-style signature +
- * timestamp headers. Re-checks the SSRF guard at fetch time (defense-in-depth —
- * an endpoint's URL could have changed since validation).
+ * timestamp headers.
  *
- * `fetch` is injected so the headers + outcome mapping are unit-testable. The
- * dispatcher wraps this with retry (`shouldRetry`/`nextRetryDelayMs`) via a
- * Queue/Workflow and records each attempt.
+ * SSRF is enforced on EVERY hop: the POST goes through {@link safeFetch} with
+ * {@link WEBHOOK_SSRF_POLICY} (https-only, mirroring {@link isSafeWebhookUrl}) and
+ * `redirect: 'manual'`, so a registered endpoint that 302-redirects to an internal
+ * host (cloud metadata `169.254.169.254`, `localhost`, an RFC1918 host) is BLOCKED
+ * — a first-hop-only check (`fetch redirect:'follow'`) would have followed the
+ * redirect and POSTed the signed payload to the internal target (CWE-918 blind
+ * SSRF, `[[ssrf-redirect-follow-bypasses-host-allowlist-revalidate-every-hop]]`).
+ * A pre-check on the seed URL short-circuits before any network call.
+ *
+ * An SSRF rejection (initial URL or any redirect hop) — and a redirect-loop
+ * ({@link SafeFetchError}) — FAILS CLOSED as the `unsafe_url` outcome, which the
+ * dispatcher treats as a PERMANENT block (never retried). Any other throw (a real
+ * network/transport failure) maps to the transient `network_error` outcome.
+ *
+ * `fetch` is injected so the headers + outcome mapping are unit-testable (it is
+ * passed straight through to `safeFetch` as its fetch impl, so a test's mock can
+ * drive redirect chains deterministically). The dispatcher wraps this with retry
+ * (`shouldRetry`/`nextRetryDelayMs`) via a Queue/Workflow and records each attempt.
  */
 export async function attemptDelivery(
   fetchFn: typeof fetch,
@@ -363,17 +388,26 @@ export async function attemptDelivery(
 ): Promise<DeliveryAttemptResult> {
   if (!isSafeWebhookUrl(delivery.url)) return { statusCode: 0, ok: false, error: 'unsafe_url' };
   try {
-    const res = await fetchFn(delivery.url, {
-      method: 'POST',
-      headers: {
-        'content-type': 'application/json',
-        'webhook-signature': buildSignatureHeader(delivery.timestamp, signatureHex),
-        'webhook-timestamp': delivery.timestamp,
+    const res = await safeFetch(delivery.url, {
+      policy: WEBHOOK_SSRF_POLICY,
+      fetchImpl: fetchFn as unknown as NonNullable<Parameters<typeof safeFetch>[1]>['fetchImpl'],
+      init: {
+        method: 'POST',
+        headers: {
+          'content-type': 'application/json',
+          'webhook-signature': buildSignatureHeader(delivery.timestamp, signatureHex),
+          'webhook-timestamp': delivery.timestamp,
+        },
+        body: delivery.body,
       },
-      body: delivery.body,
     });
     return { statusCode: res.status, ok: isDeliverySuccess(res.status) };
-  } catch {
+  } catch (e) {
+    // An SSRF-blocked host/hop (incl. a redirect to an internal target) or a
+    // redirect loop is a PERMANENT block — fail closed, never retry it.
+    if (e instanceof SsrfError || e instanceof SafeFetchError) {
+      return { statusCode: 0, ok: false, error: 'unsafe_url' };
+    }
     return { statusCode: 0, ok: false, error: 'network_error' };
   }
 }
