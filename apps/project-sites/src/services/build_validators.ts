@@ -1315,10 +1315,12 @@ export const validateNoInlineStyleChild = (files: BuildFile[]): Violation[] => {
   // React.createElement("style", <props>, <child>): capture the props blob (group 1) + a forward
   // window (group 2) to decide whether a string/`__html` child follows. `precedence` in the props
   // opts into React 19 hoisting → safe.
-  const CREATE_STYLE_RE = /\be\(\s*["']style["']\s*,\s*(null|\{[\s\S]{0,300}?\})\s*(,[\s\S]{0,120})?/gi;
+  const CREATE_STYLE_RE =
+    /\be\(\s*["']style["']\s*,\s*(null|\{[\s\S]{0,300}?\})\s*(,[\s\S]{0,120})?/gi;
   // JSX source (un-minified bundle): `<style ...>{` with an expression child, or
   // `<style dangerouslySetInnerHTML=`. `<style>` with no `{` child (e.g. `<style/>`) is ignored.
-  const JSX_STYLE_RE = /<style(?![^>]*\bprecedence\b)[^>]*>\s*\{|<style(?![^>]*\bprecedence\b)[^>]*\bdangerouslySetInnerHTML\b/i;
+  const JSX_STYLE_RE =
+    /<style(?![^>]*\bprecedence\b)[^>]*>\s*\{|<style(?![^>]*\bprecedence\b)[^>]*\bdangerouslySetInnerHTML\b/i;
 
   for (const file of files) {
     const p = file.path.toLowerCase();

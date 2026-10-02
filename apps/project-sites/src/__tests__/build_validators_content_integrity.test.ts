@@ -536,10 +536,7 @@ describe('validateNoInlineStyleChild — React 19 drops component inline <style>
         'index.html',
         '<!DOCTYPE html><html><body><script src="/assets/h.js"></script></body></html>',
       ),
-      file(
-        'assets/h.js',
-        'e("style",{dangerouslySetInnerHTML:{__html:".x{color:red}"}})',
-      ),
+      file('assets/h.js', 'e("style",{dangerouslySetInnerHTML:{__html:".x{color:red}"}})'),
     ];
     const v = validateNoInlineStyleChild(files);
     expect(v.length).toBeGreaterThanOrEqual(1);
@@ -618,7 +615,10 @@ describe('validateNoInlineStyleChild — React 19 drops component inline <style>
         'index.html',
         '<!DOCTYPE html><html><head><link rel="stylesheet" href="/assets/index.css"></head><body><script src="/assets/h.js"></script></body></html>',
       ),
-      file('assets/h.js', 'function Hero(){return e("section",{className:"hero grid gap-4"},kids)}'),
+      file(
+        'assets/h.js',
+        'function Hero(){return e("section",{className:"hero grid gap-4"},kids)}',
+      ),
     ];
     expect(validateNoInlineStyleChild(files)).toEqual([]);
   });
