@@ -29,6 +29,7 @@
 - **carried-blocker re-confirm (BATCH)** — `node apps/project-sites/scripts/reconfirm-carried-blockers.mjs` reads `apps/project-sites/e2e/carried-blockers.json` (header/endpoint/shell checks) → PASS(retire) | STILL-OPEN | ERROR, exit 0 iff all resolved; run it BEFORE assigning ANY fix-agent to a carried blocker (§ Carried-blocker re-confirm). Singular single-header variant: `reconfirm-carried-blocker.mjs`.
 - **long-trail checkpoint** — `apps/project-sites/e2e/long-trail/checkpoint-case-001.json`
 - **canonical home** — `.claude/run-the-loop/` (`README` · `OPERATING-PRINCIPLES` · `BACKLOG` · `LEDGER` · `DISCOVERIES` · `ARCHITECTURE` · `CONSTITUTION` · `GENOME` · `GOLDEN-PATHS` · `VISUAL-COVERAGE` · `BROWSER-OPERATING-LAYER`)
+- **recent-fire recency** — `node scripts/loop-recent-fires.mjs` (repo-root `scripts/`; `--n <N>` / `--json`) — the ONLY trustworthy recent-fire read; LEDGER fire headers are NOT sorted, so eyeballing them gives stale recency (fire-88: orient reported "last 5 = 73-77" while git showed fire-87). Prints last N newest-first + cross-checks `git log` + flags mismatch.
 - **worker deploy** — `cd apps/project-sites && npx wrangler deploy --env production`
 - **prod D1** — `project-sites-db-production` (`ea3e839a-c641-4861-ae30-dfc63bff8032`)
 

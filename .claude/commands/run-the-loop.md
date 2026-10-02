@@ -55,6 +55,7 @@ a role under-delivered.
 ## 0 — Orient (cheap; NEVER read giant ledgers in the main thread)
 - **Claim the fire lease FIRST — fires are mutually exclusive.** `node scripts/loop-fire-lock.mjs claim fire-<n>-<slug>` — exit 3 = a LIVE fire holds the lease → COALESCE: end this tick immediately (the running fire is already advancing the same backlog); a STALE lease (heartbeat >20 min — the prior lead died) is auto-reclaimed. Refresh with `heartbeat` after each phase; `release` in §10. This is what stops the 15-min scheduler from stacking overlapping browser sessions + conflicting commits.
 - **Paths: see OPERATING-PRINCIPLES § Canonical paths** — the do-not-hunt cheatsheet (fire lock, allowlist, explorer, checkpoint, deploy, prod D1). Don't re-discover a file path.
+- **Recency: run `node scripts/loop-recent-fires.mjs` for accurate recent-fire ids — NEVER eyeball the LEDGER** (its fire headers are not chronologically sorted; eyeballing gives a STALE read that mis-calls category starvation + journey variation). It prints the last 8 fires newest-first + cross-checks `git log` and flags any LEDGER-vs-git mismatch.
 - **Canonical home = `.claude/run-the-loop/`.** Read the small operator docs, in order:
   - `README.md` — what the loop is + how to run one fire.
   - `OPERATING-PRINCIPLES.md` — invariants, gates, the 4 canonical answers (§below), the category budget.
