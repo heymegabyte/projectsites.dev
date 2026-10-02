@@ -53,6 +53,11 @@ function isLive(lease) {
   return heartbeatFresh && withinMaxAge;
 }
 
+/** Whole minutes since an ISO timestamp — human-readable lease age for coalesce decisions. */
+function ageMin(ts) {
+  return Math.round((Date.now() - new Date(ts).getTime()) / 60000);
+}
+
 function write(lease) {
   writeFileSync(LOCK_PATH, JSON.stringify(lease, null, 2));
 }
@@ -66,7 +71,9 @@ switch (cmd) {
     const lease = readLease();
     if (isLive(lease) && lease.fireId !== fireId) {
       console.warn(
-        `BUSY: fire "${lease.fireId}" holds a live lease (heartbeat ${lease.heartbeat}). ` +
+        `BUSY: fire "${lease.fireId}" holds a live lease ` +
+          `(heartbeat ${ageMin(lease.heartbeat)}m ago, stale at ${Math.round(STALE_MS / 60000)}m; ` +
+          `claimed ${ageMin(lease.claimedAt)}m ago, max ${Math.round(MAX_AGE_MS / 60000)}m). ` +
           'Coalesce: skip this tick; the running fire advances the same backlog.',
       );
       process.exit(3);
@@ -78,7 +85,12 @@ switch (cmd) {
       heartbeat: new Date().toISOString(),
       reclaimedFrom: lease && !isLive(lease) ? lease.fireId : undefined,
     });
-    console.warn(`CLAIMED: ${fireId}${lease && !isLive(lease) ? ` (reclaimed stale lease from ${lease.fireId})` : ''}`);
+    console.warn(
+      `CLAIMED: ${fireId}` +
+        (lease && !isLive(lease)
+          ? ` (reclaimed STALE lease from ${lease.fireId} — heartbeat ${ageMin(lease.heartbeat)}m ago)`
+          : ''),
+    );
     process.exit(0);
   }
   case 'heartbeat': {
