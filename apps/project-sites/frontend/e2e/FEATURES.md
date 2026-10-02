@@ -37,6 +37,7 @@ Status legend: ✅ covered + green · ⚠️ covered, known-blocked dependency �
 | Feature | Spec(s) | Status |
 |---|---|---|
 | Create-from-search wizard | `create-site.spec.ts`, `create-page-fixes.spec.ts`, `create-final-fixes.spec.ts`, `auto-create.spec.ts` | ✅ |
+| Create required-field blur error (WCAG 3.3.1) | `create-blur-required.e2e.ts` | ✅ |
 | Create z-index / repopulate edge cases | `create-zindex-repopulate.spec.ts`, `dropdown-zindex.spec.ts` | ✅ |
 | Global drag-anywhere upload (drop zone) | `admin-global-drop-zone.e2e.ts` | ✅ |
 | Category + special-char inputs | `heyo-category.spec.ts`, `heyo-special-chars.spec.ts`, `when-doody-calls.spec.ts` | ✅ |

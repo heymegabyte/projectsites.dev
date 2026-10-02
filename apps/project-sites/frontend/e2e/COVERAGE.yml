@@ -72,6 +72,9 @@ production_smoke:
   end_to_end_flow: { status: covered, specs: [production-flow.spec.ts] }
   heyo_create:     { status: covered, specs: [production-heyo.spec.ts] }
 
+create_a11y:
+  blur_required:   { status: covered, specs: [create-blur-required.e2e.ts] }  # WCAG 3.3.1 prod regression (fire-52 finding): /create wizard required-field inline error fires on focus-then-blur-empty (aria-invalid + visible message). Registered fire-86 (orphan — pre-existing inventory debt).
+
 a11y_responsive:
   admin_axe:           { status: covered, specs: [admin-a11y.e2e.ts] }
   admin_axe_mobile:    { status: covered, specs: [admin-a11y-mobile.e2e.ts] }
