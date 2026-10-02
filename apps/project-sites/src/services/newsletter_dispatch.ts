@@ -18,6 +18,7 @@
  */
 
 import type { NewsletterProvider } from '@project-sites/shared';
+import { isSafeWebhookUrl } from './outbound_webhooks.js';
 
 /** Stored integration row shape (same columns as `newsletter_integrations`). */
 export interface IntegrationRow {
@@ -266,8 +267,17 @@ async function dispatchResend(s: DispatchSubmission, row: IntegrationRow): Promi
 // ── Generic Webhook ──────────────────────────────────────────
 async function dispatchWebhook(s: DispatchSubmission, row: IntegrationRow): Promise<void> {
   if (!row.webhook_url) throw new Error('Webhook integration missing webhook_url');
+  // SSRF guard (CWE-918): webhook_url is a site-owner-set field. Reject private/
+  // loopback/metadata/non-https hosts at the egress boundary (reuses the canonical
+  // isSafeWebhookUrl from outbound_webhooks). redirect:'manual' then refuses to follow
+  // a 3xx bounce to an internal host — fetchWithTimeout throws on !res.ok, so a
+  // redirecting endpoint fails closed rather than SSRF-ing through the allowlist.
+  if (!isSafeWebhookUrl(row.webhook_url)) {
+    throw new Error('Webhook URL failed SSRF safety check (must be https to a public host)');
+  }
   await fetchWithTimeout(row.webhook_url, {
     method: 'POST',
+    redirect: 'manual',
     headers: {
       'Content-Type': 'application/json',
       'User-Agent': 'projectsites.dev/forms',

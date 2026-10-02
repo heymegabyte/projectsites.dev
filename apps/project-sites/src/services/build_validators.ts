@@ -901,6 +901,72 @@ export const validateHeroNotPackDefault = (files: BuildFile[]): Violation[] => {
 };
 
 /**
+ * Unfilled hero-H1 template tokens — the UNAMBIGUOUS, HARD-FAIL subset of the generic-hero class.
+ * Where {@link validateHeroNotPackDefault} is a judgment call on GENERIC-but-grammatical copy
+ * (hence `warn`), these are the literal placeholder tokens a build MUST have substituted before
+ * ship: an `{{business}}` / `{{businessName}}` / `{BUSINESS_NAME}` / `{HERO_HEADLINE}` left in the
+ * hero `<h1>` is a broken interpolation visible to EVERY visitor — the single most important
+ * conversion element renders a raw token. Matches `{{…}}` mustache, `{…}` single-brace, and
+ * `${…}` template-literal shapes for the known business/hero/tagline/city token names. Precise
+ * (validator-precision-discipline): anchored to the KNOWN token-name set, so legitimate hero copy
+ * that merely contains a brace (rare) never trips it.
+ */
+const UNFILLED_HERO_TOKEN_RE =
+  /(\{\{|\{|\$\{)\s*(business(?:[_\s]?name)?|biz(?:[_\s]?name)?|company(?:[_\s]?name)?|hero[_\s]?(?:headline|title|h1)?|headline|tagline|slogan|city|category|cat[_\s]?phrase)\s*(\}\}|\})/i;
+
+/**
+ * HARD generic-hero gate — the BUILD-BREAKING sibling of {@link validateHeroNotPackDefault}.
+ *
+ * The hero `<h1>` is the #1 conversion element; it MUST lead with the REAL business's value, never
+ * a placeholder token nor the verbatim industry content-pack default. Site-generation already wires
+ * the business name into the seeded H1 (`leadWithBusinessName` in `hero_copy.ts`, called on the
+ * fast-path HERO_HEADLINE seam), so a token/pack-default reaching the shipped shell means that
+ * substitution silently failed — exactly the class memory `generated-site-hero-h1-is-industry-pack-default`
+ * + `opt-in-prop-plus-uncalled-resolver-is-dead-default` warn about. This fails the build (`error`)
+ * on the two UNAMBIGUOUS cases a `warn` can't be trusted to block:
+ *
+ *  1. an UNFILLED template token in the H1 ({@link UNFILLED_HERO_TOKEN_RE}) — a broken interpolation;
+ *  2. the H1 equalling a known {@link PACK_DEFAULT_HEROES} entry VERBATIM — the un-customized pack
+ *     placeholder (the fuzzy city/persona `PACK_DEFAULT_HERO_PATTERNS` tells stay `warn`-only in
+ *     {@link validateHeroNotPackDefault} to preserve validator-precision; only the exact set hard-fails).
+ *
+ * Scans the prerendered HTML shell's H1 (script/style stripped, inner tags stripped). Non-content
+ * shells (404/500/offline) are skipped per `content-validators-must-exclude-non-content-shells`.
+ * Complements {@link validateH1InShell} (COUNT) + {@link validateNoBrandPlaceholders} (whole-doc
+ * `{BUSINESS_*}`) with a HERO-H1-specific hard gate on the un-customized / unfilled headline.
+ */
+export const validateHeroLeadsWithBusinessName = (files: BuildFile[]): Violation[] => {
+  const out: Violation[] = [];
+  const norm = (s: string): string => s.replace(/\s+/g, ' ').trim().toLowerCase();
+  const defaults = new Set(PACK_DEFAULT_HEROES.map(norm));
+  for (const file of files) {
+    if (!isContentHtml(file.path) || !file.text) continue;
+    const m = stripScripts(file.text).match(/<h1[^>]*>([\s\S]*?)<\/h1>/i);
+    if (!m) continue;
+    const raw = m[1].replace(/<[^>]+>/g, '').trim();
+    if (!raw) continue;
+    if (UNFILLED_HERO_TOKEN_RE.test(raw)) {
+      out.push({
+        code: 'copy.hero_unfilled_token',
+        severity: 'error',
+        message: `Hero <h1> "${raw}" still contains an unfilled template token ({{business}}/{HERO_HEADLINE}/…) — the #1 conversion element shipped a raw placeholder to every visitor. The business-name substitution (leadWithBusinessName / HERO_HEADLINE) did not fill it.`,
+        file: file.path,
+      });
+      continue;
+    }
+    if (defaults.has(norm(raw))) {
+      out.push({
+        code: 'copy.hero_pack_default',
+        severity: 'error',
+        message: `Hero <h1> "${raw}" is the industry content-pack DEFAULT verbatim — the hero never led with the real business name. Site-gen must apply the AI hero_headline / the leadWithBusinessName-seeded HERO_HEADLINE, never the pack placeholder.`,
+        file: file.path,
+      });
+    }
+  }
+  return out;
+};
+
+/**
  * Doubled-adjacent-word detector — catches a seed-token interpolation bug where a placeholder
  * value is pasted twice back-to-back ("Your your community local business", "LOCAL LOCAL BUSINESS
  * YOU CAN TRUST"). Unlike {@link validateHeroNotPackDefault} (a judgment call on GENERIC copy,
@@ -1883,6 +1949,7 @@ export const validateBuild = (
     ...validateSitemapRoutesExist(files),
     ...validateBannedWords(files),
     ...validateHeroNotPackDefault(files),
+    ...validateHeroLeadsWithBusinessName(files),
     ...validateAdjacentDuplicateWords(files),
     ...validateHeaderLogoAssetExistence(files),
     ...validateWordmarkContrast(files),

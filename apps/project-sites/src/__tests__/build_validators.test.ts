@@ -17,6 +17,7 @@ import {
   validateSitemapRoutesExist,
   validateBannedWords,
   validateHeroNotPackDefault,
+  validateHeroLeadsWithBusinessName,
   validateJsBundleSize,
   validateLightboxPresence,
   validateWebglHeroPresent,
@@ -632,6 +633,56 @@ describe('validateHeroNotPackDefault', () => {
       validateHeroNotPackDefault([
         file('index.html', shell("Franklin Barbecue — Austin's finest brisket, smoked 18 hours")),
       ]),
+    ).toEqual([]);
+  });
+});
+
+describe('validateHeroLeadsWithBusinessName (HARD gate: hero H1 must lead with the real business name)', () => {
+  const shell = (h1: string): string =>
+    `<!DOCTYPE html><html><head><title>x</title></head><body><h1>${h1}</h1></body></html>`;
+
+  it('FAILS (error) on an unfilled mustache token in the hero H1 — the substitution did not run', () => {
+    for (const h1 of ['{{business}}', '{{businessName}}', '{{ business_name }}', '{{businessName}} — Fresh daily']) {
+      const v = validateHeroLeadsWithBusinessName([file('index.html', shell(h1))]);
+      expect(v[0]?.code).toBe('copy.hero_unfilled_token');
+      expect(v[0]?.severity).toBe('error');
+    }
+  });
+
+  it('FAILS (error) on single-brace + template-literal hero tokens ({HERO_HEADLINE}/${businessName})', () => {
+    for (const h1 of ['{HERO_HEADLINE}', '{BUSINESS_NAME}', '${businessName}', '{headline}']) {
+      const v = validateHeroLeadsWithBusinessName([file('index.html', shell(h1))]);
+      expect(v[0]?.code).toBe('copy.hero_unfilled_token');
+      expect(v[0]?.severity).toBe('error');
+    }
+  });
+
+  it('FAILS (error) when the hero H1 is the industry content-pack DEFAULT verbatim', () => {
+    const v = validateHeroLeadsWithBusinessName([
+      file('index.html', shell('Fresh flavors, made from scratch')),
+    ]);
+    expect(v[0]?.code).toBe('copy.hero_pack_default');
+    expect(v[0]?.severity).toBe('error');
+  });
+
+  it('PASSES when the hero H1 leads with the real business name (leadWithBusinessName happy path)', () => {
+    const v = validateHeroLeadsWithBusinessName([
+      file('index.html', shell("Al's Breakfast — Minneapolis's cozy corner")),
+    ]);
+    expect(v).toEqual([]);
+  });
+
+  it('does NOT false-positive on a genuine business-specific hero with no token/pack-default', () => {
+    expect(
+      validateHeroLeadsWithBusinessName([
+        file('index.html', shell('Harborline: small-batch harbor roasts, roasted daily in Boston')),
+      ]),
+    ).toEqual([]);
+  });
+
+  it('skips non-content shells (404/500/offline) — they legitimately carry synthetic H1 copy', () => {
+    expect(
+      validateHeroLeadsWithBusinessName([file('404.html', shell('{{business}}'))]),
     ).toEqual([]);
   });
 });
