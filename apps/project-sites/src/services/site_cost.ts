@@ -32,8 +32,10 @@ import { z } from 'zod';
 
 import type { Env } from '../types/env.js';
 
+import { isFlagOn } from '../modules/feature_flags/services.js';
+
 import { type CfAuth, cfAuthHeaders, resolveCfCredentials } from './cf_credentials.js';
-import { dbQueryOne } from './db.js';
+import { dbQuery, dbQueryOne } from './db.js';
 import { FORBIDDEN_DB_IDS } from './site_data_db.js';
 import { siteFunctionsScriptName } from './wfp_dispatch.js';
 
@@ -132,6 +134,123 @@ export const DEFAULT_UNIT_PRICES = {
 
 /** The flat per-site platform fee (#2) — covers our absorbed CF base ($5 Workers Paid + $25 WfP). */
 export const PLATFORM_FEE_USD = 50;
+
+// ── pricing_config_v2 (fire-86) — super-admin-editable rates from D1, flag-gated ───────────────────
+
+/** A priced rate (label/unit/divisor stay code-owned; only `priceUsd` is configurable). */
+interface UnitPrice {
+  readonly label: string;
+  readonly unit: string;
+  readonly priceUsd: number;
+  readonly divisor: number;
+}
+
+/** The full resolved price set: one {@link UnitPrice} per metered line + the flat platform fee. */
+export interface ResolvedPricing {
+  readonly workerRequests: UnitPrice;
+  readonly workerCpu: UnitPrice;
+  readonly d1RowsRead: UnitPrice;
+  readonly d1RowsWritten: UnitPrice;
+  readonly d1Storage: UnitPrice;
+  readonly r2StorageStd: UnitPrice;
+  readonly r2ClassA: UnitPrice;
+  readonly r2ClassB: UnitPrice;
+  readonly platformFeeUsd: number;
+}
+
+/** The killswitch-safe hardcoded defaults ({@link DEFAULT_UNIT_PRICES} + {@link PLATFORM_FEE_USD}). */
+const DEFAULT_PRICING: ResolvedPricing = {
+  ...DEFAULT_UNIT_PRICES,
+  platformFeeUsd: PLATFORM_FEE_USD,
+};
+
+/**
+ * Zod shape of ONE {@link https://| `pricing_config`} row (migration 0655). `value_usd` is the
+ * full-precision authoritative rate; `value_cents` is the whole-cent fallback view. A row is usable
+ * only if at least one of the two is a finite non-negative number.
+ */
+const PricingConfigRowSchema = z
+  .object({
+    key: z.string().min(1),
+    value_cents: z.number().int().nonnegative().nullable().optional(),
+    value_usd: z.number().nonnegative().nullable().optional(),
+  })
+  .refine((r) => r.value_usd != null || r.value_cents != null, {
+    message: 'pricing_config row has neither value_usd nor value_cents',
+  });
+
+/** Maps each configurable `pricing_config.key` to the {@link ResolvedPricing} field it overrides. */
+const PRICING_KEY_TO_FIELD: Record<string, keyof typeof DEFAULT_UNIT_PRICES> = {
+  worker_requests: 'workerRequests',
+  worker_cpu: 'workerCpu',
+  d1_rows_read: 'd1RowsRead',
+  d1_rows_written: 'd1RowsWritten',
+  d1_storage: 'd1Storage',
+  r2_storage_std: 'r2StorageStd',
+  r2_class_a: 'r2ClassA',
+  r2_class_b: 'r2ClassB',
+};
+
+/** The authoritative USD rate for a validated row — prefers `value_usd`, else `value_cents / 100`. */
+function rowToUsd(row: z.infer<typeof PricingConfigRowSchema>): number {
+  if (typeof row.value_usd === 'number') return row.value_usd;
+  return (row.value_cents ?? 0) / 100;
+}
+
+/**
+ * Resolve the effective price set. When the `pricing_config_v2` flag is ON, load the super-admin-
+ * editable rates from the `pricing_config` D1 table (migration 0655) and overlay them onto the
+ * hardcoded defaults (code-owned label/unit/divisor preserved, only `priceUsd` + the platform fee
+ * replaced). When the flag is OFF — the default — return the hardcoded {@link DEFAULT_PRICING}
+ * UNCHANGED with ZERO DB read. Fail-soft: any DB error, missing row, or malformed row falls back to
+ * the hardcoded constant for that key, so a bad/empty table can NEVER break or inflate a bill.
+ *
+ * @param env - Worker env (needs `DB` + the flag resolver's bindings).
+ * @param scope - flag scope (the site's org) for per-org rollout targeting.
+ * @returns the resolved {@link ResolvedPricing}; identical to the hardcoded path when the flag is off
+ *   or when the seeded table matches the defaults. Never throws.
+ */
+export async function resolvePricing(
+  env: Env,
+  scope: { orgId?: string } = {},
+): Promise<ResolvedPricing> {
+  if (!(await isFlagOn(env, 'pricing_config_v2', scope))) return DEFAULT_PRICING;
+
+  const { data, error } = await dbQuery<{
+    key: string;
+    value_cents: number | null;
+    value_usd: number | null;
+  }>(env.DB, 'SELECT key, value_cents, value_usd FROM pricing_config', []);
+  // fail-soft: a drifted/absent table → the hardcoded floor (dbQuery already logged the error).
+  if (error || !data.length) return DEFAULT_PRICING;
+
+  // Start from a mutable copy of the defaults; overlay each valid row's rate.
+  const prices: Record<keyof typeof DEFAULT_UNIT_PRICES, UnitPrice> = {
+    workerRequests: { ...DEFAULT_UNIT_PRICES.workerRequests },
+    workerCpu: { ...DEFAULT_UNIT_PRICES.workerCpu },
+    d1RowsRead: { ...DEFAULT_UNIT_PRICES.d1RowsRead },
+    d1RowsWritten: { ...DEFAULT_UNIT_PRICES.d1RowsWritten },
+    d1Storage: { ...DEFAULT_UNIT_PRICES.d1Storage },
+    r2StorageStd: { ...DEFAULT_UNIT_PRICES.r2StorageStd },
+    r2ClassA: { ...DEFAULT_UNIT_PRICES.r2ClassA },
+    r2ClassB: { ...DEFAULT_UNIT_PRICES.r2ClassB },
+  };
+  let platformFeeUsd = PLATFORM_FEE_USD;
+
+  for (const raw of data) {
+    const parsed = PricingConfigRowSchema.safeParse(raw);
+    if (!parsed.success) continue; // malformed row → keep the default for that key.
+    if (parsed.data.key === 'platform_fee') {
+      platformFeeUsd = rowToUsd(parsed.data);
+      continue;
+    }
+    const field = PRICING_KEY_TO_FIELD[parsed.data.key];
+    if (!field) continue; // unknown key → ignore (forward-compatible).
+    prices[field] = { ...prices[field], priceUsd: rowToUsd(parsed.data) };
+  }
+
+  return { ...prices, platformFeeUsd };
+}
 
 /**
  * The SHARED R2 bucket holding every site's versioned production snapshots under `sites/{slug}/…`
@@ -539,36 +658,30 @@ async function assembleBreakdown(
     snapshotBucketName?: string | null;
     platformFeeUsd: number;
     includeContainerStub: boolean;
+    /** Resolved unit prices (flag-gated pricing_config, or the hardcoded defaults). */
+    pricing: ResolvedPricing;
   },
 ): Promise<SiteCostBreakdown> {
   const components: CostComponent[] = [];
   let anyProbeFailed = false;
+  const { pricing } = opts;
 
   // Component #1 — Worker requests + CPU.
   if (opts.scriptName) {
     const w = await fetchWorkerUsage(auth, accountTag, opts.scriptName, period);
     anyProbeFailed ||= !w.ok;
-    components.push(
-      priceLine('worker_requests', 1, w.requests, DEFAULT_UNIT_PRICES.workerRequests),
-    );
-    components.push(priceLine('worker_cpu', 1, w.cpuMs, DEFAULT_UNIT_PRICES.workerCpu));
+    components.push(priceLine('worker_requests', 1, w.requests, pricing.workerRequests));
+    components.push(priceLine('worker_cpu', 1, w.cpuMs, pricing.workerCpu));
   }
 
   // Component #1 — D1 rows-read/written + storage.
   if (opts.databaseId) {
     const d = await fetchD1Usage(auth, accountTag, opts.databaseId, period);
     anyProbeFailed ||= !d.ok;
-    components.push(priceLine('d1_rows_read', 1, d.rowsRead, DEFAULT_UNIT_PRICES.d1RowsRead));
+    components.push(priceLine('d1_rows_read', 1, d.rowsRead, pricing.d1RowsRead));
+    components.push(priceLine('d1_rows_written', 1, d.rowsWritten, pricing.d1RowsWritten));
     components.push(
-      priceLine('d1_rows_written', 1, d.rowsWritten, DEFAULT_UNIT_PRICES.d1RowsWritten),
-    );
-    components.push(
-      priceLine(
-        'd1_storage',
-        1,
-        storageGbMonths(d.storageBytes, period),
-        DEFAULT_UNIT_PRICES.d1Storage,
-      ),
+      priceLine('d1_storage', 1, storageGbMonths(d.storageBytes, period), pricing.d1Storage),
     );
   }
 
@@ -579,15 +692,10 @@ async function assembleBreakdown(
       fetchR2Storage(auth, accountTag, opts.bucketName, period),
     ]);
     anyProbeFailed ||= !ops.ok || !store.ok;
-    components.push(priceLine('r2_class_a', 1, ops.classA, DEFAULT_UNIT_PRICES.r2ClassA));
-    components.push(priceLine('r2_class_b', 1, ops.classB, DEFAULT_UNIT_PRICES.r2ClassB));
+    components.push(priceLine('r2_class_a', 1, ops.classA, pricing.r2ClassA));
+    components.push(priceLine('r2_class_b', 1, ops.classB, pricing.r2ClassB));
     components.push(
-      priceLine(
-        'r2_storage',
-        1,
-        storageGbMonths(store.storageBytes, period),
-        DEFAULT_UNIT_PRICES.r2StorageStd,
-      ),
+      priceLine('r2_storage', 1, storageGbMonths(store.storageBytes, period), pricing.r2StorageStd),
     );
   }
 
@@ -597,7 +705,7 @@ async function assembleBreakdown(
     anyProbeFailed ||= !snap.ok;
     components.push(
       priceLine('r2_snapshot_storage', 4, storageGbMonths(snap.storageBytes, period), {
-        ...DEFAULT_UNIT_PRICES.r2StorageStd,
+        ...pricing.r2StorageStd,
         label: 'Production snapshot storage (sites/)',
       }),
     );
@@ -661,9 +769,12 @@ export async function computeSiteCost(
   );
   const orgId = site?.org_id ?? null;
 
+  // Resolve the price set (flag-gated pricing_config overlay, or the hardcoded floor). Never throws.
+  const pricing = await resolvePricing(env, { orgId: orgId ?? undefined });
+
   const auth = await resolveCfCredentials(env, orgId);
   const accountTag = env.CF_ACCOUNT_ID;
-  if (!auth || !accountTag) return emptyEstimated(period, PLATFORM_FEE_USD);
+  if (!auth || !accountTag) return emptyEstimated(period, pricing.platformFeeUsd);
 
   const [databaseId, bucketName] = await Promise.all([
     resolveSiteDatabaseId(env, siteId),
@@ -676,8 +787,9 @@ export async function computeSiteCost(
     bucketName,
     // #4 — versioned production snapshots live under `sites/{slug}/…` in the shared sites bucket.
     snapshotBucketName: SITES_SNAPSHOT_BUCKET,
-    platformFeeUsd: PLATFORM_FEE_USD,
+    platformFeeUsd: pricing.platformFeeUsd,
     includeContainerStub: true,
+    pricing,
   });
 }
 
@@ -715,6 +827,9 @@ export async function computeInstanceCost(
     [instanceId],
   );
 
+  // Resolve unit prices (flag-gated). Instances carry NO platform fee (#2 is charged on the site).
+  const pricing = await resolvePricing(env, { orgId: instance?.org_id ?? undefined });
+
   const auth = await resolveCfCredentials(env, instance?.org_id ?? null);
   const accountTag = env.CF_ACCOUNT_ID;
   // Instances carry no platform fee (#2 is charged once, on the owning site).
@@ -732,5 +847,6 @@ export async function computeInstanceCost(
     snapshotBucketName: null,
     platformFeeUsd: 0,
     includeContainerStub: true,
+    pricing,
   });
 }
