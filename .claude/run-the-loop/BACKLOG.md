@@ -54,10 +54,10 @@
 
 - [x] (fire-71: WIRED. `buildPrompt` resolves a THEMED `webglHeroConfigFor(category)` per build + emits a MANDATORY "mount `<WebGLHero>` as hero first-child, static-fallback-safe, headline+CTA render early" step; new `validateWebglHeroPresent` gate (`webgl.hero_missing`, opt `hasWebglPack:true` always-on) fails any canvas-less build; worker-side `WEBGL_HERO_PRESETS` mirror in `theme_style.ts` because tsconfig can't import `templates/*.mjs`. TDD RED→GREEN: 5 validator + 4 resolver + 1 aggregate test; full worker suite 898 suites / 14155 tests OK, tsc 0 errors.) WebGL generation-consumption gap — packs carried `webgl` blocks + gate passed yet gp-09 rendered NO canvas; the pipeline wasn't EMITTING the WebGLHero into built sites [fire-70 CONFIRMED REAL — templates/webgl/WebGLHero.tsx + webgl-hero-core.mjs EXIST, zero refs in apps/project-sites/src = built-but-unwired P0; CLOSED fire-71]
   - cadence: next-fire · priority: high · category: product · estimate: 1h · discovered_by: fire-63-lane-B
-- [ ] Wire dead-toggle gate into the `check` aggregate (lane D rec: add check:dead-toggle + && into check chain) + prod-verify purge {purged,archived} echo on a real teardown
+- [x] Wire dead-toggle gate into the `check` aggregate (lane D rec: add check:dead-toggle + && into check chain) + prod-verify purge {purged,archived} echo on a real teardown  <!-- fire-76: CONFIRMED already-wired (pkg.json:31 check:dead-toggle); backlog was stale -->
   - cadence: next-fire · priority: medium · category: testing · estimate: 20m · discovered_by: fire-63-lane-D
 - [x] (fire-70 9f5909eb4) Wire orphaned /admin/sites grid into admin nav — Deep UI Explorer found the list route built but nav-unreachable; added Workspace "Sites" item + globe icon + lockstep spec; frontend R2 deployed
-- [ ] Golden-path money Journey A: Hosting view (~action 11) showed neither a "no build yet" state nor a Promote/Publish CTA within 10s — CONFIRM (stale selector vs real dead-end) then fix; spec at apps/project-sites/e2e/fire70-money-path.e2e.ts · priority: high · category: product · discovered_by: golden-path fire-70
+- [x] Golden-path money Journey A: Hosting view (~action 11) showed neither a "no build yet" state nor a Promote/Publish CTA within 10s — CONFIRM (stale selector vs real dead-end) then fix; spec at apps/project-sites/e2e/fire70-money-path.e2e.ts · priority: high · category: product · discovered_by: golden-path fire-70  <!-- fire-76: CONFIRMED STALE-SELECTOR, fixed fire-72 68e2af361, re-verified; hosting.component.ts:217-246 data-testid=hosting-publish -->
 
 ## WALKTHROUGH (WLK-*) — Brian STT walkthrough, absorbed fire-67 (2026-10-01)
 
@@ -1359,3 +1359,24 @@
 - [ ] **feature_flags seed-migration schema consolidation** (R6 advisory) — migrations 0586–0609 use `flag_name`+`metadata_json`; 0564–0565 use `key`+`enabled`+`rollout_percent`+`stage`. Validators pass (inert) but SSOT drift. Acceptance: one seed column shape, additive migration, `validate:features` green. Category: architecture. READY.
 - [ ] **4 phantom BACKLOG file-refs** (`node scripts/check-backlog-refs.mjs`) — `docs/COMPONENTS.md`, `e2e/gen-site/post-publish-console.spec.ts`, `src/lib/error_pages.ts`, `src/services/rag.ts` cited but absent under both bases. Acceptance: author the file OR re-scope the citing item to "needs authoring". Category: docs/cleanup. READY.
 - [ ] **Deep UI Explorer (R17) editor-slice walk** — DEFERRED fire-73 (money-path browser-verification consumed the browser slot; `CF_BROWSER_RUN_TOKEN` present, node_modules + .dev.vars present). Rotate from fire-72 analytics → editor Code/Data. Category: ux. READY next fire.
+
+## Fire-76 replenish (2026-10-02)
+
+- [ ] **Money-path: AI-build step has ZERO causal prod coverage** — fire70-money-path.e2e.ts stops at nav (accepts either state), never POSTs create-from-search nor watches workflow collecting→…→published; promote-workflow.e2e.ts runs on pre-built sites. Add a cost-gated (nightly/weekly) spec: UI "Create" → poll GET /api/sites/:id/workflow until published → assert live {slug}.projectsites.dev H1 contains the real business name → THEN editor+hosting+promote on that SAME id.
+  - priority: high · category: testing · discovered_by: fire-76-discovery
+- [ ] **SSRF redirect-follow: migrate+promote** — 4 un-audited raw redirect:'follow' sites remain (src/services/lead_enrichment.ts:113,172 · libs/features/system_status/service.ts:30 [target.url — likely user-configured, HIGH suspicion] · libs/features/domains/handlers.ts:1192). Per-site triage: migrate to safeFetch OR annotate `// safe-fetch-ok: <fixed-host reason>`; then switch check:safe-fetch to --ci + add to the `check` chain (promote detector → hard gate).
+  - priority: high · category: security · discovered_by: fire-76-security(Opus)
+- [ ] **Brand-quality: wire verify-logo-wordmark-contrast.mjs into CI** — probe exists in e2e/site-quality/ but is NOT globbed by run-all.mjs nor in any workflow; wire it (STRICT) on a sample of recent sites so dark-on-dark wordmark fails CI, not nightly-only.
+  - priority: medium · category: product · discovered_by: fire-76-discovery
+- [ ] **Brand-quality: build-time wordmark spelling check** — verify-wordmark-spelling.mjs runs schedule-only (prod-e2e.yml:492 if!=push); a misspelled Ideogram wordmark ships live. Add the OCR check as a validator-fixer step before upload-to-r2.mjs. Root: ai_workflows.ts:785 anti-text instruction covers the ICON but not the separate wordmark Ideogram call.
+  - priority: medium · category: product · discovered_by: fire-76-discovery
+- [ ] **Brand-quality: confirm hero H1 leadWithBusinessName is WIRED** — hero_copy.ts:415-479 leadWithBusinessName exists (closes H1-pack-default); grep site-generation.ts + ai_workflows.ts for a call site. Zero call sites = built-but-unwired. Acceptance: fresh <h1> contains real business name (new build_validators invariant html.h1_lacks_business_name).
+  - priority: medium · category: product · discovered_by: fire-76-discovery
+- [ ] **Brand-quality: hero image generic fallback tier** — hero_image.ts:320-325 returns null for any sub-vertical outside ~25 regex rules → broad pack default (next uncurated noun repeats the distillery miss). Add keyword-embedding/LLM classify fallback OR log the uncurated category to D1 so the gap is visible not silent.
+  - priority: medium · category: product · discovered_by: fire-76-discovery
+- [ ] **Brand-quality: eyebrow AA-contrast — confirm surface before fixing** — no live hero-eyebrow renderer in apps/project-sites (only dynamic_og_cards og_card_spec.ts:36, flag-dark). Likely template.projectsites.dev (cross-repo) OR an OG-card preview. Screenshot a live site hero + inspect computed color/bg before filing against the right repo.
+  - priority: low · category: product · discovered_by: fire-76-discovery
+- [ ] **Deep UI Explorer: add hosting-junction-a journey mode** — explorer.mjs money-funnel walks to site-detail Overview but never drills into the Hosting tab; add a small additive EXPLORER_JOURNEY=hosting-junction-a branch (modeled on money-funnel) for direct Hosting-CTA vision confirmation each fire.
+  - priority: low · category: testing · discovered_by: fire-76-role17
+- [ ] **AWOS-03: SiteEvent Durable Object emitter** — thin SiteEventLog DO accepting SiteEventSchema-validated writes → SQLite append + list(site,{since,type}) read; per-event-type payload schemas + D1/R2 persistence after. Builds on fire-76 SiteEvent base schema.
+  - priority: medium · category: architecture · discovered_by: fire-76-AWOS-02

@@ -594,3 +594,15 @@ launchd banner → in-session cron. Next task-selection now reads the merged fro
 - **Verified slice shipped**: machine-readable GP register `gp-register.json` (52 paths, honest seed statuses crosswalked to gp-01..09 + WLK IDs; `verify` entries await Golden Path Agent recon) + integrity gate `scripts/validate-gp-register.mjs` (validates sequence, enums, gp-NN crosswalk against GOLDEN-PATHS.md, WLK range; run GREEN pre-commit — proof in the adoption commit). AWOS-01 wires it into fire protocol step 4.
 - **Decision memory persisted**: ADR `apps/project-sites/docs/decisions/0057-autonomous-website-os-contract.md` (standing decision rules: CF-first hierarchy, momentum gate, strict namespacing, autonomy levels, acceptance oracle, mapping≠verified coverage, deterministic authorization, budget hard-caps) · README file-map entry · ARCHITECTURE.md § North star · PENDING-DIRECTIVES Directive 3 → ✅ ADOPTED.
 - **Contract conformance notes**: §E honored (detail lives in canonical docs; loop instructions carry pointers only — the 4K-line prompt is NEVER pasted into agent briefs). § Truthfulness: no tests beyond the register gate ran this session; no deploy occurred; nothing beyond the artifacts above is claimed. Next concrete work: next fire picks up AWOS-01 (register recon + step-4 wiring) alongside the live LAUNCH-BAR/NORTH-STAR ranking.
+
+## fire-76 — 2026-10-02 (converge; reclaimed STALE fire-76 lease — prior lead died ~1 heartbeat post-claim)
+- d10f32b02 chore(loop): salvage ageMin lease-diagnostics helper (orphaned by the dead prior fire-76 lead)
+- e653ebe76 feat(shared): SiteEvent Zod base schema (AWOS-02 P0) — packages/shared, 22 unit tests, 603 total green, tsc 0
+- b93220518 fix(security): SSRF — route discover-images HEAD probe through safeFetch (closes the sibling fire-75 missed); + check-safe-fetch-redirect.mjs detector (soft-info) + check:safe-fetch script
+- Role 1 (money-path Junction-A): CONFIRMED stale-selector, already fixed fire-72 (68e2af361) — NO code change; BACKLOG:60 ticked. Re-confirm-before-fix prevented a wasted re-fix.
+- Role 4 (Opus security): fire-70..75 diff audit — 1 HIGH SSRF (fixed above), everything else clean (eager-D1, logs super-admin gate, per-site D1 IDOR, build-metrics, Ideogram key threading).
+- Role 3 (discovery): money-path weakest link = AI-build step has zero causal prod coverage; brand cluster decomposed into 5 root-caused items → 9 replenish items appended.
+- Role 17 (Deep UI Explorer): produced a plan (did not execute the run); explorer pipeline confirmed LIVE (same-day cloudflare-browser-run CLOUD_PASS, brian@megabyte.space isSuperAdmin). Role-16 long-trail deferred this fire (avoid 2 browser roles on one stack; checkpoint-case-001 resumes next fire).
+- Gates: tsc 0 · validate:features PASS 0-drift · lefthook pre-commit (resurrection-guard + feature-drift) PASS
+- loop-improvement: check-safe-fetch-redirect.mjs SSRF redirect-follow detector (Detect+Surface rung, audit-arc ladder) + salvaged the dead lead's ageMin lock-diagnostics helper
+- prod-verify: SEE_DEPLOY_SECTION
