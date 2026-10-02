@@ -66,6 +66,17 @@ a role under-delivered.
 - **Context budget (per `monitor-orchestration` § context thrash):** the main thread holds conclusions only. Never ingest `_LOOP_LEDGER.md` / `SCOPE.md` / `DECISIONS.md` / subagent `.output` transcripts — the `guard-oversized-read.py` hook will block oversized reads; heed it.
 - **HARD STOP = LEAD saturation ONLY, never a single agent's transient failure** (per `OPERATING-PRINCIPLES.md` § Failure taxonomy vs HARD-STOP). Checkpoint to `progress.md` + fresh session ONLY when the ORCHESTRATOR hits "Prompt is too long" / an `autocompact thrashing` notice fires on the LEAD / the main thread can't spawn. ONE agent dying on ECONNRESET or returning `subagent_tokens: 0` from a network drop is fan-out ATTRITION → salvage its commit (`git show <branch-tip>` before `git branch -D`), re-queue its slice in `BACKLOG.md`, and KEEP THE LOOP RUNNING. Read WHICH thing failed before checkpointing.
 
+## 0.5 — Prompt Intake Queue (~/Downloads `projectsites*.md` / `ProjectSites*.md`) — drain ONE per fire
+Brian drops master prompts into `~/Downloads`. The queue is tracked in
+`.claude/run-the-loop/DOWNLOADS-INTAKE-QUEUE.md` (one row per file: `queued | draining | absorbed`).
+Each fire, right after the lease claim, intake ONE:
+- **Scan** `~/Downloads` for `projectsites*.md` + `ProjectSites*.md` (case-insensitive); reconcile any NEW file into the queue as `queued`.
+- **Take exactly ONE per fire, OLDEST-first** (FIFO — nothing starves). Never process >1 master prompt in one fire.
+- **NEVER read the file in the lead** — they run 28K–224K; the oversized-read guard blocks them and they thrash the lead. Delegate to a FRESH agent (`Explore`/`architect`) that reads it and returns ≤150 lines: its SPIRIT + concrete, deduplicated BACKLOG items (schema/handler/UI/test/flag slices), each sized for ONE future fire.
+- **Import the SPIRIT, split the work into the ledger** — fold the decomposed items into `BACKLOG.md` (dedupe vs the frontier) + note the intake in `LEDGER.md`. Do NOT execute the whole prompt this fire; advance only the decision-independent slice(s) that fit this fire's budget. The rest lives in the ledger for many future optimization cycles (global rule `split-work-into-ledger` — prefer depth-per-element over one mega-pass).
+- **DELETE the file once its spirit is captured** (`rm ~/Downloads/<file>`) and flip its queue row to `absorbed` (date + the BACKLOG ids it produced). "Done with it" = spirit decomposed into the ledger, NOT the whole prompt executed. NEVER delete a file whose spirit isn't yet in the ledger.
+- Empty queue → skip this phase.
+
 ## The 4 canonical answers (BAKED IN — init-gate satisfied 2026-09-29, DO NOT re-ask)
 These are settled. Never re-prompt Brian for them; they govern every fire.
 1. **Priority journey = the money path** — `search → sign in → AI build → view live → edit → publish`. Every fire keeps this path green + gorgeous + embarrassingly easy first; other work is secondary.
