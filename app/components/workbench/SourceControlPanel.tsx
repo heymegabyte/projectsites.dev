@@ -37,6 +37,7 @@ import { useStore } from '@nanostores/react';
 import React, { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 import { classNames } from '~/utils/classNames';
+import { PanelShell, PanelHeader } from './panel';
 import { workbenchStore } from '~/lib/stores/workbench';
 import { WORK_DIR } from '~/utils/constants';
 import {
@@ -539,10 +540,7 @@ export const SourceControlPanel = memo(() => {
   const counts = useMemo(() => (changes.status === 'ready' ? countChanges(changes.changes) : null), [changes]);
 
   return (
-    <div
-      className="h-full flex flex-col bg-bolt-elements-background-depth-1 text-bolt-elements-textPrimary"
-      data-testid="source-control-panel"
-    >
+    <PanelShell testId="source-control-panel">
       <Header
         tab={tab}
         onTab={setTab}
@@ -576,7 +574,7 @@ export const SourceControlPanel = memo(() => {
 
       {/* Panel-scoped keyframes — precedence-tagged so React 19 hoists them (never a string-child <style>). */}
       <SourceControlKeyframes />
-    </div>
+    </PanelShell>
   );
 });
 
@@ -623,31 +621,20 @@ const Header = memo(
     onPromoteRetry: () => void;
     onPromoteDismiss: () => void;
   }) => (
-    <div
-      className={classNames(
-        'flex flex-col gap-2 px-3 py-2.5 shrink-0 border-b border-bolt-elements-borderColor',
-        'bg-gradient-to-b from-bolt-elements-background-depth-2 to-bolt-elements-background-depth-1',
-      )}
-    >
-      <div className="flex items-center gap-2.5">
-        <div className="relative flex h-7 w-7 shrink-0 items-center justify-center rounded-lg border border-bolt-elements-item-contentAccent/25 bg-bolt-elements-item-contentAccent/10">
-          <div className="i-ph:git-diff-duotone text-base text-bolt-elements-item-contentAccent" aria-hidden="true" />
-        </div>
-        <div className="min-w-0">
-          <h2 className="text-sm font-semibold leading-tight text-bolt-elements-textPrimary tracking-tight">
-            Source Control
-          </h2>
-          <p className="text-[10px] leading-tight text-bolt-elements-textTertiary truncate">
-            {tab === 'changes'
-              ? count !== null
-                ? count > 0
-                  ? `${count} change${count === 1 ? '' : 's'} in Preview${version ? ` · vs ${version}` : ''}`
-                  : `Preview matches your published build${version ? ` · ${version}` : ''}`
-                : 'Your Preview working tree'
-              : 'Release history · your Production timeline'}
-          </p>
-        </div>
-        <div className="ml-auto flex items-center gap-2 shrink-0">
+    <PanelHeader
+      icon="i-ph:git-diff-duotone"
+      title="Source Control"
+      subtitle={
+        tab === 'changes'
+          ? count !== null
+            ? count > 0
+              ? `${count} change${count === 1 ? '' : 's'} in Preview${version ? ` · vs ${version}` : ''}`
+              : `Preview matches your published build${version ? ` · ${version}` : ''}`
+            : 'Your Preview working tree'
+          : 'Release history · your Production timeline'
+      }
+      actions={
+        <>
           <div
             className="flex items-center rounded-lg border border-bolt-elements-borderColor bg-bolt-elements-background-depth-1 p-0.5"
             role="tablist"
@@ -686,12 +673,15 @@ const Header = memo(
             onPromote={onPromote}
           />
           <IconButton icon="i-ph:arrows-clockwise" label="Refresh" variant="secondary" onClick={onRefresh} />
+        </>
+      }
+      toolbar={
+        <div className="flex flex-col gap-2">
+          <SyncIndicator sync={sync} />
+          <PromoteStatus promote={promote} onRetry={onPromoteRetry} onDismiss={onPromoteDismiss} />
         </div>
-      </div>
-
-      <SyncIndicator sync={sync} />
-      <PromoteStatus promote={promote} onRetry={onPromoteRetry} onDismiss={onPromoteDismiss} />
-    </div>
+      }
+    />
   ),
 );
 
