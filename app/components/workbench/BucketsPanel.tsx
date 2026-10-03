@@ -23,6 +23,7 @@
 import React, { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { classNames } from '~/utils/classNames';
 import { PanelShell, PanelHeader } from './panel';
+import { PanelEmpty } from './panel/PanelEmpty';
 import {
   isEmbedded,
   postToastToParent,
@@ -1928,32 +1929,22 @@ ObjectsNeedsCreds.displayName = 'BucketsPanel.ObjectsNeedsCreds';
 // ── Empty states (launchpads) ────────────────────────────────────────────────
 
 const BucketsEmpty = memo(({ onCreate }: { onCreate: () => void }) => (
-  <div className="flex-1 flex flex-col items-center justify-center gap-4 p-8 text-center" data-testid="buckets-empty">
-    <div className="relative flex items-center justify-center h-16 w-16 rounded-2xl border border-bolt-elements-item-contentAccent/25 bg-bolt-elements-item-contentAccent/[0.06]">
-      <div
-        aria-hidden
-        className="absolute inset-0 rounded-2xl opacity-60"
-        style={{
-          background: `radial-gradient(60% 60% at 50% 30%, color-mix(in oklch, ${PURPLE} 22%, transparent), transparent)`,
-        }}
-      />
-      <div className="relative i-ph:bucket-duotone text-3xl text-bolt-elements-item-contentAccent" aria-hidden />
-    </div>
-    <div className="space-y-1">
-      <p className="text-sm font-semibold text-bolt-elements-textPrimary">No buckets yet</p>
-      <p className="text-[11px] text-bolt-elements-textTertiary max-w-[240px] leading-relaxed">
-        Create a bucket to store files for your site — uploads, media, exports, anything.
-      </p>
-    </div>
-    <button
-      type="button"
-      onClick={onCreate}
-      data-testid="buckets-empty-create"
-      className={classNames(BTN_PRIMARY, 'min-h-[30px] px-4 py-2 text-[12px]')}
-    >
-      <div className="i-ph:plus-bold text-sm" aria-hidden /> Create your first bucket
-    </button>
-  </div>
+  <PanelEmpty
+    testId="buckets-empty"
+    icon="i-ph:bucket-duotone"
+    title="No buckets yet"
+    description="Create a bucket to store files for your site — uploads, media, exports, anything."
+    action={
+      <button
+        type="button"
+        onClick={onCreate}
+        data-testid="buckets-empty-create"
+        className={classNames(BTN_PRIMARY, 'min-h-[30px] px-4 py-2 text-[12px]')}
+      >
+        <div className="i-ph:plus-bold text-sm" aria-hidden /> Create your first bucket
+      </button>
+    }
+  />
 ));
 
 BucketsEmpty.displayName = 'BucketsPanel.BucketsEmpty';

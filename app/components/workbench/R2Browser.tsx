@@ -23,6 +23,7 @@ import React, { memo, useCallback, useEffect, useMemo, useRef, useState } from '
 
 import { classNames } from '~/utils/classNames';
 import { PanelShell, PanelHeader } from './panel';
+import { PanelEmpty } from './panel/PanelEmpty';
 import { ConfirmationDialog } from '~/components/ui/Dialog';
 import { isEmbedded, onParentMessage, postToParent, type ResDetailResponseMessage } from '~/lib/embed/embedded-mode';
 
@@ -583,17 +584,30 @@ export const R2Browser = memo(({ target, mutate }: R2BrowserProps) => {
         )}
 
         {state.status === 'ready' && folders.length === 0 && files.length === 0 && (
-          <div className="flex flex-col items-center justify-center gap-2 px-4 py-10 text-center">
-            <div className="i-ph:folder-open-duotone text-3xl text-bolt-elements-textTertiary" />
-            <p className="text-sm text-bolt-elements-textSecondary">This bucket is empty.</p>
-            <button
-              type="button"
-              onClick={() => fileInputRef.current?.click()}
-              className="text-xs text-bolt-elements-item-contentAccent hover:underline cursor-pointer"
-            >
-              Upload your first file
-            </button>
-          </div>
+          <PanelEmpty
+            testId="r2-browser-empty"
+            icon="i-ph:folder-open-duotone"
+            title="This bucket is empty"
+            description="Upload a file to get started — images, documents, exports, anything your site needs."
+            action={
+              <button
+                type="button"
+                data-testid="r2-empty-upload"
+                disabled={uploading}
+                onClick={() => fileInputRef.current?.click()}
+                className="min-h-[30px] inline-flex items-center gap-1.5 rounded-lg bg-bolt-elements-item-backgroundAccent px-4 py-2 text-[12px] font-semibold text-bolt-elements-item-contentAccent hover:bg-bolt-elements-background-depth-3 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-bolt-elements-item-contentAccent cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                <div
+                  className={classNames(
+                    uploading ? 'i-ph:circle-notch animate-spin motion-reduce:animate-none' : 'i-ph:upload-simple-duotone',
+                    'text-sm',
+                  )}
+                  aria-hidden
+                />
+                Upload your first file
+              </button>
+            }
+          />
         )}
 
         {state.status === 'ready' && (folders.length > 0 || files.length > 0) && (
