@@ -70,8 +70,8 @@ export default function PanelPrimitiveGallery() {
               }
             />
             <div className="p-4 text-sm text-bolt-elements-textSecondary">
-              Panel body content sits beneath the canonical header — this is the one root wrapper every
-              workbench panel composes.
+              Panel body content sits beneath the canonical header — this is the one root wrapper every workbench panel
+              composes.
             </div>
           </PanelShell>
         </Frame>
@@ -118,8 +118,8 @@ export default function PanelPrimitiveGallery() {
               }
             />
             <div className="p-4 text-sm text-bolt-elements-textSecondary">
-              The <code className="text-bolt-elements-item-contentAccent">leading</code> slot renders a
-              back affordance before the icon badge, so a detail drill-in reads left-to-right.
+              The <code className="text-bolt-elements-item-contentAccent">leading</code> slot renders a back affordance
+              before the icon badge, so a detail drill-in reads left-to-right.
             </div>
           </PanelShell>
         </Frame>
