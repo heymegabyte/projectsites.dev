@@ -29,6 +29,7 @@ import { DomSanitizer, type SafeResourceUrl } from '@angular/platform-browser';
 import { forkJoin, of } from 'rxjs';
 import { catchError } from 'rxjs/operators';
 import { ApiService } from './api.service';
+import { resolveResourceKind } from './ps-bridge';
 import { ToastService } from './toast.service';
 import { DomainMenuService } from '../components/domain-menu/domain-menu.service';
 
@@ -2384,12 +2385,7 @@ export class BoltEmbedService {
           // The editor's bridge interface (`ResDetailRequestMessage`) names this field `kind`; accept
           // `resourceKind` only as a legacy fallback. Reading `resourceKind` FIRST was a field-name drift
           // that left `kind` undefined → every detail drill-in failed "Failed to load resource" (AL-fix).
-          const kind =
-            typeof msg.kind === 'string' && msg.kind
-              ? msg.kind
-              : typeof msg.resourceKind === 'string' && msg.resourceKind
-                ? msg.resourceKind
-                : undefined;
+          const kind = resolveResourceKind(msg);
           const detailAction = msg.action === 'get' ? 'get' : 'list';
           const environment = typeof msg.environment === 'string' && msg.environment ? msg.environment : undefined;
           const reply = (payload: Record<string, unknown>): void => {
@@ -2461,12 +2457,7 @@ export class BoltEmbedService {
           // `resourceKind` only as a legacy fallback. Reading `resourceKind` FIRST was a field-name drift
           // that left `kind` undefined → an inline Data-tab cell edit (PS_RES_MUTATE {kind:'d1',action:'exec'})
           // always short-circuited "Failed to perform action" before the UPDATE ever reached the worker (AL-fix).
-          const kind =
-            typeof msg.kind === 'string' && msg.kind
-              ? msg.kind
-              : typeof msg.resourceKind === 'string' && msg.resourceKind
-                ? msg.resourceKind
-                : undefined;
+          const kind = resolveResourceKind(msg);
           const mutateAction = typeof msg.action === 'string' && msg.action ? msg.action : undefined;
           const environment = typeof msg.environment === 'string' && msg.environment ? msg.environment : undefined;
           const reply = (payload: Record<string, unknown>): void => {
