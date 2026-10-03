@@ -24,6 +24,7 @@
  */
 import React, { memo, useCallback, useEffect, useRef, useState } from 'react';
 import { classNames } from '~/utils/classNames';
+import { PanelShell, PanelHeader } from './panel';
 import { isEmbedded, requestAutomations, type AutomationEntry } from '~/lib/embed/embedded-mode';
 
 // ── Brand accents (mirror BucketsPanel / ResourcesPanel) ──────────────────────
@@ -246,20 +247,14 @@ export const AutomationsPanel = memo(() => {
 
   if (state.status === 'disabled') {
     return (
-      <div
-        className="h-full flex flex-col bg-bolt-elements-background-depth-1 text-bolt-elements-textPrimary [color-scheme:dark]"
-        data-testid="automations-panel"
-      >
+      <PanelShell testId="automations-panel">
         <DisabledCard />
-      </div>
+      </PanelShell>
     );
   }
 
   return (
-    <div
-      className="h-full flex flex-col bg-bolt-elements-background-depth-1 text-bolt-elements-textPrimary [color-scheme:dark]"
-      data-testid="automations-panel"
-    >
+    <PanelShell testId="automations-panel">
       <AutomationsHeader count={state.status === 'ready' ? state.automations.length : undefined} />
 
       <div className="flex-1 overflow-auto modern-scrollbar min-h-0">
@@ -276,7 +271,7 @@ export const AutomationsPanel = memo(() => {
             </ul>
           ))}
       </div>
-    </div>
+    </PanelShell>
   );
 });
 
@@ -285,39 +280,24 @@ AutomationsPanel.displayName = 'AutomationsPanel';
 // ── Header ───────────────────────────────────────────────────────────────────
 
 const AutomationsHeader = memo(({ count }: { count?: number }) => (
-  <div className="relative border-b border-bolt-elements-borderColor shrink-0 overflow-hidden">
-    {/* Cinematic cyan→purple brand wash (mirrors the sibling panels). */}
-    <div
-      aria-hidden="true"
-      className="pointer-events-none absolute inset-0"
-      style={{
-        background:
-          'radial-gradient(120% 140% at 0% 0%, color-mix(in oklch, #00e5ff 12%, transparent), transparent 42%), ' +
-          'radial-gradient(90% 120% at 100% 0%, color-mix(in oklch, #7c3aed 12%, transparent), transparent 46%)',
-      }}
-    />
-    <div className="relative flex items-center gap-3 px-4 py-3">
-      <div className="flex items-center justify-center h-9 w-9 rounded-xl border border-bolt-elements-item-contentAccent/30 bg-bolt-elements-item-contentAccent/[0.08] shadow-inner shadow-bolt-elements-item-contentAccent/10 shrink-0">
-        <div className="i-ph:lightning-duotone text-xl text-bolt-elements-item-contentAccent" />
-      </div>
-      <div className="min-w-0 flex-1">
-        <h2 className="text-sm font-semibold text-bolt-elements-textPrimary tracking-tight">Automations</h2>
-        <p className="text-[10px] text-bolt-elements-textTertiary truncate tabular-nums">
-          {count !== undefined && count > 0 ? (
-            <>
-              <span className="text-bolt-elements-textSecondary font-medium">{count}</span> automation
-              {count === 1 ? '' : 's'} · newest first
-            </>
-          ) : (
-            'What ran for your site — builds, deploys & more'
-          )}
-        </p>
-      </div>
-
-      {/* Live affordance — the list self-updates on a visibility-aware poll; no manual Refresh
-          (per `real-time-data-no-manual-refresh`). */}
+  <PanelHeader
+    icon="i-ph:lightning-duotone"
+    title="Automations"
+    subtitle={
+      count !== undefined && count > 0 ? (
+        <span className="tabular-nums">
+          <span className="text-bolt-elements-textSecondary font-medium">{count}</span> automation
+          {count === 1 ? '' : 's'} · newest first
+        </span>
+      ) : (
+        'What ran for your site — builds, deploys & more'
+      )
+    }
+    actions={
+      // Live affordance — the list self-updates on a visibility-aware poll; no manual Refresh
+      // (per `real-time-data-no-manual-refresh`).
       <span
-        className="ml-auto hidden sm:inline-flex items-center gap-1.5 text-[10px] text-bolt-elements-textTertiary select-none shrink-0"
+        className="hidden sm:inline-flex items-center gap-1.5 text-[10px] text-bolt-elements-textTertiary select-none shrink-0"
         role="status"
         aria-live="off"
         title="This view updates itself automatically"
@@ -328,8 +308,8 @@ const AutomationsHeader = memo(({ count }: { count?: number }) => (
         />
         Live
       </span>
-    </div>
-  </div>
+    }
+  />
 ));
 
 AutomationsHeader.displayName = 'AutomationsPanel.Header';

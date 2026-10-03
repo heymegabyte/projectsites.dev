@@ -31,6 +31,7 @@ import {
   type ResMutateResponseMessage,
 } from '~/lib/embed/embedded-mode';
 import { formatKvExpiration, parseMaybeJson, decideKvExpiry } from './kv-browser-logic';
+import { PanelShell, PanelHeader } from './panel';
 import { classNames } from '~/utils/classNames';
 
 // ── Constants ──────────────────────────────────────────────────────────────
@@ -466,10 +467,7 @@ export const KvBrowser = memo(() => {
   // ── Disabled (dark flag) — honest "not enabled yet", never a scary error ──
   if (disabled) {
     return (
-      <div
-        className="h-full flex flex-col items-center justify-center gap-3 p-8 text-center"
-        data-testid="database-kv-disabled"
-      >
+      <PanelShell testId="database-kv-disabled" className="items-center justify-center gap-3 p-8 text-center">
         <div className="i-ph:lock-key text-3xl text-bolt-elements-textTertiary" />
         <p className="text-sm font-medium text-bolt-elements-textSecondary">
           Key-value storage isn&rsquo;t enabled yet
@@ -478,60 +476,57 @@ export const KvBrowser = memo(() => {
           Your site&rsquo;s own KV is on the way. Once it&rsquo;s turned on, you can browse, add, and edit keys here —
           nothing to set up.
         </p>
-      </div>
+      </PanelShell>
     );
   }
 
   return (
-    <div className="flex h-full flex-col" data-testid="database-kv-browser" style={{ colorScheme: 'dark' }}>
-      {/* Toolbar — prefix search + add-key */}
-      <div className="flex flex-wrap items-center gap-2 border-b border-bolt-elements-borderColor/60 p-3 shrink-0">
-        <div className="i-ph:key-duotone text-lg text-bolt-elements-item-contentAccent" aria-hidden />
-        <div className="min-w-0">
-          <h2 className="text-sm font-semibold tracking-tight text-bolt-elements-textPrimary">KV manager</h2>
-          <p className="text-[10px] text-bolt-elements-textTertiary truncate">
-            Your site&rsquo;s own key-value store — eventually consistent (~60s to propagate)
-          </p>
-        </div>
-        <div className="ml-auto flex items-center gap-1.5">
-          <input
-            type="text"
-            value={prefix}
-            onChange={(e) => setPrefix(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === 'Enter') {
+    <PanelShell testId="database-kv-browser">
+      <PanelHeader
+        icon="i-ph:key-duotone"
+        title="KV manager"
+        subtitle="Your site's own key-value store — eventually consistent (~60s to propagate)"
+        actions={
+          <>
+            <input
+              type="text"
+              value={prefix}
+              onChange={(e) => setPrefix(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') {
+                  setCursor(undefined);
+                  void loadKeys(true);
+                }
+              }}
+              placeholder="Prefix filter (Enter)"
+              data-testid="database-kv-prefix"
+              aria-label="Filter keys by prefix"
+              className="min-h-[24px] w-40 rounded-md border border-bolt-elements-borderColor bg-bolt-elements-background-depth-2 px-2.5 py-1 text-[12px] text-bolt-elements-textPrimary placeholder:text-bolt-elements-textTertiary focus:outline-none focus:border-bolt-elements-item-contentAccent/50"
+            />
+            <button
+              type="button"
+              onClick={() => {
                 setCursor(undefined);
                 void loadKeys(true);
-              }
-            }}
-            placeholder="Prefix filter (Enter)"
-            data-testid="database-kv-prefix"
-            aria-label="Filter keys by prefix"
-            className="min-h-[24px] w-40 rounded-md border border-bolt-elements-borderColor bg-bolt-elements-background-depth-2 px-2.5 py-1 text-[12px] text-bolt-elements-textPrimary placeholder:text-bolt-elements-textTertiary focus:outline-none focus:border-bolt-elements-item-contentAccent/50"
-          />
-          <button
-            type="button"
-            onClick={() => {
-              setCursor(undefined);
-              void loadKeys(true);
-            }}
-            data-testid="database-kv-search"
-            title="Search keys by prefix"
-            className="min-h-[24px] rounded-md border border-bolt-elements-borderColor px-2.5 py-1 text-[11px] text-bolt-elements-textSecondary hover:border-bolt-elements-item-contentAccent/40 hover:text-bolt-elements-textPrimary transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-bolt-elements-item-contentAccent cursor-pointer"
-          >
-            Search
-          </button>
-          <button
-            type="button"
-            onClick={beginAdd}
-            data-testid="database-kv-add"
-            title="Add a new key to your site's KV"
-            className="min-h-[24px] rounded-md border border-bolt-elements-item-contentAccent/40 px-2.5 py-1 text-[11px] font-medium text-bolt-elements-item-contentAccent hover:bg-bolt-elements-item-contentAccent/10 transition-colors flex items-center gap-1 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-bolt-elements-item-contentAccent cursor-pointer"
-          >
-            <div className="i-ph:plus" /> Add key
-          </button>
-        </div>
-      </div>
+              }}
+              data-testid="database-kv-search"
+              title="Search keys by prefix"
+              className="min-h-[24px] rounded-md border border-bolt-elements-borderColor px-2.5 py-1 text-[11px] text-bolt-elements-textSecondary hover:border-bolt-elements-item-contentAccent/40 hover:text-bolt-elements-textPrimary transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-bolt-elements-item-contentAccent cursor-pointer"
+            >
+              Search
+            </button>
+            <button
+              type="button"
+              onClick={beginAdd}
+              data-testid="database-kv-add"
+              title="Add a new key to your site's KV"
+              className="min-h-[24px] rounded-md border border-bolt-elements-item-contentAccent/40 px-2.5 py-1 text-[11px] font-medium text-bolt-elements-item-contentAccent hover:bg-bolt-elements-item-contentAccent/10 transition-colors flex items-center gap-1 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-bolt-elements-item-contentAccent cursor-pointer"
+            >
+              <div className="i-ph:plus" /> Add key
+            </button>
+          </>
+        }
+      />
 
       <div className="flex min-h-0 flex-1 flex-col gap-2 p-3 md:flex-row md:items-start">
         {/* Key list */}
@@ -844,7 +839,7 @@ export const KvBrowser = memo(() => {
           )}
         </div>
       </div>
-    </div>
+    </PanelShell>
   );
 });
 
