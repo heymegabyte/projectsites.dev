@@ -1630,3 +1630,38 @@ Spirit: external-worker broker (MiniMax primary / DeepSeek overflow / OpenAI vis
 
 ### ⚠️ Open question — CONTRADICTS settled doctrine (per run-the-loop §0.5; Brian decides, NEVER auto-flip)
 - [ ] 🔑 CBD-skills-2 **BLOCKED — MiniMax-FIRST routing**. The intake proposes MiniMax as the PRIMARY worker (DeepSeek overflow). This REVERSES settled DeepSeek-first doctrine ([[llm-fallback-must-scope-model-to-primary-provider]]; current session model = DeepSeek V4-Pro). Per §0.5 a doctrine contradiction is an Open Question, never an autonomous flip. DECISION NEEDED (Brian): keep DeepSeek-first, or adopt MiniMax-first? Routing is UNCHANGED until decided. disposition **blocked**
+
+## intake (fire-101b absorbed 2026-10-03) — corrective §0.5 drain of 5 ~/Downloads prompts
+<!-- 3 THIS-REPO absorbed+deleted (agent-computer, value-first, 50-rounds); 2 ROUTE-TO-GLOBAL left in place (shared-policy, all-capabilities). Agents deduped HARD vs BRW-*/CAMPAIGN/CBD/INT-*; only net-new items below. -->
+
+### Agent-Computer runtime (from projectsites-cloudflare-agent-computer-prompt.md — THIS-REPO)
+- [ ] AGENT-COMPUTER-ADR: author the Agent-Computer runtime ADR — Browser-Run(default)/headless-runner/desktop(container+noVNC) adapters over ONE service + DO control-lease + state-machine; cite CF sandbox lifetime/snapshot limits + sandbox.desktop removal — acceptance: ADR in docs/decisions/ naming each adapter's view/input/persistence/auth capability + the no-desktop-per-subagent rule, flag-dark.
+  - cadence: next-4-fires · priority: med · category: feature · discovered_by: fire-101b-intake
+- [ ] AGENT-COMPUTER-PERSIST: two explicit persistence formats + cold-restore (Browser-Run origin-scoped auth storage vs desktop encrypted versioned R2 backup; reuse ai_crypto.ts; assertProfileOwned) — acceptance: an authed fixture survives save → full stop → fresh-instance restore via R2-only recovery; a failed restore never silently yields an empty profile.
+  - cadence: next-4-fires · priority: med · category: feature · discovered_by: fire-101b-intake
+- [ ] AGENT-COMPUTER-BROKER: isolated Bitwarden credential broker performing login INSIDE the Browser-Run session — acceptance: model gets only an authorized login-op reference (never master pw/vault export/enumeration); HTTPS-origin+account+frame re-checked; bw serve not public; MFA/passkey → human takeover; broker secrets absent from env/snapshots/screenshots/traces.
+  - cadence: next-4-fires · priority: med · category: security · discovered_by: fire-101b-intake
+- [ ] AGENT-COMPUTER-OVERLAY-LIFECYCLE: extend BRW-INTERACTIVE-OVERLAY with 5 server-enforced controls (Watch/Take-control/Resume-agent/Stop-job/X) — acceptance: short-lived scoped creds + real revocation across kbd/mouse/clipboard/CDP; stale tabs lose control on lease change; X ≠ Stop-job verified distinct.
+  - cadence: next-4-fires · priority: med · category: feature · discovered_by: fire-101b-intake
+- [ ] AGENT-COMPUTER-LIFECYCLE-COST: save/sleep/wake + idle watchdog (5-min grace keyed on job/viewer LEASES, expiry on deadline/abandoned/max-wait, per-mode metering) — acceptance: idle/abandoned/budget-exhausted/completion all release compute; sleeping status served from DO metadata without starting a machine; polling never wakes a sleeper.
+  - cadence: next-4-fires · priority: med · category: feature · discovered_by: fire-101b-intake
+
+### Convergence discipline (from value-first brief + 50-rounds — THIS-REPO)
+- [ ] convergence: 30-round per-objective refinement ceiling (shared prep+impl; children/retries/renames/new-ticks never reset it; the tool-call limit stays separate) — acceptance: OPERATING-PRINCIPLES § Convergence discipline states the ceiling + sub-table + anti-reset rule; an objective exceeding 30 rounds is forced to a terminal state, not relabeled. (altitude: objective-level; does NOT delete the 10-pass per-surface rule)
+  - cadence: next-2-fires · priority: med · category: architecture · discovered_by: fire-101b-intake
+- [ ] convergence: persist resumable per-objective convergence state (objective/parent IDs · req-revision · rounds-consumed · best-verified-candidate · evidence · next-action · lease · remaining-budget · stop-reason); next fire resumes it — acceptance: a scoped objective records state fire-N and fire-N+1 resumes without resetting rounds or re-ingesting its source.
+  - cadence: next-2-fires · priority: med · category: architecture · discovered_by: fire-101b-intake
+- [ ] convergence: round-level state vocab (completed/paused/blocked/plateaued/cancelled/budget-exhausted) + plateau-rule (2 successive evidence-bearing attempts w/o gain) + "plateau-with-open-requirements ≠ done" — acceptance: OPERATING-PRINCIPLES carries the vocab + plateau def; a plateaued objective with unmet acceptance is never marked completed.
+  - cadence: next-2-fires · priority: med · category: architecture · discovered_by: fire-101b-intake
+- [ ] CBD-skills-7 (convergence guardrail): "N focal rounds ≠ N provider pairs / nested agents / parallel writers per prompt; never rerun the campaign per child task" — acceptance: OPERATING-PRINCIPLES § Convergence gains one bullet + a fire honors it (one slice/fire, lightweight prompt-prep unchanged).
+  - cadence: next-2-fires · priority: med · category: architecture · discovered_by: fire-101b-intake
+
+### Integrations / testing / arch (from 50-rounds + all-capabilities — THIS-REPO deltas)
+- [ ] INT-LANGFUSE-SSOT: one-source-of-truth per prompt (Langfuse label→digest OR Git idempotent-publish, never two editable copies) + bundled last-known-good fallback so serving never depends on a live remote fetch — acceptance: a prompt resolves to an exact version/digest with a proven offline fallback path.
+  - cadence: next-4-fires · priority: low · category: observability · discovered_by: fire-101b-intake
+- [ ] INT-PROMPTFOO-GATE: gate-integrity — a deliberately-broken candidate must FAIL the suite; a skipped/errored/empty required suite = incomplete (not green); no aggregate score hides a critical authz/injection failure — acceptance: a broken-candidate fixture turns the gate red in CI.
+  - cadence: next-4-fires · priority: med · category: test · discovered_by: fire-101b-intake
+- [ ] REARC-REV: add "checkpoint rewind does NOT restore shell/DB/external/subagent effects — label irreversible actions; rely on VCS + snapshots + compensations" to OPERATING-PRINCIPLES § Checkpoints — acceptance: the principle text names the non-restore classes.
+  - cadence: next-4-fires · priority: low · category: architecture · discovered_by: fire-101b-intake
+- [ ] INT-REGISTRY: add an `ai-doctor` CLI that prints the capability/billing inventory (provider·model·endpoint·auth·billing-pool·observed-quota·status∈{verified|documented-untested|exhausted|unsupported|unauthorized|blocked}·last-probe) with ZERO secrets — acceptance: `ai-doctor` emits per-capability PASS/PARTIAL/FAIL/BLOCKED, marks nothing "working" until its full path is live-tested, leaks no credential (extends CBD-skills-1 registry).
+  - cadence: next-4-fires · priority: low · category: feature · discovered_by: fire-101b-intake

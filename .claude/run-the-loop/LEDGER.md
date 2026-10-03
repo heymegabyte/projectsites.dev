@@ -9,6 +9,10 @@
 > `_CF_NATIVE_CONVERGENCE.md`, `_ADMIN_VQA_LEDGER.md`, `_INTERCONNECTEDNESS_LEDGER.md`). This is the
 > INDEX, not a duplicate.
 
+## fire-101b — 2026-10-03 (corrective §0.5 Downloads intake drain — fire-101's scan aborted on a zsh glob)
+- Drained 5 ~/Downloads prompts fire-101 missed (bare multi-pattern zsh glob aborts on a nomatch → falsely "none"): 3 THIS-REPO absorbed+deleted (agent-computer → 5 `AGENT-COMPUTER-*`; value-first → 3 convergence; 50-rounds → 4 deltas incl. `CBD-skills-7`/`INT-LANGFUSE-SSOT`/`INT-PROMPTFOO-GATE`/`REARC-REV`) + 1 net-new `INT-REGISTRY` ai-doctor = 13 items → BACKLOG §intake(fire-101b). 2 ROUTE-TO-GLOBAL left in place (shared-policy, all-capabilities — ~/.claude layer, spirit already absorbed).
+- Loop-improvement #2: hardened `run-the-loop.md` §0.5 scan to `find … -iname '*.md'` + content-sniff (zsh nomatch hazard). Lease `fire-101b-intake-drain` reclaimed → released.
+
 ## fire-101 — 2026-10-03 (converge; landed stranded editor↔worker bridge fix resourceKind→kind + 2 regression specs + backlog replenish)
 - Editor Data/Resources **detail drill-in + inline D1 cell-edit were short-circuited CLIENT-SIDE**: the bolt-embed bridge read `msg.resourceKind` but the editor sends `kind` (its `Res*RequestMessage` interfaces) → `kind` undefined → "Failed to load resource" / "Failed to perform action" before any worker call. Fix `5e44bbf57`: resolve `msg.kind` first, `resourceKind` legacy fallback; +2 regression specs firing the editor's EXACT payload (`kind:'d1'`) asserting the worker detail/mutate route is reached. tsc clean; karma 27/27.
 - Shipped: frontend R2 deploy (300 files, CDN purged) `5e44bbf57`; prod proof = apex 200 + `/admin` shell 200 live. Full live interactive D1-cell-edit journey QUEUED as the `editor-data` Deep-UI-Explorer backlog item (NOT claimed this fire — honest scope).
