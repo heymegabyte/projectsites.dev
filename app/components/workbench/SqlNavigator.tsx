@@ -35,7 +35,7 @@
 import React, { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 import { classNames } from '~/utils/classNames';
-import { PanelShell, PanelHeader } from './panel';
+import { PanelShell, PanelHeader, PanelEmpty } from './panel';
 import {
   isEmbedded,
   postToParent,
@@ -998,21 +998,22 @@ export const SqlNavigator = memo(() => {
           {/* ── Result ── */}
           <div className="flex-1 overflow-auto modern-scrollbar min-h-0">
             {state.status === 'idle' && (
-              <div
-                className="flex flex-col items-center justify-center gap-3 p-8 text-center h-full"
-                data-testid="database-sql-idle"
-              >
-                <div className="flex items-center justify-center h-14 w-14 rounded-2xl border border-[#00e5ff40] bg-[#00e5ff0f]">
-                  <div
-                    className="i-ph:terminal-window-duotone text-2xl text-bolt-elements-item-contentAccent"
-                    aria-hidden
-                  />
-                </div>
-                <p className="text-xs text-bolt-elements-textSecondary max-w-[300px]">
-                  Write a query and press Run. Reads return rows; writes ask you to confirm before they change data.
-                  Autocomplete suggests your real tables + columns as you type.
-                </p>
-              </div>
+              <PanelEmpty
+                testId="database-sql-idle"
+                icon="i-ph:terminal-window-duotone"
+                title="Run your first query"
+                description="Reads return rows; writes ask you to confirm before they change data. Autocomplete suggests your real tables + columns as you type."
+                action={
+                  <button
+                    type="button"
+                    onClick={() => setSql(STARTERS[0].query)}
+                    data-testid="database-sql-idle-starter"
+                    className="min-h-[24px] text-[12px] font-semibold px-3.5 py-2 rounded-lg flex items-center gap-1.5 bg-bolt-elements-item-contentAccent text-[#061018] enabled:hover:opacity-90 transition-opacity focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-offset-bolt-elements-background-depth-1 focus-visible:ring-bolt-elements-item-contentAccent cursor-pointer"
+                  >
+                    <div className="i-ph:list-magnifying-glass-bold text-sm" aria-hidden /> Insert “{STARTERS[0].label}”
+                  </button>
+                }
+              />
             )}
 
             {state.status === 'disabled' && (

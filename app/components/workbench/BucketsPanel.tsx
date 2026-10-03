@@ -1961,40 +1961,34 @@ const ObjectsEmpty = memo(
     onUpload: () => void;
     objectOpsAvailable: boolean;
   }) => (
-    <div
-      className="flex-1 flex flex-col items-center justify-center gap-4 p-8 text-center"
-      data-testid="buckets-objects-empty"
-    >
-      <div className="flex items-center justify-center h-14 w-14 rounded-2xl border border-bolt-elements-borderColor bg-bolt-elements-background-depth-2">
-        <div className="i-ph:folder-dashed-duotone text-3xl text-bolt-elements-textTertiary" aria-hidden />
-      </div>
-      <div className="space-y-1">
-        <p className="text-sm font-semibold text-bolt-elements-textSecondary">
-          {hasFilter ? 'No matching objects' : 'This bucket is empty'}
-        </p>
-        <p className="text-[11px] text-bolt-elements-textTertiary max-w-[260px] leading-relaxed">
-          {hasFilter ? 'Try a different filter.' : 'Drag files here, or upload — they show up here to reuse anywhere.'}
-        </p>
-      </div>
-      {!hasFilter && objectOpsAvailable && (
-        <button
-          type="button"
-          onClick={onUpload}
-          disabled={uploading}
-          data-testid="buckets-objects-empty-upload"
-          className={classNames(BTN_PRIMARY, 'min-h-[30px] px-4 py-2 text-[12px]')}
-        >
-          <div
-            className={classNames(
-              uploading ? 'i-ph:circle-notch animate-spin motion-reduce:animate-none' : 'i-ph:upload-simple-bold',
-              'text-sm',
-            )}
-            aria-hidden
-          />
-          <span className="min-w-[10ch] text-center">{uploading ? 'Uploading…' : 'Upload a file'}</span>
-        </button>
-      )}
-    </div>
+    <PanelEmpty
+      testId="buckets-objects-empty"
+      icon={hasFilter ? 'i-ph:magnifying-glass-duotone' : 'i-ph:folder-dashed-duotone'}
+      title={hasFilter ? 'No matching objects' : 'This bucket is empty'}
+      description={
+        hasFilter ? 'Try a different filter.' : 'Drag files here, or upload — they show up here to reuse anywhere.'
+      }
+      action={
+        !hasFilter && objectOpsAvailable ? (
+          <button
+            type="button"
+            onClick={onUpload}
+            disabled={uploading}
+            data-testid="buckets-objects-empty-upload"
+            className={classNames(BTN_PRIMARY, 'min-h-[30px] px-4 py-2 text-[12px]')}
+          >
+            <div
+              className={classNames(
+                uploading ? 'i-ph:circle-notch animate-spin motion-reduce:animate-none' : 'i-ph:upload-simple-bold',
+                'text-sm',
+              )}
+              aria-hidden
+            />
+            <span className="min-w-[10ch] text-center">{uploading ? 'Uploading…' : 'Upload a file'}</span>
+          </button>
+        ) : undefined
+      }
+    />
   ),
 );
 

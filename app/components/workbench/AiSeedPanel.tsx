@@ -21,7 +21,7 @@
  */
 import React, { memo, useCallback, useEffect, useRef, useState } from 'react';
 import { classNames } from '~/utils/classNames';
-import { PanelShell, PanelHeader } from './panel';
+import { PanelShell, PanelHeader, PanelEmpty } from './panel';
 import { DEFAULT_MODEL, DEFAULT_PROVIDER } from '~/utils/constants';
 import {
   isEmbedded,
@@ -396,23 +396,25 @@ export const AiSeedPanel = memo(({ onCreateTable }: AiSeedPanelProps = {}) => {
   if (tablesState === 'ready' && tables.length === 0) {
     return (
       <Shell>
-        <EmptyNote icon="i-ph:table" title="Create a table first">
-          Add a table in the Schema builder, then come back to fill it with realistic sample data.
-        </EmptyNote>
         {/* Never a dead-end: the CTA opens the guided Schema builder so an owner can make their first
             table right here (per embarrassingly-easy-to-use + real-time-data-no-manual-refresh siblings). */}
-        {onCreateTable && (
-          <div className="flex justify-center">
-            <button
-              type="button"
-              onClick={onCreateTable}
-              data-testid="seed-empty-create-table"
-              className="min-h-[24px] text-[13px] font-semibold px-4 py-2 rounded-lg flex items-center gap-2 bg-bolt-elements-item-contentAccent text-[#061018] hover:shadow-[0_4px_18px_-4px_rgba(0,229,255,0.55)] hover:-translate-y-px motion-reduce:hover:translate-y-0 transition-all duration-150 motion-reduce:transition-none focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-offset-bolt-elements-background-depth-1 focus-visible:ring-bolt-elements-item-contentAccent cursor-pointer"
-            >
-              <div className="i-ph:plus-circle text-base" aria-hidden /> Create Table
-            </button>
-          </div>
-        )}
+        <PanelEmpty
+          icon="i-ph:table-duotone"
+          title="Create a table first"
+          description="Add a table in the Schema builder, then come back to fill it with realistic sample data."
+          action={
+            onCreateTable ? (
+              <button
+                type="button"
+                onClick={onCreateTable}
+                data-testid="seed-empty-create-table"
+                className="min-h-[24px] text-[13px] font-semibold px-4 py-2 rounded-lg flex items-center gap-2 bg-bolt-elements-item-contentAccent text-[#061018] hover:shadow-[0_4px_18px_-4px_rgba(0,229,255,0.55)] hover:-translate-y-px motion-reduce:hover:translate-y-0 transition-all duration-150 motion-reduce:transition-none focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-offset-bolt-elements-background-depth-1 focus-visible:ring-bolt-elements-item-contentAccent cursor-pointer"
+              >
+                <div className="i-ph:plus-circle text-base" aria-hidden /> Create Table
+              </button>
+            ) : undefined
+          }
+        />
       </Shell>
     );
   }
