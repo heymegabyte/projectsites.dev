@@ -61,6 +61,12 @@ describe('workbench panel primitives', () => {
     expect(html).toContain('Loading your resources…');
   });
 
+  it('PanelLoading honors a custom testId (wave-E panels keep their loading anchors)', () => {
+    const custom = renderToStaticMarkup(<PanelLoading label="Loading…" testId="sc-changes-loading" />);
+    expect(custom).toContain('data-testid="sc-changes-loading"');
+    expect(custom).not.toContain('data-testid="panel-loading"');
+  });
+
   it('PanelEmpty renders a launchpad: icon badge + title + description + the one action', () => {
     const html = renderToStaticMarkup(
       <PanelEmpty
