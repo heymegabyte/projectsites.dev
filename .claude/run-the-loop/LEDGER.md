@@ -9,6 +9,12 @@
 > `_CF_NATIVE_CONVERGENCE.md`, `_ADMIN_VQA_LEDGER.md`, `_INTERCONNECTEDNESS_LEDGER.md`). This is the
 > INDEX, not a duplicate.
 
+## fire-94 — 2026-10-03 (converge; money-path search `no_results` empty-state signal + worktree-node_modules §7)
+
+- **Money-path CREATE-funnel slice (Product rebalance per §3, after infra-heavy 90-93).** `/api/sites/search` returned a byte-identical `{data:[]}` for BOTH a too-short query AND a valid query that genuinely found nothing — so the homepage SPA couldn't tell them apart to render a "No sites found for 'X' — start a new one" launchpad (empty-state-as-launchpad / embarrassingly-easy). Handler now emits `meta.reason:'no_results'` + a message + the echoed bounded query on the valid-empty path (distinct from the existing `query_too_short`); results-found keeps the back-compat `{data}` shape. Additive, flag-free, no new per-`:siteId` handler. RED→GREEN `search_routes.test.ts` (55 pass), tsc 0. `9c2e51b1b` → cherry-picked to main.
+- **Backlog replenish:** the SPA consumer serves from R2 `marketing/index.html` (not in-repo), so wiring the `no_results` launchpad into the homepage UI is a follow-on money-path slice — the backend signal now exists; the SPA consumes it exactly like `query_too_short`.
+- **§7 — recurring shortcoming captured.** Feature-Delivery worktree agents repeatedly must MANUALLY symlink `node_modules` into the fleet auto-worktree before tests run (the fire-94 agent did it again), despite `settings.json worktree.symlinkDirectories` listing `node_modules` — the symlink isn't reliably applying to sparse fleet worktrees. Flagged for a fleet-config fix so future agents don't burn tool-calls on it. Cross-ref memory `[2 nm]` worktree-needs-both-worker-and-frontend-node_modules + `[wtBRO]`.
+
 ## fire-93 — 2026-10-03 (verify/close; money-path deploy CONFIRMED LIVE — the fire-86→92 blocker is fully resolved)
 
 - **✅ Money-path deploy verified live.** Worker CI/CD run 37079393232: ✓ Unit Tests · ✓ Deploy to Staging · **✓ Deploy to Production (7m47s)** — the fire-90 served-origin `data-api` fix + fire-91 IDOR slice + fire-92 `pricing_config_v2` docs are now LIVE in production. Worker `/api/health` 200; served sites 200. The multi-fire deploy blocker (one red worker test silently skipping deploy since fire-86) is fully closed. fire-92's push≠deploy discipline is exactly what caught it + confirmed recovery this fire (used `gh run` to see Deploy-to-Production ✓, not just the push).
