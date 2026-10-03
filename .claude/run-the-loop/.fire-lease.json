@@ -1,8 +1,7 @@
 {
-  "fireId": null,
-  "pid": null,
-  "claimedAt": null,
-  "heartbeat": null,
-  "releasedAt": "2026-10-03T22:48:27.000Z",
-  "lastFire": "fire-110-editor-wave-d"
+  "fireId": "fire-111-editor-wave-e",
+  "pid": 22226,
+  "claimedAt": "2026-10-03T22:51:59.211Z",
+  "heartbeat": "2026-10-03T22:51:59.211Z",
+  "reclaimedFrom": null
 }
