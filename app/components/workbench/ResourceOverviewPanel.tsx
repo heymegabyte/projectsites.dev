@@ -39,6 +39,7 @@ import {
 } from '~/lib/embed/embedded-mode';
 import { ResourceDetailPanel, type ResourceDetailTarget } from './ResourceDetailPanel';
 import { NamespaceSummary, type OpenKindTarget } from './NamespaceSummary';
+import { PanelShell, PanelHeader } from './panel';
 
 /**
  * Map a NamespaceSummary kind KEY to the canonical adapter `ResourceKind` the detail panel + worker
@@ -613,11 +614,10 @@ export const ResourceOverviewPanel = memo(() => {
   }
 
   return (
-    <div className="h-full flex flex-col bg-bolt-elements-background-depth-1 text-bolt-elements-textPrimary">
-      <Header
-        environment={environment}
-        onEnvironment={setEnvironment}
-        lastLoadedAt={lastLoadedAt}
+    <PanelShell testId="resources-overview">
+      <PanelHeader
+        icon="i-ph:stack-duotone"
+        title="Resources"
         subtitle={
           overview.status === 'ready'
             ? totalCount === 0
@@ -625,6 +625,7 @@ export const ResourceOverviewPanel = memo(() => {
               : `${totalCount} resource${totalCount === 1 ? '' : 's'}${driftCount > 0 ? ` · ${driftCount} drifted` : ''} · your platform infrastructure`
             : 'Your platform infrastructure'
         }
+        actions={<HeaderActions environment={environment} onEnvironment={setEnvironment} lastLoadedAt={lastLoadedAt} />}
       />
 
       {overview.status === 'loading' && <Spinner label="Loading your resources…" />}
@@ -669,82 +670,68 @@ export const ResourceOverviewPanel = memo(() => {
           </button>
         </div>
       )}
-    </div>
+    </PanelShell>
   );
 });
 
 ResourceOverviewPanel.displayName = 'ResourceOverviewPanel';
 
-// ── Header ───────────────────────────────────────────────────────────────────
+// ── Header actions (right cluster) ─────────────────────────────────────────────
 
-const Header = memo(
+/**
+ * The right-aligned action cluster for the Resources {@link PanelHeader}: the live-freshness
+ * chip (the ONLY refresh signal — self-updating, no manual button) + the preview|production
+ * environment selector. The header chrome itself (brand wash, icon badge, `<h2>Resources</h2>`,
+ * subtitle) is the shared `PanelHeader`; this is only what hangs on its `actions` slot.
+ */
+const HeaderActions = memo(
   ({
     environment,
     onEnvironment,
     lastLoadedAt,
-    subtitle,
   }: {
     environment: ResourceEnvironment;
     onEnvironment: (env: ResourceEnvironment) => void;
 
     /** Wall-clock ms of the last successful inventory load, or `null` before the first load. */
     lastLoadedAt: number | null;
-    subtitle: string;
   }) => (
-    <div className="relative flex items-center gap-3 px-4 py-3 border-b border-bolt-elements-borderColor shrink-0 overflow-hidden">
-      {/* Subtle brand wash behind the header — sets the cinematic black+cyan tone from the first pixel. */}
+    <>
+      {/* Live freshness affordance — the ONLY refresh signal (self-updating; no manual button). */}
+      <LiveFreshness lastLoadedAt={lastLoadedAt} />
+
+      {/* Environment selector — preview | production */}
       <div
-        aria-hidden="true"
-        className="pointer-events-none absolute inset-0 opacity-60"
-        style={{
-          background: 'linear-gradient(90deg, color-mix(in oklch, #00e5ff 8%, transparent), transparent 40%)',
-        }}
-      />
-      <div className="relative flex items-center justify-center h-9 w-9 rounded-xl border border-bolt-elements-item-contentAccent/30 bg-bolt-elements-item-contentAccent/[0.08] shrink-0">
-        <div className="i-ph:stack-duotone text-xl text-bolt-elements-item-contentAccent" />
+        className="flex items-center rounded-lg border border-bolt-elements-borderColor bg-bolt-elements-background-depth-2 p-0.5"
+        role="group"
+        aria-label="Environment"
+      >
+        {ENVIRONMENTS.map((env) => {
+          const active = environment === env.value;
+          return (
+            <button
+              key={env.value}
+              type="button"
+              onClick={() => onEnvironment(env.value)}
+              aria-pressed={active}
+              data-testid={`resources-env-${env.value}`}
+              className={classNames(
+                'min-h-[24px] px-2.5 py-1 text-[11px] font-medium rounded-md transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-bolt-elements-item-contentAccent cursor-pointer',
+                active
+                  ? 'bg-bolt-elements-item-contentAccent text-[#061018]'
+                  : 'text-bolt-elements-textTertiary hover:text-bolt-elements-textPrimary',
+              )}
+            >
+              {env.label}
+            </button>
+          );
+        })}
       </div>
-      <div className="relative min-w-0">
-        <h2 className="text-sm font-semibold text-bolt-elements-textPrimary tracking-tight">Resources</h2>
-        <p className="text-[10px] text-bolt-elements-textTertiary truncate">{subtitle}</p>
-      </div>
-
-      <div className="relative ml-auto flex items-center gap-2 shrink-0">
-        {/* Live freshness affordance — the ONLY refresh signal (self-updating; no manual button). */}
-        <LiveFreshness lastLoadedAt={lastLoadedAt} />
-
-        {/* Environment selector — preview | production */}
-        <div
-          className="flex items-center rounded-lg border border-bolt-elements-borderColor bg-bolt-elements-background-depth-2 p-0.5"
-          role="group"
-          aria-label="Environment"
-        >
-          {ENVIRONMENTS.map((env) => {
-            const active = environment === env.value;
-            return (
-              <button
-                key={env.value}
-                type="button"
-                onClick={() => onEnvironment(env.value)}
-                aria-pressed={active}
-                data-testid={`resources-env-${env.value}`}
-                className={classNames(
-                  'min-h-[24px] px-2.5 py-1 text-[11px] font-medium rounded-md transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-bolt-elements-item-contentAccent cursor-pointer',
-                  active
-                    ? 'bg-bolt-elements-item-contentAccent text-[#061018]'
-                    : 'text-bolt-elements-textTertiary hover:text-bolt-elements-textPrimary',
-                )}
-              >
-                {env.label}
-              </button>
-            );
-          })}
-        </div>
-      </div>
-    </div>
+    </>
   ),
 );
 
-Header.displayName = 'ResourceOverviewPanel.Header';
+HeaderActions.displayName = 'ResourceOverviewPanel.HeaderActions';
 
 // ── Live freshness affordance ─────────────────────────────────────────────────
 

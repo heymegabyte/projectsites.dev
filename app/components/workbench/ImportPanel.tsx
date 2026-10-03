@@ -37,6 +37,7 @@ import {
   slugifyColumnName,
   type ParsedGrid,
 } from './data-ingest-logic';
+import { PanelShell, PanelHeader } from './panel';
 
 // ── Bridge plumbing (mirrors SchemaBuilder's proven correlationId request pattern) ────────────────────
 
@@ -427,7 +428,7 @@ export const ImportPanel = memo(() => {
   // ── Non-embedded / disabled states ──
   if (!isEmbedded) {
     return (
-      <PanelShell>
+      <PanelShell testId="import-panel">
         <EmptyNote icon="i-ph:plug" title="Open from the ProjectSites admin">
           Import runs against your site&rsquo;s own database, which the admin resolves securely.
         </EmptyNote>
@@ -437,7 +438,7 @@ export const ImportPanel = memo(() => {
 
   if (tablesState === 'disabled') {
     return (
-      <PanelShell>
+      <PanelShell testId="import-panel">
         <EmptyNote icon="i-ph:database" title="Your database isn't turned on yet">
           Once your site&rsquo;s database is enabled, you can import spreadsheets and JSON here.
         </EmptyNote>
@@ -446,29 +447,28 @@ export const ImportPanel = memo(() => {
   }
 
   return (
-    <PanelShell>
-      {/* Header */}
-      <div className="flex items-center gap-2 mb-4">
-        <div className="i-ph:upload-simple-duotone text-lg text-bolt-elements-item-contentAccent" aria-hidden />
-        <div>
-          <h3 className="text-sm font-semibold text-bolt-elements-textPrimary tracking-tight">Import data</h3>
-          <p className="text-[11px] text-bolt-elements-textTertiary">
-            Bring a CSV or JSON file into your database — we detect the columns for you.
-          </p>
-        </div>
-        {stage === 'map' && (
-          <button
-            type="button"
-            onClick={reset}
-            data-testid="import-reset"
-            className="ml-auto min-h-[24px] flex items-center gap-1 px-2.5 py-1 text-[11px] rounded-md border border-bolt-elements-borderColor text-bolt-elements-textTertiary hover:text-bolt-elements-textPrimary hover:bg-bolt-elements-background-depth-3 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-bolt-elements-item-contentAccent cursor-pointer"
-          >
-            <div className="i-ph:arrow-counter-clockwise" aria-hidden /> Start over
-          </button>
-        )}
-      </div>
+    <PanelShell testId="import-panel">
+      <PanelHeader
+        icon="i-ph:upload-simple-duotone"
+        title="Import data"
+        subtitle="Bring a CSV or JSON file into your database — we detect the columns for you."
+        actions={
+          stage === 'map' ? (
+            <button
+              type="button"
+              onClick={reset}
+              data-testid="import-reset"
+              className="min-h-[24px] flex items-center gap-1 px-2.5 py-1 text-[11px] rounded-md border border-bolt-elements-borderColor text-bolt-elements-textTertiary hover:text-bolt-elements-textPrimary hover:bg-bolt-elements-background-depth-3 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-bolt-elements-item-contentAccent cursor-pointer"
+            >
+              <div className="i-ph:arrow-counter-clockwise" aria-hidden /> Start over
+            </button>
+          ) : undefined
+        }
+      />
 
-      {/* Stage 1 — pick a file */}
+      <div className="flex-1 overflow-auto modern-scrollbar p-4">
+        <div className="max-w-[720px]">
+          {/* Stage 1 — pick a file */}
       {stage === 'pick' && (
         <div className="space-y-3">
           <div
@@ -803,6 +803,8 @@ export const ImportPanel = memo(() => {
           )}
         </div>
       )}
+        </div>
+      </div>
     </PanelShell>
   );
 });
@@ -810,20 +812,6 @@ export const ImportPanel = memo(() => {
 ImportPanel.displayName = 'ImportPanel';
 
 // ── Small presentational helpers (kept local — mirror SchemaBuilder's inline sub-components) ───────────
-
-const PanelShell = memo(({ children }: { children: React.ReactNode }) => (
-  /*
-   * `[color-scheme:dark]` forces native chrome (the <select> popup + <option> list, checkboxes,
-   * scrollbars, autofill) to render dark instead of the browser's white default — no white leaks.
-   */
-  <div
-    className="h-full overflow-auto modern-scrollbar p-4 [color-scheme:dark] bg-bolt-elements-background-depth-1"
-    data-testid="import-panel"
-  >
-    <div className="max-w-[720px]">{children}</div>
-  </div>
-));
-PanelShell.displayName = 'ImportPanel.Shell';
 
 const EmptyNote = memo(({ icon, title, children }: { icon: string; title: string; children: React.ReactNode }) => (
   <div className="flex flex-col items-center justify-center gap-3 py-16 text-center">
