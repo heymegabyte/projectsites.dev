@@ -1680,3 +1680,10 @@ Spirit: external-worker broker (MiniMax primary / DeepSeek overflow / OpenAI vis
   - cadence: next-2-fires · priority: med · category: a11y · discovered_by: fire-103-a11y-audit
 - [ ] a11y: visible focus ring (WCAG 2.4.7) on the homepage search input + signin CTA — both compute `outline:none` + `box-shadow:none` on `:focus` — acceptance: a `:focus-visible` ring (`outline:2px solid var(--ps-accent)`) on every funnel control; keyboard-tab shows a ring at each stop.
   - cadence: next-2-fires · priority: med · category: a11y · discovered_by: fire-103-a11y-audit
+
+## a11y (fire-104 update — homepage contentinfo RESOLVED live; signin is a stale-bundle false-positive, not a source bug)
+- [x] (fire-104 `0c1380fb5`) homepage `landmark-contentinfo-is-top-level` RESOLVED — dropped `role=contentinfo` on the homepage footer (it nested in the shell `<main>`); real-browser re-audit axe-CLEAN of landmark rules at 375 + 1280 on the fresh bundle.
+- [ ] a11y/stale-bundle: /signin nested-`<main>` — SOURCE is ALREADY clean (`signin.component.html` root is `<section>`; grep finds ZERO `<main>` / `sign-in-page` anywhere in the signin dir), yet a fire-104 live re-audit saw `<main data-testid="sign-in-page">` → a STALE cached bundle / ngsw SW serving OLD signin ([SW]/[stlbn]/[stl$] class), NOT a code bug. Acceptance: fetch the DEPLOYED signin lazy-chunk + confirm it matches source (no `<main>`); if the live ngsw serves stale, bump the SW `CACHE_VERSION`; re-audit with a FRESH/SW-BYPASSED context → 0 landmark violations on /signin.
+  - cadence: next-fire · priority: med · category: a11y · discovered_by: fire-104-re-audit
+- [ ] loop/audit-method: a11y + visual + deep-ui-explorer audit agents MUST bypass the service worker (fresh context / unregister ngsw / `Clear-Site-Data`), NOT a plain `page.reload` — fire-104's re-audit false-flagged /signin off a SW-cached stale bundle while source was clean (wasted a verify + nearly triggered a no-op "fix" of already-correct code). Acceptance: the audit harness opens a fresh SW-disabled context; the audit-brief template says so.
+  - cadence: next-2-fires · priority: med · category: a11y · discovered_by: fire-104

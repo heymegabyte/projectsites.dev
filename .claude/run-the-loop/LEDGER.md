@@ -9,6 +9,12 @@
 > `_CF_NATIVE_CONVERGENCE.md`, `_ADMIN_VQA_LEDGER.md`, `_INTERCONNECTEDNESS_LEDGER.md`). This is the
 > INDEX, not a duplicate.
 
+## fire-104 — 2026-10-03 (converge; homepage contentinfo a11y fix VERIFIED LIVE + browser-role contract mechanism hardening)
+- SHIPPED a11y: removed invalid `role="contentinfo"` from the homepage `<footer>` (nested inside the shell `<main id=main-content>` — ARIA `landmark-contentinfo-is-top-level`). `0c1380fb5`; build:prod green; source now has ZERO `role=contentinfo`; deployed R2 (300 files, CDN purged). **Real-browser re-audit CONFIRMED axe-CLEAN of landmark rules on `/` at 375 + 1280** (footer renders roleless).
+- Corrected a prior assumption: the fire-103 audit's `/signin` "nested-`<main>`" is a STALE-BUNDLE false-positive, NOT a source bug — signin source is `<section>` (zero `<main>`/`sign-in-page` in the whole signin dir), so current code CANNOT emit the `<main data-testid=sign-in-page>` the live audit saw (ngsw SW served an old chunk; the audit used a plain reload, not an SW-bypass). Backlogged: verify signin chunk propagation + SW-bump + SW-bypass the audit method.
+- Loop-improvement (§7): OPERATING-PRINCIPLES Browser-role execution contract gained THE MECHANISM it lacked — the LEAD runs roles 16/17 via its OWN Bash in the main checkout (the fleet auto-worktrees spawned agents → sparse node_modules → false BLOCK, fires 101-103) + "run them EARLY/fresh, never on a context-heavy fire's tail." Retires the 3-fire recurring deferral Rec. `0c1380fb5`.
+- 2 agent ECONNRESETs this fire (the re-audit died, resumed via SendMessage) = fan-out attrition, not lead saturation — kept the loop running. Lease `fire-104-converge`.
+
 ## fire-103 — 2026-10-03 (converge; a11y + perf rebalance of the public money-path funnel; shipped WCAG 2.4.11 fix + hardened the resurrection gate)
 - Rebalanced to the starved UX/a11y + Perf bands (fires 100-102 were Product/Docs/Architecture-heavy). Read-only fan-out: `accessibility-auditor` + `performance-profiler` on the auth-free funnel (`/` + `/signin`).
 - SHIPPED a11y: `html { scroll-padding-top: 5rem }` (styles.scss) so keyboard/anchor focus clears the fixed ~64px header (WCAG 2.2 2.4.11 Focus Not Obscured, AA — the auditor's #1 lowest-risk pick). `c4fdbe92a`; build:prod green; deployed R2; apex + /admin 200 live.
