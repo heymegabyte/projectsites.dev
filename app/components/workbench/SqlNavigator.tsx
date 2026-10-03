@@ -35,6 +35,7 @@
 import React, { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 import { classNames } from '~/utils/classNames';
+import { PanelShell, PanelHeader } from './panel';
 import {
   isEmbedded,
   postToParent,
@@ -711,25 +712,15 @@ export const SqlNavigator = memo(() => {
   );
 
   return (
-    <div
-      className="h-full flex flex-col bg-bolt-elements-background-depth-1 [color-scheme:dark] accent-[color:var(--ps-accent,#00e5ff)]"
-      data-testid="database-sql"
-    >
-      {/* ── Toolbar: starters · templates · history · saved · save-as ── */}
-      <div className="p-3 border-b border-bolt-elements-borderColor/60 space-y-2 shrink-0 bg-bolt-elements-background-depth-2/40 backdrop-blur-sm">
-        <div className="flex items-center gap-2">
-          <div className="flex items-center justify-center h-8 w-8 rounded-lg border border-[#00e5ff4c] bg-[#00e5ff14] shrink-0">
-            <div className="i-ph:terminal-window-duotone text-base text-bolt-elements-item-contentAccent" aria-hidden />
-          </div>
-          <div className="min-w-0">
-            <h2 className="text-sm font-semibold tracking-tight text-bolt-elements-textPrimary">SQL navigator</h2>
-            <p className="text-[10px] text-bolt-elements-textSecondary truncate">
-              Runs against your site&rsquo;s own database — writes ask before they change data
-            </p>
-          </div>
-        </div>
-
-        <div className="flex flex-wrap items-center gap-1.5">
+    <PanelShell testId="database-sql">
+      {/* ── Header + toolbar: starters · templates · history · saved · save-as ── */}
+      <PanelHeader
+        icon="i-ph:terminal-window-duotone"
+        title="SQL navigator"
+        subtitle="Runs against your site’s own database — writes ask before they change data"
+        toolbar={
+          <div className="space-y-2">
+            <div className="flex flex-wrap items-center gap-1.5">
           <span className="text-[10px] uppercase tracking-wider text-bolt-elements-textSecondary mr-0.5">Starters</span>
           {STARTERS.map((s) => (
             <button
@@ -900,7 +891,9 @@ export const SqlNavigator = memo(() => {
             <span>{askNote}</span>
           </div>
         )}
-      </div>
+          </div>
+        }
+      />
 
       {/* ── Body: editor + results (left) · saved & history rail (right) ── */}
       <div className="flex flex-1 min-h-0">
@@ -1102,7 +1095,7 @@ export const SqlNavigator = memo(() => {
           />
         )}
       </div>
-    </div>
+    </PanelShell>
   );
 });
 
