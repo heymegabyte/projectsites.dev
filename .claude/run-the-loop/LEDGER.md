@@ -9,6 +9,13 @@
 > `_CF_NATIVE_CONVERGENCE.md`, `_ADMIN_VQA_LEDGER.md`, `_INTERCONNECTEDNESS_LEDGER.md`). This is the
 > INDEX, not a duplicate.
 
+## fire-96 — 2026-10-03 (converge; editor-app ESLint 881→47 via eslint --fix — 98% cleared across 95-96)
+
+- **Verified fire-95's self-heal.** The `format-autofix` bot ran **success** on fire-95's app/ push — app/ prettier drift now self-heals (the fix works).
+- **`eslint app --fix` cleared 834 more errors (881→47).** `npm run lint -- --fix` + prettier resolved the blitz comment-rule + residual formatting classes across 71 files. **Editor lint 2209 → 47 errors across fires 95-96 (98% cleared).** `19a8ff21c`.
+- **Remaining 47 (final editor-green backlog item — a DEDICATED careful fire):** ~17 are an auto-fixer CONFLICT (`@blitz/lines-around-comment` 11 + `prettier/prettier` 6 oscillate — eslint --fix + prettier can't converge; fix = disable the conflicting blitz stylistic rule in the editor eslint config per lint-doctrine "prettier is the formatting SoT") + ~30 behavior-risky MANUAL in unfamiliar bolt.diy code (`no-restricted-imports` 11 · `no-unused-vars` 9 · `consistent-return` 6 · `react-hooks/exhaustive-deps` 3 [review each — behavior-changing] · `ban-ts-comment` 1). `no-empty-function` 34 are WARNINGS (non-blocking). ci.yaml stays red until these; **worker deploy UNAFFECTED** (separate healthy pipeline).
+- **§7:** captured the blitz-vs-prettier config-conflict as the root of the un-converging 17 + the precise 47-error categorization — the final-green fire now has an exact recipe (config-disable + 30 scoped manual) instead of a vague "editor lint red".
+
 ## fire-95 — 2026-10-03 (converge; root-caused + partially cleared the editor-app ESLint debt — 2209→881, prettier now self-healing)
 
 - **🔍 Root-caused a 4-fire mystery.** The editor `app/` ESLint (`ci.yaml` = `eslint app`) carried 2209 errors + stayed red across 5+ runs DESPITE the `format-autofix` bot — because the bot's trigger paths covered only `apps/project-sites/src` + `packages/shared/src`, NOT the editor `app/` (bolt.diy, repo root). So app/ prettier drift NEVER self-healed; the "47 errors" prior fires flagged was truncated CI output (real: 2209).
