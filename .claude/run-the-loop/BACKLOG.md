@@ -1708,3 +1708,8 @@ Re-architect every workbench panel onto a shared gorgeous spine so chrome/tokens
 - [ ] slice: `PanelEmpty` (launchpad empty — icon + headline + ONE primary CTA) → apply to every panel's empty state (`embarrassingly-easy-to-use`).
 - [ ] slice: `PanelSegmentedNav` (generalize the Database pill sub-nav) → reuse in Resources/SQL.
   - cadence: NEXT-FIRE-FIRST · priority: HIGH · category: ux · discovered_by: Brian directive 2026-10-03
+
+### editor-panel-ui-rearch — wave A DONE (fire-107, `85978f080`)
+- [x] KvBrowser, AutomationsPanel, BucketsPanel, R2Browser migrated onto PanelShell + PanelHeader (2 parallel worktree agents, lead merged+built+deployed; vitest 3/3, build green, live on bolt-diy). 5/~15 panels now on the spine (incl. SchemaBuilder).
+- [ ] wave B (next fire): SqlNavigator, SourceControlPanel, TimeTravelPanel, AiSeedPanel, ImportPanel (retire its private PanelShell), ResourceOverviewPanel (dedup onto PanelHeader — it's the reference). Then the heavy tails SiteTablesPanel (275K) + ResourceDetailPanel (87K) with extra care. Same mechanical pattern + bolt-diy deploy.
+- [ ] then: PanelLoading (in-panel Nebula) + PanelEmpty (launchpad) + PanelSegmentedNav + a focused visual-qa pass (≥8/10 @ 6bp) across all migrated panels (the deep authed journey is budget-heavy — give the visual agent a capped, direct path per panel).
