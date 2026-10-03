@@ -43,6 +43,7 @@ import {
 import { ResourceOverviewPanel } from './ResourceOverviewPanel';
 import { BucketsPanel } from './BucketsPanel';
 import { AutomationsPanel } from './AutomationsPanel';
+import { PanelLoading } from './panel';
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
@@ -870,19 +871,6 @@ StorageSummaryLine.displayName = 'ResourcesPanel.StorageSummaryLine';
 
 // ── Shared states ──────────────────────────────────────────────────────────
 
-const Spinner = memo(({ label }: { label: string }) => (
-  <div
-    className="flex-1 flex flex-col items-center justify-center gap-2 p-8 text-center"
-    role="status"
-    aria-live="polite"
-  >
-    <div className="i-ph:circle-notch text-2xl text-bolt-elements-item-contentAccent animate-spin motion-reduce:animate-none" />
-    <p className="text-xs text-bolt-elements-textSecondary">{label}</p>
-  </div>
-));
-
-Spinner.displayName = 'ResourcesPanel.Spinner';
-
 const ErrorCard = memo(({ message, onRetry }: { message: string; onRetry: () => void }) => (
   <div className="flex-1 flex flex-col items-center justify-center gap-3 p-8 text-center" data-testid="resources-error">
     <div className="flex items-center justify-center h-12 w-12 rounded-2xl border border-red-400/30 bg-red-500/[0.07]">
@@ -1350,7 +1338,7 @@ MediaCard.displayName = 'ResourcesPanel.MediaCard';
 
 const BuildFiles = memo(({ state, onRetry }: { state: FilesState; onRetry: () => void }) => {
   if (state.status === 'idle' || state.status === 'loading') {
-    return <Spinner label="Loading your build files…" />;
+    return <PanelLoading label="Loading your build files…" />;
   }
 
   if (state.status === 'disabled') {

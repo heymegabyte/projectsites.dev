@@ -37,7 +37,7 @@ import { useStore } from '@nanostores/react';
 import React, { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 import { classNames } from '~/utils/classNames';
-import { PanelShell, PanelHeader } from './panel';
+import { PanelShell, PanelHeader, PanelLoading } from './panel';
 import { workbenchStore } from '~/lib/stores/workbench';
 import { WORK_DIR } from '~/utils/constants';
 import {
@@ -1072,22 +1072,7 @@ const SyncIndicator = memo(({ sync }: { sync: SyncSummary | null }) => {
 
 SyncIndicator.displayName = 'SourceControl.SyncIndicator';
 
-// ── Shared spinner + error + empty scaffold ────────────────
-
-const Spinner = memo(({ label, testId }: { label: string; testId?: string }) => (
-  <div
-    className="flex-1 flex flex-col items-center justify-center gap-3 p-8 text-center animate-[sc-fade-in_0.2s_ease-out] motion-reduce:animate-none"
-    data-testid={testId}
-  >
-    <div className="relative h-10 w-10">
-      <div className="absolute inset-0 rounded-full border-2 border-bolt-elements-item-contentAccent/15" />
-      <div className="i-ph:circle-notch absolute inset-0 text-[2.5rem] leading-none text-bolt-elements-item-contentAccent motion-safe:animate-spin" />
-    </div>
-    <p className="text-xs text-bolt-elements-textSecondary">{label}</p>
-  </div>
-));
-
-Spinner.displayName = 'SourceControl.Spinner';
+// ── Shared error + empty scaffold ────────────────
 
 const CenterState = memo(
   ({
@@ -1172,7 +1157,7 @@ const ChangesView = memo(
     onRetry: () => void;
   }) => {
     if (state.status === 'loading') {
-      return <Spinner label="Comparing Preview to your published build…" testId="sc-changes-loading" />;
+      return <PanelLoading label="Comparing Preview to your published build…" testId="sc-changes-loading" />;
     }
 
     if (state.status === 'error') {
@@ -1338,7 +1323,7 @@ ChangeRow.displayName = 'SourceControl.ChangeRow';
 
 const HistoryView = memo(({ state, onRetry }: { state: HistoryState; onRetry: () => void }) => {
   if (state.status === 'idle' || state.status === 'loading') {
-    return <Spinner label="Loading release history…" testId="sc-history-loading" />;
+    return <PanelLoading label="Loading release history…" testId="sc-history-loading" />;
   }
 
   if (state.status === 'error') {
