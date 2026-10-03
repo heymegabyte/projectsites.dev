@@ -1971,6 +1971,50 @@ export interface ResSiteFilesResponseMessage {
 }
 
 /*
+ * ── Resources Automations bridge messages (Resources → Automations tab) ──────────────────────────
+ *
+ * The per-site automation/workflow log (RES-AUTO slice 2). The embedded editor has no cross-origin
+ * session, so the admin (which holds `selectedSite` + the bearer) proxies the read to the worker's
+ * `GET /api/sites/:id/automations` (slice 1). Read-only — one request verb, no mutation. DARK behind
+ * the `site_automations` flag → a 404 whose reply carries `{ok:false, enabled:false}` → the surface
+ * shows a friendly "not enabled" card.
+ */
+
+/** One automation/workflow instance, shaped for the Automations panel list (mirrors the worker). */
+export interface AutomationEntry {
+  /** The job instance id (`workflow_jobs.id`). */
+  id: string;
+  /** The job kind (`workflow_jobs.job_name`), e.g. `site-generation`. */
+  type: string;
+  /** `queued | running | success | failed`. */
+  status: string;
+  /** ISO timestamp the job was created. */
+  created_at: string;
+  /** ISO timestamp the job finished, or `null` while still in flight. */
+  finished_at: string | null;
+}
+
+/** Child → Parent: ask the admin to list this site's automations (read-only; no payload). */
+export interface AutomationsRequestMessage {
+  type: 'PS_RES_AUTOMATIONS';
+  correlationId: string;
+}
+
+/** Parent → Child: the admin's reply to {@link AutomationsRequestMessage}. */
+export interface AutomationsResponseMessage {
+  type: 'PS_RES_AUTOMATIONS_RESULT';
+  correlationId?: string;
+  ok: boolean;
+
+  /** The site's automation instances (backend-capped, newest first). */
+  automations?: AutomationEntry[];
+
+  /** `false` when the surface's flag is off (the dark-flag 404) → the surface stays hidden. */
+  enabled?: boolean;
+  error?: string;
+}
+
+/*
  * ── Resources Buckets bridge messages (Resources → Buckets tab) ─────────────────────────────────
  *
  * The per-site R2 Buckets surface. The embedded editor has no cross-origin session, so the admin
@@ -2208,6 +2252,7 @@ export type ParentToChildMessage =
   | ResMediaResponseMessage
   | MediaUploadResponseMessage
   | ResSiteFilesResponseMessage
+  | AutomationsResponseMessage
   | R2ResponseMessage
   | BucketUploadResponseMessage
   | BucketDownloadResponseMessage
@@ -2250,6 +2295,7 @@ export type ChildToParentMessage =
   | ResMediaRequestMessage
   | MediaUploadRequestMessage
   | ResSiteFilesRequestMessage
+  | AutomationsRequestMessage
   | R2RequestMessage
   | BucketUploadRequestMessage
   | BucketDownloadRequestMessage
@@ -2970,6 +3016,18 @@ export function requestResSiteFiles(
       environment: input.environment,
     },
     'PS_RES_SITE_FILES_RESULT',
+  );
+}
+
+/**
+ * Resources → Automations: ask the parent admin to list THIS site's automation/workflow instances
+ * (read-only). Resolves with the parent's {@link AutomationsResponseMessage} (the admin proxies to
+ * `GET /api/sites/:id/automations`). DARK behind `site_automations` → `{ok:false, enabled:false}`.
+ */
+export function requestAutomations(): Promise<AutomationsResponseMessage> {
+  return requestFromParent<AutomationsResponseMessage>(
+    { type: 'PS_RES_AUTOMATIONS', correlationId: nextBridgeCorrelationId() },
+    'PS_RES_AUTOMATIONS_RESULT',
   );
 }
 

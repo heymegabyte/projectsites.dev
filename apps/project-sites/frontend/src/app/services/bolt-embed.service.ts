@@ -3064,6 +3064,51 @@ export class BoltEmbedService {
             });
           break;
         }
+        case 'PS_RES_AUTOMATIONS': {
+          // Resources → Automations — the embedded editor has no cross-origin session, so it asks US
+          // (we hold currentSite + the ApiService bearer) to list the site's automation/workflow
+          // instances via GET /api/sites/:id/automations (slice 1). Reply PS_RES_AUTOMATIONS_RESULT.
+          // DARK behind `site_automations` → a 404 "not enabled" translates to {ok:false,enabled:false}.
+          const iframe = this.iframeEl;
+          const site = this.currentSite;
+          const cid = msg.correlationId;
+          const reply = (payload: Record<string, unknown>): void => {
+            iframe?.contentWindow?.postMessage(
+              { type: 'PS_RES_AUTOMATIONS_RESULT', correlationId: cid, ...payload },
+              EDITOR_BASE,
+            );
+          };
+          if (!site) {
+            reply({ ok: false, error: 'No site selected' });
+            break;
+          }
+          // Worker `/automations` → `{ data:[{id,type,status,created_at,finished_at}] }` (newest first).
+          this.api
+            .get<{
+              data?: Array<{
+                id: string;
+                type: string;
+                status: string;
+                created_at: string;
+                finished_at: string | null;
+              }>;
+            }>(`/sites/${site.id}/automations`, undefined, { silent: true })
+            .subscribe({
+              next: (res) => reply({ ok: true, automations: res?.data ?? [] }),
+              // Any 404 is the dark/absent state → editor shows the friendly "not enabled" card.
+              // Slice-1 returns `{error:{code:NOT_FOUND}}` (no "not enabled" message) for BOTH the
+              // flag-off case AND a cross-org miss, so treat the whole 404 class as disabled (never a
+              // scary error) rather than string-matching a message the endpoint doesn't send.
+              error: (err: unknown) => {
+                if (err instanceof HttpErrorResponse && err.status === 404) {
+                  reply({ ok: false, enabled: false });
+                } else {
+                  reply({ ok: false, error: 'Could not load automations.' });
+                }
+              },
+            });
+          break;
+        }
         case 'PS_R2': {
           // Resources → Buckets — the embedded editor has no cross-origin session, so it asks US (we
           // hold currentSite + the ApiService bearer) to run one bucket/object management op against

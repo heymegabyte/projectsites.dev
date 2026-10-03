@@ -42,6 +42,7 @@ import {
 } from '~/lib/embed/embedded-mode';
 import { ResourceOverviewPanel } from './ResourceOverviewPanel';
 import { BucketsPanel } from './BucketsPanel';
+import { AutomationsPanel } from './AutomationsPanel';
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
@@ -52,8 +53,8 @@ const ENVIRONMENTS: { value: ResourceEnvironment; label: string }[] = [
   { value: 'preview', label: 'Preview' },
 ];
 
-/** The three asset sections this panel surfaces. */
-type Section = 'media' | 'files' | 'buckets';
+/** The asset sections this panel surfaces. */
+type Section = 'media' | 'files' | 'buckets' | 'automations';
 
 type MediaState =
   | { status: 'loading' }
@@ -634,9 +635,12 @@ export const ResourcesPanel = memo(() => {
           />
         ) : section === 'files' ? (
           <BuildFiles state={files} onRetry={() => void loadFiles()} />
-        ) : (
+        ) : section === 'buckets' ? (
           // Buckets — the per-site R2 manager. Self-managing (its own load/refresh + object browser).
           <BucketsPanel />
+        ) : (
+          // Automations — the per-site workflow/automation log. Self-managing (own load/refresh).
+          <AutomationsPanel />
         )}
       </div>
 
@@ -685,10 +689,10 @@ const Header = memo(
         }}
       />
       {/* Top chrome (icon · title · storage · env · Advanced) is media/files-specific — the
-          Buckets tab renders its OWN full header (create), so hide this row there to avoid a
-          double header. The tab strip below stays on every tab. Data stays current via the
+          Buckets AND Automations tabs render their OWN full header, so hide this row there to avoid
+          a double header. The tab strip below stays on every tab. Data stays current via the
           panel's visibility-aware poll — no manual Refresh control (real-time rule). */}
-      {section !== 'buckets' && (
+      {section !== 'buckets' && section !== 'automations' && (
         <div className="relative flex items-center gap-3 px-4 pt-3">
           <div className="flex items-center justify-center h-9 w-9 rounded-xl border border-bolt-elements-item-contentAccent/30 bg-bolt-elements-item-contentAccent/[0.08] shadow-inner shadow-bolt-elements-item-contentAccent/10 shrink-0">
             <div className="i-ph:images-square-duotone text-xl text-bolt-elements-item-contentAccent" />
@@ -743,7 +747,10 @@ const Header = memo(
 
       {/* Section tabs — Media library | Site files | Buckets */}
       <div
-        className={classNames('relative flex items-center gap-1 px-4 pb-2', section === 'buckets' ? 'pt-3' : 'pt-2.5')}
+        className={classNames(
+          'relative flex items-center gap-1 px-4 pb-2',
+          section === 'buckets' || section === 'automations' ? 'pt-3' : 'pt-2.5',
+        )}
         role="tablist"
         aria-label="Resource sections"
       >
@@ -752,6 +759,7 @@ const Header = memo(
             { value: 'media', label: 'Media library', icon: 'i-ph:images-square' },
             { value: 'files', label: 'Site files', icon: 'i-ph:folder-open' },
             { value: 'buckets', label: 'Buckets', icon: 'i-ph:bucket' },
+            { value: 'automations', label: 'Automations', icon: 'i-ph:lightning' },
           ] as const
         ).map((tab) => {
           const active = section === tab.value;
