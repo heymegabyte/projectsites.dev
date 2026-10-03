@@ -30,8 +30,9 @@
  * FormBuilder is intentionally NOT wired as a nav entry or an action here (Brian 2026-09-27) but stays
  * IMPORTED so it remains reachable/interconnected for a future surface.
  */
-import React, { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { classNames } from '~/utils/classNames';
+import { PanelShell, PanelSegmentedNav } from './panel';
 import {
   isEmbedded,
   postToParent,
@@ -106,82 +107,32 @@ export const DatabasePanel = memo(() => {
     setOpenTable({ table: payload.table, rowid: payload.rowid, nonce: Date.now() });
   }, []);
 
-  // Roving-tabindex keyboard nav across the segmented button bar (Left/Right/Home/End).
-  const onNavKeyDown = useCallback(
-    (event: React.KeyboardEvent<HTMLDivElement>) => {
-      const keys = ['ArrowLeft', 'ArrowRight', 'Home', 'End'];
-
-      if (!keys.includes(event.key)) {
-        return;
-      }
-
-      event.preventDefault();
-
-      const idx = visibleNav.findIndex((item) => item.value === subView);
-
-      if (idx === -1) {
-        return;
-      }
-
-      let nextIdx = idx;
-
-      if (event.key === 'ArrowLeft') {
-        nextIdx = (idx - 1 + visibleNav.length) % visibleNav.length;
-      } else if (event.key === 'ArrowRight') {
-        nextIdx = (idx + 1) % visibleNav.length;
-      } else if (event.key === 'Home') {
-        nextIdx = 0;
-      } else if (event.key === 'End') {
-        nextIdx = visibleNav.length - 1;
-      }
-
-      setSubView(visibleNav[nextIdx].value);
-    },
-    [visibleNav, subView],
+  /**
+   * Pills for the shared {@link PanelSegmentedNav} — map our {@link SubNavItem} model (`value`) onto the
+   * primitive's `id` shape. The primitive owns the segmented styling + Left/Right/Home/End roving-tabindex,
+   * so the hand-rolled bar + keydown handler this replaced are gone.
+   */
+  const navItems = useMemo(
+    () => visibleNav.map((item) => ({ id: item.value, label: item.label, icon: item.icon })),
+    [visibleNav],
   );
+
+  /** Switch the active sub-view from a pill selection (the primitive hands back the `value` as `id`). */
+  const onSelectSubView = useCallback((id: string) => setSubView(id as SubView), []);
 
   const closeAction = useCallback(() => setTableAction(null), []);
 
   return (
-    <div
-      className="h-full flex flex-col bg-bolt-elements-background-depth-1 text-bolt-elements-textPrimary [color-scheme:dark] accent-[color:var(--ps-accent,#00e5ff)]"
-      data-testid="database-panel"
-    >
-      {/* Sub-nav button bar — concise Tables · SQL · KV (Airtable/Notion segmented control) */}
+    <PanelShell testId="database-panel">
+      {/* Sub-nav button bar — concise Tables · SQL · KV (shared segmented control) + the ⌘K affordance. */}
       <div className="flex items-center gap-2 px-3 py-2 border-b border-bolt-elements-borderColor shrink-0">
-        <div
-          role="tablist"
-          aria-label="Database views"
-          onKeyDown={onNavKeyDown}
-          className="flex items-center gap-1 rounded-lg bg-bolt-elements-background-depth-2 p-0.5 border border-bolt-elements-borderColor/60 shadow-[inset_0_1px_0_rgba(255,255,255,0.03)]"
-        >
-          {visibleNav.map((item) => {
-            const active = subView === item.value;
-            return (
-              <button
-                key={item.value}
-                type="button"
-                role="tab"
-                data-filled-pill=""
-                aria-selected={active}
-                aria-pressed={active}
-                tabIndex={active ? 0 : -1}
-                data-testid={`database-subnav-${item.value}`}
-                onClick={() => setSubView(item.value)}
-                className={classNames(
-                  'min-h-[24px] flex items-center gap-1.5 px-3 py-1 text-xs font-medium rounded-md transition-all duration-150 motion-reduce:transition-none',
-                  'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-bolt-elements-item-contentAccent cursor-pointer',
-                  active
-                    ? 'bg-bolt-elements-item-contentAccent text-[#061018] shadow-[0_2px_10px_-2px_rgba(0,229,255,0.5)]'
-                    : 'text-bolt-elements-textTertiary hover:text-bolt-elements-textPrimary hover:bg-bolt-elements-background-depth-3',
-                )}
-              >
-                <div className={classNames(item.icon, 'text-sm')} aria-hidden />
-                {item.label}
-              </button>
-            );
-          })}
-        </div>
+        <PanelSegmentedNav
+          items={navItems}
+          activeId={subView}
+          onSelect={onSelectSubView}
+          ariaLabel="Database views"
+          testId="database-views"
+        />
 
         {/* Visible ⌘K affordance — so global data search isn't discoverable ONLY via the shortcut. */}
         <button
@@ -241,7 +192,7 @@ export const DatabasePanel = memo(() => {
          */}
         <DataSearchPalette onOpenTable={onOpenTableFromSearch} openNonce={searchOpenNonce} />
       </div>
-    </div>
+    </PanelShell>
   );
 });
 

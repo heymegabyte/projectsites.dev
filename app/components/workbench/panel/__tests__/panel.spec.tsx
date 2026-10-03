@@ -7,7 +7,7 @@
  */
 import { describe, it, expect } from 'vitest';
 import { renderToStaticMarkup } from 'react-dom/server';
-import { PanelShell, PanelHeader, PanelLoading, PanelEmpty } from '../index';
+import { PanelShell, PanelHeader, PanelLoading, PanelEmpty, PanelSegmentedNav } from '../index';
 
 describe('workbench panel primitives', () => {
   it('PanelShell renders the dark, brand-accented column with the testId + children', () => {
@@ -89,5 +89,32 @@ describe('workbench panel primitives', () => {
     const html = renderToStaticMarkup(<PanelEmpty icon="i-ph:folder-duotone" title="Nothing here" />);
     expect(html).toContain('Nothing here');
     expect(html).not.toContain('max-w-[320px]');
+  });
+
+  it('PanelSegmentedNav renders each item + marks the active one with the accent class + aria-current', () => {
+    const html = renderToStaticMarkup(
+      <PanelSegmentedNav
+        testId="db-subnav"
+        activeId="sql"
+        onSelect={() => {}}
+        items={[
+          { id: 'table', label: 'Tables', icon: 'i-ph:table-duotone' },
+          { id: 'sql', label: 'SQL', icon: 'i-ph:terminal-window-duotone' },
+          { id: 'kv', label: 'KV', icon: 'i-ph:key-duotone' },
+        ]}
+      />,
+    );
+    // the tablist testId lands + every item label renders
+    expect(html).toContain('data-testid="db-subnav"');
+    expect(html).toContain('Tables');
+    expect(html).toContain('SQL');
+    expect(html).toContain('KV');
+    // the ACTIVE pill carries the cyan accent treatment + aria-current; inactive pills do not
+    expect(html).toContain('bg-bolt-elements-item-contentAccent/[0.12]');
+    expect(html).toContain('aria-current="true"');
+    expect((html.match(/aria-current="true"/g) || []).length).toBe(1);
+    // each item is a real, keyboard-operable button with a stable per-item testId
+    expect((html.match(/role="tab"/g) || []).length).toBe(3);
+    expect(html).toContain('data-testid="panel-segnav-sql"');
   });
 });

@@ -5,10 +5,12 @@
  * instead of 15 hand-rolled roots + 4 header paddings. Migrate panels onto these incrementally.
  *
  * Shipped: {@link PanelShell} (root), {@link PanelHeader} (canonical header),
- * {@link PanelLoading} (in-panel Nebula loading), {@link PanelEmpty} (launchpad empties).
- * Next (fan-out): PanelBody, PanelSegmentedNav (the Database pill sub-nav, generalized).
+ * {@link PanelLoading} (in-panel Nebula loading), {@link PanelEmpty} (launchpad empties),
+ * {@link PanelSegmentedNav} (the Database pill sub-nav, generalized).
+ * Next (fan-out): PanelBody.
  */
 export { PanelShell, type PanelShellProps } from './PanelShell';
 export { PanelHeader, type PanelHeaderProps } from './PanelHeader';
 export { PanelLoading, type PanelLoadingProps } from './PanelLoading';
 export { PanelEmpty, type PanelEmptyProps } from './PanelEmpty';
+export { PanelSegmentedNav, type PanelSegmentedNavProps } from './PanelSegmentedNav';
