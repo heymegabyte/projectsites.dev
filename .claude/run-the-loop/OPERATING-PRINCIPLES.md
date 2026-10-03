@@ -490,3 +490,7 @@ flag was registered without its `FLAG_DOCS` entry). **Discipline (every worker-t
 after pushing, confirm `gh run --workflow=project-sites.yaml --limit 1` shows ✓ "Unit Tests" AND a
 "Deploy to Production" job that actually executed (not skipped) — a green push is NOT a green deploy.
 Unit Tests red → the deploy is dark; fix the failing test before claiming shipped.
+
+## § Verify/Ship addendum — confirm the deploy CONCLUDED + flake-recovery (fire-98, 2026-10-03)
+
+Extends the fire-92 "push ≠ deploy" rule. A worker push can fail `project-sites.yaml` "Test worker package" on a FLAKE (noisy error-path tests — places-429, D1 "no such table" — occasionally trip CI while the full suite passes locally). fire-97 pushed RES-AUTO slice 1, reported "deploying," and the flake stranded the deploy for a whole fire. **Discipline:** after a worker push, confirm the deploy run CONCLUDED green THIS fire (`gh run watch` / re-check), not just that it kicked off. On a "Test worker package" failure, FIRST run the FULL worker suite locally (`npx jest`); if it's green, the CI failure is a flake → `gh run rerun --failed <id>` immediately rather than leaving the slice dark. (Durable fix candidate: auto-retry the test job in CI, or quarantine the flaky error-path tests.)
