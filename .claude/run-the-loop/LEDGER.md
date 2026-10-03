@@ -9,6 +9,13 @@
 > `_CF_NATIVE_CONVERGENCE.md`, `_ADMIN_VQA_LEDGER.md`, `_INTERCONNECTEDNESS_LEDGER.md`). This is the
 > INDEX, not a duplicate.
 
+## fire-103 — 2026-10-03 (converge; a11y + perf rebalance of the public money-path funnel; shipped WCAG 2.4.11 fix + hardened the resurrection gate)
+- Rebalanced to the starved UX/a11y + Perf bands (fires 100-102 were Product/Docs/Architecture-heavy). Read-only fan-out: `accessibility-auditor` + `performance-profiler` on the auth-free funnel (`/` + `/signin`).
+- SHIPPED a11y: `html { scroll-padding-top: 5rem }` (styles.scss) so keyboard/anchor focus clears the fixed ~64px header (WCAG 2.2 2.4.11 Focus Not Obscured, AA — the auditor's #1 lowest-risk pick). `c4fdbe92a`; build:prod green; deployed R2; apex + /admin 200 live.
+- Perf: homepage CWV HEALTHY — LCP 1.1s (text-`<h1>`, no hero image) / CLS 0.032 / FCP 1.1s all PASS house targets; INP a narrow miss (110 vs 100). The profiler's "delete the font stylesheet" fix was WRONG — VERIFIED Inter/Montserrat/Fira Code IS the admin-cockpit set, in-use (create.component + easter-eggs/changelog) → shipped nothing risky, folded the real opportunities (idle-defer analytics; route-scope admin fonts off `/`) to BACKLOG.
+- Loop-improvement: hardened `tools/resurrection-check.sh` to prune ALL of `.claude/` (not just `.claude/worktrees`) — a pre-push false-positive on the perf agent's memory note `homepage-cwv-baseline.md` blocked the push; gate still protects product dirs. `646a1b8e9`.
+- Replenished BACKLOG: 4 moderate axe landmark violations (nested `main`/`contentinfo` on `/` + `/signin`), 2.5.8 target-size (nav/footer/social/CTA <24px), 2.4.7 focus-ring gaps, + 2 perf items. The a11y auditor cut off mid-run → salvaged via SendMessage resume (fan-out attrition, not lead saturation). Standing browser roles 16/17 still gated on the fleet-worktree execution path. Lease `fire-103-converge`.
+
 ## fire-102 — 2026-10-03 (converge; editor-bridge SSOT slice-1 — resolveResourceKind helper + migrated both PS_RES_* handlers)
 - Extracted the fire-101 field-name precedence (`kind` first, `resourceKind` legacy fallback) into ONE tested helper `frontend/src/app/services/ps-bridge.ts` (`resolveResourceKind`); migrated BOTH PS_RES_DETAIL/MUTATE handlers off their identical inline ternary so a 3rd handler can't re-introduce the drift. `9df793edc`. tsc clean; karma 33/33 (27 bolt-embed incl. the 2 fire-101 regressions + 6 new ps-bridge).
 - Shipped: frontend R2 deploy (300 files, CDN purged) `9df793edc`; prod proof = apex 200 + `/admin` shell 200 live. Zero behavioral change (same precedence) → 33/33 + live shell sufficient; the live interactive D1 cell-edit journey stays the queued `editor-data` Deep-UI-Explorer item.
