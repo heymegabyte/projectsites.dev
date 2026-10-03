@@ -95,17 +95,17 @@ describe('DatabasePanel — consolidated per-site data surface (concise nav)', (
   it('renders a concise sub-nav — Tables + SQL + KV, no Advanced toggle, no schema/seed/forms entries', () => {
     render(<DatabasePanel />);
 
-    expect(screen.getByTestId('database-subnav-table')).toBeTruthy();
-    expect(screen.getByTestId('database-subnav-sql')).toBeTruthy();
-    expect(screen.getByTestId('database-subnav-kv')).toBeTruthy();
+    expect(screen.getByTestId('panel-segnav-table')).toBeTruthy();
+    expect(screen.getByTestId('panel-segnav-sql')).toBeTruthy();
+    expect(screen.getByTestId('panel-segnav-kv')).toBeTruthy();
 
     // The removed entries + the removed Advanced toggle must NOT be present.
     expect(screen.queryByTestId('database-advanced-toggle')).toBeNull();
-    expect(screen.queryByTestId('database-subnav-schema')).toBeNull();
-    expect(screen.queryByTestId('database-subnav-seed')).toBeNull();
-    expect(screen.queryByTestId('database-subnav-forms')).toBeNull();
-    expect(screen.queryByTestId('database-subnav-import')).toBeNull();
-    expect(screen.queryByTestId('database-subnav-history')).toBeNull();
+    expect(screen.queryByTestId('panel-segnav-schema')).toBeNull();
+    expect(screen.queryByTestId('panel-segnav-seed')).toBeNull();
+    expect(screen.queryByTestId('panel-segnav-forms')).toBeNull();
+    expect(screen.queryByTestId('panel-segnav-import')).toBeNull();
+    expect(screen.queryByTestId('panel-segnav-history')).toBeNull();
   });
 
   it('shows the Tables actions (New table / Import / History) as buttons in the embedded header Actions menu', () => {
@@ -316,7 +316,7 @@ describe('DatabasePanel — consolidated per-site data surface (concise nav)', (
   it('SQL is a first-class entry — selecting it mounts the SQL navigator (textarea + run + Ask toggle)', () => {
     render(<DatabasePanel />);
 
-    fireEvent.click(screen.getByTestId('database-subnav-sql'));
+    fireEvent.click(screen.getByTestId('panel-segnav-sql'));
 
     expect(screen.getByTestId('database-sql-textarea')).toBeTruthy();
     expect(screen.getByTestId('database-sql-ask-toggle')).toBeTruthy();
@@ -335,7 +335,7 @@ describe('DatabasePanel — consolidated per-site data surface (concise nav)', (
   it('KV manager shows the $10/mo locked-upsell (honest, not a dead control)', () => {
     render(<DatabasePanel />);
 
-    fireEvent.click(screen.getByTestId('database-subnav-kv'));
+    fireEvent.click(screen.getByTestId('panel-segnav-kv'));
 
     const kv = screen.getByTestId('database-kv');
     expect(within(kv).getByText('$10')).toBeTruthy();
@@ -348,7 +348,7 @@ describe('DatabasePanel — consolidated per-site data surface (concise nav)', (
   it('KV manager swaps the upsell for the REAL per-site KV browser once unlocked', () => {
     render(<DatabasePanel />);
 
-    fireEvent.click(screen.getByTestId('database-subnav-kv'));
+    fireEvent.click(screen.getByTestId('panel-segnav-kv'));
     fireEvent.click(screen.getByTestId('database-kv-unlock'));
 
     // The locked-upsell card is gone; the real per-site KV browser is mounted (recycled KvBrowser).
@@ -403,7 +403,7 @@ async function replyKvList(
 describe('DatabasePanel — KV locked-upsell read-only preview (never a dead paywall)', () => {
   it('lists the site REAL KV keys read-only via the existing PS_RES_DETAIL kv:list bridge', async () => {
     render(<DatabasePanel />);
-    fireEvent.click(screen.getByTestId('database-subnav-kv'));
+    fireEvent.click(screen.getByTestId('panel-segnav-kv'));
 
     // The locked card must ASK the same per-site bridge KvBrowser uses — no new endpoint, read-only list.
     await waitFor(() => expect(lastKvDetail('list')).toBeTruthy());
@@ -426,7 +426,7 @@ describe('DatabasePanel — KV locked-upsell read-only preview (never a dead pay
 
   it('shows an honest empty preview when the KV store has no keys yet (not a dead control)', async () => {
     render(<DatabasePanel />);
-    fireEvent.click(screen.getByTestId('database-subnav-kv'));
+    fireEvent.click(screen.getByTestId('panel-segnav-kv'));
 
     await waitFor(() => expect(lastKvDetail('list')).toBeTruthy());
     await replyKvList(lastKvDetail('list'), { keys: [] });
@@ -439,7 +439,7 @@ describe('DatabasePanel — KV locked-upsell read-only preview (never a dead pay
 
   it('stays a clean upsell (no broken preview) when per_site_kv is dark', async () => {
     render(<DatabasePanel />);
-    fireEvent.click(screen.getByTestId('database-subnav-kv'));
+    fireEvent.click(screen.getByTestId('panel-segnav-kv'));
 
     await waitFor(() => expect(lastKvDetail('list')).toBeTruthy());
 
