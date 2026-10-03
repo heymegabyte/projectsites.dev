@@ -437,6 +437,17 @@ fleet, one deploy stream, no conflicting commits.
 
 - Two parallel agents were each told "migration after 0648" → both created 0649_*. When >1 spawned agent MAY add a migration in the same fire, the LEAD pre-assigns each a distinct number in the brief (e.g. "yours is 0651"). An agent discovering it needs an unplanned migration takes `max(existing)+2` (gap absorbs a concurrent sibling) and reports it. Convergence always runs `ls migrations | tail` and renumbers dupes BEFORE any deploy (rename file + update tests referencing the filename — they execute the DDL by path).
 
+## Shared-primitive fan-out recipe (proven 4× — editor-panel-ui-rearch waves A→D, fires 107-110)
+
+The deterministic way to migrate N surfaces onto a shared primitive family (panels→`panel/`, cards, dialogs, any "one chrome for all" extraction) without agents colliding:
+
+- **Lead extracts the primitive(s) FIRST** (or confirms they exist) with a colocated vitest spec (`renderToStaticMarkup` — no testing-lib dep). The spec is the regression lock every wave re-runs.
+- **Fan out ≤6 worktree agents on DISJOINT surfaces** (one agent per 2-3 panels, grouped so no two touch the same file). Each brief: the mechanical before→after pattern + "EDIT-ONLY, do NOT build, commit ONLY your named files, NEVER `git add -A`."
+- **Barrel-collision avoidance (the load-bearing trick):** when a wave also CREATES a new primitive, the creating agent imports it **directly** (`import { PanelX } from './panel/PanelX'`) and does **NOT** touch `panel/index.ts` or the spec. The LEAD adds the barrel export + the spec cases at convergence. This lets parallel agents create siblings without racing the one hot barrel/spec file.
+- **Lead converges ONCE:** cherry-pick each agent's single commit onto `main` (disjoint files → zero conflicts), add barrel exports + spec cases, `npx vitest run panel.spec` (must stay green), `npm run build` (the authoritative TSX gate), deploy ONCE to Pages `bolt-diy`, prune every worktree + branch.
+- **Adversarial grep before deploy:** `grep -rn "<RemovedThing>\|<removed-testid>"` across the surface dir to catch a dangling reference an agent left (fire-110 caught the removed-`Spinner` class this way — clean). The grep doubles as the NEXT wave's target list (it surfaced the 4 panels still on a local `<Spinner>`).
+- **Deep authed visual states are NOT headless-reachable on the standalone editor origin** (it renders a dashboard-redirect guard; the WebContainer iframe + panels live behind Cloudflare Access on the admin). Confirm deploy health on the standalone origin (shell boots, 0 JS/CSP errors); defer in-panel loading/empty screenshots to the authed Deep-UI-Explorer journey — do NOT burn a visual-qa budget fighting the Access wall.
+
 ## Prod D1 migrations apply (standing)
 
 - `wrangler d1 migrations apply` on prod is BLOCKED by ancient untracked backlog (references dropped tables, e.g. ai_endpoints). Apply new migrations via targeted `wrangler d1 execute --file=migrations/<new>.sql --remote`, then verify via `SELECT name FROM sqlite_master WHERE name IN (...)`. Do NOT attempt to bulk-reconcile the historical migration ledger mid-fire.
