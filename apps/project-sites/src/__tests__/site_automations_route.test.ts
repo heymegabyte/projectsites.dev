@@ -108,11 +108,7 @@ describe('GET /api/sites/:siteId/automations', () => {
     const req = makeApp({ orgId: 'intruder' }, { DB: db });
     const res = await req('/api/sites/site-1/automations');
     expect(res.status).toBe(404);
-    expect(mockAssertSiteOwned).toHaveBeenCalledWith(
-      expect.anything(),
-      'intruder',
-      'site-1',
-    );
+    expect(mockAssertSiteOwned).toHaveBeenCalledWith(expect.anything(), 'intruder', 'site-1');
   });
 
   it('returns the owner workflow_jobs rows shaped for a UI list', async () => {

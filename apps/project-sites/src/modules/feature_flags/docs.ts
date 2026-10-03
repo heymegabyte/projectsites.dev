@@ -945,7 +945,7 @@ export const FLAG_DOCS: Record<string, FlagDocs> = {
       "First backend slice of the Resources-screen Automations panel: a read-only discovery endpoint listing a site's workflow/automation instances from the workflow_jobs D1 table so the owner can see what ran, when, and whether it succeeded. Site-scoped and ownership-guarded (assertSiteOwned) so it never exposes another tenant's jobs; the flag gate runs first so an off flag is a hard 404 for everyone (existence never leaked). Display reconciles with the store — real rows map 1:1 to list items, an empty store returns an honest empty array. No mutations yet; the panel UI consumes this list.",
     smoke_test: [
       'GET /api/sites/:siteId/automations (flag on, owned) → 200 {data:[…]} from workflow_jobs',
-      'Flag off → 404; unauth → 401; another org\'s siteId → 404',
+      "Flag off → 404; unauth → 401; another org's siteId → 404",
       'A site with no jobs → 200 {data:[]} (honest-empty, not an error)',
     ],
   },
