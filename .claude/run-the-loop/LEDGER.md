@@ -9,6 +9,12 @@
 > `_CF_NATIVE_CONVERGENCE.md`, `_ADMIN_VQA_LEDGER.md`, `_INTERCONNECTEDNESS_LEDGER.md`). This is the
 > INDEX, not a duplicate.
 
+## fire-97 — 2026-10-03 (converge; RES-AUTO slice 1 — automations discovery API [Brian-surfaced gap] + 2-prompt CF intake)
+
+- **RES-AUTO slice 1 shipped — the Automations→Resources gap Brian surfaced this session.** New `GET /api/sites/:siteId/automations` — read-only workflow/automation discovery listing the site's `workflow_jobs` (id/type/status/created/finished, UI-shaped, newest-first, cap 200). Feature module `libs/features/site_automations/` + flag `site_automations` (FLAG_REGISTRY default-OFF **+ FLAG_DOCS** — fire-92 lesson honored) + `assertSiteOwned` IDOR + display-vs-store (honest-empty). RED→GREEN `site_automations_route.test.ts` (flag-off 404 · 401 · cross-org 404 IDOR · owned 200 · empty []); tsc 0, 107 tests, feature-drift PASS. `1cbd30788` → cherry-picked to main. The Automations panel UI (slice 2) + Resources-tab wiring consume this next.
+- **§0.5 intake — 2 new CF prompts absorbed.** `cloudflare-catalog-audit` (138-entry CF disposition matrix; NEW: beta-maturity corrections — SFU unidirectional/1fps/no-ingest · spend-limits eventual-not-atomic) + `cloudflare-realtime-master` (live-workspace spec; NEW: 20 acceptance gates · 10-pass compiler · Talk/Watch/Take-control/Invite = only-4-surfaces). 5 deduped BACKLOG items (CF-GATES-ORCH · ASK-SDK · SITE-CAP-MANIFEST · X402-MPP-GATE · NO-COALESCE-POOLS); FILE 11/12 absorbed; sources deleted. Mostly dedup vs AWOS/WLK.
+- **§7:** the loop closed a Brian-surfaced tracking gap WITHIN the same session — RES-AUTO went tracked (prev turn) → slice-1-built (this fire). Confirms the §0.5 "absorbed = reqs-in-backlog" tightening works: the gap became a frontier item, then the next fire drained its first slice.
+
 ## fire-96 — 2026-10-03 (converge; editor-app ESLint 881→47 via eslint --fix — 98% cleared across 95-96)
 
 - **Verified fire-95's self-heal.** The `format-autofix` bot ran **success** on fire-95's app/ push — app/ prettier drift now self-heals (the fix works).
