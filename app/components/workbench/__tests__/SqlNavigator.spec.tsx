@@ -384,6 +384,7 @@ describe('SqlNavigator — rich per-site SQL workspace', () => {
     const explain = screen.getByTestId('database-sql-ai-explain') as HTMLButtonElement;
     expect(explain).toBeTruthy();
     expect(explain.disabled).toBe(true);
+
     // The reason is surfaced (title/tooltip), not silent.
     expect(explain.getAttribute('title') ?? '').toMatch(/run a query first/i);
 

@@ -25,16 +25,22 @@
 export interface CellAggregates {
   /** Total cells selected (including null, text, and non-numeric values). */
   count: number;
+
   /** How many values parsed as a finite number. */
   numericCount: number;
+
   /** Sum of numeric values; `null` when `numericCount === 0`. */
   sum: number | null;
+
   /** Mean of numeric values rounded to ≤6 significant decimals; `null` when `numericCount === 0`. */
   avg: number | null;
+
   /** Minimum numeric value; `null` when `numericCount === 0`. */
   min: number | null;
+
   /** Maximum numeric value; `null` when `numericCount === 0`. */
   max: number | null;
+
   /** How many values are `null` or `undefined`. */
   nullCount: number;
 }
@@ -54,8 +60,12 @@ function isFiniteNumber(v: unknown): v is number {
  * `Number('')` === 0, which would be misleading.
  */
 function isNumericString(v: unknown): v is string {
-  if (typeof v !== 'string' || v === '') return false;
+  if (typeof v !== 'string' || v === '') {
+    return false;
+  }
+
   const n = Number(v);
+
   return Number.isFinite(n);
 }
 
@@ -110,13 +120,20 @@ export function computeAggregates(values: readonly unknown[]): CellAggregates {
     } else if (isNumericString(v)) {
       numeric = Number(v);
     }
+
     // booleans, objects, arrays, non-finite raw numbers → not numeric
 
     if (numeric !== null) {
       numericCount++;
       sum += numeric;
-      if (numeric < min) min = numeric;
-      if (numeric > max) max = numeric;
+
+      if (numeric < min) {
+        min = numeric;
+      }
+
+      if (numeric > max) {
+        max = numeric;
+      }
     }
   }
 

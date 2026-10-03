@@ -50,8 +50,12 @@ type GridState =
   | { status: 'ready'; preview: EnvSlot; production: EnvSlot };
 
 let correlationCounter = 0;
+
 function nextCorrelationId(): string {
-  if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') return crypto.randomUUID();
+  if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
+    return crypto.randomUUID();
+  }
+
   return `envgrid_${++correlationCounter}`;
 }
 
@@ -59,17 +63,34 @@ function nextCorrelationId(): string {
 function matchesKind(entry: ResourceOverviewEntry, kind: string): boolean {
   const k = kind.toLowerCase();
   const rk = (entry.resource_kind || '').toLowerCase();
-  if (rk === k) return true;
-  if (k.includes('d1') && (rk.includes('d1') || rk.includes('sql') || rk.includes('database'))) return true;
-  if (k.includes('kv') && (rk.includes('kv') || rk.includes('key'))) return true;
-  if (k.includes('r2') && (rk.includes('r2') || rk.includes('bucket') || rk.includes('object'))) return true;
+
+  if (rk === k) {
+    return true;
+  }
+
+  if (k.includes('d1') && (rk.includes('d1') || rk.includes('sql') || rk.includes('database'))) {
+    return true;
+  }
+
+  if (k.includes('kv') && (rk.includes('kv') || rk.includes('key'))) {
+    return true;
+  }
+
+  if (k.includes('r2') && (rk.includes('r2') || rk.includes('bucket') || rk.includes('object'))) {
+    return true;
+  }
+
   return false;
 }
 
 /** Reduce an environment's overview rows to the slot for the target kind (first matching account-resource). */
 function slotFor(entries: ResourceOverviewEntry[], kind: string): EnvSlot {
   const match = entries.find((e) => matchesKind(e, kind));
-  if (!match) return { present: false };
+
+  if (!match) {
+    return { present: false };
+  }
+
   return {
     bindingName: match.binding_name,
     displayName:
@@ -84,6 +105,7 @@ function slotFor(entries: ResourceOverviewEntry[], kind: string): EnvSlot {
 export interface EnvAssignmentGridProps {
   /** The resource kind (`d1` | `kv` | `r2`) the grid shows preview↔production for. */
   kind: string;
+
   /** The environment currently open in the panel (highlighted as the active column). */
   environment: Env;
 }
@@ -93,7 +115,7 @@ export interface EnvAssignmentGridProps {
  * (via the existing overview bridge) and renders a two-column card showing each environment's resource, its
  * lifecycle state, and its binding — honest "Not provisioned" when an environment has no resource of the kind.
  */
-export const EnvAssignmentGrid = memo(function EnvAssignmentGrid({ kind, environment }: EnvAssignmentGridProps) {
+export const EnvAssignmentGrid = memo(({ kind, environment }: EnvAssignmentGridProps) => {
   const [state, setState] = useState<GridState>({ status: 'loading' });
   const pendingRef = useRef<
     Map<
@@ -109,17 +131,30 @@ export const EnvAssignmentGrid = memo(function EnvAssignmentGrid({ kind, environ
   // ONE parent-message listener resolving overview replies by correlationId (repo []-deps stale-ref rule).
   useEffect(() => {
     const unsubscribe = onParentMessage((msg) => {
-      if (msg.type !== 'PS_RES_OVERVIEW_RESPONSE') return;
+      if (msg.type !== 'PS_RES_OVERVIEW_RESPONSE') {
+        return;
+      }
+
       const cid = msg.correlationId;
-      if (!cid) return;
+
+      if (!cid) {
+        return;
+      }
+
       const pending = pendingRef.current.get(cid);
-      if (!pending) return;
+
+      if (!pending) {
+        return;
+      }
+
       clearTimeout(pending.timer);
       pendingRef.current.delete(cid);
       pending.resolve(msg);
     });
+
     return () => {
       unsubscribe();
+
       for (const [, pending] of pendingRef.current) {
         clearTimeout(pending.timer);
         pending.reject(new Error('cancelled'));
@@ -149,11 +184,15 @@ export const EnvAssignmentGrid = memo(function EnvAssignmentGrid({ kind, environ
    */
   const load = useCallback(
     async (silent = false) => {
-      if (!silent) setState({ status: 'loading' });
+      if (!silent) {
+        setState({ status: 'loading' });
+      }
+
       if (!isEmbedded) {
         setState({ status: 'error', message: 'Open this from the ProjectSites admin to see environments.' });
         return;
       }
+
       try {
         const [preview, production] = await Promise.all([requestOverview('preview'), requestOverview('production')]);
 
@@ -164,9 +203,12 @@ export const EnvAssignmentGrid = memo(function EnvAssignmentGrid({ kind, environ
             return;
           }
         }
+
         if (!preview.ok && !production.ok) {
-          if (!silent)
+          if (!silent) {
             setState({ status: 'error', message: preview.error || production.error || 'Could not load environments.' });
+          }
+
           return;
         }
 
@@ -176,8 +218,9 @@ export const EnvAssignmentGrid = memo(function EnvAssignmentGrid({ kind, environ
           status: 'ready',
         });
       } catch (err) {
-        if (!silent)
+        if (!silent) {
           setState({ status: 'error', message: err instanceof Error ? err.message : 'Could not load environments.' });
+        }
       }
     },
     [kind, requestOverview],
@@ -196,17 +239,24 @@ export const EnvAssignmentGrid = memo(function EnvAssignmentGrid({ kind, environ
   const loadRef = useRef(load);
   loadRef.current = load;
   useEffect(() => {
-    if (!isEmbedded) return undefined;
+    if (!isEmbedded) {
+      return undefined;
+    }
 
     const tick = () => {
-      if (typeof document !== 'undefined' && document.hidden) return;
+      if (typeof document !== 'undefined' && document.hidden) {
+        return;
+      }
+
       void loadRef.current(true);
     };
 
     const interval = setInterval(tick, POLL_INTERVAL_MS);
 
     const onVisibility = () => {
-      if (typeof document !== 'undefined' && !document.hidden) void loadRef.current(true);
+      if (typeof document !== 'undefined' && !document.hidden) {
+        void loadRef.current(true);
+      }
     };
 
     document.addEventListener('visibilitychange', onVisibility);
@@ -217,7 +267,9 @@ export const EnvAssignmentGrid = memo(function EnvAssignmentGrid({ kind, environ
     };
   }, []);
 
-  if (state.status === 'disabled') return null;
+  if (state.status === 'disabled') {
+    return null;
+  }
 
   return (
     <div data-testid="resource-env-grid" className="space-y-1.5">
@@ -258,6 +310,7 @@ export const EnvAssignmentGrid = memo(function EnvAssignmentGrid({ kind, environ
           {ENVIRONMENTS.map((envName) => {
             const slot = envName === 'preview' ? state.preview : state.production;
             const active = envName === environment;
+
             return (
               <div
                 key={envName}

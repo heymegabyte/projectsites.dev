@@ -87,6 +87,7 @@ const POLL_INTERVAL_MS = 45_000;
 
 /** Monotonic per-module fallback so every request gets a unique correlationId. */
 let correlationCounter = 0;
+
 function nextCorrelationId(): string {
   if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
     return crypto.randomUUID();
@@ -202,6 +203,7 @@ function titleForKind(kind: string): string {
  * resource the platform can't manage. Derived from `lifecycle_state` so the server drives it.
  */
 type Availability = 'connected' | 'available' | 'unsupported';
+
 function availabilityFor(entry: ResourceOverviewEntry): Availability {
   const s = (entry.lifecycle_state || '').toLowerCase();
 
@@ -261,6 +263,7 @@ function relativeTime(iso: string | undefined): string {
   }
 
   const days = Math.round(hours / 24);
+
   return `${days} day${days === 1 ? '' : 's'} ago`;
 }
 
@@ -310,8 +313,10 @@ export const ResourceOverviewPanel = memo(() => {
   const [environment, setEnvironment] = useState<ResourceEnvironment>('production');
   const [overview, setOverview] = useState<OverviewState>({ status: 'loading' });
   const [notice, setNotice] = useState<string | null>(null);
+
   /** Wall-clock ms of the last successful inventory load — drives the live "updated Ns ago" chip. */
   const [lastLoadedAt, setLastLoadedAt] = useState<number | null>(null);
+
   /** The resource the owner clicked to drill into — non-null renders {@link ResourceDetailPanel}. */
   const [selected, setSelected] = useState<ResourceDetailTarget | null>(null);
 
@@ -447,8 +452,10 @@ export const ResourceOverviewPanel = memo(() => {
             return;
           }
 
-          // On a silent background poll, keep the last good view rather than replacing it with an
-          // error card for a transient blip — a manual refresh is gone, so don't punish the user.
+          /*
+           * On a silent background poll, keep the last good view rather than replacing it with an
+           * error card for a transient blip — a manual refresh is gone, so don't punish the user.
+           */
           if (!silent) {
             setOverview({ status: 'error', message: reply.error || 'Could not load your resources.' });
           }
@@ -477,6 +484,7 @@ export const ResourceOverviewPanel = memo(() => {
   /** Latest `loadOverview` + `environment`, read by the poll effect so it never re-subscribes. */
   const loadRef = useRef(loadOverview);
   loadRef.current = loadOverview;
+
   const environmentRef = useRef(environment);
   environmentRef.current = environment;
 
@@ -548,6 +556,7 @@ export const ResourceOverviewPanel = memo(() => {
 
         // Silent-by-default: only a residual/failed heal is worth a quiet, dismissible note.
         setNotice(reply.error || null);
+
         return;
       }
 
@@ -677,6 +686,7 @@ const Header = memo(
   }: {
     environment: ResourceEnvironment;
     onEnvironment: (env: ResourceEnvironment) => void;
+
     /** Wall-clock ms of the last successful inventory load, or `null` before the first load. */
     lastLoadedAt: number | null;
     subtitle: string;
@@ -911,10 +921,13 @@ const ResourceCard = memo(
   }) => {
     const availability = availabilityFor(entry);
     const drifted = Boolean(entry.drift_code);
-    // Only a CONNECTED resource of an adapter-served kind can be drilled into — an
-    // available/unsupported card keeps its own affordance, and an owner-grade wire kind
-    // (`wfp_worker` / `hostname` / `routing`) has no detail endpoint, so it never opens
-    // (its ids live behind the in-card Advanced disclosure instead).
+
+    /*
+     * Only a CONNECTED resource of an adapter-served kind can be drilled into — an
+     * available/unsupported card keeps its own affordance, and an owner-grade wire kind
+     * (`wfp_worker` / `hostname` / `routing`) has no detail endpoint, so it never opens
+     * (its ids live behind the in-card Advanced disclosure instead).
+     */
     const openable = availability === 'connected' && DETAIL_KINDS.has(entry.resource_kind);
     const open = openable ? () => onOpen(entry) : undefined;
 

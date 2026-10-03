@@ -32,12 +32,14 @@ const WORKBENCH_SRC = readFileSync(join(dirname(fileURLToPath(import.meta.url)),
 
 describe('Workbench.client fileHistory construction contract (fire-73)', () => {
   it('never casts a partial object `as FileHistory` (the exact crash-causing pattern)', () => {
-    // The bug WAS `{ originalContent } as FileHistory` — a cast papering over a missing
-    // `versions`/`changes`/`lastModified`. Any reintroduction of an `as FileHistory` cast
-    // AS LIVE CODE is the same lie resurfacing, regardless of which fields it happens to
-    // omit this time. The fix's own explanatory comment quotes the old buggy snippet
-    // inside backticks for documentation — exclude backtick-quoted lines so the comment
-    // describing the bug doesn't trip the guard meant to catch the bug recurring.
+    /*
+     * The bug WAS `{ originalContent } as FileHistory` — a cast papering over a missing
+     * `versions`/`changes`/`lastModified`. Any reintroduction of an `as FileHistory` cast
+     * AS LIVE CODE is the same lie resurfacing, regardless of which fields it happens to
+     * omit this time. The fix's own explanatory comment quotes the old buggy snippet
+     * inside backticks for documentation — exclude backtick-quoted lines so the comment
+     * describing the bug doesn't trip the guard meant to catch the bug recurring.
+     */
     const liveCastLines = WORKBENCH_SRC.split('\n').filter(
       (line) => /as\s+FileHistory/.test(line) && !line.includes('`'),
     );
@@ -45,8 +47,10 @@ describe('Workbench.client fileHistory construction contract (fire-73)', () => {
   });
 
   it('constructs an honest FileHistory with versions/changes/lastModified all present', () => {
-    // The replacement object literal must carry every REQUIRED FileHistory field so no
-    // downstream consumer reading `.versions[...]` can ever dereference `undefined`.
+    /*
+     * The replacement object literal must carry every REQUIRED FileHistory field so no
+     * downstream consumer reading `.versions[...]` can ever dereference `undefined`.
+     */
     expect(WORKBENCH_SRC).toMatch(/originalContent/);
     expect(WORKBENCH_SRC).toMatch(/versions:\s*\[\]/);
     expect(WORKBENCH_SRC).toMatch(/changes:\s*\[\]/);
@@ -54,10 +58,12 @@ describe('Workbench.client fileHistory construction contract (fire-73)', () => {
   });
 
   it('end-to-end: the EXACT fileHistory shape Workbench.client now builds never throws through computeFileDiffStat', () => {
-    // Mirrors Workbench.client.tsx's fileHistory useMemo construction verbatim — this is
-    // what every AI turn actually produces today. Pre-fix (versions-less `as FileHistory`
-    // cast feeding a direct `versions[versions.length-1]` read) this input crashed the
-    // Workbench 101x; post-fix it's a fully-typed FileHistory that resolves to "0/0 diff".
+    /*
+     * Mirrors Workbench.client.tsx's fileHistory useMemo construction verbatim — this is
+     * what every AI turn actually produces today. Pre-fix (versions-less `as FileHistory`
+     * cast feeding a direct `versions[versions.length-1]` read) this input crashed the
+     * Workbench 101x; post-fix it's a fully-typed FileHistory that resolves to "0/0 diff".
+     */
     const builtByWorkbench: FileHistory = {
       originalContent: 'export const x = 1;\n',
       versions: [],

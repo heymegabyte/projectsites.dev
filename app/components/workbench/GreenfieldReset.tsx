@@ -46,9 +46,14 @@ export const GreenfieldReset = memo(({ postToParent }: GreenfieldResetProps) => 
   useEffect(() => {
     const onMessage = (e: MessageEvent): void => {
       const data = e.data as { type?: string; correlationId?: string } | undefined;
-      if (!data || typeof data.correlationId !== 'string') return;
+
+      if (!data || typeof data.correlationId !== 'string') {
+        return;
+      }
+
       if (data.type === 'PS_RESET_RESPONSE') {
         const resolve = pending.current.get(data.correlationId);
+
         if (resolve) {
           pending.current.delete(data.correlationId);
           resolve(data as ResetResponseMessage);
@@ -56,6 +61,7 @@ export const GreenfieldReset = memo(({ postToParent }: GreenfieldResetProps) => 
       }
     };
     window.addEventListener('message', onMessage);
+
     return () => window.removeEventListener('message', onMessage);
   }, []);
 
@@ -82,12 +88,16 @@ export const GreenfieldReset = memo(({ postToParent }: GreenfieldResetProps) => 
     setPhase('previewing');
     setError(null);
     setResult(null);
+
     const res = await request({ op: 'preview' });
+
     if (!res.ok) {
       setError(res.error ?? 'Could not load the reset preview.');
       setPhase('error');
+
       return;
     }
+
     setPreview(res.data ?? null);
     setPhase(res.data?.available === false ? 'preview' : 'confirming');
   }, [request]);
@@ -96,12 +106,16 @@ export const GreenfieldReset = memo(({ postToParent }: GreenfieldResetProps) => 
   const execute = useCallback(async (): Promise<void> => {
     setPhase('executing');
     setError(null);
+
     const res = await request({ op: 'execute', confirm: true, confirmText: typed.trim() });
+
     if (!res.ok) {
       setError(res.error ?? 'Reset failed.');
       setPhase('error');
+
       return;
     }
+
     setResult(res.data ?? null);
     setPhase('done');
   }, [request, typed]);
@@ -117,6 +131,7 @@ export const GreenfieldReset = memo(({ postToParent }: GreenfieldResetProps) => 
   const impact = summarizeResetImpact(preview);
   const empty = phase !== 'idle' && phase !== 'previewing' && isResetEmpty(preview);
   const siteName = preview?.d1?.databaseName ?? null;
+
   // The confirm text the UI accepts (slug from the D1 name if present, else the RESET keyword).
   const confirmed = isResetConfirmed(typed, deriveSlug(siteName));
 
@@ -332,7 +347,11 @@ GreenfieldReset.displayName = 'GreenfieldReset';
 
 /** Derive the site slug from the dedicated D1 name (`ps-site-<slug>`), for the confirm prompt. */
 function deriveSlug(databaseName: string | null): string | null {
-  if (!databaseName) return null;
+  if (!databaseName) {
+    return null;
+  }
+
   const m = /^ps-site-(.+)$/.exec(databaseName);
+
   return m ? m[1] : null;
 }

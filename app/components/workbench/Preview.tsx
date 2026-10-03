@@ -133,6 +133,7 @@ export const Preview = memo(({ setSelectedElement }: PreviewProps) => {
    * finished site is actually served at — not the throwaway WebContainer origin.
    */
   const siteSlug = useStore(siteSlugAtom);
+
   /*
    * Fall back to the `?slug=` query the admin opens the editor with (bootForSite
    * always sets it) so the primary domain shows in the toolbar even before the
@@ -141,6 +142,7 @@ export const Preview = memo(({ setSelectedElement }: PreviewProps) => {
    */
   const querySlug =
     typeof window !== 'undefined' ? (new URLSearchParams(window.location.search).get('slug') ?? undefined) : undefined;
+
   /*
    * PIN the slug the first moment it's known (atom or `?slug`) and keep it for the
    * whole editor session, so the site's primary URL stays HARDCODED in the address
@@ -157,6 +159,7 @@ export const Preview = memo(({ setSelectedElement }: PreviewProps) => {
       setPinnedSlug(next);
     }
   }, [siteSlug, querySlug, pinnedSlug]);
+
   /*
    * The site's ACTUAL primary hostname (a custom/attached domain), published by the admin over the
    * `?primaryHost=` bootstrap / PS bridge. When present it wins over the default slug host so the
@@ -796,9 +799,11 @@ export const Preview = memo(({ setSelectedElement }: PreviewProps) => {
                 aria-label={`Primary URL ${primaryUrl}. Click to manage URL & domains.`}
                 data-testid="preview-domain-menu-trigger"
                 onClick={() => {
-                  // Ask the parent admin to open the site's domain menu popup (set slug / attach /
-                  // buy domains). The admin's BoltEmbedService validates event.origin, so '*' is
-                  // safe here and works in dev + prod. Standalone editor (no parent) → no-op.
+                  /*
+                   * Ask the parent admin to open the site's domain menu popup (set slug / attach /
+                   * buy domains). The admin's BoltEmbedService validates event.origin, so '*' is
+                   * safe here and works in dev + prod. Standalone editor (no parent) → no-op.
+                   */
                   try {
                     window.parent?.postMessage({ type: 'PS_OPEN_DOMAIN_MENU' }, '*');
                   } catch {

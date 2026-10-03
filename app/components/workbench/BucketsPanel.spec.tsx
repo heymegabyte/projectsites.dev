@@ -68,11 +68,13 @@ describe('BucketsPanel', () => {
           buckets: [{ name: 'uploads', isDefault: true, public: false, environment: 'preview' }],
         };
       }
+
       return { type: 'PS_R2_RESULT', ok: true, objects: [], prefixes: [], truncated: false };
     });
     render(<BucketsPanel />);
     await waitFor(() => expect(screen.getByTestId('buckets-list-item')).toBeTruthy());
     expect(screen.getByTestId('buckets-needs-creds')).toBeTruthy();
+
     // The default bucket auto-selects → the object browser mounts + shows the needs-creds object state.
     await waitFor(() => expect(screen.getByTestId('buckets-objects-needs-creds')).toBeTruthy());
   });
@@ -87,6 +89,7 @@ describe('BucketsPanel', () => {
           buckets: [{ name: 'uploads', isDefault: true, public: false, environment: 'preview' }],
         };
       }
+
       if (input.op === 'listObjects') {
         return {
           type: 'PS_R2_RESULT',
@@ -96,6 +99,7 @@ describe('BucketsPanel', () => {
           truncated: false,
         };
       }
+
       return { type: 'PS_R2_RESULT', ok: true };
     });
     render(<BucketsPanel />);
@@ -121,6 +125,7 @@ describe('BucketsPanel — real-time, no manual refresh (R1)', () => {
           buckets: [{ name: 'uploads', isDefault: true, public: false, environment: 'preview' }],
         };
       }
+
       return { type: 'PS_R2_RESULT', ok: true, objects: [], prefixes: [], truncated: false };
     });
   }

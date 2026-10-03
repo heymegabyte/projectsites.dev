@@ -68,10 +68,12 @@ type FilesState =
   | { status: 'error'; message: string }
   | { status: 'ready'; files: SiteBuildFileEntry[]; prefix?: string };
 
-// ── Branded control primitives (the button contract, one source of truth) ────────────────────────
-//
-// Every control in this panel composes one of these. Shared: min 24px target, cyan focus-visible ring,
-// motion-reduce-safe transitions, cursor-pointer, and a clearly-visible muted disabled state (never blank).
+/*
+ * ── Branded control primitives (the button contract, one source of truth) ────────────────────────
+ *
+ * Every control in this panel composes one of these. Shared: min 24px target, cyan focus-visible ring,
+ * motion-reduce-safe transitions, cursor-pointer, and a clearly-visible muted disabled state (never blank).
+ */
 
 /** Shared base every branded control extends. */
 const CTRL_BASE =
@@ -559,10 +561,12 @@ export const ResourcesPanel = memo(() => {
     return { totalBytes, totalCount: media.assets.length, countsByKind };
   }, [media]);
 
-  // Real-time contract: the panel SELF-updates — no manual Refresh button (the
-  // fire-55 explorer probe caught the header button the fire-54 sweep missed).
-  // Visibility-aware 30s poll on the section-appropriate reload; latest-ref so the
-  // inline closure never goes stale (empty-deps effect + ref pattern).
+  /*
+   * Real-time contract: the panel SELF-updates — no manual Refresh button (the
+   * fire-55 explorer probe caught the header button the fire-54 sweep missed).
+   * Visibility-aware 30s poll on the section-appropriate reload; latest-ref so the
+   * inline closure never goes stale (empty-deps effect + ref pattern).
+   */
   const onRefreshRef = useRef<() => void>(() => {});
   onRefreshRef.current = () => (section === 'media' ? void loadMedia() : void loadFiles());
   useEffect(() => {
@@ -573,6 +577,7 @@ export const ResourcesPanel = memo(() => {
     };
     const id = setInterval(tick, 30_000);
     document.addEventListener('visibilitychange', tick);
+
     return () => {
       clearInterval(id);
       document.removeEventListener('visibilitychange', tick);

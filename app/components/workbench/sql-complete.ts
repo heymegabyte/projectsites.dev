@@ -98,7 +98,11 @@ export function currentWord(textBeforeCaret: string): string {
  */
 export function sqlCompletions(textBeforeCaret: string, schema: SqlSchema): SqlCompletion[] {
   const word = currentWord(textBeforeCaret);
-  if (!word) return [];
+
+  if (!word) {
+    return [];
+  }
+
   const lower = word.toLowerCase();
 
   const pool: SqlCompletion[] = [
@@ -110,20 +114,39 @@ export function sqlCompletions(textBeforeCaret: string, schema: SqlSchema): SqlC
   // Rank weight: lower is better. Prefix (0) beats substring (2); tables/cols (−1) beat keywords (0).
   const scored: Array<{ c: SqlCompletion; score: number }> = [];
   const seen = new Set<string>();
+
   for (const c of pool) {
     const label = c.label.toLowerCase();
-    if (label === lower) continue; // already fully typed — nothing to complete
+
+    if (label === lower) {
+      continue;
+    } // already fully typed — nothing to complete
+
     const dedupeKey = `${c.kind}:${label}`;
-    if (seen.has(dedupeKey)) continue;
+
+    if (seen.has(dedupeKey)) {
+      continue;
+    }
+
     let score: number;
-    if (label.startsWith(lower)) score = 0;
-    else if (label.includes(lower)) score = 2;
-    else continue; // no match
-    if (c.kind === 'keyword') score += 1; // schema idents rank above keywords
+
+    if (label.startsWith(lower)) {
+      score = 0;
+    } else if (label.includes(lower)) {
+      score = 2;
+    } else {
+      continue;
+    } // no match
+
+    if (c.kind === 'keyword') {
+      score += 1;
+    } // schema idents rank above keywords
+
     seen.add(dedupeKey);
     scored.push({ c, score });
   }
   scored.sort((a, b) => a.score - b.score || a.c.label.localeCompare(b.c.label));
+
   return scored.slice(0, MAX_COMPLETIONS).map((s) => s.c);
 }
 
@@ -141,5 +164,6 @@ export function applyCompletion(fullText: string, caret: number, completion: str
   const word = currentWord(before);
   const start = before.length - word.length;
   const text = before.slice(0, start) + completion + after;
+
   return { text, caret: start + completion.length };
 }

@@ -202,9 +202,12 @@ export const DatabasePanel = memo(() => {
       {/* Active sub-view — each stays lightweight; only the mounted view holds a live bridge. */}
       <div className="relative flex-1 overflow-hidden">
         {subView === 'table' && (
-          // Tables-view is a vertical column: the tables browser scrolls (its OWN header holds the single
-          // "Actions" dropdown — New Table / Import / History / Refresh), and the collapsed-by-default Danger
-          // Zone (per-site greenfield reset) sits at the very bottom. Everything targets the site's OWN D1/KV/R2.
+
+          /*
+           * Tables-view is a vertical column: the tables browser scrolls (its OWN header holds the single
+           * "Actions" dropdown — New Table / Import / History / Refresh), and the collapsed-by-default Danger
+           * Zone (per-site greenfield reset) sits at the very bottom. Everything targets the site's OWN D1/KV/R2.
+           */
           <div className="h-full flex flex-col overflow-y-auto">
             <div className="flex-1 min-h-0">
               <SiteTablesPanel
@@ -267,6 +270,7 @@ const TableActionOverlay = memo(
   }: {
     action: TableAction;
     onClose: () => void;
+
     /** Swap this overlay to the guided Schema builder (the AI-seed empty state's "Create Table" CTA). */
     onSwitchToSchema: () => void;
   }) => {
@@ -432,6 +436,7 @@ KvManager.displayName = 'DatabasePanel.KvManager';
 
 /** How many real keys to preview inside the locked card (list-only, bounded). */
 const KV_PREVIEW_LIMIT = 8;
+
 /** A dark-flag 404 reply carries this in its message → the preview hides (the upsell stays clean). */
 const KV_PREVIEW_DISABLED = 'not enabled';
 const KV_PREVIEW_TIMEOUT_MS = 30_000;

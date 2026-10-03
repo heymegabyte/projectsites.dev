@@ -15,6 +15,7 @@ import React from 'react';
 const { postToParent, handlers } = vi.hoisted(() => {
   const handlers: Array<(msg: unknown) => void> = [];
   const postToParent = vi.fn();
+
   return { handlers, postToParent };
 });
 
@@ -22,9 +23,13 @@ vi.mock('~/lib/embed/embedded-mode', () => ({
   isEmbedded: true,
   onParentMessage: (fn: (msg: unknown) => void) => {
     handlers.push(fn);
+
     return () => {
       const i = handlers.indexOf(fn);
-      if (i >= 0) handlers.splice(i, 1);
+
+      if (i >= 0) {
+        handlers.splice(i, 1);
+      }
     };
   },
   postToParent,
@@ -43,10 +48,16 @@ function replyOverview(env: string, payload: Record<string, unknown>) {
       (c[0] as { type: string; environment?: string }).type === 'PS_RES_OVERVIEW_REQUEST' &&
       (c[0] as { environment?: string }).environment === env,
   );
-  if (!call) throw new Error(`no pending overview request for ${env}`);
+
+  if (!call) {
+    throw new Error(`no pending overview request for ${env}`);
+  }
+
   const cid = (call[0] as { correlationId: string }).correlationId;
-  for (const h of [...handlers])
+
+  for (const h of [...handlers]) {
     h({ type: 'PS_RES_OVERVIEW_RESPONSE', correlationId: cid, ok: true, environment: env, ...payload });
+  }
 }
 
 beforeEach(() => {
@@ -80,6 +91,7 @@ describe('environment assignment grid', () => {
     });
 
     await waitFor(() => expect(screen.getByTestId('resource-env-grid')).toBeTruthy());
+
     const prod = screen.getByTestId('resource-env-cell-production');
     expect(prod.textContent).toContain('ps-site-abc');
     expect(prod.textContent).toContain('active');
@@ -108,6 +120,7 @@ describe('environment assignment grid', () => {
     });
 
     await waitFor(() => expect(screen.getByTestId('resource-env-cell-production')).toBeTruthy());
+
     // The d1 row must NOT satisfy the r2 grid — production reads as not provisioned.
     expect(screen.getByTestId('resource-env-cell-production').textContent).toContain('Not provisioned');
     expect(screen.getByTestId('resource-env-cell-production').textContent).not.toContain('a-d1-db');
@@ -125,8 +138,10 @@ describe('environment assignment grid', () => {
           (c[0] as { environment?: string }).environment === env,
       );
       const cid = (call![0] as { correlationId: string }).correlationId;
-      for (const h of [...handlers])
+
+      for (const h of [...handlers]) {
         h({ type: 'PS_RES_OVERVIEW_RESPONSE', correlationId: cid, ok: false, enabled: false, error: 'not enabled' });
+      }
     }
 
     await waitFor(() => expect(container.querySelector('[data-testid="resource-env-grid"]')).toBeNull());
@@ -183,6 +198,7 @@ describe('environment assignment grid — real-time, no manual refresh (R1)', ()
 
     replyOverview('preview', { resources: [] });
     replyOverview('production', { resources: [] });
+
     const before = overviewCount();
 
     await act(async () => {

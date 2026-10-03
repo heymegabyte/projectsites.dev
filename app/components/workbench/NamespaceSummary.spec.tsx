@@ -67,6 +67,7 @@ describe('NamespaceSummary', () => {
     render(<NamespaceSummary resources={resources} environment="production" />);
 
     const tiles = screen.getAllByTestId('ns-kind-tile');
+
     // At least the 10 canonical kinds always render — accounting is complete, not just what exists.
     expect(tiles.length).toBeGreaterThanOrEqual(10);
 
@@ -75,6 +76,7 @@ describe('NamespaceSummary', () => {
     const r2 = tiles.find((t) => t.getAttribute('data-kind') === 'r2');
     expect(d1?.getAttribute('data-count')).toBe('2');
     expect(kv?.getAttribute('data-count')).toBe('1');
+
     // A kind with nothing still renders, at zero.
     expect(r2?.getAttribute('data-count')).toBe('0');
   });
@@ -166,8 +168,11 @@ describe('NamespaceSummary', () => {
 
   it('makes every kind tile a keyboard-operable button that drills into that kind when onOpenKind is set', () => {
     const onOpenKind = vi.fn();
-    // Only a D1 exists; KV / Durable Objects / Connections / Observability have ZERO resources but MUST
-    // still be reachable (their per-kind surfaces are dark-flagged, not absent).
+
+    /*
+     * Only a D1 exists; KV / Durable Objects / Connections / Observability have ZERO resources but MUST
+     * still be reachable (their per-kind surfaces are dark-flagged, not absent).
+     */
     render(
       <NamespaceSummary
         resources={[entry({ id: '1', resource_kind: 'd1', lifecycle_state: 'connected' })]}
@@ -177,6 +182,7 @@ describe('NamespaceSummary', () => {
     );
 
     const tiles = screen.getAllByTestId('ns-kind-tile');
+
     // Reachability: every non-platform-unsupported kind renders as a real <button> (role=button).
     const kv = tiles.find((t) => t.getAttribute('data-kind') === 'kv') as HTMLElement;
     const durable = tiles.find((t) => t.getAttribute('data-kind') === 'durable_object') as HTMLElement;
@@ -196,6 +202,7 @@ describe('NamespaceSummary', () => {
 
     // A connected kind opens with a `connected` hint (leads with read, not provision).
     onOpenKind.mockClear();
+
     const d1 = tiles.find((t) => t.getAttribute('data-kind') === 'd1') as HTMLElement;
     fireEvent.click(d1);
     expect(onOpenKind).toHaveBeenCalledWith(expect.objectContaining({ kind: 'd1', availability: 'connected' }));
@@ -213,6 +220,7 @@ describe('NamespaceSummary', () => {
 
     const tiles = screen.getAllByTestId('ns-kind-tile');
     const queue = tiles.find((t) => t.getAttribute('data-kind') === 'queue') as HTMLElement;
+
     // Never a doomed control: an unsupported kind is a non-button tile (no click, honest "Not available").
     expect(queue.tagName).not.toBe('BUTTON');
     expect(within(queue).getByText('Not available')).toBeTruthy();
@@ -220,7 +228,9 @@ describe('NamespaceSummary', () => {
 
   it('stays presentational (no buttons) when onOpenKind is omitted — backward compatible', () => {
     render(<NamespaceSummary resources={[entry({ id: '1', resource_kind: 'd1' })]} environment="production" />);
+
     const tiles = screen.getAllByTestId('ns-kind-tile');
+
     // Without a handler, tiles are plain divs (the original presentational behavior).
     expect(tiles.every((t) => t.tagName !== 'BUTTON')).toBe(true);
   });

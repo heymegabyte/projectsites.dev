@@ -616,9 +616,11 @@ export const ChatImpl = memo(
         setSiteSlug(slug);
       }
 
-      // Publish the site's ACTUAL primary host (a custom/attached domain) the admin opens the
-      // editor with, so the Preview address bar reflects the REAL public URL instead of the
-      // default slug host. Mirrors the `?slug` read above (same guard, same place).
+      /*
+       * Publish the site's ACTUAL primary host (a custom/attached domain) the admin opens the
+       * editor with, so the Preview address bar reflects the REAL public URL instead of the
+       * default slug host. Mirrors the `?slug` read above (same guard, same place).
+       */
       const primaryHost = searchParams.get('primaryHost');
 
       if (primaryHost) {

@@ -16,6 +16,7 @@ const buttonVariants = cva(
           'border border-bolt-elements-borderColor bg-transparent hover:bg-bolt-elements-background-depth-2 hover:border-bolt-elements-borderColorActive hover:text-bolt-elements-textPrimary text-bolt-elements-textPrimary dark:border-bolt-elements-borderColorActive',
         secondary:
           'bg-bolt-elements-background-depth-2 text-bolt-elements-textPrimary border border-bolt-elements-borderColor hover:bg-bolt-elements-background-depth-3 hover:border-bolt-elements-borderColorActive',
+
         // Purple/secondary accent — brand secondary #7C3AED.
         purple:
           'bg-[rgba(124,58,237,0.16)] text-[#b794f6] border border-[rgba(124,58,237,0.5)] hover:bg-[rgba(124,58,237,0.28)] hover:shadow-[0_0_16px_-4px_rgba(124,58,237,0.55)]',

@@ -77,6 +77,7 @@ interface KvGetData {
   key?: string;
   value?: string | null;
   metadata?: unknown;
+
   /** True when the reader size-capped the value → editing is disabled (can't round-trip). */
   truncated?: boolean;
 }
@@ -349,6 +350,7 @@ export const KvBrowser = memo(() => {
             ...(expiry.kind === 'ttl' ? { expirationTtl: expiry.expirationTtl } : {}),
             ...(expiry.kind === 'clear' ? { clearExpiration: true } : {}),
           },
+
           // Overwriting an existing key is confirm-gated server-side; a brand-new key is not.
           confirm: !isNew,
         })) as ResMutateResponseMessage;

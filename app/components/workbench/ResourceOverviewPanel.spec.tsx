@@ -32,6 +32,7 @@ const { postToParent, handlers, lastRequest } = vi.hoisted(() => {
   const postToParent = vi.fn((message: Record<string, unknown>) => {
     lastRequest.value = message;
   });
+
   return { postToParent, handlers, lastRequest };
 });
 
@@ -47,8 +48,10 @@ vi.mock('~/lib/embed/embedded-mode', () => ({
   postToParent,
   onParentMessage: (handler: (msg: unknown) => void) => {
     handlers.push(handler);
+
     return () => {
       const idx = handlers.indexOf(handler);
+
       if (idx >= 0) {
         handlers.splice(idx, 1);
       }
@@ -56,8 +59,10 @@ vi.mock('~/lib/embed/embedded-mode', () => ({
   },
 }));
 
-// The detail drill-in is exercised by ResourceDetailPanel.spec; stub it to a marker so this spec
-// stays about the OVERVIEW tab's list + env-selector + dark-flag wiring.
+/*
+ * The detail drill-in is exercised by ResourceDetailPanel.spec; stub it to a marker so this spec
+ * stays about the OVERVIEW tab's list + env-selector + dark-flag wiring.
+ */
 vi.mock('./ResourceDetailPanel', () => ({
   ResourceDetailPanel: () => <div data-testid="stub-detail" />,
 }));
@@ -78,6 +83,7 @@ afterEach(() => {
 function lastCorrelationId(): string {
   const req = lastRequest.value;
   expect(req).toBeTruthy();
+
   return (req as { correlationId: string }).correlationId;
 }
 

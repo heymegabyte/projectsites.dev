@@ -254,14 +254,17 @@ export const DataSearchPalette = memo(({ onOpenTable, openNonce }: DataSearchPal
       if (e.key === 'Escape') {
         e.preventDefault();
         close();
+
         return;
       }
 
       if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
         e.preventDefault();
+
         const next = nextResultIndex(e.key, active, results.length);
         setActive(next);
         rowRefs.current[next]?.scrollIntoView({ block: 'nearest' });
+
         return;
       }
 

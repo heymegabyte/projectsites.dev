@@ -23,8 +23,10 @@ export type AskAction = 'filter' | 'column' | 'fill';
 export interface AskPlan {
   /** Which grid action to run. */
   action: AskAction;
+
   /** For `fill`: the target column name (the model picks from the schema). */
   column?: string;
+
   /**
    * The natural-language instruction to hand to the chosen action's existing
    * handler (e.g. the filter phrasing, the column description, the fill rule).
@@ -82,6 +84,7 @@ export function parseAskPlan(raw: string, userText: string, hasSelection: boolea
   const fallback: AskPlan = { action: 'filter', instruction: userText.trim() };
 
   let obj: { action?: unknown; column?: unknown; instruction?: unknown };
+
   try {
     obj = JSON.parse(stripJsonFence(raw)) as typeof obj;
   } catch {
@@ -89,6 +92,7 @@ export function parseAskPlan(raw: string, userText: string, hasSelection: boolea
   }
 
   const action = obj.action;
+
   if (action !== 'filter' && action !== 'column' && action !== 'fill') {
     return fallback;
   }

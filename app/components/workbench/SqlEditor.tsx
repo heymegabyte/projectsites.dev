@@ -52,17 +52,20 @@ const TYPO: React.CSSProperties = {
 export interface SqlEditorProps {
   readonly value: string;
   readonly onValueChange: (next: string) => void;
+
   /** Fired on ⌘↵ / Ctrl↵ (when the completion dropdown is closed) — run the current query. */
   readonly onRun: () => void;
   readonly placeholder?: string;
   readonly minRows?: number;
   readonly testId?: string;
+
   /**
    * DOM `id` for the overlaid `<textarea>` — set this so a sibling `<label htmlFor=…>` resolves to the
    * real editable control (WCAG 1.3.1 / 4.1.2). Only the textarea takes it (the decorative `<pre>` is
    * `aria-hidden`), so the accessibility name maps to the thing the user actually types into.
    */
   readonly id?: string;
+
   /** Inspected schema for completion (real table + column identifiers). Omit to disable completion. */
   readonly schema?: SqlSchema;
 }
@@ -71,171 +74,179 @@ export interface SqlEditorProps {
  * SQLite-highlighted, schema-completing SQL editor. Controlled (`value` + `onValueChange`); `onRun`
  * handles ⌘↵. Auto-grows (the `<pre>` drives height), minimum `minRows`.
  */
-export const SqlEditor = memo(function SqlEditor({
-  value,
-  onValueChange,
-  onRun,
-  placeholder,
-  minRows = 4,
-  testId,
-  id,
-  schema,
-}: SqlEditorProps) {
-  const taRef = useRef<HTMLTextAreaElement>(null);
-  const pendingCaret = useRef<number | null>(null);
-  const [caret, setCaret] = useState(0);
-  const [dismissed, setDismissed] = useState(false);
-  const [activeIdx, setActiveIdx] = useState(0);
+export const SqlEditor = memo(
+  ({ value, onValueChange, onRun, placeholder, minRows = 4, testId, id, schema }: SqlEditorProps) => {
+    const taRef = useRef<HTMLTextAreaElement>(null);
+    const pendingCaret = useRef<number | null>(null);
+    const [caret, setCaret] = useState(0);
+    const [dismissed, setDismissed] = useState(false);
+    const [activeIdx, setActiveIdx] = useState(0);
 
-  const tokens = useMemo(() => tokenizeSql(value), [value]);
-  const minHeight = `${minRows * 1.5 * 12 + 16}px`;
+    const tokens = useMemo(() => tokenizeSql(value), [value]);
+    const minHeight = `${minRows * 1.5 * 12 + 16}px`;
 
-  // Completions for the word left of the caret (only when a schema is supplied + not just dismissed).
-  const completions = useMemo<SqlCompletion[]>(() => {
-    if (!schema || dismissed) return [];
-    return sqlCompletions(value.slice(0, caret), schema);
-  }, [schema, dismissed, value, caret]);
-  const open = completions.length > 0;
-
-  // Keep activeIdx in range as the candidate list changes.
-  useEffect(() => {
-    if (activeIdx >= completions.length) setActiveIdx(0);
-  }, [completions.length, activeIdx]);
-
-  // After we programmatically change the value (completion accept), restore the caret.
-  useEffect(() => {
-    if (pendingCaret.current != null && taRef.current) {
-      const pos = pendingCaret.current;
-      pendingCaret.current = null;
-      taRef.current.setSelectionRange(pos, pos);
-      setCaret(pos);
-    }
-  }, [value]);
-
-  const syncCaret = (): void => {
-    if (taRef.current) setCaret(taRef.current.selectionStart ?? 0);
-  };
-
-  const accept = (c: SqlCompletion): void => {
-    const { text, caret: nextCaret } = applyCompletion(value, caret, c.label);
-    pendingCaret.current = nextCaret;
-    setDismissed(true); // don't immediately re-open on the freshly-inserted word
-    onValueChange(text);
-    taRef.current?.focus();
-  };
-
-  const onKeyDown = (e: KeyboardEvent<HTMLTextAreaElement>): void => {
-    if (open) {
-      if (e.key === 'ArrowDown') {
-        e.preventDefault();
-        setActiveIdx((i) => (i + 1) % completions.length);
-        return;
+    // Completions for the word left of the caret (only when a schema is supplied + not just dismissed).
+    const completions = useMemo<SqlCompletion[]>(() => {
+      if (!schema || dismissed) {
+        return [];
       }
-      if (e.key === 'ArrowUp') {
-        e.preventDefault();
-        setActiveIdx((i) => (i - 1 + completions.length) % completions.length);
-        return;
+
+      return sqlCompletions(value.slice(0, caret), schema);
+    }, [schema, dismissed, value, caret]);
+    const open = completions.length > 0;
+
+    // Keep activeIdx in range as the candidate list changes.
+    useEffect(() => {
+      if (activeIdx >= completions.length) {
+        setActiveIdx(0);
       }
-      if (e.key === 'Enter' || e.key === 'Tab') {
-        // Enter/Tab accept the highlighted completion (⌘↵ still runs — handled below).
-        if (!(e.metaKey || e.ctrlKey)) {
+    }, [completions.length, activeIdx]);
+
+    // After we programmatically change the value (completion accept), restore the caret.
+    useEffect(() => {
+      if (pendingCaret.current != null && taRef.current) {
+        const pos = pendingCaret.current;
+        pendingCaret.current = null;
+        taRef.current.setSelectionRange(pos, pos);
+        setCaret(pos);
+      }
+    }, [value]);
+
+    const syncCaret = (): void => {
+      if (taRef.current) {
+        setCaret(taRef.current.selectionStart ?? 0);
+      }
+    };
+
+    const accept = (c: SqlCompletion): void => {
+      const { text, caret: nextCaret } = applyCompletion(value, caret, c.label);
+      pendingCaret.current = nextCaret;
+      setDismissed(true); // don't immediately re-open on the freshly-inserted word
+      onValueChange(text);
+      taRef.current?.focus();
+    };
+
+    const onKeyDown = (e: KeyboardEvent<HTMLTextAreaElement>): void => {
+      if (open) {
+        if (e.key === 'ArrowDown') {
           e.preventDefault();
-          accept(completions[activeIdx] ?? completions[0]);
+          setActiveIdx((i) => (i + 1) % completions.length);
+
+          return;
+        }
+
+        if (e.key === 'ArrowUp') {
+          e.preventDefault();
+          setActiveIdx((i) => (i - 1 + completions.length) % completions.length);
+
+          return;
+        }
+
+        if (e.key === 'Enter' || e.key === 'Tab') {
+          // Enter/Tab accept the highlighted completion (⌘↵ still runs — handled below).
+          if (!(e.metaKey || e.ctrlKey)) {
+            e.preventDefault();
+            accept(completions[activeIdx] ?? completions[0]);
+
+            return;
+          }
+        }
+
+        if (e.key === 'Escape') {
+          e.preventDefault();
+          setDismissed(true);
+
           return;
         }
       }
-      if (e.key === 'Escape') {
-        e.preventDefault();
-        setDismissed(true);
-        return;
-      }
-    }
-    if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') {
-      e.preventDefault();
-      onRun();
-    }
-  };
 
-  return (
-    <div
-      className="relative w-full rounded-md bg-bolt-elements-background-depth-2 border border-bolt-elements-borderColor focus-within:border-[#00e5ff80] [color-scheme:dark] accent-[color:var(--ps-accent,#00e5ff)]"
-      style={{ minHeight }}
-    >
-      <pre
-        aria-hidden="true"
-        data-testid="data-sql-highlight"
-        className="pointer-events-none select-none overflow-hidden"
-        style={{ ...TYPO, minHeight }}
+      if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') {
+        e.preventDefault();
+        onRun();
+      }
+    };
+
+    return (
+      <div
+        className="relative w-full rounded-md bg-bolt-elements-background-depth-2 border border-bolt-elements-borderColor focus-within:border-[#00e5ff80] [color-scheme:dark] accent-[color:var(--ps-accent,#00e5ff)]"
+        style={{ minHeight }}
       >
-        {tokens.map((t, idx) => (
-          <span key={idx} className={KIND_CLASS[t.kind]}>
-            {t.text}
-          </span>
-        ))}
-        {value.endsWith('\n') || value === '' ? ' ' : ''}
-      </pre>
-      <textarea
-        ref={taRef}
-        id={id}
-        value={value}
-        onChange={(e) => {
-          setDismissed(false);
-          onValueChange(e.target.value);
-          setCaret(e.target.selectionStart ?? 0);
-        }}
-        onKeyDown={onKeyDown}
-        onKeyUp={syncCaret}
-        onClick={syncCaret}
-        onSelect={syncCaret}
-        spellCheck={false}
-        placeholder={placeholder}
-        data-testid={testId}
-        aria-autocomplete={schema ? 'list' : undefined}
-        className="absolute inset-0 w-full h-full block bg-transparent placeholder:text-bolt-elements-textTertiary focus:outline-none overflow-hidden"
-        style={{ ...TYPO, minHeight, color: 'transparent', caretColor: '#00E5FF', resize: 'none' }}
-      />
-      {open && (
-        <ul
-          data-testid="data-sql-completions"
-          role="listbox"
-          aria-label="SQL completions"
-          className="absolute left-2 top-full z-20 mt-1 max-h-56 w-64 overflow-auto modern-scrollbar rounded-md border border-bolt-elements-borderColor bg-bolt-elements-background-depth-1 py-1 shadow-xl shadow-black/40 ring-1 ring-[#00e5ff1a]"
+        <pre
+          aria-hidden="true"
+          data-testid="data-sql-highlight"
+          className="pointer-events-none select-none overflow-hidden"
+          style={{ ...TYPO, minHeight }}
         >
-          {completions.map((c, idx) => (
-            <li
-              key={`${c.kind}:${c.label}`}
-              role="option"
-              aria-selected={idx === activeIdx}
-              data-testid="data-sql-completion"
-              onMouseDown={(e) => {
-                e.preventDefault(); // keep textarea focus
-                accept(c);
-              }}
-              onMouseEnter={() => setActiveIdx(idx)}
-              className={
-                'flex items-center gap-2 px-2 py-1 text-[12px] cursor-pointer border-l-2 transition-colors motion-reduce:transition-none ' +
-                (idx === activeIdx
-                  ? 'border-bolt-elements-item-contentAccent bg-[#00e5ff26] text-bolt-elements-textPrimary'
-                  : 'border-transparent text-bolt-elements-textSecondary hover:bg-bolt-elements-background-depth-2')
-              }
-            >
-              <span
+          {tokens.map((t, idx) => (
+            <span key={idx} className={KIND_CLASS[t.kind]}>
+              {t.text}
+            </span>
+          ))}
+          {value.endsWith('\n') || value === '' ? ' ' : ''}
+        </pre>
+        <textarea
+          ref={taRef}
+          id={id}
+          value={value}
+          onChange={(e) => {
+            setDismissed(false);
+            onValueChange(e.target.value);
+            setCaret(e.target.selectionStart ?? 0);
+          }}
+          onKeyDown={onKeyDown}
+          onKeyUp={syncCaret}
+          onClick={syncCaret}
+          onSelect={syncCaret}
+          spellCheck={false}
+          placeholder={placeholder}
+          data-testid={testId}
+          aria-autocomplete={schema ? 'list' : undefined}
+          className="absolute inset-0 w-full h-full block bg-transparent placeholder:text-bolt-elements-textTertiary focus:outline-none overflow-hidden"
+          style={{ ...TYPO, minHeight, color: 'transparent', caretColor: '#00E5FF', resize: 'none' }}
+        />
+        {open && (
+          <ul
+            data-testid="data-sql-completions"
+            role="listbox"
+            aria-label="SQL completions"
+            className="absolute left-2 top-full z-20 mt-1 max-h-56 w-64 overflow-auto modern-scrollbar rounded-md border border-bolt-elements-borderColor bg-bolt-elements-background-depth-1 py-1 shadow-xl shadow-black/40 ring-1 ring-[#00e5ff1a]"
+          >
+            {completions.map((c, idx) => (
+              <li
+                key={`${c.kind}:${c.label}`}
+                role="option"
+                aria-selected={idx === activeIdx}
+                data-testid="data-sql-completion"
+                onMouseDown={(e) => {
+                  e.preventDefault(); // keep textarea focus
+                  accept(c);
+                }}
+                onMouseEnter={() => setActiveIdx(idx)}
                 className={
-                  'shrink-0 rounded px-1 text-[9px] font-mono uppercase ' +
-                  (c.kind === 'keyword'
-                    ? 'text-bolt-elements-item-contentAccent'
-                    : c.kind === 'table'
-                      ? 'text-[color:var(--ps-accent-secondary)]'
-                      : 'text-bolt-elements-textTertiary')
+                  'flex items-center gap-2 px-2 py-1 text-[12px] cursor-pointer border-l-2 transition-colors motion-reduce:transition-none ' +
+                  (idx === activeIdx
+                    ? 'border-bolt-elements-item-contentAccent bg-[#00e5ff26] text-bolt-elements-textPrimary'
+                    : 'border-transparent text-bolt-elements-textSecondary hover:bg-bolt-elements-background-depth-2')
                 }
               >
-                {COMPLETION_BADGE[c.kind]}
-              </span>
-              <span className="truncate font-mono">{c.label}</span>
-            </li>
-          ))}
-        </ul>
-      )}
-    </div>
-  );
-});
+                <span
+                  className={
+                    'shrink-0 rounded px-1 text-[9px] font-mono uppercase ' +
+                    (c.kind === 'keyword'
+                      ? 'text-bolt-elements-item-contentAccent'
+                      : c.kind === 'table'
+                        ? 'text-[color:var(--ps-accent-secondary)]'
+                        : 'text-bolt-elements-textTertiary')
+                  }
+                >
+                  {COMPLETION_BADGE[c.kind]}
+                </span>
+                <span className="truncate font-mono">{c.label}</span>
+              </li>
+            ))}
+          </ul>
+        )}
+      </div>
+    );
+  },
+);

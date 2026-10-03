@@ -250,8 +250,10 @@ export async function pruneExcessSnapshots(
 ): Promise<void> {
   for (const snapshot of excess) {
     await deleteFn(snapshot.id).catch((error: unknown) => {
-      // Best-effort prune — a failed delete must never fail the create — but it
-      // MUST be observable: an un-pruned store silently balloons past the cap.
+      /*
+       * Best-effort prune — a failed delete must never fail the create — but it
+       * MUST be observable: an un-pruned store silently balloons past the cap.
+       */
       console.warn(
         `projectSnapshots: prune FAILED to delete excess snapshot "${snapshot.id}" — the per-site cap (${MAX_SNAPSHOTS_PER_SITE}) is NOT enforced for it and storage may grow unbounded:`,
         error,

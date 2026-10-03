@@ -1779,10 +1779,13 @@ function cellIsEmpty(value: unknown): boolean {
 export interface ColumnInsight {
   /** Column name. */
   name: string;
+
   /** The column's DECLARED SQLite type verbatim (same string the grid badge shows). */
   declaredType: string;
+
   /** Share (0-100, rounded) of LOADED rows whose value is null / undefined / empty-string. */
   nullPercent: number;
+
   /** Count of DISTINCT non-empty values seen across the LOADED rows (a value-set size). */
   distinctCount: number;
 }
@@ -1791,6 +1794,7 @@ export interface ColumnInsight {
 export interface TableInsights {
   /** Number of rows currently loaded (the page window), NOT the table's total row count. */
   rowCount: number;
+
   /** Per-column profile, in the given column order. */
   columns: ColumnInsight[];
 }
@@ -4152,15 +4156,17 @@ export function buildChartSeries(
   return out;
 }
 
-// ── Rev 8 — ERD / schema-relationships diagram (pure logic) ──────────────────
-//
-// The editor "Database" tab gains an ERD / schema-map view: every table drawn as a node (its
-// columns) with edges for relationships. The per-site D1 schema exposes NO foreign-key metadata
-// (the tables endpoint returns only `{name}`, the rows endpoint only `{name,type,notnull,pk}` from
-// PRAGMA table_info — never `PRAGMA foreign_key_list`), so relationships are INFERRED by naming
-// convention: a `<x>_id` column links to a table named `x`, its plural (`xs` / `<x>es`), or its
-// singular. Every inferred edge is marked `inferred:true` so the UI can label it honestly. Layout is
-// a deterministic grid (no physics engine) — pure + stable, unit-tested, mirrors `detectChartable`.
+/*
+ * ── Rev 8 — ERD / schema-relationships diagram (pure logic) ──────────────────
+ *
+ * The editor "Database" tab gains an ERD / schema-map view: every table drawn as a node (its
+ * columns) with edges for relationships. The per-site D1 schema exposes NO foreign-key metadata
+ * (the tables endpoint returns only `{name}`, the rows endpoint only `{name,type,notnull,pk}` from
+ * PRAGMA table_info — never `PRAGMA foreign_key_list`), so relationships are INFERRED by naming
+ * convention: a `<x>_id` column links to a table named `x`, its plural (`xs` / `<x>es`), or its
+ * singular. Every inferred edge is marked `inferred:true` so the UI can label it honestly. Layout is
+ * a deterministic grid (no physics engine) — pure + stable, unit-tested, mirrors `detectChartable`.
+ */
 
 /** One column of a table, as the ERD needs it (name + declared type + PRAGMA `pk` flag 0/1). */
 export interface ErdSchemaColumn {

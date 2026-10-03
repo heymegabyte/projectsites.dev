@@ -24,8 +24,10 @@ const ZERO: FileDiffStat = { additions: 0, deletions: 0 };
  * @example computeFileDiffStat({ originalContent: 'a' } as FileHistory) // { additions: 0, deletions: 0 }
  */
 export function computeFileDiffStat(fileModifications: FileHistory | undefined): FileDiffStat {
-  // No baseline, or no tracked version yet → nothing to diff against. The guard
-  // on `versions?.length` is load-bearing: entries may omit `versions` entirely.
+  /*
+   * No baseline, or no tracked version yet → nothing to diff against. The guard
+   * on `versions?.length` is load-bearing: entries may omit `versions` entirely.
+   */
   if (!fileModifications?.originalContent || !fileModifications.versions?.length) {
     return { ...ZERO };
   }

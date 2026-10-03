@@ -35,6 +35,7 @@ const { postToParentSpy, onParentMessageSpy, parentHandlers } = vi.hoisted(() =>
   const postToParentSpy = vi.fn();
   const onParentMessageSpy = vi.fn((handler: (msg: unknown) => void) => {
     parentHandlers.add(handler);
+
     return () => {
       parentHandlers.delete(handler);
     };
@@ -110,9 +111,11 @@ describe('DatabasePanel — consolidated per-site data surface (concise nav)', (
   it('shows the Tables actions (New table / Import / History) as buttons in the embedded header Actions menu', () => {
     render(<DatabasePanel />);
 
-    // The Tables view embeds SiteTablesPanel; its header hosts the single "Actions" dropdown that carries
-    // the entries removed from the top nav (New Table / Import / History) — all real buttons. A manual
-    // Refresh is NOT among them: the surface self-updates (per `real-time-data-no-manual-refresh`).
+    /*
+     * The Tables view embeds SiteTablesPanel; its header hosts the single "Actions" dropdown that carries
+     * the entries removed from the top nav (New Table / Import / History) — all real buttons. A manual
+     * Refresh is NOT among them: the surface self-updates (per `real-time-data-no-manual-refresh`).
+     */
     const actions = screen.getByTestId('sitedb-actions');
     expect(actions).toBeTruthy();
     fireEvent.click(actions);
@@ -132,6 +135,7 @@ describe('DatabasePanel — consolidated per-site data surface (concise nav)', (
 
     const overlay = screen.getByTestId('database-action-overlay');
     expect(overlay).toBeTruthy();
+
     // The import surface mounts inside the overlay with its dropzone + paste affordance.
     expect(within(overlay).getByTestId('import-panel')).toBeTruthy();
     expect(within(overlay).getByTestId('import-dropzone')).toBeTruthy();
@@ -227,6 +231,7 @@ describe('DatabasePanel — consolidated per-site data surface (concise nav)', (
 
     const overlay = screen.getByTestId('database-action-overlay');
     expect(within(overlay).getByTestId('ai-seed-panel')).toBeTruthy();
+
     const tablesCall = postToParentSpy.mock.calls.find(
       (c) => (c[0] as { type?: string })?.type === 'PS_SITEDB_TABLES_REQUEST',
     );
@@ -317,6 +322,7 @@ describe('DatabasePanel — consolidated per-site data surface (concise nav)', (
     expect(screen.getByTestId('database-sql-ask-toggle')).toBeTruthy();
 
     const run = screen.getByTestId('database-sql-run');
+
     // Run is disabled until there's SQL to execute.
     expect((run as HTMLButtonElement).disabled).toBe(true);
 
@@ -334,6 +340,7 @@ describe('DatabasePanel — consolidated per-site data surface (concise nav)', (
     const kv = screen.getByTestId('database-kv');
     expect(within(kv).getByText('$10')).toBeTruthy();
     expect(within(kv).getByTestId('database-kv-unlock')).toBeTruthy();
+
     // The honest note is always present on the locked card (never dead-air).
     expect(within(kv).getByTestId('database-kv-note')).toBeTruthy();
   });
@@ -347,12 +354,14 @@ describe('DatabasePanel — consolidated per-site data surface (concise nav)', (
     // The locked-upsell card is gone; the real per-site KV browser is mounted (recycled KvBrowser).
     expect(screen.queryByTestId('database-kv')).toBeNull();
     expect(screen.getByTestId('database-kv-browser')).toBeTruthy();
+
     // The browser lists keys over the per-site bridge (PS_RES_DETAIL kind:'kv', action:'list').
     const listCall = postToParentSpy.mock.calls.find(
       (c) => (c[0] as { type?: string; kind?: string })?.type === 'PS_RES_DETAIL_REQUEST',
     );
     expect(listCall).toBeTruthy();
     expect((listCall?.[0] as { kind?: string })?.kind).toBe('kv');
+
     // The unlock persists.
     expect(store.ps_database_kv_unlocked).toBe('1');
   });
@@ -423,6 +432,7 @@ describe('DatabasePanel — KV locked-upsell read-only preview (never a dead pay
     await replyKvList(lastKvDetail('list'), { keys: [] });
 
     expect(screen.getByTestId('database-kv-preview-empty')).toBeTruthy();
+
     // Still a live upsell beneath the honest empty state.
     expect(screen.getByTestId('database-kv-unlock')).toBeTruthy();
   });
@@ -432,6 +442,7 @@ describe('DatabasePanel — KV locked-upsell read-only preview (never a dead pay
     fireEvent.click(screen.getByTestId('database-subnav-kv'));
 
     await waitFor(() => expect(lastKvDetail('list')).toBeTruthy());
+
     // Dark flag → enabled:false. The preview hides entirely; the upsell + honest note remain.
     await replyKvList(lastKvDetail('list'), { enabled: false });
 

@@ -76,15 +76,18 @@ import {
   pkFromTableInfo,
   RowMutationError,
   rowPkKey,
+
   // ── Revision 1 — rowid inline edit (kills "no-PK = read-only") ──
   ROWID_KEY,
   rowStableKey,
   rowRowid,
   isRowEditableColumn,
+
   // ── Revision 3 — bulk edit + fill-down (Airtable-style multi-cell) ──
   extendCellSelection,
   fillDownWrites,
   type CellWriteIntent,
+
   // ── grid engine ──
   cycleSortMulti,
   sortRows,
@@ -185,6 +188,7 @@ type UndoEntry =
       kind: 'cell';
       table: string;
       column: string;
+
       /** The row's PK identity (so we re-target the same row even after a refresh). */
       pkKey: string;
       previous: unknown;
@@ -240,6 +244,7 @@ const REQUEST_TIMEOUT_MS = 20_000;
  */
 const POLL_INTERVAL_MS = 30_000;
 const DISABLED_404 = 'Per-site data is not enabled';
+
 /**
  * Shown when a row-edit write succeeds at the SQL level but changes ZERO rows (the `changes===0`
  * lying-success class): the targeted row no longer exists / wasn't matched, so the edit did NOT
@@ -408,6 +413,7 @@ function matchCondition(value: unknown, op: FilterOp, rawVal: string): boolean {
       const b = Number(needle);
       const numeric = Number.isFinite(a) && Number.isFinite(b);
       const cmp = numeric ? a - b : cell.localeCompare(needle);
+
       return op === 'gt' ? cmp > 0 : op === 'lt' ? cmp < 0 : op === 'gte' ? cmp >= 0 : cmp <= 0;
     }
     default:
@@ -814,6 +820,7 @@ export const SiteTablesPanel = memo(
      * Refreshes immediately on foreground; cleaned up on unmount.
      */
     const pollTickRef = useRef<() => void>(() => {});
+
     pollTickRef.current = () => {
       if (tables.status === 'disabled' || tables.status === 'loading') {
         return;
@@ -985,6 +992,7 @@ export const SiteTablesPanel = memo(
     // ── ERD / schema-map view (Rev 8) ────────────────────────────────────────
     /** Whether the ERD / schema-relationships diagram is open (replaces the list/browse pane). */
     const [erdOpen, setErdOpen] = useState(false);
+
     /** The assembled schema map for the ERD: every table + its columns (idle | loading | ready | error). */
     const [erdSchema, setErdSchema] = useState<
       | { status: 'idle' }
@@ -1051,6 +1059,7 @@ export const SiteTablesPanel = memo(
     // ── Create table (manual builder) + drop table — via the dedicated per-site D1 P1 endpoints ──
     /** Whether the guided "New table" modal is open. */
     const [createTableOpen, setCreateTableOpen] = useState(false);
+
     /** The table name currently being dropped (shows the confirm + a spinner), or null. */
     const [dropTarget, setDropTarget] = useState<string | null>(null);
     const [dropBusy, setDropBusy] = useState(false);
@@ -1105,6 +1114,7 @@ export const SiteTablesPanel = memo(
         } catch (err) {
           setDropBusy(false);
           postToastToParent('error', err instanceof Error ? err.message : `Could not drop “${name}”.`);
+
           return;
         }
 
@@ -1374,8 +1384,10 @@ export const SiteTablesPanel = memo(
             return { ok: false, error: reply.error || 'The edit could not be saved.' };
           }
 
-          // Same lying-success guard for the PATCH bridge: `updated:0` means the `_rowid` matched
-          // no row (stale/deleted) — the edit did NOT persist, so report a failure, never success.
+          /*
+           * Same lying-success guard for the PATCH bridge: `updated:0` means the `_rowid` matched
+           * no row (stale/deleted) — the edit did NOT persist, so report a failure, never success.
+           */
           if ((reply.updated ?? 0) === 0) {
             return { ok: false, error: NO_ROW_MATCHED_MESSAGE };
           }
@@ -1411,6 +1423,7 @@ export const SiteTablesPanel = memo(
         }
 
         const previous = row[col.name];
+
         // Stable identity: PK when present, else the row's `_rowid` — so a PK-less row is targetable.
         const stableKey = rowStableKey(row, pkCols);
 
@@ -1464,9 +1477,11 @@ export const SiteTablesPanel = memo(
         // Committed — close the editor.
         setEditing(null);
 
-        // Bulk edit: if this cell is part of a multi-cell column selection, apply the SAME value to every
-        // OTHER selected row (Airtable "edit once → fill the selection"), through the same per-row bridge —
-        // and arm ONE batch Undo covering the anchor + all propagated cells.
+        /*
+         * Bulk edit: if this cell is part of a multi-cell column selection, apply the SAME value to every
+         * OTHER selected row (Airtable "edit once → fill the selection"), through the same per-row bridge —
+         * and arm ONE batch Undo covering the anchor + all propagated cells.
+         */
         const sel = cellSelRef.current;
         const isBulk =
           sel !== null && sel.column === col.name && sel.keys.size > 1 && stableKey !== null && sel.keys.has(stableKey);
@@ -1943,6 +1958,7 @@ export const SiteTablesPanel = memo(
         const preds = pkCols.map((c, i) => `${quoteIdent(c)} = ?${i + 1}`).join(' AND ');
         const params = pkCols.map((c) => row[c] as BoundValue);
         setBulkBusy(true);
+
         const res = await execSql(`DELETE FROM ${quoteIdent(table)} WHERE ${preds}`, params, true);
         setBulkBusy(false);
 
@@ -2022,6 +2038,7 @@ export const SiteTablesPanel = memo(
       if (insertCols.length === 0) {
         // Every column is an autoincrement PK → a bare DEFAULT VALUES insert.
         setAddingRow(true);
+
         const res = await execSql(`INSERT INTO ${quoteIdent(table)} DEFAULT VALUES`, [], true);
         setAddingRow(false);
 
@@ -2047,6 +2064,7 @@ export const SiteTablesPanel = memo(
       });
 
       setAddingRow(true);
+
       const res = await execSql(`INSERT INTO ${quoteIdent(table)} (${colList}) VALUES (${placeholders})`, params, true);
       setAddingRow(false);
 
@@ -2081,8 +2099,10 @@ export const SiteTablesPanel = memo(
 
         const table = rows.page.table;
 
-        // Dedicated `POST /db/tables/:table/columns` bridge (adds ONE nullable column) — NOT the exec-SQL
-        // path. Mirrors createTable: dark flag → DISABLED_404, verbatim server error surfaced inline.
+        /*
+         * Dedicated `POST /db/tables/:table/columns` bridge (adds ONE nullable column) — NOT the exec-SQL
+         * path. Mirrors createTable: dark flag → DISABLED_404, verbatim server error surfaced inline.
+         */
         let reply: Awaited<ReturnType<typeof requestDbAddColumn>>;
 
         try {
@@ -2268,6 +2288,7 @@ export const SiteTablesPanel = memo(
         }
 
         let res: Response;
+
         try {
           res = await fetch('/api/llmcall', {
             method: 'POST',
@@ -2291,8 +2312,12 @@ export const SiteTablesPanel = memo(
             error?: { code?: string; message?: string };
           };
           lastErr = body.error?.message ?? body.message ?? `AI is unavailable (HTTP ${res.status}).`;
+
           // 5xx (incl. AI_UPSTREAM_UNAVAILABLE bad-gateway) is transient → retry; 4xx is terminal.
-          if (res.status >= 500) continue;
+          if (res.status >= 500) {
+            continue;
+          }
+
           throw new Error(lastErr);
         }
 
@@ -2303,6 +2328,7 @@ export const SiteTablesPanel = memo(
         };
 
         const errObj = typeof data.error === 'object' ? data.error : null;
+
         if (errObj || data.error === true || typeof data.text !== 'string') {
           lastErr = errObj?.message ?? data.message ?? 'AI did not return a result.';
           continue; // malformed/empty answer → retry
@@ -2569,6 +2595,7 @@ export const SiteTablesPanel = memo(
         } catch (err) {
           setAiError(err instanceof Error ? err.message : 'AI could not understand that request.');
           setAiBusy(null);
+
           return;
         }
 
@@ -2949,9 +2976,11 @@ const Header = memo(
     onImport: () => void;
     onHistory: () => void;
   }) => {
-    // Single "Actions" dropdown consolidates the removed toolbar row (Brian 2026-09-28) —
-    // New Table · Import · History. NO manual Refresh: the panel self-updates on a visibility-aware
-    // poll (per `real-time-data-no-manual-refresh`). Mirrors the DataGrid export menu.
+    /*
+     * Single "Actions" dropdown consolidates the removed toolbar row (Brian 2026-09-28) —
+     * New Table · Import · History. NO manual Refresh: the panel self-updates on a visibility-aware
+     * poll (per `real-time-data-no-manual-refresh`). Mirrors the DataGrid export menu.
+     */
     const [open, setOpen] = useState(false);
     const menuRef = useRef<HTMLDivElement | null>(null);
 
@@ -3299,11 +3328,13 @@ const TableSearch = memo(({ onOpen }: { onOpen: (name: string) => void }) => {
   const [expanded, setExpanded] = useState(false);
   const [query, setQuery] = useState('');
   const [phase, setPhase] = useState<SearchPhase>({ status: 'idle' });
+
   /** Set once the bridge reports the feature disabled — hides the whole control, no dead affordance. */
   const [disabled, setDisabled] = useState(false);
 
   const inputRef = useRef<HTMLInputElement>(null);
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
   /** Monotonic token so a slow reply from a stale query can't clobber a newer one. */
   const runIdRef = useRef(0);
 
@@ -3662,8 +3693,10 @@ const TableListView = memo(
           </div>
         </div>
         {state.tables.map((t) => (
-          // Row = open-button + drop-button SIBLINGS in a group (never a button inside a button —
-          // that breaks HTML + UnoCSS masked icons per god-tier-engineering).
+          /*
+           * Row = open-button + drop-button SIBLINGS in a group (never a button inside a button —
+           * that breaks HTML + UnoCSS masked icons per god-tier-engineering).
+           */
           <div
             key={t.name}
             data-testid="sitedb-table-row"
@@ -3741,6 +3774,7 @@ const SchemaRail = memo(
       (e: React.KeyboardEvent<HTMLButtonElement>, index: number) => {
         if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
           e.preventDefault();
+
           const dir = e.key === 'ArrowDown' ? 1 : -1;
           const next = (index + dir + tables.length) % tables.length;
           itemRefs.current[next]?.focus();
@@ -3825,9 +3859,11 @@ interface EditProps {
   editError: string;
   editBusy: boolean;
   pkCols: string[];
+
   /** Revision 3 — the active single-column multi-cell selection (fill-down / bulk edit), or null. */
   cellSel: { column: string; anchorKey: string | null; keys: Set<string> } | null;
   onStartEdit: (row: Record<string, unknown>, col: ColumnInfo) => void;
+
   /** Range/toggle-select one cell (shift = extend run, meta/ctrl = toggle) — powers fill-down + bulk edit. */
   onCellSelect: (row: Record<string, unknown>, column: string, mods: { shift: boolean; meta: boolean }) => void;
   onEditKindChange: (kind: CellInputKind) => void;
@@ -3995,6 +4031,7 @@ interface BrowseViewProps extends EditProps {
   selectedOnPage: number;
   canMutateRows: boolean;
   bulkBusy: boolean;
+
   /** Revision 3 — a fill-down / bulk batch write is in flight (disables the Fill-down button). */
   fillBusy: boolean;
   addingRow: boolean;
@@ -4015,9 +4052,11 @@ interface BrowseViewProps extends EditProps {
   onMoveColumn: (col: string, dir: -1 | 1) => void;
   onSetDensity: (d: GridDensity) => void;
   onSetViewMode: (v: ViewMode) => void;
+
   /** Rev 10 — the kanban group-by column (null → auto-pick); only used by the kanban view. */
   groupField: string | null;
   onSetGroupField: (col: string | null) => void;
+
   /** The calendar date column (null → auto-detect the first strict-ISO date column); only used by the calendar view. */
   dateField: string | null;
   onSetDateField: (col: string | null) => void;
@@ -4033,8 +4072,10 @@ interface BrowseViewProps extends EditProps {
   onDeleteRow: (row: Record<string, unknown>) => void;
   onDeleteSelected: () => void;
   onClearSelection: () => void;
+
   /** Revision 3 — fill the active column selection with its top value (Cmd/Ctrl+D). */
   onFillDown: () => void;
+
   /** Revision 3 — clear the active multi-cell selection. */
   onClearCellSel: () => void;
   onAddRow: () => void;
@@ -5203,8 +5244,11 @@ const AiPanel = memo(
   }) => {
     const [text, setText] = useState('');
     const [fillCol, setFillCol] = useState(columns[0]?.name ?? '');
-    // The unified "Ask AI" box is busy during its own classification OR while the
-    // action it dispatched to runs — so the single box reflects the whole operation.
+
+    /*
+     * The unified "Ask AI" box is busy during its own classification OR while the
+     * action it dispatched to runs — so the single box reflects the whole operation.
+     */
     const isBusy = mode === 'ask' ? busy !== null : busy === mode;
 
     const title =
@@ -5383,6 +5427,7 @@ const ColumnHeaderMenu = memo(
 
       setBusy(true);
       setError('');
+
       const res = await onRename(column.name, trimmed);
       setBusy(false);
 
@@ -5560,6 +5605,7 @@ const AddColumnForm = memo(
 
       setBusy(true);
       setError('');
+
       const res = await onAdd(trimmed, kind);
       setBusy(false);
 
@@ -5701,6 +5747,7 @@ const CreateTableModal = memo(
     const tableValid = trimmedTable.length > 0 && SAFE_IDENT_RE.test(trimmedTable);
     const namedColumns = columns.filter((c) => c.name.trim().length > 0);
     const allNamedValid = namedColumns.every((c) => SAFE_IDENT_RE.test(c.name.trim()));
+
     // Duplicate column names (case-insensitive) would be rejected by the worker — block early.
     const lowerNames = namedColumns.map((c) => c.name.trim().toLowerCase());
     const hasDupes = new Set(lowerNames).size !== lowerNames.length;
@@ -6313,6 +6360,7 @@ const KanbanView = memo(
   }) => {
     const names = columns.map((c) => c.name);
     const titleField = galleryTitleField(names, groupField);
+
     // Card body: a few fields, minus the title AND the group column (shown as the lane header already).
     const bodyFields = galleryBodyFields(names, titleField)
       .filter((f) => f !== groupField)
@@ -6443,6 +6491,7 @@ const CalendarView = memo(
     onRowClick: (row: Record<string, unknown>) => void;
   }) => {
     const names = columns.map((c) => c.name);
+
     // Label each row by a title field that ISN'T the date column (the date is already the cell's day).
     const titleField = galleryTitleField(names.filter((n) => n !== dateField));
 

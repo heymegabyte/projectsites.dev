@@ -57,8 +57,10 @@ export const EditorLoadingVisual = memo(
       return () => clearInterval(id);
     }, [message, reduced]);
 
-    // Completion burst: when the screen starts leaving, flare the nebula (cyan/pink
-    // energy pulse) then let it dissolve into the editor beneath the parent fade.
+    /*
+     * Completion burst: when the screen starts leaving, flare the nebula (cyan/pink
+     * energy pulse) then let it dissolve into the editor beneath the parent fade.
+     */
     useEffect(() => {
       if (!leaving) {
         return undefined;

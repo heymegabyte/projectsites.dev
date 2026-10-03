@@ -62,6 +62,7 @@ const { requestDbLoadSampleSpy, requestDbAiSeedSpy, postToastToParentSpy, reques
   })),
   requestDbAiSeedSpy: vi.fn(async () => ({ type: 'PS_DB_AI_SEED_RESULT', ok: true, rowsInserted: 10, table: 'posts' })),
   postToastToParentSpy: vi.fn(),
+
   // Revision 1 — the dedicated rowid UPDATE sender (PATCH …/rows/:rowid). Defaults to a success reply.
   requestDbUpdateRowSpy: vi.fn(async () => ({ type: 'PS_SITEDB_UPDATE_ROW_RESPONSE', ok: true, updated: 1 })),
 }));
@@ -74,8 +75,11 @@ vi.mock('~/lib/embed/embedded-mode', () => ({
   requestDbLoadSample: requestDbLoadSampleSpy,
   requestDbAiSeed: requestDbAiSeedSpy,
   requestDbUpdateRow: requestDbUpdateRowSpy,
-  // The panel also imports these DDL senders; stub them so the module's named imports resolve
-  // (an `undefined` import can break the table-open path under this harness).
+
+  /*
+   * The panel also imports these DDL senders; stub them so the module's named imports resolve
+   * (an `undefined` import can break the table-open path under this harness).
+   */
   requestDbCreateTable: vi.fn(async () => ({ type: 'PS_SITEDB_CREATE_TABLE_RESPONSE', ok: true })),
   requestDbDropTable: vi.fn(async () => ({ type: 'PS_SITEDB_DROP_TABLE_RESPONSE', ok: true })),
   requestDbAddColumn: vi.fn(async () => ({ type: 'PS_SITEDB_ADD_COLUMN_RESPONSE', ok: true })),
@@ -1124,11 +1128,13 @@ describe('SiteTablesPanel — Revision 1 rowid inline edit (no-PK table)', () =>
         correlationId: rowsReq?.correlationId,
         ok: true,
         table: 'notes',
+
         // No `pk:1` on any column — this table has NO primary key.
         columns: [
           { name: 'body', type: 'TEXT', notnull: 0, pk: 0 },
           { name: 'author', type: 'TEXT', notnull: 0, pk: 0 },
         ],
+
         // Rows carry the synthetic `_rowid` handle from `SELECT rowid AS _rowid, *`.
         rows: [{ _rowid: 7, body: 'First note', author: 'me' }],
         limit: 25,
@@ -1157,6 +1163,7 @@ describe('SiteTablesPanel — Revision 1 rowid inline edit (no-PK table)', () =>
     const input = screen.getByTestId('data-edit-value') as HTMLInputElement;
     await act(async () => {
       input.focus();
+
       const setter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value')?.set;
       setter?.call(input, 'Edited note');
       input.dispatchEvent(new Event('input', { bubbles: true }));

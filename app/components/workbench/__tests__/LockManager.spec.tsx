@@ -47,8 +47,10 @@ vi.mock('~/lib/stores/workbench', () => ({
   },
 }));
 
-// react-toastify only fires on user actions this spec never takes; stub it so
-// the module import stays inert under jsdom.
+/*
+ * react-toastify only fires on user actions this spec never takes; stub it so
+ * the module import stays inert under jsdom.
+ */
 vi.mock('~/components/ui/use-toast', () => ({
   toast: { success: vi.fn(), error: vi.fn(), info: vi.fn(), warning: vi.fn() },
 }));

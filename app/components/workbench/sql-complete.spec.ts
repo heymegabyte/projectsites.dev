@@ -23,6 +23,7 @@ describe('currentWord', () => {
 describe('sqlCompletions', () => {
   it('offers only REAL schema tables/columns that prefix-match (never a fabricated identifier)', () => {
     const out = sqlCompletions('SELECT * FROM us', schema);
+
     // usage_events(tbl), user_id(col), users(tbl) all prefix-match "us"; keywords do not.
     expect(out.map((c) => c.label)).toEqual(['usage_events', 'user_id', 'users']);
     expect(out.some((c) => c.kind === 'keyword')).toBe(false);

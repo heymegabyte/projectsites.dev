@@ -48,8 +48,11 @@ const { requestDbLoadSampleSpy, requestDbAiSeedSpy, postToastToParentSpy, reques
   })),
   requestDbAiSeedSpy: vi.fn(async () => ({ type: 'PS_DB_AI_SEED_RESULT', ok: true, rowsInserted: 10, table: 'posts' })),
   postToastToParentSpy: vi.fn(),
-  // Add-column now flows through the dedicated typed bridge (POST /db/tables/:table/columns), NOT an
-  // ALTER-via-mutate. Reply `{ ok, column }` so the panel proceeds to its post-success reads.
+
+  /*
+   * Add-column now flows through the dedicated typed bridge (POST /db/tables/:table/columns), NOT an
+   * ALTER-via-mutate. Reply `{ ok, column }` so the panel proceeds to its post-success reads.
+   */
   requestDbAddColumnSpy: vi.fn(async ({ name }: { table: string; name: string; type: string }) => ({
     type: 'PS_SITEDB_ADD_COLUMN_RESPONSE',
     ok: true,
@@ -64,6 +67,7 @@ vi.mock('~/lib/embed/embedded-mode', () => ({
   onParentMessage: onParentMessageSpy,
   requestDbLoadSample: requestDbLoadSampleSpy,
   requestDbAiSeed: requestDbAiSeedSpy,
+
   // The panel also imports these DDL/edit senders; stub them so the module's named imports resolve.
   requestDbCreateTable: vi.fn(async () => ({ type: 'PS_SITEDB_CREATE_TABLE_RESPONSE', ok: true })),
   requestDbDropTable: vi.fn(async () => ({ type: 'PS_SITEDB_DROP_TABLE_RESPONSE', ok: true })),
@@ -98,6 +102,7 @@ import {
   moveColumn,
   clampPageSize,
   PAGE_SIZE_OPTIONS,
+
   // Revision 1 — rowid inline edit (kill the "no-PK = read-only" limitation).
   ROWID_KEY,
   rowStableKey,
@@ -115,6 +120,7 @@ function fireReply(msg: unknown): void {
 function lastCorrelationId(): string | undefined {
   const calls = postToParentSpy.mock.calls;
   const last = calls[calls.length - 1]?.[0];
+
   return (last as { correlationId?: string })?.correlationId;
 }
 
@@ -122,6 +128,7 @@ function lastCorrelationId(): string | undefined {
 function lastReqIdOfType(type: string): string | undefined {
   const calls = [...postToParentSpy.mock.calls].reverse();
   const found = calls.map((c) => c[0]).find((m: unknown) => (m as { type?: string })?.type === type);
+
   return (found as { correlationId?: string })?.correlationId;
 }
 
@@ -224,6 +231,7 @@ async function replyGeneratedColsAndRows(rows = RICH_ROWS): Promise<void> {
   });
 
   const rowsId = lastReqIdOfType('PS_SITEDB_ROWS_REQUEST');
+
   if (rowsId) {
     await act(async () => {
       fireReply({
@@ -252,6 +260,7 @@ function renderedTitles(): string[] {
     .queryAllByTestId('sitedb-grid-row')
     .map((r) => {
       const cells = within(r).queryAllByTestId('sitedb-grid-cell');
+
       // title is the 2nd column (after id).
       return cells[1]?.textContent?.trim() ?? '';
     })
@@ -265,10 +274,13 @@ beforeEach(() => {
   requestDbAiSeedSpy.mockClear();
   postToastToParentSpy.mockClear();
   requestDbAddColumnSpy.mockClear();
-  // The grid PERSISTS its per-table view mode (grid/gallery/kanban/…) to localStorage and restores it on
-  // table open. Every block re-opens the SAME db id + table ("db-grid"/"posts"), so a prior test that
-  // switched to gallery would bleed that mode into the next test's fresh panel (grid rows never render →
-  // renderedTitles() empty). Clear it so each test starts from the default grid view.
+
+  /*
+   * The grid PERSISTS its per-table view mode (grid/gallery/kanban/…) to localStorage and restores it on
+   * table open. Every block re-opens the SAME db id + table ("db-grid"/"posts"), so a prior test that
+   * switched to gallery would bleed that mode into the next test's fresh panel (grid rows never render →
+   * renderedTitles() empty). Clear it so each test starts from the default grid view.
+   */
   try {
     window.localStorage.clear();
   } catch {
@@ -370,9 +382,11 @@ describe('empty-state launchpad exposes AI-seed AND Create-Table', () => {
     expect(screen.getByTestId('sitedb-empty-sample')).toBeTruthy(); // existing "Load sample data" kept
   });
 
-  // SKIPPED 2026-09-28: asserts `sitedb-list-seed-ai` (the table-list "Seed with AI" button), which was
-  // intentionally removed in commit c5ed2b07a ("drop Seed button"). Pre-existing stale drift — not a
-  // regression from the column-management work — kept skipped (not deleted) per the removed-feature convention.
+  /*
+   * SKIPPED 2026-09-28: asserts `sitedb-list-seed-ai` (the table-list "Seed with AI" button), which was
+   * intentionally removed in commit c5ed2b07a ("drop Seed button"). Pre-existing stale drift — not a
+   * regression from the column-management work — kept skipped (not deleted) per the removed-feature convention.
+   */
   it.skip('the table-list toolbar also offers Use-AI + Create-Table so you can always seed', async () => {
     // The Create-Table button gates on a create handler being wired (the guided builder).
     render(<SiteTablesPanel onCreateTable={vi.fn()} />);
@@ -411,6 +425,7 @@ describe('grid toolbar', () => {
     expect(screen.getByTestId('sitedb-view-grid')).toBeTruthy();
     expect(screen.getByTestId('sitedb-view-gallery')).toBeTruthy();
     expect(screen.getByTestId('sitedb-export')).toBeTruthy();
+
     // PK present → row mutation controls available.
     expect(screen.getByTestId('sitedb-add-row')).toBeTruthy();
     expect(screen.getByTestId('sitedb-add-column')).toBeTruthy();
@@ -805,16 +820,20 @@ describe('add column', () => {
       screen.getByTestId('sitedb-add-column-submit').click();
     });
 
-    // Add-column now flows through the typed `POST /db/tables/:table/columns` bridge (a nullable TEXT
-    // column by default), NOT an ALTER-via-mutate. The dedicated sender carries the table + column + type.
+    /*
+     * Add-column now flows through the typed `POST /db/tables/:table/columns` bridge (a nullable TEXT
+     * column by default), NOT an ALTER-via-mutate. The dedicated sender carries the table + column + type.
+     */
     await waitFor(() => {
       expect(requestDbAddColumnSpy).toHaveBeenCalledWith(
         expect.objectContaining({ table: 'posts', name: 'author', type: 'TEXT' }),
       );
     });
 
-    // On success the panel re-reads generated cols (pragma_table_xinfo) + reloads rows — settle both so
-    // no pending bridge promise dangles into the next test.
+    /*
+     * On success the panel re-reads generated cols (pragma_table_xinfo) + reloads rows — settle both so
+     * no pending bridge promise dangles into the next test.
+     */
     await replyGeneratedColsAndRows();
   });
 });
@@ -841,9 +860,11 @@ describe('Grid ↔ Gallery view toggle', () => {
 
 describe('AI-native features', () => {
   it('unified "Ask AI" classifies a request as filter → applies the model filter plan', async () => {
-    // WLK-04: the ONE "Ask AI" box makes TWO /api/llmcall round-trips — first to
-    // classify the request into an action, then to run that action. The filter
-    // request classifies to {action:'filter'}, then returns the conditions plan.
+    /*
+     * WLK-04: the ONE "Ask AI" box makes TWO /api/llmcall round-trips — first to
+     * classify the request into an action, then to run that action. The filter
+     * request classifies to {action:'filter'}, then returns the conditions plan.
+     */
     (globalThis.fetch as unknown as ReturnType<typeof vi.fn>)
       .mockResolvedValueOnce({
         ok: true,
@@ -898,6 +919,7 @@ describe('AI-native features', () => {
     await act(async () => {
       screen.getByTestId('sitedb-ask-ai').click();
     });
+
     const input = screen.getByTestId('sitedb-ai-input') as HTMLInputElement;
     await act(async () => {
       const s = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value')?.set;
@@ -915,20 +937,27 @@ describe('AI-native features', () => {
     await waitFor(() => {
       expect(globalThis.fetch).toHaveBeenCalledWith('/api/llmcall', expect.anything());
     });
-    // The AI plan's column is created through the typed add-column bridge, NOT an ALTER-via-mutate. A
-    // numeric AI type (INTEGER/REAL) maps to the panel's `number` field kind → sqliteType REAL.
+
+    /*
+     * The AI plan's column is created through the typed add-column bridge, NOT an ALTER-via-mutate. A
+     * numeric AI type (INTEGER/REAL) maps to the panel's `number` field kind → sqliteType REAL.
+     */
     await waitFor(() => {
       expect(requestDbAddColumnSpy).toHaveBeenCalledWith(
         expect.objectContaining({ table: 'posts', name: 'score', type: 'REAL' }),
       );
     });
 
-    // A successful add re-reads generated cols + reloads rows INSIDE the add flow — settle those first so
-    // the add resolves and the AI backfill can dispatch.
+    /*
+     * A successful add re-reads generated cols + reloads rows INSIDE the add flow — settle those first so
+     * the add resolves and the AI backfill can dispatch.
+     */
     await replyGeneratedColsAndRows();
 
-    // Then the panel runs the model's backfill (`UPDATE … SET score = (views * 2)`) via the exec bridge and
-    // reloads rows again — settle both so no pending promise dangles into the next test.
+    /*
+     * Then the panel runs the model's backfill (`UPDATE … SET score = (views * 2)`) via the exec bridge and
+     * reloads rows again — settle both so no pending promise dangles into the next test.
+     */
     await waitFor(() => {
       expect(postToParentSpy).toHaveBeenCalledWith(
         expect.objectContaining({
@@ -955,9 +984,11 @@ describe('AI-native features', () => {
   });
 
   it('the single "Ask AI" button is always present (fill is reachable through it when rows are selected)', async () => {
-    // WLK-04: the split AI-filter/AI-column/AI-fill toolbar buttons were unified into ONE
-    // "Ask AI" that is ALWAYS available — the old per-action buttons no longer exist, and
-    // "fill" is now reached by asking (e.g. "summarize the selected rows") with a selection.
+    /*
+     * WLK-04: the split AI-filter/AI-column/AI-fill toolbar buttons were unified into ONE
+     * "Ask AI" that is ALWAYS available — the old per-action buttons no longer exist, and
+     * "fill" is now reached by asking (e.g. "summarize the selected rows") with a selection.
+     */
     await openRichTable();
 
     expect(screen.getByTestId('sitedb-ask-ai')).toBeTruthy();
@@ -1000,10 +1031,12 @@ describe('Revision 3 — fill-down applies the top value to N-1 rows via the wri
   it('shift-click a column range + Cmd/Ctrl+D issues one UPDATE per lower selected row (N-1)', async () => {
     await openRichTable();
 
-    // Column index 1 = "title". Plain-click sets the range anchor without opening the editor
-    // (a bare click on a text cell would open the editor; the range gesture is shift-click).
-    // Select the title cells of rows 0,1,2: anchor via click on row 0 title while holding a modifier,
-    // then shift-click row 2 to extend the range down the column.
+    /*
+     * Column index 1 = "title". Plain-click sets the range anchor without opening the editor
+     * (a bare click on a text cell would open the editor; the range gesture is shift-click).
+     * Select the title cells of rows 0,1,2: anchor via click on row 0 title while holding a modifier,
+     * then shift-click row 2 to extend the range down the column.
+     */
     const r0title = rowCells(0)[1];
     const r2title = rowCells(2)[1];
 
@@ -1011,6 +1044,7 @@ describe('Revision 3 — fill-down applies the top value to N-1 rows via the wri
     await act(async () => {
       r0title.dispatchEvent(new MouseEvent('click', { bubbles: true, metaKey: true }));
     });
+
     // Extend: shift-click the 3rd row's title cell → selects rows 0,1,2 in the title column.
     await act(async () => {
       r2title.dispatchEvent(new MouseEvent('click', { bubbles: true, shiftKey: true }));
@@ -1046,6 +1080,7 @@ describe('Revision 3 — fill-down applies the top value to N-1 rows via the wri
     // 3 selected rows (Alpha/Bravo/Charlie) → source Alpha, targets Bravo + Charlie = 2 UPDATEs.
     const updates = updateCallsForColumn('title');
     expect(updates).toHaveLength(2);
+
     // Every write carries Alpha's title value bound as the first param.
     expect(updates.every((u) => u.input.params[0] === 'Alpha')).toBe(true);
   });
@@ -1154,8 +1189,10 @@ describe('WLK-03 — a 0-rows-written UPDATE is a failed edit (no silent lying-s
     await act(async () => {
       r0title.dispatchEvent(new MouseEvent('click', { bubbles: true }));
     });
+
     // The typed editor replaces the cell.
     expect(screen.getByTestId('sitedb-cell-editing')).toBeTruthy();
+
     const input = screen.getByTestId('data-edit-value') as HTMLInputElement;
     await act(async () => {
       const s = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value')?.set;
@@ -1176,17 +1213,21 @@ describe('WLK-03 — a 0-rows-written UPDATE is a failed edit (no silent lying-s
     // Reply to the UPDATE with ZERO rows written — the row didn't exist / wasn't matched.
     await replyMutateOk(0);
 
-    // The edit FAILED: editor stays open, an error is shown, and the typed value is preserved
-    // (NOT silently reverted, NOT closed-as-success).
+    /*
+     * The edit FAILED: editor stays open, an error is shown, and the typed value is preserved
+     * (NOT silently reverted, NOT closed-as-success).
+     */
     await waitFor(() => {
       expect(screen.getByTestId('data-edit-error').textContent).toBeTruthy();
     });
     expect(screen.getByTestId('sitedb-cell-editing')).toBeTruthy();
     expect((screen.getByTestId('data-edit-value') as HTMLInputElement).value).toBe('Zeta');
 
-    // And the optimistic grid patch was rolled back — the detail/grid must not keep "Zeta".
-    // (The cell is in edit mode, so we assert no OTHER row leaked the value and the undo toast
-    // did NOT arm — a failed write never arms undo.)
+    /*
+     * And the optimistic grid patch was rolled back — the detail/grid must not keep "Zeta".
+     * (The cell is in edit mode, so we assert no OTHER row leaked the value and the undo toast
+     * did NOT arm — a failed write never arms undo.)
+     */
     expect(screen.queryByTestId('sitedb-undo')).toBeNull();
   });
 
@@ -1233,6 +1274,7 @@ describe('WLK-03 — a 0-rows-written UPDATE is a failed edit (no silent lying-s
         expect.objectContaining({ type: 'PS_SITEDB_ROWS_REQUEST', table: 'notes' }),
       );
     });
+
     const rowsReqId = lastReqIdOfType('PS_SITEDB_ROWS_REQUEST');
     await act(async () => {
       fireReply({
@@ -1270,18 +1312,21 @@ describe('Revision 1 — rowStableKey + isRowEditableColumn (pure edit-gate)', (
 
   it('rowStableKey prefers the PRIMARY KEY identity when a PK exists', () => {
     const row = { id: 42, _rowid: 7, title: 'Alpha' };
+
     // With a PK, the key is the PK identity (unchanged from rowPkKey), NOT the rowid.
     expect(rowStableKey(row, ['id'])).toBe(JSON.stringify([42]));
   });
 
   it('rowStableKey FALLS BACK to _rowid when there is NO primary key', () => {
     const row = { _rowid: 7, title: 'Alpha', body: 'x' };
+
     // No PK columns → the stable key is the rowid handle, so the row is still targetable.
     expect(rowStableKey(row, [])).toBe('_rowid:7');
   });
 
   it('rowStableKey is null only when there is NEITHER a PK NOR a _rowid', () => {
     expect(rowStableKey({ title: 'Alpha' }, [])).toBeNull();
+
     // A composite-PK row missing one key part is still unresolvable (matches rowPkKey).
     expect(rowStableKey({ a: 1 }, ['a', 'b'])).toBeNull();
   });

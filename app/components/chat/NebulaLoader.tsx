@@ -30,9 +30,11 @@ export interface NebulaLoaderProps {
 
 const VERT = `attribute vec2 p;void main(){gl_Position=vec4(p,0.,1.);}`;
 
-// Fragment shader: HBO-grade cinematic nebula — double domain-warped fbm, ACES
-// filmic tone-map, film grain, chromatic edge-bleed, a hot-pink "love explosion"
-// core pulse, parallax stars, and a completion burst. Purple/cyan/hot-pink.
+/*
+ * Fragment shader: HBO-grade cinematic nebula — double domain-warped fbm, ACES
+ * filmic tone-map, film grain, chromatic edge-bleed, a hot-pink "love explosion"
+ * core pulse, parallax stars, and a completion burst. Purple/cyan/hot-pink.
+ */
 const FRAG = `
 precision highp float;
 uniform vec2 u_res; uniform float u_time; uniform vec2 u_ptr;

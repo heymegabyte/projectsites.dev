@@ -78,12 +78,15 @@ export default async function handleRequest(
   }
 
   responseHeaders.set('Content-Type', 'text/html');
-  // The editor is served inside a warm, session-persistent iframe (BoltEmbedService keeps it
-  // alive across admin routes), so a heuristically-cached HTML shell PINS an OLD bundle — users
-  // kept seeing pre-fix editor UI across deploys (white buttons already fixed in code never
-  // reached the screen). Force the document to revalidate every load so a fresh iframe/session
-  // always fetches the current chunks (assets are content-hashed, so only the shell re-checks).
-  // (Brian 2026-09-27 — stale editor bundle behind the persistent iframe.)
+
+  /*
+   * The editor is served inside a warm, session-persistent iframe (BoltEmbedService keeps it
+   * alive across admin routes), so a heuristically-cached HTML shell PINS an OLD bundle — users
+   * kept seeing pre-fix editor UI across deploys (white buttons already fixed in code never
+   * reached the screen). Force the document to revalidate every load so a fresh iframe/session
+   * always fetches the current chunks (assets are content-hashed, so only the shell re-checks).
+   * (Brian 2026-09-27 — stale editor bundle behind the persistent iframe.)
+   */
   responseHeaders.set('Cache-Control', 'no-cache, must-revalidate');
 
   responseHeaders.set('Cross-Origin-Embedder-Policy', 'credentialless');

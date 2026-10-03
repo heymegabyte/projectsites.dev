@@ -43,12 +43,14 @@ export type ArtifactUpdateState = Pick<ArtifactState, 'title' | 'closed'>;
 
 type Artifacts = MapStore<Record<string, ArtifactState>>;
 
-// `functions`, `data` + `git` are LEGACY values kept so a stale persisted currentView normalizes cleanly
-// (Workbench.client.tsx snaps `data`→`database`, `functions`→`code`, `git`→`code`); `database` (consolidated
-// per-site data surface) + `resources` (per-site CF resource console) are the live FIRE 1 views.
-// The `git` TAB was retired (Promote workflow) — git history now lives in the Code-view Project hub
-// (`ProjectHub.tsx`, `PS_CODE_HISTORY` bridge); the Source-Control view shipped as `SourceControlPanel`
-// (a tab beside Files/Search/Locks in EditorPanel), sharing the `git-browser-logic` helpers.
+/*
+ * `functions`, `data` + `git` are LEGACY values kept so a stale persisted currentView normalizes cleanly
+ * (Workbench.client.tsx snaps `data`→`database`, `functions`→`code`, `git`→`code`); `database` (consolidated
+ * per-site data surface) + `resources` (per-site CF resource console) are the live FIRE 1 views.
+ * The `git` TAB was retired (Promote workflow) — git history now lives in the Code-view Project hub
+ * (`ProjectHub.tsx`, `PS_CODE_HISTORY` bridge); the Source-Control view shipped as `SourceControlPanel`
+ * (a tab beside Files/Search/Locks in EditorPanel), sharing the `git-browser-logic` helpers.
+ */
 export type WorkbenchViewType = 'chat' | 'code' | 'preview' | 'functions' | 'data' | 'database' | 'resources' | 'git';
 
 export class WorkbenchStore {

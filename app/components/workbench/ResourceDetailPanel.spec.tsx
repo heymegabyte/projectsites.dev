@@ -34,6 +34,7 @@ const { postToParent, handlers, lastRequest } = vi.hoisted(() => {
   const postToParent = vi.fn((message: Record<string, unknown>) => {
     lastRequest.value = message;
   });
+
   return { postToParent, handlers, lastRequest };
 });
 
@@ -42,9 +43,13 @@ vi.mock('~/lib/embed/embedded-mode', () => ({
   postToParent,
   onParentMessage: (fn: (msg: unknown) => void) => {
     handlers.push(fn);
+
     return () => {
       const i = handlers.indexOf(fn);
-      if (i >= 0) handlers.splice(i, 1);
+
+      if (i >= 0) {
+        handlers.splice(i, 1);
+      }
     };
   },
 }));
@@ -88,7 +93,9 @@ import { ResourceDetailPanel, buildCsv } from './ResourceDetailPanel';
 function replyToLast(type: string, extra: Record<string, unknown>) {
   const cid = lastRequest.value?.correlationId as string | undefined;
   act(() => {
-    for (const h of [...handlers]) h({ type, correlationId: cid, ...extra });
+    for (const h of [...handlers]) {
+      h({ type, correlationId: cid, ...extra });
+    }
   });
 }
 
@@ -117,6 +124,7 @@ describe('supports-driven write controls', () => {
 
     await waitFor(() => expect(screen.getByTestId('resource-detail-write')).toBeTruthy());
     expect(screen.getByTestId('resource-mutate-provision')).toBeTruthy();
+
     // KV put + delete forms are present.
     expect(screen.getByTestId('resource-mutate-kv-put')).toBeTruthy();
     expect(screen.getByTestId('resource-mutate-key-delete')).toBeTruthy();
@@ -145,6 +153,7 @@ describe('provision', () => {
     );
 
     await waitFor(() => expect(last()?.type).toBe('PS_RES_DETAIL_REQUEST'));
+
     // An "available to add" resource resolves not_registered on read.
     replyToLast('PS_RES_DETAIL_RESPONSE', {
       ok: true,
@@ -156,6 +165,7 @@ describe('provision', () => {
 
     // Provision is confirm-gated → the dialog appears; the mutate must NOT have been posted yet.
     await waitFor(() => expect(screen.getByTestId('confirm-ok')).toBeTruthy());
+
     const detailPosts = postToParent.mock.calls.filter(
       (c) => (c[0] as { type: string }).type === 'PS_RES_MUTATE_REQUEST',
     );
@@ -164,6 +174,7 @@ describe('provision', () => {
     fireEvent.click(screen.getByTestId('confirm-ok'));
 
     await waitFor(() => expect(last()?.type).toBe('PS_RES_MUTATE_REQUEST'));
+
     const req = last()!;
     expect(req.action).toBe('provision');
     expect(req.confirm).toBe(true);
@@ -199,6 +210,7 @@ describe('destructive delete', () => {
     // Type a key + click Delete → confirm dialog appears; no mutate yet.
     const keyInput = screen.getByTestId('resource-mutate-key-delete').querySelector('input') as HTMLInputElement;
     fireEvent.change(keyInput, { target: { value: 'greeting' } });
+
     const deleteBtn = screen.getByTestId('resource-mutate-key-delete').querySelector('button') as HTMLButtonElement;
     fireEvent.click(deleteBtn);
 
@@ -209,6 +221,7 @@ describe('destructive delete', () => {
 
     fireEvent.click(screen.getByTestId('confirm-ok'));
     await waitFor(() => expect(last()?.type).toBe('PS_RES_MUTATE_REQUEST'));
+
     const req = last()!;
     expect(req.action).toBe('delete');
     expect(req.confirm).toBe(true);
@@ -257,6 +270,7 @@ describe('rich cell formatting', () => {
     render(<ResourceDetailPanel target={{ kind: 'kv', environment: 'production' }} onBack={() => {}} />);
 
     await waitFor(() => expect(last()?.type).toBe('PS_RES_DETAIL_REQUEST'));
+
     // A generic collection with a numeric, a nested-object (json), a boolean, and a null field.
     replyToLast('PS_RES_DETAIL_RESPONSE', {
       ok: true,
@@ -269,14 +283,18 @@ describe('rich cell formatting', () => {
     });
 
     await waitFor(() => expect(screen.getByTestId('resource-detail-table')).toBeTruthy());
+
     const cells = screen.getByTestId('resource-detail-row').querySelectorAll('td');
 
-    // number → locale-grouped, json → pretty-printed (shared field-type formatter), boolean false →
-    // "false" (not hidden the way SQLite ✓ would), null → em-dash.
+    /*
+     * number → locale-grouped, json → pretty-printed (shared field-type formatter), boolean false →
+     * "false" (not hidden the way SQLite ✓ would), null → em-dash.
+     */
     expect(cells[0].textContent).toBe((1234567).toLocaleString());
     expect(cells[1].textContent).toBe(JSON.stringify({ a: 1 }, null, 2));
     expect(cells[2].textContent).toBe('false');
     expect(cells[3].textContent).toBe('—');
+
     // The null cell advertises "null" via its title (honest empty, not a real value).
     expect(cells[3].getAttribute('title')).toBe('null');
   });
@@ -295,6 +313,7 @@ describe('row-detail drawer', () => {
     });
 
     await waitFor(() => expect(screen.getByTestId('resource-detail-row')).toBeTruthy());
+
     const row = screen.getByTestId('resource-detail-row') as HTMLElement;
 
     // Focus + click the row → the drawer opens showing the row's full field set.
@@ -302,6 +321,7 @@ describe('row-detail drawer', () => {
     fireEvent.click(row);
 
     await waitFor(() => expect(screen.getByTestId('resource-detail-row-drawer')).toBeTruthy());
+
     const drawer = screen.getByTestId('resource-detail-row-drawer');
     expect(drawer.textContent).toContain('Id');
     expect(drawer.textContent).toContain('row-a');
@@ -349,12 +369,16 @@ describe('CSV export', () => {
     );
 
     const lines = csv.split('\n');
+
     // Header (no special chars → unquoted).
     expect(lines[0]).toBe('name,note,qty');
+
     // Comma → quoted; embedded double-quote → doubled + wrapped.
     expect(lines[1]).toBe('"Ada, Lovelace","she said ""hi""",3');
+
     // A newline inside a field quotes it, so the record spans two physical lines; null → empty.
     expect(csv).toContain('"line1\nline2",,0');
+
     // Trailing newline terminates the last record.
     expect(csv.endsWith('\n')).toBe(true);
   });
@@ -369,6 +393,7 @@ describe('CSV export', () => {
     });
 
     await waitFor(() => expect(screen.getByTestId('resource-detail-export-csv')).toBeTruthy());
+
     // Clicking is fail-soft even without URL.createObjectURL in jsdom (never throws).
     expect(() => fireEvent.click(screen.getByTestId('resource-detail-export-csv'))).not.toThrow();
   });
@@ -436,13 +461,15 @@ describe('real-time detail view — no manual refresh', () => {
   });
 });
 
-// ── Flag-dark honesty + doomed-control gating (fire-57) ───────────────────────────
-//
-// Per dark-route-404-distinguish-by-message-not-code: a flag-dark reply (`enabled:false`, or the
-// worker's "… is not enabled" 404 wording forwarded verbatim) is a HEALTHY state, never an error —
-// no "Failed to load" card, no Retry, no doomed controls. Per the doomed-control rule: while the
-// resource is dark OR not provisioned, write/lifecycle controls are hidden or disabled-with-reason,
-// leaving Provision as the single primary action.
+/*
+ * ── Flag-dark honesty + doomed-control gating (fire-57) ───────────────────────────
+ *
+ * Per dark-route-404-distinguish-by-message-not-code: a flag-dark reply (`enabled:false`, or the
+ * worker's "… is not enabled" 404 wording forwarded verbatim) is a HEALTHY state, never an error —
+ * no "Failed to load" card, no Retry, no doomed controls. Per the doomed-control rule: while the
+ * resource is dark OR not provisioned, write/lifecycle controls are hidden or disabled-with-reason,
+ * leaving Provision as the single primary action.
+ */
 
 describe('flag-dark honesty (fire-57)', () => {
   it('renders the honest "Not enabled yet" state for an enabled:false reply — no error card, no Retry, no controls', async () => {
@@ -452,14 +479,18 @@ describe('flag-dark honesty (fire-57)', () => {
     replyToLast('PS_RES_DETAIL_RESPONSE', { ok: false, enabled: false });
 
     await waitFor(() => expect(screen.getByTestId('resource-detail-disabled')).toBeTruthy());
+
     const card = screen.getByTestId('resource-detail-disabled');
     expect(card.textContent).toMatch(/not enabled yet/i);
+
     // One-line "what it is" explainer for the kind (KV → key-value store).
     expect(card.textContent).toMatch(/key-value/i);
+
     // NOT an error card, NO Retry for the dark case.
     expect(screen.queryByText(/failed to load/i)).toBeNull();
     expect(screen.queryByTestId('resource-detail-error')).toBeNull();
     expect(screen.queryByRole('button', { name: /retry/i })).toBeNull();
+
     // No doomed write/lifecycle controls against a dark surface.
     expect(screen.queryByTestId('resource-detail-write')).toBeNull();
     expect(screen.queryByTestId('resource-lifecycle')).toBeNull();
@@ -507,6 +538,7 @@ describe('doomed-control gating (fire-57)', () => {
     });
 
     await waitFor(() => expect(screen.getByTestId('resource-mutate-provision')).toBeTruthy());
+
     // Provision stays the single ACTIVE primary action.
     expect((screen.getByTestId('resource-mutate-provision') as HTMLButtonElement).disabled).toBe(false);
 
@@ -524,8 +556,10 @@ describe('doomed-control gating (fire-57)', () => {
     fireEvent.change(delInput, { target: { value: 'greeting' } });
     expect((delForm.querySelector('button') as HTMLButtonElement).disabled).toBe(true);
 
-    // Lifecycle (Promote / Clone / Teardown) is HIDDEN against a not-provisioned resource; the
-    // environments grid stays visible as honest read-only state.
+    /*
+     * Lifecycle (Promote / Clone / Teardown) is HIDDEN against a not-provisioned resource; the
+     * environments grid stays visible as honest read-only state.
+     */
     expect(screen.queryByTestId('resource-lifecycle')).toBeNull();
     expect(screen.getByTestId('resource-env-grid')).toBeTruthy();
   });

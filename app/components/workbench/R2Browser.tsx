@@ -29,6 +29,7 @@ import type { ResourceDetailTarget, ResourceMutateFn } from './ResourceDetailPan
 
 const REQUEST_TIMEOUT_MS = 20_000;
 const DISABLED_404 = 'not enabled';
+
 /** Files at/under this size can fall back to an inline `put` (base64/text) when a scoped URL isn't wired. */
 const INLINE_FALLBACK_MAX_BYTES = 1 * 1024 * 1024;
 
@@ -54,17 +55,33 @@ type ListState =
   | { status: 'ready'; objects: R2ObjectRow[]; truncated: boolean; cursor?: string };
 
 let correlationCounter = 0;
+
 function nextCorrelationId(): string {
-  if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') return crypto.randomUUID();
+  if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
+    return crypto.randomUUID();
+  }
+
   return `r2browser_${++correlationCounter}`;
 }
 
 /** Format a byte count compactly (—, 512 B, 4.2 KB, 3.1 MB). */
 function formatBytes(n: number | undefined): string {
-  if (typeof n !== 'number' || !Number.isFinite(n)) return '—';
-  if (n < 1024) return `${n} B`;
-  if (n < 1024 * 1024) return `${(n / 1024).toFixed(1)} KB`;
-  if (n < 1024 * 1024 * 1024) return `${(n / (1024 * 1024)).toFixed(1)} MB`;
+  if (typeof n !== 'number' || !Number.isFinite(n)) {
+    return '—';
+  }
+
+  if (n < 1024) {
+    return `${n} B`;
+  }
+
+  if (n < 1024 * 1024) {
+    return `${(n / 1024).toFixed(1)} KB`;
+  }
+
+  if (n < 1024 * 1024 * 1024) {
+    return `${(n / (1024 * 1024)).toFixed(1)} MB`;
+  }
+
   return `${(n / (1024 * 1024 * 1024)).toFixed(1)} GB`;
 }
 
@@ -72,27 +89,31 @@ function formatBytes(n: number | undefined): string {
 function splitByPrefix(objects: R2ObjectRow[], prefix: string): { folders: string[]; files: R2ObjectRow[] } {
   const folderSet = new Set<string>();
   const files: R2ObjectRow[] = [];
+
   for (const obj of objects) {
     const rest = obj.key.startsWith(prefix) ? obj.key.slice(prefix.length) : obj.key;
     const slash = rest.indexOf('/');
+
     if (slash >= 0) {
       folderSet.add(rest.slice(0, slash + 1)); // keep trailing slash to mark a folder
     } else {
       files.push(obj);
     }
   }
+
   return { files, folders: [...folderSet].sort() };
 }
 
 export interface R2BrowserProps {
   /** The R2 resource target (kind + environment). Never carries a bucket name — the server resolves it. */
   target: ResourceDetailTarget;
+
   /** The uniform mutate function the panel owns (rides `PS_RES_MUTATE_REQUEST`; never names a CF id). */
   mutate: ResourceMutateFn;
 }
 
 /** The S3-style R2 object browser. Prefix nav + upload + download + delete over the site's OWN bucket. */
-export const R2Browser = memo(function R2Browser({ target, mutate }: R2BrowserProps) {
+export const R2Browser = memo(({ target, mutate }: R2BrowserProps) => {
   const [prefix, setPrefix] = useState('');
   const [state, setState] = useState<ListState>({ status: 'loading' });
   const [banner, setBanner] = useState<{ tone: 'ok' | 'warn' | 'err'; message: string } | null>(null);
@@ -112,21 +133,36 @@ export const R2Browser = memo(function R2Browser({ target, mutate }: R2BrowserPr
     >
   >(new Map());
 
-  // ONE listener resolving list replies by correlationId (repo []-deps stale-ref rule). Mutate replies are
-  // resolved by the panel's own listener via the `mutate` prop — we only own list here.
+  /*
+   * ONE listener resolving list replies by correlationId (repo []-deps stale-ref rule). Mutate replies are
+   * resolved by the panel's own listener via the `mutate` prop — we only own list here.
+   */
   useEffect(() => {
     const unsubscribe = onParentMessage((msg) => {
-      if (msg.type !== 'PS_RES_DETAIL_RESPONSE') return;
+      if (msg.type !== 'PS_RES_DETAIL_RESPONSE') {
+        return;
+      }
+
       const cid = msg.correlationId;
-      if (!cid) return;
+
+      if (!cid) {
+        return;
+      }
+
       const pending = pendingRef.current.get(cid);
-      if (!pending) return;
+
+      if (!pending) {
+        return;
+      }
+
       clearTimeout(pending.timer);
       pendingRef.current.delete(cid);
       pending.resolve(msg);
     });
+
     return () => {
       unsubscribe();
+
       for (const [, pending] of pendingRef.current) {
         clearTimeout(pending.timer);
         pending.reject(new Error('cancelled'));
@@ -166,26 +202,41 @@ export const R2Browser = memo(function R2Browser({ target, mutate }: R2BrowserPr
    */
   const load = useCallback(
     async (listPrefix: string, silent = false) => {
-      if (!silent) setState({ status: 'loading' });
+      if (!silent) {
+        setState({ status: 'loading' });
+      }
+
       if (!isEmbedded) {
         setState({ status: 'error', message: 'Open this from the ProjectSites admin to browse your files.' });
         return;
       }
+
       try {
         const reply = await requestList(listPrefix);
+
         if (!reply.ok) {
           if (reply.enabled === false || (reply.error && reply.error.includes(DISABLED_404))) {
             setState({ status: 'disabled' });
             return;
           }
-          if (!silent) setState({ status: 'error', message: reply.error || 'Could not list objects.' });
+
+          if (!silent) {
+            setState({ status: 'error', message: reply.error || 'Could not list objects.' });
+          }
+
           return;
         }
+
         const result = reply.result;
+
         if (!result || !result.ok) {
-          if (!silent) setState({ status: 'error', message: result?.error?.message || 'Could not list objects.' });
+          if (!silent) {
+            setState({ status: 'error', message: result?.error?.message || 'Could not list objects.' });
+          }
+
           return;
         }
+
         const data = (result.data ?? {}) as { objects?: R2ObjectRow[]; truncated?: boolean; cursor?: string };
         setState({
           cursor: data.cursor,
@@ -194,8 +245,9 @@ export const R2Browser = memo(function R2Browser({ target, mutate }: R2BrowserPr
           truncated: data.truncated === true,
         });
       } catch (err) {
-        if (!silent)
+        if (!silent) {
           setState({ status: 'error', message: err instanceof Error ? err.message : 'Could not list objects.' });
+        }
       }
     },
     [requestList],
@@ -214,23 +266,35 @@ export const R2Browser = memo(function R2Browser({ target, mutate }: R2BrowserPr
    */
   const loadRef = useRef(load);
   loadRef.current = load;
+
   const prefixRef = useRef(prefix);
   prefixRef.current = prefix;
+
   const uploadingRef = useRef(uploading);
   uploadingRef.current = uploading;
   useEffect(() => {
-    if (!isEmbedded) return undefined;
+    if (!isEmbedded) {
+      return undefined;
+    }
 
     const tick = () => {
-      if (typeof document !== 'undefined' && document.hidden) return;
-      if (uploadingRef.current) return;
+      if (typeof document !== 'undefined' && document.hidden) {
+        return;
+      }
+
+      if (uploadingRef.current) {
+        return;
+      }
+
       void loadRef.current(prefixRef.current, true);
     };
 
     const interval = setInterval(tick, POLL_INTERVAL_MS);
 
     const onVisibility = () => {
-      if (typeof document !== 'undefined' && !document.hidden) tick();
+      if (typeof document !== 'undefined' && !document.hidden) {
+        tick();
+      }
     };
 
     document.addEventListener('visibilitychange', onVisibility);
@@ -251,10 +315,12 @@ export const R2Browser = memo(function R2Browser({ target, mutate }: R2BrowserPr
     const parts = prefix.split('/').filter(Boolean);
     const acc: { label: string; prefix: string }[] = [{ label: 'root', prefix: '' }];
     let cur = '';
+
     for (const part of parts) {
       cur += `${part}/`;
       acc.push({ label: part, prefix: cur });
     }
+
     return acc;
   }, [prefix]);
 
@@ -263,21 +329,27 @@ export const R2Browser = memo(function R2Browser({ target, mutate }: R2BrowserPr
     async (key: string) => {
       setBusyKey(key);
       setBanner(null);
+
       const outcome = await mutate('preview_url', { key });
       setBusyKey(null);
+
       if (outcome.kind === 'success') {
         const url = typeof outcome.result.url === 'string' ? outcome.result.url : undefined;
+
         if (url) {
           window.open(url, '_blank', 'noopener,noreferrer');
           return;
         }
+
         const approach = typeof outcome.result.approach === 'string' ? outcome.result.approach : undefined;
         setBanner({
           message: approach ?? 'A scoped download link is not available for this object yet.',
           tone: 'warn',
         });
+
         return;
       }
+
       setBanner({ message: outcome.message, tone: outcome.kind === 'not_available' ? 'warn' : 'err' });
     },
     [mutate],
@@ -288,13 +360,17 @@ export const R2Browser = memo(function R2Browser({ target, mutate }: R2BrowserPr
     async (key: string) => {
       setBusyKey(key);
       setBanner(null);
+
       const outcome = await mutate('delete', { key }, true);
       setBusyKey(null);
+
       if (outcome.kind === 'success') {
         setBanner({ message: `Deleted “${key}”.`, tone: 'ok' });
         void load(prefix);
+
         return;
       }
+
       setBanner({ message: outcome.message, tone: outcome.kind === 'not_available' ? 'warn' : 'err' });
     },
     [mutate, load, prefix],
@@ -306,20 +382,24 @@ export const R2Browser = memo(function R2Browser({ target, mutate }: R2BrowserPr
       const key = `${prefix}${file.name}`;
       setUploading(true);
       setBanner(null);
+
       try {
         const outcome = await mutate('upload_url', { contentType: file.type || 'application/octet-stream', key });
+
         if (outcome.kind === 'success' && typeof outcome.result.url === 'string') {
           const putRes = await fetch(outcome.result.url, {
             body: file,
             headers: { 'content-type': file.type || 'application/octet-stream' },
             method: 'PUT',
           });
+
           if (!putRes.ok) {
             setBanner({ message: `Upload failed (HTTP ${putRes.status}).`, tone: 'err' });
           } else {
             setBanner({ message: `Uploaded “${file.name}”.`, tone: 'ok' });
             void load(prefix);
           }
+
           return;
         }
 
@@ -330,12 +410,14 @@ export const R2Browser = memo(function R2Browser({ target, mutate }: R2BrowserPr
         ) {
           const body = await file.text();
           const put = await mutate('put', { body, contentType: file.type, key }, true);
+
           if (put.kind === 'success') {
             setBanner({ message: `Uploaded “${file.name}”.`, tone: 'ok' });
             void load(prefix);
           } else {
             setBanner({ message: put.message, tone: put.kind === 'not_available' ? 'warn' : 'err' });
           }
+
           return;
         }
 
@@ -350,7 +432,10 @@ export const R2Browser = memo(function R2Browser({ target, mutate }: R2BrowserPr
         setBanner({ message: err instanceof Error ? err.message : 'Upload failed.', tone: 'err' });
       } finally {
         setUploading(false);
-        if (fileInputRef.current) fileInputRef.current.value = '';
+
+        if (fileInputRef.current) {
+          fileInputRef.current.value = '';
+        }
       }
     },
     [mutate, prefix, load],
@@ -395,7 +480,10 @@ export const R2Browser = memo(function R2Browser({ target, mutate }: R2BrowserPr
           data-testid="r2-upload-input"
           onChange={(e) => {
             const f = e.target.files?.[0];
-            if (f) void upload(f);
+
+            if (f) {
+              void upload(f);
+            }
           }}
         />
         <button
@@ -531,6 +619,7 @@ export const R2Browser = memo(function R2Browser({ target, mutate }: R2BrowserPr
               {files.map((file) => {
                 const name = file.key.startsWith(prefix) ? file.key.slice(prefix.length) : file.key;
                 const rowBusy = busyKey === file.key;
+
                 return (
                   <tr
                     key={`file:${file.key}`}

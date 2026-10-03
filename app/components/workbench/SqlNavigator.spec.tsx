@@ -45,10 +45,12 @@ const { postToParentSpy, onParentMessageSpy, requestDbQuerySpy, parentHandlers }
     postToParentSpy: vi.fn(),
     onParentMessageSpy: vi.fn((handler: (msg: unknown) => void) => {
       parentHandlers.add(handler);
+
       return () => {
         parentHandlers.delete(handler);
       };
     }),
+
     // A pending promise that never resolves in these cases — we only assert whether it was CALLED.
     requestDbQuerySpy: vi.fn(() => new Promise(() => {})),
   };
@@ -160,6 +162,7 @@ describe('SqlNavigator — WLK-05 AA contrast (brand tokens, no opacity-muted to
 
   it('the "Starters" eyebrow label clears AA (not the muted-tertiary token)', () => {
     render(<SqlNavigator />);
+
     const label = screen.getByText('Starters');
     expect(label.className).not.toContain(AA_FAIL);
     expect(label.className).toMatch(AA_SAFE);
@@ -167,6 +170,7 @@ describe('SqlNavigator — WLK-05 AA contrast (brand tokens, no opacity-muted to
 
   it('the SQL field label clears AA (not the muted-tertiary token)', () => {
     render(<SqlNavigator />);
+
     const label = document.querySelector('label[for="database-sql-input"]') as HTMLElement;
     expect(label).toBeTruthy();
     expect(label.className).not.toContain(AA_FAIL);
@@ -175,6 +179,7 @@ describe('SqlNavigator — WLK-05 AA contrast (brand tokens, no opacity-muted to
 
   it('the saved + history rail empty-state hints clear AA (not the muted-tertiary token)', () => {
     render(<SqlNavigator />);
+
     for (const id of ['database-sql-saved-empty', 'database-sql-history-empty']) {
       const hint = screen.getByTestId(id);
       expect(hint.className, id).not.toContain(AA_FAIL);
@@ -217,9 +222,11 @@ describe('SqlNavigator — WLK-05 computed-contrast regression (reads the real b
       `--bolt-elements-${token}:\\s*rgba\\(\\s*(\\d+)\\s*,\\s*(\\d+)\\s*,\\s*(\\d+)\\s*,\\s*([0-9.]+)\\s*\\)`,
     );
     const m = scss.match(re);
+
     if (!m) {
       throw new Error(`could not parse --bolt-elements-${token} as rgba() in index.scss`);
     }
+
     return { ink: [Number(m[1]), Number(m[2]), Number(m[3])], alpha: Number(m[4]) };
   }
 
@@ -227,9 +234,11 @@ describe('SqlNavigator — WLK-05 computed-contrast regression (reads the real b
     const s = c / 255;
     return s <= 0.03928 ? s / 12.92 : Math.pow((s + 0.055) / 1.055, 2.4);
   }
+
   function luminance([r, g, b]: [number, number, number]): number {
     return 0.2126 * lin(r) + 0.7152 * lin(g) + 0.0722 * lin(b);
   }
+
   function over(ink: [number, number, number], a: number, bg: [number, number, number]): [number, number, number] {
     return [
       Math.round(ink[0] * a + bg[0] * (1 - a)),
@@ -237,6 +246,7 @@ describe('SqlNavigator — WLK-05 computed-contrast regression (reads the real b
       Math.round(ink[2] * a + bg[2] * (1 - a)),
     ];
   }
+
   function ratioOnPanel(token: string): number {
     const { ink, alpha } = parseAlphaInk(token);
     const composited = over(ink, alpha, PANEL_BG);
@@ -244,6 +254,7 @@ describe('SqlNavigator — WLK-05 computed-contrast regression (reads the real b
     const l2 = luminance(PANEL_BG);
     const hi = Math.max(l1, l2);
     const lo = Math.min(l1, l2);
+
     return (hi + 0.05) / (lo + 0.05);
   }
 

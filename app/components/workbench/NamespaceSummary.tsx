@@ -66,12 +66,16 @@ function syncedAgo(sinceMs: number): string {
 interface KindSpec {
   /** Canonical key used to bucket inventory entries (case-insensitive substring match). */
   key: string;
+
   /** Human label. */
   label: string;
+
   /** Phosphor duotone icon. */
   icon: string;
+
   /** Substrings that map a raw `resource_kind` into this bucket. */
   match: string[];
+
   /**
    * A caveat about what Cloudflare can expose for this kind (per CAPABILITY-MATRIX.md) — shown as the
    * tile title/hover. INFORMATIONAL only: a kind can carry a note AND still be a reachable surface
@@ -79,6 +83,7 @@ interface KindSpec {
    * {@link KindSpec.unsupported} for a kind that genuinely cannot be surfaced on this deployment.
    */
   platformNote?: string;
+
   /**
    * TRUE when this deployment structurally cannot surface the kind at all (per CAPABILITY-MATRIX.md +
    * the adapter's `UNSUPPORTED_KINDS`) — e.g. Queues, which has NO `QUEUE` binding here. Such a tile
@@ -86,6 +91,7 @@ interface KindSpec {
    * `action-button-must-gate-on-server-precondition`). Distinct from a mere `platformNote` caveat.
    */
   unsupported?: boolean;
+
   /**
    * TRUE for a kind that is SUPPORTED + countable but has no per-kind adapter drill-in endpoint
    * (the owner-grade wire kinds `wfp_worker` / `hostname` / `routing` — the worker's detail route
@@ -98,8 +104,11 @@ interface KindSpec {
 export const KIND_SPECS: KindSpec[] = [
   { key: 'd1', label: 'D1 Databases', icon: 'i-ph:database-duotone', match: ['d1', 'database', 'sql'] },
   { key: 'kv', label: 'KV Namespaces', icon: 'i-ph:key-duotone', match: ['kv', 'key'] },
-  // NOTE: no bare 'object' match — `durable_object` contains it and would mis-bucket under R2
-  // (caught by owner-resource-mapping.spec). 'r2'/'bucket'/'storage' cover the real variants.
+
+  /*
+   * NOTE: no bare 'object' match — `durable_object` contains it and would mis-bucket under R2
+   * (caught by owner-resource-mapping.spec). 'r2'/'bucket'/'storage' cover the real variants.
+   */
   { key: 'r2', label: 'R2 Buckets', icon: 'i-ph:cloud-duotone', match: ['r2', 'bucket', 'storage'] },
   {
     key: 'durable_object',
@@ -162,6 +171,7 @@ type Availability = 'connected' | 'available' | 'unsupported';
 export interface OpenKindTarget {
   /** Canonical kind key (`kv` | `durable_object` | `queue` | `connection` | `observability` | …). */
   kind: string;
+
   /** The kind's availability verdict, so the detail panel leads with the right primary action. */
   availability: Extract<Availability, 'connected' | 'available'>;
 }
@@ -202,6 +212,7 @@ interface KindRollup {
   available: number;
   unsupported: number;
   drifted: number;
+
   /** Environments this kind's resources span (for a compact env chip). */
   environments: Set<string>;
 }
@@ -215,6 +226,7 @@ interface NamespaceRollup {
   unsupported: number;
   drifted: number;
   kinds: KindRollup[];
+
   /** Kinds that actually have ≥1 resource, for the "N of M kinds in use" headline. */
   kindsInUse: number;
 }
@@ -235,8 +247,10 @@ function deriveNamespaceLabel(resources: ResourceOverviewEntry[]): string | null
     const isWfp = k.includes('wfp') || k.includes('dispatch') || k.includes('function') || k.includes('namespace');
 
     if (isWfp) {
-      // The owner-grade wire carries the REAL dispatch-namespace name in the advanced detail
-      // (`… · namespace: project-sites-endpoints`) — prefer it over the concept token.
+      /*
+       * The owner-grade wire carries the REAL dispatch-namespace name in the advanced detail
+       * (`… · namespace: project-sites-endpoints`) — prefer it over the concept token.
+       */
       const fromDetail = /namespace:\s*([^\s·]+)/.exec(entry.detail || '')?.[1];
 
       if (fromDetail) {
@@ -334,10 +348,13 @@ export const NamespaceSummary = memo(
   }: {
     resources: ResourceOverviewEntry[];
     environment: string;
+
     /** Silent auto-heal hook — invoked AUTOMATICALLY (debounced) when drift is observed; never a button. */
     onReconcile?: () => void;
+
     /** True while the parent's reconcile is in flight — drives the quiet "Syncing…" affordance. */
     reconciling?: boolean;
+
     /**
      * Open a kind's per-kind drill-in. When provided, every SUPPORTED kind tile (including
      * zero-count ones) becomes a keyboard-operable button — so the dark per-site KV / Durable
@@ -407,6 +424,7 @@ export const NamespaceSummary = memo(
         setLastSyncedAt((cur) => cur ?? Date.now());
       }
     }, [rollup.drifted]);
+
     const [, forceTick] = useState(0);
     useEffect(() => {
       const id = setInterval(() => {
@@ -594,19 +612,26 @@ HeroStat.displayName = 'NamespaceSummary.HeroStat';
 const KindTile = memo(({ row, onOpen }: { row: KindRollup; onOpen?: (target: OpenKindTarget) => void }) => {
   const has = row.total > 0;
   const drifted = row.drifted > 0;
-  // A kind this deployment genuinely cannot surface (Queues — no binding) AND that has nothing → honest
-  // "Not available" treatment (never a fake 0-count). A mere `platformNote` caveat (e.g. Durable Objects)
-  // is NOT unsupported — that surface is still reachable.
+
+  /*
+   * A kind this deployment genuinely cannot surface (Queues — no binding) AND that has nothing → honest
+   * "Not available" treatment (never a fake 0-count). A mere `platformNote` caveat (e.g. Durable Objects)
+   * is NOT unsupported — that surface is still reachable.
+   */
   const platformUnsupported = !has && Boolean(row.spec.unsupported);
+
   // `other` is a catch-all bucket, not a real drill-in target — never make it actionable.
   const isOther = row.spec.key === 'other';
-  // A tile is a REACHABLE button when a handler exists AND the kind is a genuine, supported surface
-  // (never a doomed control per `action-button-must-gate-on-server-precondition`): a genuinely
-  // unsupported kind + the `other` bucket stay presentational. A zero-count-but-supported kind IS
-  // clickable — that is exactly how the dark per-site KV / DO / Connections / Observability surfaces
-  // are reached (their FLAG gates the server; the drill-in renders the honest not-enabled/empty state).
-  // `noDrill` kinds (worker / domain — no per-kind adapter endpoint) count honestly but stay
-  // presentational, so a tile can never be a doomed click into a 400.
+
+  /*
+   * A tile is a REACHABLE button when a handler exists AND the kind is a genuine, supported surface
+   * (never a doomed control per `action-button-must-gate-on-server-precondition`): a genuinely
+   * unsupported kind + the `other` bucket stay presentational. A zero-count-but-supported kind IS
+   * clickable — that is exactly how the dark per-site KV / DO / Connections / Observability surfaces
+   * are reached (their FLAG gates the server; the drill-in renders the honest not-enabled/empty state).
+   * `noDrill` kinds (worker / domain — no per-kind adapter endpoint) count honestly but stay
+   * presentational, so a tile can never be a doomed click into a 400.
+   */
   const actionable = Boolean(onOpen) && !row.spec.unsupported && !row.spec.noDrill && !isOther;
 
   // The status dot: warn on drift, ok when connected, muted when only "available", amber when unsupported.
@@ -620,8 +645,10 @@ const KindTile = memo(({ row, onOpen }: { row: KindRollup; onOpen?: (target: Ope
           ? 'bg-bolt-elements-item-contentAccent'
           : 'bg-bolt-elements-borderColor';
 
-  // Availability hint handed to the detail panel: a connected kind leads with read, everything else
-  // (zero-count OR only "available") leads with Provision.
+  /*
+   * Availability hint handed to the detail panel: a connected kind leads with read, everything else
+   * (zero-count OR only "available") leads with Provision.
+   */
   const availability: OpenKindTarget['availability'] = row.connected > 0 ? 'connected' : 'available';
 
   const open = () => onOpen?.({ kind: row.spec.key, availability });

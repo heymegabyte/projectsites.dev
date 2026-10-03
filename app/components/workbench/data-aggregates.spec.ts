@@ -39,6 +39,7 @@ describe('computeAggregates', () => {
     const r = computeAggregates(['2', '3.5', '4']);
     expect(r.numericCount).toBe(3);
     expect(r.sum).toBe(9.5);
+
     // avg is rounded to ≤6 decimals (roundAvg) — assert closeness, not full float precision.
     expect(r.avg).toBeCloseTo(9.5 / 3, 5);
     expect(r.min).toBe(2);
@@ -58,6 +59,7 @@ describe('computeAggregates', () => {
     expect(r.sum).toBe(7);
     expect(r.min).toBe(7);
     expect(r.max).toBe(7);
+
     // non-null, non-undefined non-numerics count toward count only
     expect(r.count).toBe(4);
     expect(r.nullCount).toBe(0);
@@ -85,6 +87,7 @@ describe('computeAggregates', () => {
   it('float avg precision — avoids noise beyond 6 significant decimals', () => {
     // 1/3 = 0.3333... — should not produce 0.33333333333333337
     const r = computeAggregates([0, 1]);
+
     // avg = 0.5 — exact, no noise
     expect(r.avg).toBe(0.5);
 
@@ -94,6 +97,7 @@ describe('computeAggregates', () => {
 
     // 1/3 scenario
     const r3 = computeAggregates([1, 0, 0]);
+
     // avg should be rounded to ≤6 significant decimals
     expect(String(r3.avg).replace('.', '').replace(/^0+/, '').length).toBeLessThanOrEqual(7);
   });
@@ -113,9 +117,11 @@ describe('computeAggregates', () => {
   });
 
   it('boolean values not numeric (Number(true)=1 but booleans are not numeric strings)', () => {
-    // true/false are not null/undefined so don't increment nullCount
-    // they produce Number(true)=1 / Number(false)=0 but spec says
-    // "numbers and numeric strings" — booleans should NOT count
+    /*
+     * true/false are not null/undefined so don't increment nullCount
+     * they produce Number(true)=1 / Number(false)=0 but spec says
+     * "numbers and numeric strings" — booleans should NOT count
+     */
     const r = computeAggregates([true, false]);
     expect(r.count).toBe(2);
     expect(r.numericCount).toBe(0);

@@ -145,6 +145,7 @@ describe('usePromote — lastResult (Slice 6b)', () => {
     expect(last.outcome).toBe('success');
     expect(last.servingSha).toBe('deadbeef1234feedface5678');
     expect(last.releaseId).toBe('rel-2');
+
     // The completion marker is the response's own release id — deterministic, never a wall clock.
     expect(last.releaseId).toBe(last.releaseId);
     expect(typeof last.servingSha).toBe('string');

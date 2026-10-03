@@ -736,8 +736,10 @@ export const SqlNavigator = memo(() => {
               key={s.label}
               type="button"
               onClick={() => {
-                // Populate-before-run (WLK-05): drop the preset SQL into the editor so the user SEES
-                // it, then presses Run. Never auto-execute — the query must be visible first.
+                /*
+                 * Populate-before-run (WLK-05): drop the preset SQL into the editor so the user SEES
+                 * it, then presses Run. Never auto-execute — the query must be visible first.
+                 */
                 setSql(s.query);
                 setExplainSent(false);
               }}
@@ -1392,6 +1394,7 @@ const SqlResult = memo(
             </p>
           </div>
         ) : (
+
           /*
            * The SAME grid form the Table-view uses — typed cells, sortable headers, search, pagination,
            * and honest whole-result export — so a SQL result reads exactly like a browsed table.

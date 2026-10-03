@@ -17,6 +17,7 @@ import React from 'react';
 const { postToParent, handlers } = vi.hoisted(() => {
   const handlers: Array<(msg: unknown) => void> = [];
   const postToParent = vi.fn();
+
   return { handlers, postToParent };
 });
 
@@ -24,9 +25,13 @@ vi.mock('~/lib/embed/embedded-mode', () => ({
   isEmbedded: true,
   onParentMessage: (fn: (msg: unknown) => void) => {
     handlers.push(fn);
+
     return () => {
       const i = handlers.indexOf(fn);
-      if (i >= 0) handlers.splice(i, 1);
+
+      if (i >= 0) {
+        handlers.splice(i, 1);
+      }
     };
   },
   postToParent,
@@ -72,8 +77,13 @@ function replyList(objects: Array<{ key: string; size?: number }>, opts: { trunc
   const call = [...postToParent.mock.calls]
     .reverse()
     .find((c) => (c[0] as { type: string }).type === 'PS_RES_DETAIL_REQUEST');
-  if (!call) throw new Error('no pending list request');
+
+  if (!call) {
+    throw new Error('no pending list request');
+  }
+
   const cid = (call[0] as { correlationId: string }).correlationId;
+
   for (const h of [...handlers]) {
     h({
       type: 'PS_RES_DETAIL_RESPONSE',
@@ -106,6 +116,7 @@ describe('R2 object browser', () => {
     ]);
 
     await waitFor(() => expect(screen.getByTestId('r2-browser')).toBeTruthy());
+
     // One leaf file at root + one folder (images/).
     expect(screen.getAllByTestId('r2-file-row').length).toBe(1);
     expect(screen.getAllByTestId('r2-folder-row').length).toBe(1);
@@ -119,11 +130,13 @@ describe('R2 object browser', () => {
     replyList([{ key: 'images/hero.jpg', size: 4096 }]);
 
     await waitFor(() => expect(screen.getByTestId('r2-folder-row')).toBeTruthy());
+
     const before = postToParent.mock.calls.length;
     fireEvent.click(screen.getByTestId('r2-folder-row'));
 
     // A new list request fires carrying the folder prefix.
     await waitFor(() => expect(postToParent.mock.calls.length).toBeGreaterThan(before));
+
     const last = postToParent.mock.calls.at(-1)![0] as { params?: { prefix?: string } };
     expect(last.params?.prefix).toBe('images/');
   });
@@ -146,6 +159,7 @@ describe('R2 object browser', () => {
 
     await waitFor(() => expect(mutate).toHaveBeenCalledWith('preview_url', { key: 'logo.png' }));
     await waitFor(() => expect(openSpy).toHaveBeenCalled());
+
     // The opened URL is a scoped presigned handle, not a raw credential.
     expect(openSpy.mock.calls[0][0] as string).toContain('X-Amz-Signature');
     openSpy.mockRestore();

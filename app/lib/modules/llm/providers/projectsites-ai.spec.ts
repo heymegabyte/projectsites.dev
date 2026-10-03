@@ -14,9 +14,11 @@ vi.mock('@ai-sdk/openai', () => ({
   createOpenAI: vi.fn(() => vi.fn((model: string) => ({ modelId: model }))),
 }));
 
-// The real BaseProvider drags the full provider registry into the module graph
-// (circular under vitest); the ProjectSites provider only EXTENDS it and calls
-// no base methods inside getModelInstance, so a bare class stands in.
+/*
+ * The real BaseProvider drags the full provider registry into the module graph
+ * (circular under vitest); the ProjectSites provider only EXTENDS it and calls
+ * no base methods inside getModelInstance, so a bare class stands in.
+ */
 vi.mock('~/lib/modules/llm/base-provider', () => ({
   BaseProvider: class {},
 }));

@@ -114,6 +114,7 @@ const SQL_KEYWORDS: ReadonlySet<string> = new Set([
   'WITH',
   'WITHOUT',
   'ROWID',
+
   // types
   'INTEGER',
   'INT',
@@ -125,6 +126,7 @@ const SQL_KEYWORDS: ReadonlySet<string> = new Set([
   'DATE',
   'DATETIME',
   'VARCHAR',
+
   // common aggregate / scalar functions
   'ABS',
   'AVG',
@@ -182,87 +184,116 @@ export function tokenizeSql(sql: string): SqlToken[] {
     // line comment: -- … EOL
     if (c === '-' && next === '-') {
       let j = i + 2;
-      while (j < n && sql[j] !== '\n') j++;
+
+      while (j < n && sql[j] !== '\n') {
+        j++;
+      }
       push(sql.slice(i, j), 'comment');
       i = j;
       continue;
     }
+
     // block comment: /* … */
     if (c === '/' && next === '*') {
       let j = i + 2;
-      while (j < n && !(sql[j] === '*' && sql[j + 1] === '/')) j++;
+
+      while (j < n && !(sql[j] === '*' && sql[j + 1] === '/')) {
+        j++;
+      }
       j = j < n ? j + 2 : n; // include the closing */ when present
       push(sql.slice(i, j), 'comment');
       i = j;
       continue;
     }
+
     // single-quoted string literal (SQLite escapes a quote by doubling it: '')
     if (c === "'") {
       let j = i + 1;
+
       while (j < n) {
         if (sql[j] === "'" && sql[j + 1] === "'") {
           j += 2;
           continue;
         }
+
         if (sql[j] === "'") {
           j++;
           break;
         }
+
         j++;
       }
       push(sql.slice(i, j), 'string');
       i = j;
       continue;
     }
+
     // double-quoted quoted identifier (highlight distinctly from bare identifiers)
     if (c === '"') {
       let j = i + 1;
+
       while (j < n) {
         if (sql[j] === '"' && sql[j + 1] === '"') {
           j += 2;
           continue;
         }
+
         if (sql[j] === '"') {
           j++;
           break;
         }
+
         j++;
       }
       push(sql.slice(i, j), 'string');
       i = j;
       continue;
     }
+
     // number (integer or decimal; leading digit only — `.5` stays punct+number, close enough)
     if (isDigit(c)) {
       let j = i + 1;
-      while (j < n && (isDigit(sql[j]) || sql[j] === '.')) j++;
+
+      while (j < n && (isDigit(sql[j]) || sql[j] === '.')) {
+        j++;
+      }
       push(sql.slice(i, j), 'number');
       i = j;
       continue;
     }
+
     // word → keyword or identifier
     if (isWordStart(c)) {
       let j = i + 1;
-      while (j < n && isWordChar(sql[j])) j++;
+
+      while (j < n && isWordChar(sql[j])) {
+        j++;
+      }
+
       const word = sql.slice(i, j);
+
       if (SQL_KEYWORDS.has(word.toUpperCase())) {
         push(word, 'keyword');
       } else {
         plain += word; // identifier → text
       }
+
       i = j;
       continue;
     }
+
     // punctuation (operators, parens, commas, semicolons, ?N placeholders' ?)
     if (/[()[\],;.*=<>!+\-/%|&?:]/.test(c)) {
       push(c, 'punct');
       i++;
       continue;
     }
+
     // whitespace / anything else → accumulate as text
     plain += c;
     i++;
   }
   flush();
+
   return tokens;
 }

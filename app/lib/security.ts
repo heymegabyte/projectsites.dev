@@ -122,6 +122,7 @@ export function createSecurityHeaders() {
       "frame-src 'self' blob: https://*.webcontainer-api.io https://*.local-credentialless.webcontainer-api.io https://stackblitz.com https://*.stackblitz.com",
       "child-src 'self' blob: https://*.webcontainer-api.io https://*.local-credentialless.webcontainer-api.io",
       "worker-src 'self' blob:",
+
       // localhost parents: the LOCAL admin/long-trail stack embeds the PROD editor
       "frame-ancestors 'self' https://projectsites.dev https://*.projectsites.dev https://bolt-diy-8jf.pages.dev https://bolt.megabyte.space http://localhost:4200 http://localhost:4300",
       "object-src 'none'",

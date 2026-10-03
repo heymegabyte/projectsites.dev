@@ -32,7 +32,11 @@ import type { MutateOutcome, ResourceMutateFn } from './ResourceDetailPanel';
 /** A human title for a `resource_kind` (mirrors ResourceDetailPanel's `titleForKind`, kept local + tiny). */
 function titleForKind(kind: string): string {
   const raw = (kind || 'Resource').replace(/[_-]+/g, ' ').trim();
-  if (!raw) return 'Resource';
+
+  if (!raw) {
+    return 'Resource';
+  }
+
   return raw
     .split(/\s+/)
     .map((w) => (w.length <= 3 ? w.toUpperCase() : w.charAt(0).toUpperCase() + w.slice(1)))
@@ -45,8 +49,10 @@ interface LifecycleActionSpec {
   readonly label: string;
   readonly icon: string;
   readonly hint: string;
+
   /** True → opens a confirm dialog before running (destructive/billable). */
   readonly confirmFirst: boolean;
+
   /** True → the confirm dialog + button render in the destructive (red) style. */
   readonly destructive: boolean;
 }
@@ -82,28 +88,36 @@ const LIFECYCLE_SPECS: readonly LifecycleActionSpec[] = [
 /** Human-readable summary of a successful lifecycle result (honest — reads the note/what-changed). */
 function summarizeSuccess(action: string, result: Record<string, unknown>): string {
   const note = typeof result.note === 'string' ? result.note : undefined;
+
   if (action === 'promote') {
     return note ?? 'Production resource ensured.';
   }
+
   if (action === 'teardown') {
     const deleted = result.deletedCfResource === true;
     return deleted ? 'Resource deleted.' : 'Resource removed from your site.';
   }
+
   if (action === 'clone') {
     return note ?? 'Cloned.';
   }
+
   return 'Done.';
 }
 
 export interface LifecycleActionsProps {
   /** The resource kind (`d1` | `kv` | `r2`). */
   kind: string;
+
   /** The kind's declared mutations (mirrors the adapter's `supports.mutations`) — filters which actions show. */
   mutations: readonly string[];
+
   /** The uniform mutate function the panel owns (rides `PS_RES_MUTATE_REQUEST`; never names a CF id). */
   mutate: ResourceMutateFn;
+
   /** Called after a successful lifecycle mutation so the detail refetches. */
   onMutated: () => void;
+
   /** The environment-assignment grid, rendered at the bottom of the strip. */
   children?: React.ReactNode;
 }
@@ -112,13 +126,7 @@ export interface LifecycleActionsProps {
  * The lifecycle action strip. Renders promote/teardown/clone buttons for the kind's declared lifecycle
  * mutations, each confirm-gated where destructive/billable, plus the env-assignment grid (`children`).
  */
-export const LifecycleActions = memo(function LifecycleActions({
-  kind,
-  mutations,
-  mutate,
-  onMutated,
-  children,
-}: LifecycleActionsProps) {
+export const LifecycleActions = memo(({ kind, mutations, mutate, onMutated, children }: LifecycleActionsProps) => {
   const [busy, setBusy] = useState<string | null>(null);
   const [outcome, setOutcome] = useState<MutateOutcome | null>(null);
   const [confirming, setConfirming] = useState<LifecycleActionSpec | null>(null);
@@ -130,10 +138,14 @@ export const LifecycleActions = memo(function LifecycleActions({
     async (action: string, confirm?: boolean) => {
       setBusy(action);
       setOutcome(null);
+
       const result = await mutate(action, undefined, confirm);
       setBusy(null);
       setOutcome(result);
-      if (result.kind === 'success') onMutated();
+
+      if (result.kind === 'success') {
+        onMutated();
+      }
     },
     [mutate, onMutated],
   );
@@ -145,12 +157,15 @@ export const LifecycleActions = memo(function LifecycleActions({
         setConfirming(spec);
         return;
       }
+
       void run(spec.action);
     },
     [run],
   );
 
-  if (specs.length === 0) return null;
+  if (specs.length === 0) {
+    return null;
+  }
 
   return (
     <div
@@ -234,13 +249,7 @@ export const LifecycleActions = memo(function LifecycleActions({
 });
 
 /** Inline honest outcome card for a lifecycle mutation (success / confirmation / not_available / error). */
-const LifecycleOutcomeCard = memo(function LifecycleOutcomeCard({
-  outcome,
-  onDismiss,
-}: {
-  outcome: MutateOutcome;
-  onDismiss: () => void;
-}) {
+const LifecycleOutcomeCard = memo(({ outcome, onDismiss }: { outcome: MutateOutcome; onDismiss: () => void }) => {
   const tone =
     outcome.kind === 'success'
       ? {

@@ -127,9 +127,11 @@ export const Workbench = memo(
       const out: Record<string, FileHistory> = {};
 
       for (const [filePath, originalContent] of Object.entries(aiOriginals)) {
-        // Honor the FileHistory contract — `versions`/`changes` are REQUIRED. An
-        // earlier `{ originalContent } as FileHistory` cast omitted `versions`, so
-        // consumers reading `versions[versions.length - 1]` crashed (fire-73).
+        /*
+         * Honor the FileHistory contract — `versions`/`changes` are REQUIRED. An
+         * earlier `{ originalContent } as FileHistory` cast omitted `versions`, so
+         * consumers reading `versions[versions.length - 1]` crashed (fire-73).
+         */
         out[filePath] = { originalContent, versions: [], changes: [], lastModified: Date.now() };
       }
 

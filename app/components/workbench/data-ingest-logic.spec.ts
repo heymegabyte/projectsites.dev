@@ -74,8 +74,10 @@ describe('slugifyColumnName', () => {
 
 describe('dedupeColumnNames', () => {
   it('appends _2, _3 to case-insensitive collisions, preserving order + input casing', () => {
-    // Collisions are detected case-insensitively; the suffix is added to the string as received.
-    // (Real callers pass slugified lower-case names, so casing is uniform in practice.)
+    /*
+     * Collisions are detected case-insensitively; the suffix is added to the string as received.
+     * (Real callers pass slugified lower-case names, so casing is uniform in practice.)
+     */
     expect(dedupeColumnNames(['name', 'name', 'Name', 'email'])).toEqual(['name', 'name_2', 'Name_3', 'email']);
   });
 
@@ -165,6 +167,7 @@ describe('parseJsonRows', () => {
 
   it('throws typed IngestError on invalid JSON', () => {
     expect(() => parseJsonRows('{not json')).toThrow(IngestError);
+
     try {
       parseJsonRows('nope');
     } catch (e) {
@@ -285,6 +288,7 @@ describe('buildInsertPlan', () => {
   it('binds a HOSTILE value as an inert param — never injects SQL', () => {
     const evil = "'); DROP TABLE users; --";
     const plan = buildInsertPlan('t', map([{ col: 'note', type: 'TEXT' }]), [[evil]]);
+
     // The evil string is a bound param, and appears NOWHERE in the SQL text.
     expect(plan.batches[0].params).toEqual([evil]);
     expect(plan.batches[0].sql).toBe('INSERT INTO "t" ("note") VALUES (?)');
@@ -329,6 +333,7 @@ describe('buildInsertPlan', () => {
     expect(plan.batches).toHaveLength(3);
     expect(plan.batches[0].rowCount).toBe(33);
     expect(plan.batches[2].rowCount).toBe(4);
+
     for (const b of plan.batches) {
       expect(b.params.length).toBeLessThanOrEqual(MAX_BOUND_PARAMS);
     }
@@ -384,6 +389,7 @@ describe('buildCreateTableForImport', () => {
         { col: 'name', type: 'TEXT' },
       ]),
     );
+
     // Only ONE id column — the source's, not a duplicate synthetic PK.
     expect(sql.match(/"id"/g)?.length).toBe(1);
   });
@@ -510,6 +516,7 @@ describe('buildFormPlan', () => {
     expect(() => buildFormPlan('F', 'bad name', [{ label: 'a', column: 'a', kind: 'text', required: false }])).toThrow(
       IngestError,
     );
+
     try {
       buildFormPlan('F', 'f', []);
     } catch (e) {

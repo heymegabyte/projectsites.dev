@@ -97,6 +97,7 @@ describe('pruneExcessSnapshots', () => {
 
   it('warns (naming the id) but does not throw when a prune-delete fails', async () => {
     warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+
     const deleteFn = vi.fn(async (_id: string) => {
       throw new Error('IndexedDB delete failed');
     });
@@ -113,6 +114,7 @@ describe('pruneExcessSnapshots', () => {
 
   it('deletes every excess snapshot and stays silent when deletes succeed', async () => {
     warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+
     const deleteFn = vi.fn(async (_id: string) => {});
 
     await pruneExcessSnapshots([meta('x'), meta('y'), meta('z')], deleteFn);
@@ -125,6 +127,7 @@ describe('pruneExcessSnapshots', () => {
 
   it('is a no-op on an empty excess list', async () => {
     warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+
     const deleteFn = vi.fn(async (_id: string) => {});
 
     await pruneExcessSnapshots([], deleteFn);

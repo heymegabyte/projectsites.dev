@@ -149,6 +149,7 @@ import {
   MAX_CHART_ROWS,
   buildUpdateByPk,
   RowMutationError,
+
   // ── Rev 8 — ERD / schema-relationships diagram ──
   inferErdEdges,
   layoutErdNodes,
@@ -1318,6 +1319,7 @@ describe('bucketRowsByDate (group the loaded page rows by their UTC calendar day
     expect([...m.keys()].sort()).toEqual(['2024-01-01', '2024-01-02']);
     expect(m.get('2024-01-01')).toHaveLength(2);
     expect(m.get('2024-01-02')).toHaveLength(1);
+
     // day-keys match the calendar grid + monthMatrix format
     expect([...m.keys()].every((k) => /^\d{4}-\d{2}-\d{2}$/.test(k))).toBe(true);
   });
@@ -1474,6 +1476,7 @@ describe('defaultKanbanGroupField (auto-pick the kanban group-by column)', () =>
       { id: 2, title: 'B', status: 'done' },
       { id: 3, title: 'C', status: 'new' },
     ];
+
     // `title` is high-cardinality (all distinct) → skipped; `status` repeats → the group column.
     expect(defaultKanbanGroupField(['id', 'title', 'status'], rows)).toBe('status');
   });
@@ -1499,6 +1502,7 @@ describe('defaultKanbanGroupField (auto-pick the kanban group-by column)', () =>
       { id: 1, name: 'x' },
       { id: 2, name: 'y' },
     ];
+
     // every value distinct → no obvious enum; still returns a usable non-id column, never null here.
     expect(defaultKanbanGroupField(['id', 'name'], rows)).toBe('name');
   });
@@ -3340,6 +3344,7 @@ describe('layoutErdNodes (deterministic grid layout — no physics engine)', () 
 
   it('places nodes in a deterministic left-to-right, top-to-bottom grid', () => {
     const nodes = layoutErdNodes(three, { columns: 2 });
+
     // 2-wide grid: a=(0,0) b=(1,0) c=(0,1)
     expect([nodes[0].col, nodes[0].row]).toEqual([0, 0]);
     expect([nodes[1].col, nodes[1].row]).toEqual([1, 0]);
@@ -3348,6 +3353,7 @@ describe('layoutErdNodes (deterministic grid layout — no physics engine)', () 
 
   it('assigns non-overlapping monotonic x/y from the grid position', () => {
     const nodes = layoutErdNodes(three, { columns: 2 });
+
     // second column is to the right of the first; second row is below the first.
     expect(nodes[1].x).toBeGreaterThan(nodes[0].x);
     expect(nodes[2].y).toBeGreaterThan(nodes[0].y);
@@ -3418,10 +3424,13 @@ describe('computeTableInsights (per-column profile from ALREADY-LOADED page rows
     ];
     const out = computeTableInsights(rows, cols);
     const byName = Object.fromEntries(out.columns.map((c) => [c.name, c]));
+
     // email missing in 2 of 4 rows → 50
     expect(byName.email.nullPercent).toBe(50);
+
     // status missing in 1 of 4 rows → 25
     expect(byName.status.nullPercent).toBe(25);
+
     // id never missing → 0
     expect(byName.id.nullPercent).toBe(0);
   });
@@ -3451,6 +3460,7 @@ describe('computeTableInsights (per-column profile from ALREADY-LOADED page rows
     const out = computeTableInsights([], cols);
     expect(out.rowCount).toBe(0);
     expect(out.columns).toHaveLength(3);
+
     for (const c of out.columns) {
       expect(c.nullPercent).toBe(0);
       expect(c.distinctCount).toBe(0);

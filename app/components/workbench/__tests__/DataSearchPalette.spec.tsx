@@ -99,6 +99,7 @@ describe('DataSearchPalette (⌘K global data search)', () => {
     pressCmdK();
 
     fireEvent.change(screen.getByTestId('data-search-input'), { target: { value: 'acme' } });
+
     // Advance past the debounce AND flush the awaited search promise + the React re-render.
     await vi.advanceTimersByTimeAsync(320);
     await vi.advanceTimersByTimeAsync(0);
@@ -109,8 +110,10 @@ describe('DataSearchPalette (⌘K global data search)', () => {
     expect(screen.getByText('customers')).toBeTruthy();
     expect(screen.getByText('orders')).toBeTruthy();
 
-    // The snippet renders with the matched term stylized in a <mark>; surrounding text stays around it.
-    // (getByText can't span element boundaries, so assert on the panel's full text content.)
+    /*
+     * The snippet renders with the matched term stylized in a <mark>; surrounding text stays around it.
+     * (getByText can't span element boundaries, so assert on the panel's full text content.)
+     */
     expect(resultsPanel.textContent).toMatch(/urgent\s*ACME\s*order/i);
     expect(resultsPanel.querySelector('mark')?.textContent?.toLowerCase()).toBe('acme');
   });

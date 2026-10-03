@@ -37,6 +37,7 @@ describe('setLocalStorage', () => {
 
     // The breach must be observable AND name the key that failed to persist.
     expect(warnSpy).toHaveBeenCalledTimes(1);
+
     const [msg] = warnSpy.mock.calls[0];
     expect(String(msg)).toContain('settings');
   });

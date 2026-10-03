@@ -76,12 +76,16 @@ type ResourceEnvironment = 'preview' | 'production';
 export interface ResourceDetailTarget {
   /** The resource kind (`d1` | `kv` | `r2` | `vectorize` | `workflow` | `durable_object` | …). */
   kind: string;
+
   /** The environment the resource belongs to. */
   environment: ResourceEnvironment;
+
   /** Human concept label for the header (e.g. `main_db`), best-effort. */
   concept?: string;
+
   /** The Worker binding it's exposed under, for the header subtitle. */
   bindingName?: string;
+
   /**
    * The overview's availability verdict for this card, when known: `available` = server-known but NOT
    * yet connected (→ lead with Provision); `connected` = a live resource (→ read + per-action writes).
@@ -180,6 +184,7 @@ const DESTRUCTIVE_ACTIONS: ReadonlySet<string> = new Set([
 const PROVISION_ACTION = 'provision';
 
 let correlationCounter = 0;
+
 function nextCorrelationId(): string {
   if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
     return crypto.randomUUID();
@@ -197,13 +202,33 @@ function mutationsForKind(kind: string): readonly string[] {
   }
 
   // Tolerate synonym-ish kinds (e.g. `database` → d1) so a slightly-off label still offers the right verbs.
-  if (k.includes('d1') || k.includes('sql')) return MUTATIONS_FOR_KIND.d1;
-  if (k.includes('kv') || k.includes('key')) return MUTATIONS_FOR_KIND.kv;
-  if (k.includes('r2') || k.includes('bucket') || k.includes('object')) return MUTATIONS_FOR_KIND.r2;
-  if (k.includes('vector')) return MUTATIONS_FOR_KIND.vectorize;
-  if (k.includes('workflow')) return MUTATIONS_FOR_KIND.workflow;
-  if (k.includes('durable') || k.includes('do')) return MUTATIONS_FOR_KIND.durable_object;
-  if (k.includes('queue')) return MUTATIONS_FOR_KIND.queue;
+  if (k.includes('d1') || k.includes('sql')) {
+    return MUTATIONS_FOR_KIND.d1;
+  }
+
+  if (k.includes('kv') || k.includes('key')) {
+    return MUTATIONS_FOR_KIND.kv;
+  }
+
+  if (k.includes('r2') || k.includes('bucket') || k.includes('object')) {
+    return MUTATIONS_FOR_KIND.r2;
+  }
+
+  if (k.includes('vector')) {
+    return MUTATIONS_FOR_KIND.vectorize;
+  }
+
+  if (k.includes('workflow')) {
+    return MUTATIONS_FOR_KIND.workflow;
+  }
+
+  if (k.includes('durable') || k.includes('do')) {
+    return MUTATIONS_FOR_KIND.durable_object;
+  }
+
+  if (k.includes('queue')) {
+    return MUTATIONS_FOR_KIND.queue;
+  }
 
   return [];
 }
@@ -269,18 +294,41 @@ function titleForKind(kind: string): string {
 function explainerForKind(kind: string): string {
   const k = (kind || '').toLowerCase();
 
-  if (k.includes('d1') || k.includes('database') || k.includes('sql'))
+  if (k.includes('d1') || k.includes('database') || k.includes('sql')) {
     return 'D1 is your site’s own SQL database for structured data.';
-  if (k.includes('kv') || k.includes('key')) return 'KV is a fast key-value store your site can read at the edge.';
-  if (k.includes('r2') || k.includes('bucket') || k.includes('object'))
+  }
+
+  if (k.includes('kv') || k.includes('key')) {
+    return 'KV is a fast key-value store your site can read at the edge.';
+  }
+
+  if (k.includes('r2') || k.includes('bucket') || k.includes('object')) {
     return 'R2 is object storage for your site’s files and uploads.';
-  if (k.includes('vector')) return 'Vectorize stores embeddings that power AI search for your site.';
-  if (k.includes('workflow')) return 'Workflows run multi-step background jobs for your site.';
-  if (k.includes('durable') || k === 'do') return 'Durable Objects hold live, stateful coordination for your site.';
-  if (k.includes('queue')) return 'Queues buffer background messages between parts of your site.';
-  if (k.includes('connection') || k.includes('mcp')) return 'Connections link your site to outside services.';
-  if (k.includes('analytics') || k.includes('observability'))
+  }
+
+  if (k.includes('vector')) {
+    return 'Vectorize stores embeddings that power AI search for your site.';
+  }
+
+  if (k.includes('workflow')) {
+    return 'Workflows run multi-step background jobs for your site.';
+  }
+
+  if (k.includes('durable') || k === 'do') {
+    return 'Durable Objects hold live, stateful coordination for your site.';
+  }
+
+  if (k.includes('queue')) {
+    return 'Queues buffer background messages between parts of your site.';
+  }
+
+  if (k.includes('connection') || k.includes('mcp')) {
+    return 'Connections link your site to outside services.';
+  }
+
+  if (k.includes('analytics') || k.includes('observability')) {
     return 'Analytics Engine records high-volume metrics about your site.';
+  }
 
   return 'This resource lights up here as soon as it’s switched on.';
 }
@@ -289,18 +337,45 @@ function explainerForKind(kind: string): string {
 function iconForKind(kind: string): string {
   const k = (kind || '').toLowerCase();
 
-  if (k.includes('d1') || k.includes('database') || k.includes('sql')) return 'i-ph:database-duotone';
-  if (k.includes('kv') || k.includes('key')) return 'i-ph:key-duotone';
-  if (k.includes('r2') || k.includes('bucket') || k.includes('storage') || k.includes('object'))
+  if (k.includes('d1') || k.includes('database') || k.includes('sql')) {
+    return 'i-ph:database-duotone';
+  }
+
+  if (k.includes('kv') || k.includes('key')) {
+    return 'i-ph:key-duotone';
+  }
+
+  if (k.includes('r2') || k.includes('bucket') || k.includes('storage') || k.includes('object')) {
     return 'i-ph:cloud-duotone';
-  if (k.includes('queue')) return 'i-ph:queue-duotone';
-  if (k.includes('function') || k.includes('worker') || k.includes('wfp') || k.includes('dispatch'))
+  }
+
+  if (k.includes('queue')) {
+    return 'i-ph:queue-duotone';
+  }
+
+  if (k.includes('function') || k.includes('worker') || k.includes('wfp') || k.includes('dispatch')) {
     return 'i-ph:function-duotone';
-  if (k.includes('do') || k.includes('durable')) return 'i-ph:cube-duotone';
-  if (k.includes('vectorize') || k.includes('vector') || k.includes('index')) return 'i-ph:graph-duotone';
-  if (k.includes('workflow')) return 'i-ph:flow-arrow-duotone';
-  if (k.includes('connection') || k.includes('mcp')) return 'i-ph:plugs-connected-duotone';
-  if (k.includes('analytics') || k.includes('observability')) return 'i-ph:chart-line-duotone';
+  }
+
+  if (k.includes('do') || k.includes('durable')) {
+    return 'i-ph:cube-duotone';
+  }
+
+  if (k.includes('vectorize') || k.includes('vector') || k.includes('index')) {
+    return 'i-ph:graph-duotone';
+  }
+
+  if (k.includes('workflow')) {
+    return 'i-ph:flow-arrow-duotone';
+  }
+
+  if (k.includes('connection') || k.includes('mcp')) {
+    return 'i-ph:plugs-connected-duotone';
+  }
+
+  if (k.includes('analytics') || k.includes('observability')) {
+    return 'i-ph:chart-line-duotone';
+  }
 
   return 'i-ph:cube-duotone';
 }
@@ -465,6 +540,7 @@ function safeJson(value: unknown): string {
 export function buildCsv(columns: string[], rows: Record<string, unknown>[]): string {
   const header = columns.map((c) => csvField(c)).join(',');
   const body = rows.map((row) => columns.map((c) => csvField(row[c])).join(',')).join('\n');
+
   return `${header}\n${body}\n`;
 }
 
@@ -546,6 +622,7 @@ function isNotRegistered(result: ResourceDetailResult | null): boolean {
  */
 export const ResourceDetailPanel = memo(({ target, onBack }: { target: ResourceDetailTarget; onBack: () => void }) => {
   const [state, setState] = useState<DetailState>({ status: 'loading' });
+
   /** The child currently being inspected via `get` (null = the resource-level `list` view). */
   const [child, setChild] = useState<{ label: string; params: DetailParams } | null>(null);
 
@@ -565,8 +642,10 @@ export const ResourceDetailPanel = memo(({ target, onBack }: { target: ResourceD
     });
   }, []);
 
-  // ONE parent-message listener; resolve by correlationId via the live ref (repo []-deps stale-ref rule).
-  // Handles BOTH the detail read reply AND the mutate reply (each carries its own correlationId).
+  /*
+   * ONE parent-message listener; resolve by correlationId via the live ref (repo []-deps stale-ref rule).
+   * Handles BOTH the detail read reply AND the mutate reply (each carries its own correlationId).
+   */
   useEffect(() => {
     const unsubscribe = onParentMessage((msg) => {
       if (msg.type !== 'PS_RES_DETAIL_RESPONSE' && msg.type !== 'PS_RES_MUTATE_RESPONSE') {
@@ -679,9 +758,11 @@ export const ResourceDetailPanel = memo(({ target, onBack }: { target: ResourceD
         })) as ResMutateResponseMessage;
 
         if (!reply.ok) {
-          // Dark flag discovered mid-mutate (message-not-code, same detection as the read path):
-          // collapse the WHOLE panel to the honest "not enabled yet" state — the write strip
-          // unmounts, so no doomed controls (or scary error outcome) linger against a dark surface.
+          /*
+           * Dark flag discovered mid-mutate (message-not-code, same detection as the read path):
+           * collapse the WHOLE panel to the honest "not enabled yet" state — the write strip
+           * unmounts, so no doomed controls (or scary error outcome) linger against a dark surface.
+           */
           if (reply.enabled === false || (reply.error && reply.error.includes(DISABLED_404))) {
             setState({ status: 'disabled' });
             return { kind: 'not_available', action, message: 'This isn’t enabled yet.' };
@@ -750,8 +831,10 @@ export const ResourceDetailPanel = memo(({ target, onBack }: { target: ResourceD
    */
   const loadRef = useRef(load);
   loadRef.current = load;
+
   const childRef = useRef(child);
   childRef.current = child;
+
   const targetKindRef = useRef(target.kind);
   targetKindRef.current = target.kind;
   useEffect(() => {
@@ -832,14 +915,20 @@ export const ResourceDetailPanel = memo(({ target, onBack }: { target: ResourceD
   const currentResult = state.status === 'ready' ? state.result : null;
   const notRegistered = target.availability === 'available' || isNotRegistered(currentResult);
   const mutations = useMemo(() => mutationsForKind(target.kind), [target.kind]);
-  // The write strip stays mounted once the panel has EVER settled (ready/error) — so a post-mutate refetch
-  // (which flips the body to a loading spinner) never unmounts the controls or drops the success/outcome
-  // card mid-refresh. It's hidden only during the very FIRST load (nothing settled yet) or when the surface
-  // is flag-dark (`disabled`). Gated on the kind actually offering a mutation.
+
+  /*
+   * The write strip stays mounted once the panel has EVER settled (ready/error) — so a post-mutate refetch
+   * (which flips the body to a loading spinner) never unmounts the controls or drops the success/outcome
+   * card mid-refresh. It's hidden only during the very FIRST load (nothing settled yet) or when the surface
+   * is flag-dark (`disabled`). Gated on the kind actually offering a mutation.
+   */
   const [everSettled, setEverSettled] = useState(false);
   useEffect(() => {
-    if (state.status === 'ready' || state.status === 'error') setEverSettled(true);
+    if (state.status === 'ready' || state.status === 'error') {
+      setEverSettled(true);
+    }
   }, [state.status]);
+
   const showWrite =
     mutations.length > 0 &&
     state.status !== 'disabled' &&
@@ -996,6 +1085,7 @@ const WriteControls = memo(
   }) => {
     const [busyAction, setBusyAction] = useState<string | null>(null);
     const [outcome, setOutcome] = useState<MutateOutcome | null>(null);
+
     /** The action currently awaiting a confirm-dialog decision (destructive / provision), with its input. */
     const [confirming, setConfirming] = useState<{
       action: string;
@@ -1070,9 +1160,19 @@ const WriteControls = memo(
 
     // The named actions that get a plain button (everything that ISN'T rendered as a bespoke form control).
     const bespoke = new Set<string>();
-    if (has('put') && (k.includes('kv') || k.includes('r2'))) bespoke.add('put');
-    if (has('delete') && (k.includes('kv') || k.includes('r2') || k.includes('vector'))) bespoke.add('delete');
-    if (has('exec') && k.includes('d1')) bespoke.add('exec');
+
+    if (has('put') && (k.includes('kv') || k.includes('r2'))) {
+      bespoke.add('put');
+    }
+
+    if (has('delete') && (k.includes('kv') || k.includes('r2') || k.includes('vector'))) {
+      bespoke.add('delete');
+    }
+
+    if (has('exec') && k.includes('d1')) {
+      bespoke.add('exec');
+    }
+
     // Lifecycle actions (promote/teardown/clone) render in the dedicated LifecycleActions strip, not here.
     const genericActions = mutations.filter(
       (m) => m !== PROVISION_ACTION && !bespoke.has(m) && !LIFECYCLE_ACTIONS.has(m),
@@ -1238,11 +1338,17 @@ const KvPutForm = memo(
     const doomed = Boolean(disabledReason);
 
     const submit = () => {
-      if (!key.trim()) return;
+      if (!key.trim()) {
+        return;
+      }
 
       const input: Record<string, unknown> = { key: key.trim(), value };
       const ttlNum = Number(ttl);
-      if (ttl.trim() && Number.isFinite(ttlNum) && ttlNum >= 60) input.expirationTtl = Math.trunc(ttlNum);
+
+      if (ttl.trim() && Number.isFinite(ttlNum) && ttlNum >= 60) {
+        input.expirationTtl = Math.trunc(ttlNum);
+      }
+
       onSubmit(input);
     };
 
@@ -1316,7 +1422,9 @@ const R2PutForm = memo(
     const doomed = Boolean(disabledReason);
 
     const submit = () => {
-      if (!key.trim()) return;
+      if (!key.trim()) {
+        return;
+      }
 
       onSubmit({ key: key.trim(), value });
     };
@@ -1494,14 +1602,18 @@ const D1ExecForm = memo(
     const [paramsError, setParamsError] = useState<string | null>(null);
     const doomed = Boolean(disabledReason);
 
-    // Best-effort client hint (the WORKER classifies authoritatively): flag likely-destructive DDL/DML so the
-    // confirm dialog fires up-front. The server re-classifies + gates regardless, so this is only UX.
+    /*
+     * Best-effort client hint (the WORKER classifies authoritatively): flag likely-destructive DDL/DML so the
+     * confirm dialog fires up-front. The server re-classifies + gates regardless, so this is only UX.
+     */
     const likelyDestructive =
       /^\s*(drop|truncate|alter|delete)\b/i.test(sql) && !/\bwhere\b/i.test(sql.replace(/^\s*delete\b/i, 'delete'));
     const likelyMutating = /^\s*(insert|update|delete|replace|create|alter|drop|truncate)\b/i.test(sql);
 
     const submit = () => {
-      if (!sql.trim()) return;
+      if (!sql.trim()) {
+        return;
+      }
 
       setParamsError(null);
 
@@ -1524,9 +1636,15 @@ const D1ExecForm = memo(
       }
 
       const input: Record<string, unknown> = { sql: sql.trim() };
-      if (params) input.params = params;
-      // A mutating statement is confirm-gated (destructive → dialog; other mutating → the server still
-      // requires confirm:true, which we pass). A read-only statement runs with no confirm.
+
+      if (params) {
+        input.params = params;
+      }
+
+      /*
+       * A mutating statement is confirm-gated (destructive → dialog; other mutating → the server still
+       * requires confirm:true, which we pass). A read-only statement runs with no confirm.
+       */
       onSubmit(input, likelyDestructive || likelyMutating);
     };
 
@@ -1599,6 +1717,7 @@ const GenericActionButton = memo(
     onRun: (input?: Record<string, unknown>) => void;
   }) => {
     const destructive = DESTRUCTIVE_ACTIONS.has(action);
+
     // Instance-scoped verbs need an id; ask for it inline so the button isn't a dead control.
     const needsInstance = ['pause', 'resume', 'restart', 'terminate'].includes(action);
     const needsObject = ['status_probe', 'reset'].includes(action);
@@ -1749,11 +1868,14 @@ const ResultView = memo(
     const data = result.data;
     const collection = useMemo(() => findCollection(data), [data]);
     const scalars = useMemo(() => scalarEntries(data, collection?.field ?? null), [data, collection]);
+
     /** The collection row whose full field set is open in the side drawer (null = drawer closed). */
     const [detailRow, setDetailRow] = useState<Record<string, unknown> | null>(null);
 
-    // Close the drawer whenever the underlying data changes (a refetch / child switch) so it never
-    // shows a row that no longer exists in the current result.
+    /*
+     * Close the drawer whenever the underlying data changes (a refetch / child switch) so it never
+     * shows a row that no longer exists in the current result.
+     */
     useEffect(() => {
       setDetailRow(null);
     }, [data]);
@@ -1826,7 +1948,9 @@ const CollectionTable = memo(
 
       for (const row of rows.slice(0, 50)) {
         for (const k of Object.keys(row)) {
-          if (!seen.includes(k)) seen.push(k);
+          if (!seen.includes(k)) {
+            seen.push(k);
+          }
         }
       }
 
@@ -1839,7 +1963,9 @@ const CollectionTable = memo(
 
       for (const row of rows) {
         for (const k of Object.keys(row)) {
-          if (!seen.includes(k)) seen.push(k);
+          if (!seen.includes(k)) {
+            seen.push(k);
+          }
         }
       }
 
@@ -1906,6 +2032,7 @@ const CollectionTable = memo(
                     {columns.map((col) => {
                       const value = row[col];
                       const isNull = value === null || value === undefined;
+
                       return (
                         <td
                           key={col}
@@ -1956,6 +2083,7 @@ CollectionTable.displayName = 'ResourceDetailPanel.CollectionTable';
  */
 const RowDrawer = memo(({ row, onClose }: { row: Record<string, unknown>; onClose: () => void }) => {
   const closeRef = useRef<HTMLButtonElement>(null);
+
   /** The element focused when the drawer opened — restored on close so keyboard focus never gets lost. */
   const restoreRef = useRef<Element | null>(null);
 
@@ -1975,7 +2103,9 @@ const RowDrawer = memo(({ row, onClose }: { row: Record<string, unknown>; onClos
 
     return () => {
       window.removeEventListener('keydown', onKey);
+
       const el = restoreRef.current;
+
       if (el && typeof (el as HTMLElement).focus === 'function') {
         (el as HTMLElement).focus();
       }

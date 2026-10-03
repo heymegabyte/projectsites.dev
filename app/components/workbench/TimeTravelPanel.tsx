@@ -363,12 +363,15 @@ export const TimeTravelPanel = memo(() => {
   const restoreIso = useMemo(() => datetimeLocalToIso(restoreAt), [restoreAt]);
   const restoreAtValid = restoreIso !== null && isWithinWindow(restoreIso);
 
-  // Scrubber bounds + the currently-selected instant (ms) — drives the range slider across the whole
-  // 30-day recovery window at 1-minute resolution (CF D1 Time Travel is minute-precise).
+  /*
+   * Scrubber bounds + the currently-selected instant (ms) — drives the range slider across the whole
+   * 30-day recovery window at 1-minute resolution (CF D1 Time Travel is minute-precise).
+   */
   const nowMs = useMemo(() => Date.now(), []);
   const windowStartMs = useMemo(() => Date.parse(windowStartIso()), []);
   const selectedMs = useMemo(() => {
     const parsed = restoreIso ? Date.parse(restoreIso) : Number.NaN;
+
     if (Number.isNaN(parsed)) {
       return nowMs;
     }
@@ -376,14 +379,19 @@ export const TimeTravelPanel = memo(() => {
     return Math.min(nowMs, Math.max(windowStartMs, parsed));
   }, [restoreIso, nowMs, windowStartMs]);
 
-  // Point-in-time save/restore is possible only when CF Time Travel exposed a live bookmark.
-  // The panel still ALWAYS renders (never a dead end) — this only gates the save/restore controls.
+  /*
+   * Point-in-time save/restore is possible only when CF Time Travel exposed a live bookmark.
+   * The panel still ALWAYS renders (never a dead end) — this only gates the save/restore controls.
+   */
   const canTimeTravel = info.ok !== false && info.available !== false && !!info.bookmark;
 
   return (
     <div
-      // `[color-scheme:dark]` renders the native <input type=datetime-local> calendar picker + its
-      // spin fields and the <input type=range> track dark, instead of the browser's white chrome.
+
+      /*
+       * `[color-scheme:dark]` renders the native <input type=datetime-local> calendar picker + its
+       * spin fields and the <input type=range> track dark, instead of the browser's white chrome.
+       */
       className="h-full flex flex-col bg-bolt-elements-background-depth-1 text-bolt-elements-textPrimary [color-scheme:dark]"
       data-testid="time-travel-panel"
     >
@@ -527,6 +535,7 @@ export const TimeTravelPanel = memo(() => {
                             : mins < 60 * 48
                               ? `${Math.round(mins / 60)} hr ago`
                               : `${Math.round(mins / (60 * 24))} days ago`;
+
                       return label;
                     })()}{' '}
                     · {info.retentionDays ?? TIME_TRAVEL_RETENTION_DAYS}-day window
@@ -563,8 +572,11 @@ export const TimeTravelPanel = memo(() => {
                   step={60}
                   onChange={(e) => setRestoreAt(e.target.value)}
                   data-testid="tt-restore-datetime"
-                  // `[&::-webkit-calendar-picker-indicator]:invert` makes the native picker glyph a
-                  // bright cyan-ish icon (it defaults to a dark, near-invisible glyph on the dark field).
+
+                  /*
+                   * `[&::-webkit-calendar-picker-indicator]:invert` makes the native picker glyph a
+                   * bright cyan-ish icon (it defaults to a dark, near-invisible glyph on the dark field).
+                   */
                   className="flex-1 rounded border border-bolt-elements-borderColor bg-bolt-elements-background-depth-2 px-2 py-1.5 text-[12px] text-bolt-elements-textPrimary transition-colors hover:border-bolt-elements-item-contentAccent/50 focus:outline-none focus-visible:ring-2 focus-visible:ring-bolt-elements-item-contentAccent focus-visible:border-bolt-elements-item-contentAccent/60 [&::-webkit-calendar-picker-indicator]:cursor-pointer [&::-webkit-calendar-picker-indicator]:opacity-70 [&::-webkit-calendar-picker-indicator]:invert hover:[&::-webkit-calendar-picker-indicator]:opacity-100"
                 />
                 <button

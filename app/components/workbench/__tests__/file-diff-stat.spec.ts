@@ -4,8 +4,10 @@ import { computeFileDiffStat } from '../file-diff-stat';
 
 describe('computeFileDiffStat', () => {
   it('does NOT throw on a versions-less entry (the fire-73 Workbench crash)', () => {
-    // The inline-diff baseline publishes `{ originalContent } as FileHistory` with
-    // NO `versions`. Reading versions[length-1] directly threw 101× in prod.
+    /*
+     * The inline-diff baseline publishes `{ originalContent } as FileHistory` with
+     * NO `versions`. Reading versions[length-1] directly threw 101× in prod.
+     */
     const versionsLess = { originalContent: 'line one\nline two\n' } as FileHistory;
     expect(() => computeFileDiffStat(versionsLess)).not.toThrow();
     expect(computeFileDiffStat(versionsLess)).toEqual({ additions: 0, deletions: 0 });

@@ -84,33 +84,68 @@ const BTN_DESTRUCTIVE = classNames(
 
 /** Human-readable byte size. */
 function formatBytes(bytes: number | undefined | null): string {
-  if (bytes === undefined || bytes === null || Number.isNaN(bytes)) return '—';
-  if (bytes < 1024) return `${bytes} B`;
+  if (bytes === undefined || bytes === null || Number.isNaN(bytes)) {
+    return '—';
+  }
+
+  if (bytes < 1024) {
+    return `${bytes} B`;
+  }
+
   const units = ['KB', 'MB', 'GB', 'TB'];
   let value = bytes / 1024;
   let unit = 0;
+
   while (value >= 1024 && unit < units.length - 1) {
     value /= 1024;
     unit++;
   }
+
   return `${value.toFixed(value >= 100 ? 0 : 1)} ${units[unit]}`;
 }
 
 /** Compact relative time from an ISO string. */
 function formatRelativeTime(iso: string | undefined | null): string | undefined {
-  if (!iso) return undefined;
+  if (!iso) {
+    return undefined;
+  }
+
   const then = Date.parse(iso);
-  if (Number.isNaN(then)) return undefined;
+
+  if (Number.isNaN(then)) {
+    return undefined;
+  }
+
   const secs = Math.max(0, Math.round((Date.now() - then) / 1000));
-  if (secs < 45) return 'just now';
+
+  if (secs < 45) {
+    return 'just now';
+  }
+
   const mins = Math.round(secs / 60);
-  if (mins < 60) return `${mins}m ago`;
+
+  if (mins < 60) {
+    return `${mins}m ago`;
+  }
+
   const hours = Math.round(mins / 60);
-  if (hours < 24) return `${hours}h ago`;
+
+  if (hours < 24) {
+    return `${hours}h ago`;
+  }
+
   const days = Math.round(hours / 24);
-  if (days < 30) return `${days}d ago`;
+
+  if (days < 30) {
+    return `${days}d ago`;
+  }
+
   const months = Math.round(days / 30);
-  if (months < 12) return `${months}mo ago`;
+
+  if (months < 12) {
+    return `${months}mo ago`;
+  }
+
   return `${Math.round(months / 12)}y ago`;
 }
 
@@ -118,23 +153,58 @@ function formatRelativeTime(iso: string | undefined | null): string | undefined 
 function estMonthlyCost(totalBytes: number): string {
   const gb = totalBytes / 1024 ** 3;
   const cost = gb * 0.015;
-  if (cost < 0.01) return '<$0.01';
+
+  if (cost < 0.01) {
+    return '<$0.01';
+  }
+
   return `$${cost.toFixed(2)}`;
 }
 
 /** A phosphor glyph for an object by extension. */
 function iconForObject(key: string): string {
   const name = key.toLowerCase();
-  if (/\.(png|jpe?g|gif|webp|avif|svg|ico|bmp)$/.test(name)) return 'i-ph:image-duotone';
-  if (/\.(mp4|mov|webm|mkv|avi)$/.test(name)) return 'i-ph:file-video-duotone';
-  if (/\.(mp3|wav|ogg|m4a|flac)$/.test(name)) return 'i-ph:file-audio-duotone';
-  if (/\.pdf$/.test(name)) return 'i-ph:file-pdf-duotone';
-  if (/\.(json|xml|ya?ml|toml)$/.test(name)) return 'i-ph:brackets-curly-duotone';
-  if (/\.(js|mjs|cjs|jsx|ts|tsx)$/.test(name)) return 'i-ph:file-js-duotone';
-  if (/\.(css|scss|less)$/.test(name)) return 'i-ph:file-css-duotone';
-  if (/\.(html?|htm)$/.test(name)) return 'i-ph:file-html-duotone';
-  if (/\.(zip|tar|gz|rar|7z)$/.test(name)) return 'i-ph:file-archive-duotone';
-  if (/\.(txt|md|csv|log)$/.test(name)) return 'i-ph:file-text-duotone';
+
+  if (/\.(png|jpe?g|gif|webp|avif|svg|ico|bmp)$/.test(name)) {
+    return 'i-ph:image-duotone';
+  }
+
+  if (/\.(mp4|mov|webm|mkv|avi)$/.test(name)) {
+    return 'i-ph:file-video-duotone';
+  }
+
+  if (/\.(mp3|wav|ogg|m4a|flac)$/.test(name)) {
+    return 'i-ph:file-audio-duotone';
+  }
+
+  if (/\.pdf$/.test(name)) {
+    return 'i-ph:file-pdf-duotone';
+  }
+
+  if (/\.(json|xml|ya?ml|toml)$/.test(name)) {
+    return 'i-ph:brackets-curly-duotone';
+  }
+
+  if (/\.(js|mjs|cjs|jsx|ts|tsx)$/.test(name)) {
+    return 'i-ph:file-js-duotone';
+  }
+
+  if (/\.(css|scss|less)$/.test(name)) {
+    return 'i-ph:file-css-duotone';
+  }
+
+  if (/\.(html?|htm)$/.test(name)) {
+    return 'i-ph:file-html-duotone';
+  }
+
+  if (/\.(zip|tar|gz|rar|7z)$/.test(name)) {
+    return 'i-ph:file-archive-duotone';
+  }
+
+  if (/\.(txt|md|csv|log)$/.test(name)) {
+    return 'i-ph:file-text-duotone';
+  }
+
   return 'i-ph:file-duotone';
 }
 
@@ -188,8 +258,10 @@ export const BucketsPanel = memo(() => {
 
   // Create modal.
   const [showCreate, setShowCreate] = useState(false);
+
   // Delete-bucket type-to-confirm.
   const [deleteTarget, setDeleteTarget] = useState<BucketEntry | null>(null);
+
   // Address modal (copy-address bundle for a bucket).
   const [addressTarget, setAddressTarget] = useState<{ bucket: BucketEntry; address: BucketAddress } | null>(null);
 
@@ -198,22 +270,29 @@ export const BucketsPanel = memo(() => {
   /** Load (or reload) the site's buckets. */
   const loadBuckets = useCallback(async () => {
     setBuckets({ status: 'loading' });
+
     if (!isEmbedded) {
       setBuckets({ status: 'error', message: 'Open this from the ProjectSites admin to manage your buckets.' });
       return;
     }
+
     try {
       const reply = await requestR2({ op: 'listBuckets' });
+
       if (!reply.ok) {
         if (reply.enabled === false || (reply.error && reply.error.includes(DISABLED_404))) {
           setBuckets({ status: 'disabled' });
           return;
         }
+
         setBuckets({ status: 'error', message: reply.error || 'Could not load your buckets.' });
+
         return;
       }
+
       const list = reply.buckets ?? [];
       setBuckets({ status: 'ready', buckets: list, objectOpsAvailable: !!reply.objectOpsAvailable });
+
       // Auto-select the default (or first) bucket so the object browser is never empty on open.
       setSelectedBucket((cur) => cur ?? list.find((b) => b.isDefault)?.name ?? list[0]?.name ?? null);
     } catch (err) {
@@ -229,8 +308,10 @@ export const BucketsPanel = memo(() => {
   const refreshBuckets = useCallback(async () => {
     try {
       const reply = await requestR2({ op: 'listBuckets' });
-      if (reply.ok)
+
+      if (reply.ok) {
         setBuckets({ status: 'ready', buckets: reply.buckets ?? [], objectOpsAvailable: !!reply.objectOpsAvailable });
+      }
     } catch {
       /* keep prior list on a transient refresh error */
     }
@@ -245,21 +326,32 @@ export const BucketsPanel = memo(() => {
    */
   const refreshRef = useRef(refreshBuckets);
   refreshRef.current = refreshBuckets;
+
   const bucketsStatusRef = useRef(buckets.status);
   bucketsStatusRef.current = buckets.status;
   useEffect(() => {
-    if (!isEmbedded) return undefined;
+    if (!isEmbedded) {
+      return undefined;
+    }
 
     const tick = () => {
-      if (typeof document !== 'undefined' && document.hidden) return;
-      if (bucketsStatusRef.current === 'disabled' || bucketsStatusRef.current === 'loading') return;
+      if (typeof document !== 'undefined' && document.hidden) {
+        return;
+      }
+
+      if (bucketsStatusRef.current === 'disabled' || bucketsStatusRef.current === 'loading') {
+        return;
+      }
+
       void refreshRef.current();
     };
 
     const interval = setInterval(tick, POLL_INTERVAL_MS);
 
     const onVisibility = () => {
-      if (typeof document !== 'undefined' && !document.hidden) tick();
+      if (typeof document !== 'undefined' && !document.hidden) {
+        tick();
+      }
     };
 
     document.addEventListener('visibilitychange', onVisibility);
@@ -275,8 +367,11 @@ export const BucketsPanel = memo(() => {
       setShowCreate(false);
       setSelectedBucket(created.name);
       void refreshBuckets();
+
       // Golden-path: surface the copy-address bundle immediately on success.
-      if (created.address) setAddressTarget({ address: created.address, bucket: created });
+      if (created.address) {
+        setAddressTarget({ address: created.address, bucket: created });
+      }
     },
     [refreshBuckets],
   );
@@ -296,18 +391,25 @@ export const BucketsPanel = memo(() => {
       setAddressTarget({ address: bucket.address, bucket });
       return;
     }
+
     const reply = await requestR2({ op: 'address', bucket: bucket.name });
-    if (reply.ok && reply.address) setAddressTarget({ address: reply.address, bucket });
-    else postToastToParent('error', reply.error || 'Could not read the address.');
+
+    if (reply.ok && reply.address) {
+      setAddressTarget({ address: reply.address, bucket });
+    } else {
+      postToastToParent('error', reply.error || 'Could not read the address.');
+    }
   }, []);
 
   const onTogglePublic = useCallback(
     async (bucket: BucketEntry) => {
       const reply = await requestR2({ op: 'setPublic', bucket: bucket.name, makePublic: !bucket.public });
+
       if (!reply.ok) {
         postToastToParent('error', reply.error || 'Could not change public access.');
         return;
       }
+
       postToastToParent('success', `${bucket.name} is now ${!bucket.public ? 'public' : 'private'}.`);
       void refreshBuckets();
     },
@@ -317,11 +419,14 @@ export const BucketsPanel = memo(() => {
   const onPromote = useCallback(
     async (bucket: BucketEntry) => {
       postToastToParent('info', `Promoting ${bucket.name} to production…`);
+
       const reply = await requestR2({ op: 'promote', bucket: bucket.name });
+
       if (!reply.ok) {
         postToastToParent(reply.needsCreds ? 'warning' : 'error', reply.error || 'Could not promote the bucket.');
         return;
       }
+
       postToastToParent(
         'success',
         `Promoted ${reply.objectsCopied ?? 0} object${(reply.objectsCopied ?? 0) === 1 ? '' : 's'} to production.`,
@@ -383,7 +488,10 @@ export const BucketsPanel = memo(() => {
               objectOpsAvailable={objectOpsAvailable}
               onCopyBucketAddress={() => {
                 const b = buckets.buckets.find((x) => x.name === selectedBucket);
-                if (b) void openAddress(b);
+
+                if (b) {
+                  void openAddress(b);
+                }
               }}
             />
           ) : buckets.status === 'ready' && buckets.buckets.length > 0 ? (
@@ -714,7 +822,9 @@ const ObjectBrowser = memo(
           });
           return;
         }
+
         setObjects({ status: 'loading' });
+
         try {
           const reply = await requestR2({
             op: 'listObjects',
@@ -723,18 +833,23 @@ const ObjectBrowser = memo(
             delimiter: '/',
             cursor,
           });
+
           if (!reply.ok) {
             if (reply.needsCreds) {
               setObjects({ status: 'needs-creds', message: reply.error || 'Object ops need R2 S3 credentials.' });
               return;
             }
+
             if (reply.enabled === false) {
               setObjects({ status: 'error', message: 'Buckets are not enabled.' });
               return;
             }
+
             setObjects({ status: 'error', message: reply.error || 'Could not list objects.' });
+
             return;
           }
+
           setObjects({
             status: 'ready',
             cursor: reply.cursor,
@@ -765,9 +880,13 @@ const ObjectBrowser = memo(
     /** Upload one file to the current prefix. */
     const uploadFile = useCallback(
       async (file: File) => {
-        if (uploading || !objectOpsAvailable) return;
+        if (uploading || !objectOpsAvailable) {
+          return;
+        }
+
         setUploading(true);
         setUploadName(file.name);
+
         try {
           const key = `${prefix}${file.name}`;
           const dataUrl = await fileToDataUrl(file);
@@ -777,10 +896,12 @@ const ObjectBrowser = memo(
             contentType: file.type || 'application/octet-stream',
             dataUrl,
           });
+
           if (!reply.ok) {
             postToastToParent(reply.needsCreds ? 'warning' : 'error', reply.error || 'Upload failed.');
             return;
           }
+
           postToastToParent('success', `Uploaded ${file.name}.`);
           await loadObjects();
         } catch (err) {
@@ -796,7 +917,6 @@ const ObjectBrowser = memo(
     const uploadFiles = useCallback(
       async (files: FileList | File[]) => {
         for (const file of Array.from(files)) {
-          // eslint-disable-next-line no-await-in-loop -- sequential to keep progress + toasts honest
           await uploadFile(file);
         }
       },
@@ -807,12 +927,15 @@ const ObjectBrowser = memo(
     const deleteObject = useCallback(
       async (key: string) => {
         setBusyKey(key);
+
         try {
           const reply = await requestR2({ op: 'deleteObject', bucket: bucket.name, key });
+
           if (!reply.ok) {
             postToastToParent('error', reply.error || 'Could not delete the object.');
             return;
           }
+
           postToastToParent('success', `Deleted ${key.split('/').pop()}.`);
           setObjects((cur) =>
             cur.status === 'ready' ? { ...cur, objects: cur.objects.filter((o) => o.key !== key) } : cur,
@@ -820,6 +943,7 @@ const ObjectBrowser = memo(
           setSelected((cur) => {
             const next = new Set(cur);
             next.delete(key);
+
             return next;
           });
         } catch (err) {
@@ -834,10 +958,14 @@ const ObjectBrowser = memo(
     /** Bulk-delete every selected object. */
     const bulkDelete = useCallback(async () => {
       const keys = [...selected];
-      if (keys.length === 0) return;
+
+      if (keys.length === 0) {
+        return;
+      }
+
       postToastToParent('info', `Deleting ${keys.length} object${keys.length === 1 ? '' : 's'}…`);
+
       for (const key of keys) {
-        // eslint-disable-next-line no-await-in-loop -- sequential keeps the list state consistent
         await requestR2({ op: 'deleteObject', bucket: bucket.name, key }).catch(() => undefined);
       }
       postToastToParent('success', `Deleted ${keys.length} object${keys.length === 1 ? '' : 's'}.`);
@@ -849,12 +977,15 @@ const ObjectBrowser = memo(
     const downloadObject = useCallback(
       async (key: string) => {
         setBusyKey(key);
+
         try {
           const reply = await requestBucketDownload({ bucket: bucket.name, key });
+
           if (!reply.ok || !reply.dataUrl) {
             postToastToParent(reply.needsCreds ? 'warning' : 'error', reply.error || 'Could not download the object.');
             return;
           }
+
           const a = document.createElement('a');
           a.href = reply.dataUrl;
           a.download = key.split('/').pop() || 'download';
@@ -887,7 +1018,10 @@ const ObjectBrowser = memo(
 
     // Drag-and-drop.
     const onDragEnter = useCallback((e: React.DragEvent) => {
-      if (!Array.from(e.dataTransfer.types).includes('Files')) return;
+      if (!Array.from(e.dataTransfer.types).includes('Files')) {
+        return;
+      }
+
       e.preventDefault();
       dragDepth.current += 1;
       setDragging(true);
@@ -901,14 +1035,20 @@ const ObjectBrowser = memo(
     const onDragLeave = useCallback((e: React.DragEvent) => {
       e.preventDefault();
       dragDepth.current = Math.max(0, dragDepth.current - 1);
-      if (dragDepth.current === 0) setDragging(false);
+
+      if (dragDepth.current === 0) {
+        setDragging(false);
+      }
     }, []);
     const onDrop = useCallback(
       (e: React.DragEvent) => {
         e.preventDefault();
         dragDepth.current = 0;
         setDragging(false);
-        if (e.dataTransfer.files?.length) void uploadFiles(e.dataTransfer.files);
+
+        if (e.dataTransfer.files?.length) {
+          void uploadFiles(e.dataTransfer.files);
+        }
       },
       [uploadFiles],
     );
@@ -918,15 +1058,23 @@ const ObjectBrowser = memo(
 
     // Derived: filtered + sorted objects.
     const shownObjects = useMemo(() => {
-      if (objects.status !== 'ready') return [];
+      if (objects.status !== 'ready') {
+        return [];
+      }
+
       const needle = search.trim().toLowerCase();
       let list = objects.objects;
-      if (needle) list = list.filter((o) => o.key.toLowerCase().includes(needle));
+
+      if (needle) {
+        list = list.filter((o) => o.key.toLowerCase().includes(needle));
+      }
+
       const cmp: Record<SortKey, (a: BucketObjectEntry, b: BucketObjectEntry) => number> = {
         name: (a, b) => a.key.localeCompare(b.key),
         size: (a, b) => (b.size ?? 0) - (a.size ?? 0),
         time: (a, b) => Date.parse(b.uploadedAt ?? '') - Date.parse(a.uploadedAt ?? ''),
       };
+
       return [...list].sort(cmp[sort]);
     }, [objects, search, sort]);
 
@@ -1125,6 +1273,7 @@ const ObjectBrowser = memo(
                 const name = obj.key.slice(prefix.length);
                 const checked = selected.has(obj.key);
                 const busy = busyKey === obj.key;
+
                 return (
                   <div
                     key={obj.key}
@@ -1137,8 +1286,13 @@ const ObjectBrowser = memo(
                       onChange={(e) =>
                         setSelected((cur) => {
                           const next = new Set(cur);
-                          if (e.target.checked) next.add(obj.key);
-                          else next.delete(obj.key);
+
+                          if (e.target.checked) {
+                            next.add(obj.key);
+                          } else {
+                            next.delete(obj.key);
+                          }
+
                           return next;
                         })
                       }
@@ -1279,7 +1433,10 @@ const ObjectBrowser = memo(
           multiple
           className="hidden"
           onChange={(e) => {
-            if (e.target.files?.length) void uploadFiles(e.target.files);
+            if (e.target.files?.length) {
+              void uploadFiles(e.target.files);
+            }
+
             e.target.value = '';
           }}
           data-testid="buckets-file-input"
@@ -1303,25 +1460,35 @@ const CreateBucketModal = memo(
 
     useEffect(() => {
       inputRef.current?.focus();
+
       const onKey = (e: KeyboardEvent) => {
-        if (e.key === 'Escape') onClose();
+        if (e.key === 'Escape') {
+          onClose();
+        }
       };
       window.addEventListener('keydown', onKey);
+
       return () => window.removeEventListener('keydown', onKey);
     }, [onClose]);
 
     const valid = /^[A-Za-z0-9][A-Za-z0-9 _-]{0,30}$/.test(name.trim());
 
     const submit = useCallback(async () => {
-      if (!valid || creating) return;
+      if (!valid || creating) {
+        return;
+      }
+
       setCreating(true);
       setError(null);
+
       try {
         const reply = await requestR2({ op: 'createBucket', name: name.trim(), public: isPublic });
+
         if (!reply.ok) {
           setError(reply.error || 'Could not create the bucket.');
           return;
         }
+
         postToastToParent('success', `Created ${name.trim()}.`);
         onCreated(reply.bucket ?? { name: name.trim(), public: isPublic });
       } catch (err) {
@@ -1340,7 +1507,9 @@ const CreateBucketModal = memo(
             value={name}
             onChange={(e) => setName(e.target.value)}
             onKeyDown={(e) => {
-              if (e.key === 'Enter') void submit();
+              if (e.key === 'Enter') {
+                void submit();
+              }
             }}
             placeholder="uploads"
             aria-label="Bucket name"
@@ -1414,21 +1583,30 @@ const DeleteBucketModal = memo(
 
     useEffect(() => {
       inputRef.current?.focus();
+
       const onKey = (e: KeyboardEvent) => {
-        if (e.key === 'Escape') onClose();
+        if (e.key === 'Escape') {
+          onClose();
+        }
       };
       window.addEventListener('keydown', onKey);
+
       return () => window.removeEventListener('keydown', onKey);
     }, [onClose]);
 
     const matches = confirm.trim() === bucket.name;
 
     const submit = useCallback(async () => {
-      if (!matches || deleting) return;
+      if (!matches || deleting) {
+        return;
+      }
+
       setDeleting(true);
       setError(null);
+
       try {
         const reply = await requestR2({ op: 'deleteBucket', bucket: bucket.name });
+
         if (!reply.ok) {
           setError(
             reply.needsCreds
@@ -1437,6 +1615,7 @@ const DeleteBucketModal = memo(
           );
           return;
         }
+
         postToastToParent(
           'success',
           `Deleted ${bucket.name}${reply.objectsDeleted ? ` + ${reply.objectsDeleted} object${reply.objectsDeleted === 1 ? '' : 's'}` : ''}.`,
@@ -1471,7 +1650,9 @@ const DeleteBucketModal = memo(
             value={confirm}
             onChange={(e) => setConfirm(e.target.value)}
             onKeyDown={(e) => {
-              if (e.key === 'Enter') void submit();
+              if (e.key === 'Enter') {
+                void submit();
+              }
             }}
             aria-label="Type the bucket name to confirm deletion"
             data-testid="buckets-delete-confirm"
@@ -1521,9 +1702,12 @@ const AddressModal = memo(
   ({ bucket, address, onClose }: { bucket: BucketEntry; address: BucketAddress; onClose: () => void }) => {
     useEffect(() => {
       const onKey = (e: KeyboardEvent) => {
-        if (e.key === 'Escape') onClose();
+        if (e.key === 'Escape') {
+          onClose();
+        }
       };
       window.addEventListener('keydown', onKey);
+
       return () => window.removeEventListener('keydown', onKey);
     }, [onClose]);
 
@@ -1573,7 +1757,11 @@ AddressModal.displayName = 'BucketsPanel.AddressModal';
 
 const AddressRow = memo(({ label, value, hint }: { label: string; value: string | null; hint?: string }) => {
   const [copied, setCopied] = useState(false);
-  if (!value) return null;
+
+  if (!value) {
+    return null;
+  }
+
   return (
     <div className="rounded-lg border border-bolt-elements-borderColor bg-bolt-elements-background-depth-1 p-2">
       <div className="flex items-center justify-between gap-2">
@@ -1582,10 +1770,13 @@ const AddressRow = memo(({ label, value, hint }: { label: string; value: string 
           type="button"
           onClick={async () => {
             const ok = await copyText(value);
+
             if (ok) {
               setCopied(true);
               setTimeout(() => setCopied(false), 1400);
-            } else postToastToParent('error', 'Could not copy.');
+            } else {
+              postToastToParent('error', 'Could not copy.');
+            }
           }}
           aria-label={`Copy ${label}`}
           className={classNames(BTN_GHOST, 'min-h-[22px] px-1.5 py-0.5 text-[10px]')}

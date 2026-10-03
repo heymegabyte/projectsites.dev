@@ -109,6 +109,7 @@ describe('isResetEmpty', () => {
         r2: { bucket: null, objectCount: 0, objectsAvailable: true },
       }),
     ).toBe(false);
+
     // Unknown counts must NOT read as empty (we can't prove it's empty).
     expect(
       isResetEmpty({

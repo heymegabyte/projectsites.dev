@@ -43,8 +43,10 @@ const SRC = readFileSync(
 
 describe('SiteSchemaBrowserComponent real-time contract (fire-74)', () => {
   it('renders no manual Refresh/Reconcile/Sync button for the schema data', () => {
-    // Pre-fix the ONLY way to see current data was a click target. A reappearing
-    // button-labelled affordance on the schema surface is the defect resurfacing.
+    /*
+     * Pre-fix the ONLY way to see current data was a click target. A reappearing
+     * button-labelled affordance on the schema surface is the defect resurfacing.
+     */
     expect(SRC).not.toMatch(/>\s*Refresh\s*</i);
     expect(SRC).not.toMatch(/>\s*Reconcile\s*</i);
     expect(SRC).not.toMatch(/aria-label="Refresh/i);
@@ -55,13 +57,16 @@ describe('SiteSchemaBrowserComponent real-time contract (fire-74)', () => {
     expect(SRC).toMatch(/setInterval/);
     expect(SRC).toMatch(/visibilitychange/);
     expect(SRC).toMatch(/document\.hidden/);
+
     // Paused while backgrounded — the poll tick itself must no-op, not just the listener.
     expect(SRC).toMatch(/document\.hidden\)\s*return/);
   });
 
   it('refreshes immediately on foreground return (no stale wait for the next tick)', () => {
-    // onVisibility must call the silent refresh path the instant the tab re-foregrounds,
-    // not merely flip a `polling` flag and wait up to POLL_MS for the next tick.
+    /*
+     * onVisibility must call the silent refresh path the instant the tab re-foregrounds,
+     * not merely flip a `polling` flag and wait up to POLL_MS for the next tick.
+     */
     expect(SRC).toMatch(/const\s+visible\s*=\s*!document\.hidden/);
     expect(SRC).toMatch(/if\s*\(visible\)\s*this\.refresh\(\)/);
   });
@@ -80,13 +85,16 @@ describe('SiteSchemaBrowserComponent real-time contract (fire-74)', () => {
   });
 
   it('the silent refresh() path keeps the last-good schema on a transient error (no error flash)', () => {
-    // refresh() must guard the response shape and bail WITHOUT touching `error` or
-    // clearing `tables` — only load() (the first/manual fetch) is allowed to surface
-    // a retryable error card. A regression that routes refresh() through the same
-    // error-setting path would flash an error on every transient poll failure.
+    /*
+     * refresh() must guard the response shape and bail WITHOUT touching `error` or
+     * clearing `tables` — only load() (the first/manual fetch) is allowed to surface
+     * a retryable error card. A regression that routes refresh() through the same
+     * error-setting path would flash an error on every transient poll failure.
+     */
     const refreshFn = SRC.match(/refresh\(\):\s*void\s*\{([\s\S]*?)\n  \}/)?.[1] ?? '';
     expect(refreshFn).not.toBe('');
     expect(refreshFn).not.toMatch(/this\.error\.set/);
+
     // Tolerate a nested-paren guard, e.g. `if (!res || !Array.isArray(res.data?.tables)) return;`.
     expect(refreshFn).toMatch(/if\s*\(!res[\s\S]*?\)\s*return/);
   });

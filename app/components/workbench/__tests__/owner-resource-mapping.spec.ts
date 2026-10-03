@@ -61,6 +61,7 @@ describe('NamespaceSummary kind mapping (owner-grade wire kinds)', () => {
   it('marks the no-endpoint kinds as noDrill so a tile is never a doomed click', () => {
     expect(specForKind('wfp_worker').noDrill).toBe(true);
     expect(specForKind('hostname').noDrill).toBe(true);
+
     // Adapter-served kinds stay drillable.
     expect(specForKind('d1').noDrill).toBeFalsy();
   });

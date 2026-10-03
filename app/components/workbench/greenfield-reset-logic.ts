@@ -20,9 +20,17 @@ export const RESET_KEYWORD = 'RESET';
  */
 export function isResetConfirmed(typed: string, slug: string | null | undefined): boolean {
   const t = (typed ?? '').trim();
-  if (!t) return false;
-  if (t.toLowerCase() === RESET_KEYWORD.toLowerCase()) return true;
+
+  if (!t) {
+    return false;
+  }
+
+  if (t.toLowerCase() === RESET_KEYWORD.toLowerCase()) {
+    return true;
+  }
+
   const s = (slug ?? '').trim().toLowerCase();
+
   return !!s && t.toLowerCase() === s;
 }
 
@@ -32,8 +40,10 @@ export interface ResetImpactTotals {
   rowCount: number;
   kvKeyCount: number;
   r2ObjectCount: number;
+
   /** Grand total across all surfaces — the single number the confirm copy leads with. */
   total: number;
+
   /** True when ANY surface's count could not be read (row/key/object probe failed) — label honestly. */
   hasUnknown: boolean;
 }
@@ -48,17 +58,31 @@ export function summarizeResetImpact(preview: ResetPreviewData | null | undefine
   const tables = preview?.d1?.tables ?? [];
   let rowCount = 0;
   let hasUnknown = false;
+
   for (const t of tables) {
-    if (typeof t.rowCount === 'number') rowCount += t.rowCount;
-    else hasUnknown = true;
+    if (typeof t.rowCount === 'number') {
+      rowCount += t.rowCount;
+    } else {
+      hasUnknown = true;
+    }
   }
-  if (preview?.d1 && preview.d1.tablesAvailable === false) hasUnknown = true;
-  if (preview?.kv && preview.kv.keysAvailable === false) hasUnknown = true;
-  if (preview?.r2 && preview.r2.objectsAvailable === false) hasUnknown = true;
+
+  if (preview?.d1 && preview.d1.tablesAvailable === false) {
+    hasUnknown = true;
+  }
+
+  if (preview?.kv && preview.kv.keysAvailable === false) {
+    hasUnknown = true;
+  }
+
+  if (preview?.r2 && preview.r2.objectsAvailable === false) {
+    hasUnknown = true;
+  }
 
   const tableCount = tables.length;
   const kvKeyCount = preview?.kv?.keyCount ?? 0;
   const r2ObjectCount = preview?.r2?.objectCount ?? 0;
+
   return {
     tableCount,
     rowCount,
@@ -71,7 +95,11 @@ export function summarizeResetImpact(preview: ResetPreviewData | null | undefine
 
 /** True when a loaded preview shows literally nothing to delete (honest empty → offer no wipe). */
 export function isResetEmpty(preview: ResetPreviewData | null | undefined): boolean {
-  if (!preview || preview.available === false) return true;
+  if (!preview || preview.available === false) {
+    return true;
+  }
+
   const s = summarizeResetImpact(preview);
+
   return s.tableCount === 0 && s.kvKeyCount === 0 && s.r2ObjectCount === 0 && !s.hasUnknown;
 }

@@ -32,8 +32,11 @@ describe('ResourcesPanel real-time contract (fire-55)', () => {
     expect(SRC).toMatch(/visibilitychange/);
     expect(SRC).toMatch(/document\.hidden/);
     expect(SRC).toMatch(/setInterval/);
-    // Latest-ref pattern so the inline onRefresh closure never goes stale
-    // (per the datapanel empty-deps-needs-latest-ref incident).
+
+    /*
+     * Latest-ref pattern so the inline onRefresh closure never goes stale
+     * (per the datapanel empty-deps-needs-latest-ref incident).
+     */
     expect(SRC).toMatch(/onRefreshRef/);
   });
 });

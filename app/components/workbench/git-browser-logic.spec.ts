@@ -280,6 +280,7 @@ describe('git-browser-logic · summarizePreviewSync (Preview ↔ Production)', (
       rel({ commit_sha: 'sha2', outcome: 'commit_ok_deploy_failed', created_at: '2026-05-11T14:00:00Z' }),
       rel({ commit_sha: 'sha1', outcome: 'success', created_at: '2026-05-11T12:00:00Z' }),
     ]);
+
     // Newest deployed-or-attempted release wins the live SHA (commit_ok_deploy_failed counts as committed).
     expect(s.productionSha).toBe('sha2');
     expect(s.deployFailed).toBe(true);

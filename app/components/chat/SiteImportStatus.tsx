@@ -136,8 +136,10 @@ export const SiteImportStatus = memo(({ expectedFileCount }: SiteImportStatusPro
       <button
         type="button"
         onClick={() => {
-          // Open the Code tab + ensure the Workbench is visible. NEVER toggle it
-          // off (the old `set(!get())` could hide + push the Workbench off-screen).
+          /*
+           * Open the Code tab + ensure the Workbench is visible. NEVER toggle it
+           * off (the old `set(!get())` could hide + push the Workbench off-screen).
+           */
           workbenchStore.currentView.set('code');
           workbenchStore.showWorkbench.set(true);
         }}

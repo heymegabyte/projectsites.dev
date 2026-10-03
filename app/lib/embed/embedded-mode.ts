@@ -1445,15 +1445,17 @@ export interface CodeHistoryResponseMessage {
   error?: string;
 }
 
-// ── Source Control bridge messages (Preview working-tree + immutable releases — Slice 4) ──────────
-//
-// The Source Control view shows the Preview↔Production relationship. Preview is the latest durably-saved
-// working tree; Production is the last deployed release SHA. The embedded editor has no cross-origin
-// session, so — exactly like the Database tab — the admin (which holds `selectedSite` + the bearer)
-// makes the authed calls to the durable-preview worker API (`GET /api/sites/:id/preview-state`,
-// `GET /api/sites/:id/releases`) and replies over these bridge messages. Both are READ-ONLY: this view
-// NEVER commits, deploys, or changes Production. DARK behind the `durable_preview` flag (a 404 whose
-// message includes "not enabled" → `enabled:false`, an honest "not published yet" state, never an error).
+/*
+ * ── Source Control bridge messages (Preview working-tree + immutable releases — Slice 4) ──────────
+ *
+ * The Source Control view shows the Preview↔Production relationship. Preview is the latest durably-saved
+ * working tree; Production is the last deployed release SHA. The embedded editor has no cross-origin
+ * session, so — exactly like the Database tab — the admin (which holds `selectedSite` + the bearer)
+ * makes the authed calls to the durable-preview worker API (`GET /api/sites/:id/preview-state`,
+ * `GET /api/sites/:id/releases`) and replies over these bridge messages. Both are READ-ONLY: this view
+ * NEVER commits, deploys, or changes Production. DARK behind the `durable_preview` flag (a 404 whose
+ * message includes "not enabled" → `enabled:false`, an honest "not published yet" state, never an error).
+ */
 
 /**
  * Child → Parent (Source Control): read this site's current Preview working-tree record. The admin
@@ -1624,8 +1626,10 @@ export interface ResetRequestMessage {
   type: 'PS_RESET_REQUEST';
   correlationId: string;
   op: 'preview' | 'execute';
+
   /** Execute only — must be `true`; a missing/false value is refused by the worker. */
   confirm?: boolean;
+
   /** Execute only — the type-to-confirm text (the site slug, or `RESET`). Re-validated server-side. */
   confirmText?: string;
 }
@@ -1642,6 +1646,7 @@ export interface ResetPreviewData {
   };
   kv?: { namespaceId: string | null; namespaceName: string | null; keyCount: number; keysAvailable: boolean };
   r2?: { bucket: string | null; objectCount: number; objectsAvailable: boolean };
+
   /** The D1 Time-Travel recovery receipt — surfaced up-front so the owner can copy it before confirming. */
   backupBookmark?: string | null;
   recoveryHint?: string | null;
@@ -1965,28 +1970,36 @@ export interface ResSiteFilesResponseMessage {
   error?: string;
 }
 
-// ── Resources Buckets bridge messages (Resources → Buckets tab) ─────────────────────────────────
-//
-// The per-site R2 Buckets surface. The embedded editor has no cross-origin session, so the admin
-// (which holds `selectedSite` + the bearer) proxies each op to the worker's `/api/sites/:id/r2/*`
-// endpoints. Bucket CRUD + object browse ride ONE verb (`PS_R2` with an `op`), so the union stays
-// small; object bytes (upload/download) ride their own verbs (large payloads). DARK behind the
-// `r2_buckets` flag → a 404 whose message includes "not enabled" → `{ok:false, enabled:false}`.
+/*
+ * ── Resources Buckets bridge messages (Resources → Buckets tab) ─────────────────────────────────
+ *
+ * The per-site R2 Buckets surface. The embedded editor has no cross-origin session, so the admin
+ * (which holds `selectedSite` + the bearer) proxies each op to the worker's `/api/sites/:id/r2/*`
+ * endpoints. Bucket CRUD + object browse ride ONE verb (`PS_R2` with an `op`), so the union stays
+ * small; object bytes (upload/download) ride their own verbs (large payloads). DARK behind the
+ * `r2_buckets` flag → a 404 whose message includes "not enabled" → `{ok:false, enabled:false}`.
+ */
 
 /** A per-site bucket in a {@link R2Response} list — display name + address bundle + flags. */
 export interface BucketEntry {
   /** The tenant-facing display name (what the owner typed / what ops target). */
   name: string;
+
   /** The site's default (auto-provisioned) bucket, pinned first in the UI. */
   isDefault?: boolean;
+
   /** Whether a public base URL is enabled. */
   public?: boolean;
+
   /** The public base URL when `public` is true. */
   publicUrl?: string | null;
+
   /** `preview` | `production`. */
   environment?: string;
+
   /** ISO creation timestamp. */
   createdAt?: string;
+
   /** The copyable address bundle (S3 endpoint + binding name + bucket + public URL). */
   address?: BucketAddress;
 }
@@ -2016,6 +2029,7 @@ export interface BucketObjectEntry {
 export interface R2RequestMessage {
   type: 'PS_R2';
   correlationId: string;
+
   /** The management op. */
   op:
     | 'listBuckets'
@@ -2026,20 +2040,28 @@ export interface R2RequestMessage {
     | 'promote'
     | 'listObjects'
     | 'deleteObject';
+
   /** The target bucket display name (all ops except `listBuckets`/`createBucket`). */
   bucket?: string;
+
   /** `createBucket`: the new bucket's display name. */
   name?: string;
+
   /** `createBucket`: make a public base URL available. */
   public?: boolean;
+
   /** `setPublic`: the desired public state. */
   makePublic?: boolean;
+
   /** `listObjects`: key prefix (folder path). */
   prefix?: string;
+
   /** `listObjects`: folder delimiter (usually `/`). */
   delimiter?: string;
+
   /** `listObjects`: pagination cursor from the previous page. */
   cursor?: string;
+
   /** `deleteObject`: the object key to remove. */
   key?: string;
 }
@@ -2049,30 +2071,43 @@ export interface R2ResponseMessage {
   type: 'PS_R2_RESULT';
   correlationId?: string;
   ok: boolean;
+
   /** Echoed op. */
   op?: string;
+
   /** `listBuckets`: the site's buckets. */
   buckets?: BucketEntry[];
+
   /** `listBuckets`: whether object ops (S3 creds) are available — the FE advertises this. */
   objectOpsAvailable?: boolean;
+
   /** `createBucket`/`address`/`setPublic`/`promote`: the affected bucket. */
   bucket?: BucketEntry;
+
   /** `address`: the standalone address bundle. */
   address?: BucketAddress;
+
   /** `listObjects`: the page of objects. */
   objects?: BucketObjectEntry[];
+
   /** `listObjects`: the "folders" at this level (common prefixes). */
   prefixes?: string[];
+
   /** `listObjects`: cursor for the next page (absent → last page). */
   cursor?: string;
+
   /** `listObjects`: true when more pages remain. */
   truncated?: boolean;
+
   /** `deleteBucket`: objects removed while emptying. */
   objectsDeleted?: number;
+
   /** `promote`: objects copied preview → production. */
   objectsCopied?: number;
+
   /** `false` when the surface's flag is off (the dark-flag 404) → the tab stays hidden. */
   enabled?: boolean;
+
   /** `true` when object ops need R2 S3 credentials (the actionable needs-creds state). */
   needsCreds?: boolean;
   error?: string;
@@ -2086,9 +2121,11 @@ export interface BucketUploadRequestMessage {
   type: 'PS_R2_UPLOAD';
   correlationId: string;
   bucket: string;
+
   /** The object key (path within the bucket, e.g. `images/logo.png`). */
   key: string;
   contentType: string;
+
   /** File contents as a base64 data URL. */
   dataUrl: string;
 }
@@ -2121,6 +2158,7 @@ export interface BucketDownloadResponseMessage {
   type: 'PS_R2_DOWNLOAD_RESULT';
   correlationId?: string;
   ok: boolean;
+
   /** The object bytes as a base64 data URL. */
   dataUrl?: string;
   contentType?: string;

@@ -230,6 +230,7 @@ describe('SourceControlPanel', () => {
     await waitFor(() => expect(screen.getByTestId('sc-history-list')).toBeTruthy());
     expect(screen.getAllByTestId('sc-release-row')).toHaveLength(1);
     expect(screen.getByText(/Deployed/i)).toBeTruthy();
+
     // The short SHA renders.
     expect(screen.getByText('abc1234')).toBeTruthy();
   });
@@ -279,6 +280,7 @@ describe('SourceControlPanel', () => {
     render(<SourceControlPanel />);
 
     await waitFor(() => expect(screen.getByTestId('sc-sync-indicator')).toBeTruthy());
+
     // Preview SHA differs from Production → "ahead".
     expect(screen.getByTestId('sc-sync-indicator').textContent).toMatch(/ahead/i);
   });
@@ -288,6 +290,7 @@ describe('SourceControlPanel', () => {
     seedWorkingTree([{ path: 'index.html', size: 1200 }]); // modified → restorable
     setReply('PS_PREVIEW_STATE_REQUEST', { ok: true, working_tree: null });
     setReply('PS_RELEASES_REQUEST', { ok: true, releases: [] });
+
     // Restore reads the last-published copy over the read-only file bridge.
     setReply('PS_CODE_FILE_REQUEST', { ok: true, path: 'index.html', content: '<html>base</html>', size: 1000 });
 
@@ -299,11 +302,13 @@ describe('SourceControlPanel', () => {
 
     // Restore reads the base file (read-only) …
     await waitFor(() => expect(sent.some((m) => m.type === 'PS_CODE_FILE_REQUEST')).toBe(true));
+
     // … then writes it into the Preview working tree locally (never a commit / deploy / Production change).
     await waitFor(() => expect(setVirtualFile).toHaveBeenCalledWith('index.html', '<html>base</html>'));
 
     // HARD INVARIANT: the Source Control view NEVER commits or changes Production.
     const forbidden = ['PS_DEPLOY_REQUEST', 'PS_COMMIT', 'PS_PROMOTE', 'PS_PUBLISH', 'PS_PUBLISH_BOLT'];
+
     for (const m of sent) {
       expect(forbidden).not.toContain(m.type);
     }
@@ -367,6 +372,7 @@ describe('SourceControlPanel', () => {
     render(<SourceControlPanel />);
 
     await waitFor(() => expect(screen.getByTestId('sc-changes-list')).toBeTruthy());
+
     // No promote yet → the outcome card is absent.
     expect(screen.queryByTestId('sc-release-outcome')).toBeNull();
   });
@@ -403,8 +409,10 @@ describe('SourceControlPanel', () => {
     expect(card.textContent).toMatch(/Live/i);
 
     const shaChip = await screen.findByTestId('sc-serving-sha');
+
     // 12-char prefix of the 24-char serving_sha.
     expect(shaChip.textContent).toContain('deadbeef1234');
+
     // The full sha never renders truncated-wrong: only the 12-char prefix shows.
     expect(shaChip.textContent).not.toContain('feedface5678');
 
@@ -503,6 +511,7 @@ describe('SourceControlPanel', () => {
     await waitFor(() => expect(screen.getByTestId('sc-history-list')).toBeTruthy());
 
     const chip = await screen.findByTestId('sc-release-sha');
+
     // Only the 12-char prefix shows — never the trailing half.
     expect(chip.textContent).toContain('deadbeef1234');
     expect(chip.textContent).not.toContain('feedface5678');
@@ -538,6 +547,7 @@ describe('SourceControlPanel', () => {
 
     await waitFor(() => expect(screen.getByTestId('sc-history-list')).toBeTruthy());
     expect(screen.getAllByTestId('sc-release-row')).toHaveLength(1);
+
     // A null serving_sha row renders NO chip (never a dead/empty chip).
     expect(screen.queryByTestId('sc-release-sha')).toBeNull();
   });

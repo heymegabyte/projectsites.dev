@@ -79,6 +79,7 @@ describe('DataGrid — Chart view (Rev 5)', () => {
     fireEvent.click(screen.getByTestId('grid-view-chart'));
 
     const chart = screen.getByTestId('grid-chart');
+
     // Category labels from the `country` column are all present.
     expect(within(chart).getByText('US')).toBeTruthy();
     expect(within(chart).getByText('CA')).toBeTruthy();
@@ -90,12 +91,14 @@ describe('DataGrid — Chart view (Rev 5)', () => {
     fireEvent.click(screen.getByTestId('grid-view-chart'));
 
     const picker = screen.getByTestId('grid-chart-measure') as HTMLSelectElement;
+
     // Both numeric columns (hits, misses) are options; the non-numeric label column is NOT.
     const optionValues = Array.from(picker.options).map((o) => o.value);
     expect(optionValues).toEqual(['hits', 'misses']);
 
     // Switch the measure — the chart still renders one bar per row against the new column.
     fireEvent.change(picker, { target: { value: 'misses' } });
+
     const bars = within(screen.getByTestId('grid-chart')).getAllByTestId('grid-chart-bar');
     expect(bars).toHaveLength(CHARTABLE_ROWS.length);
   });

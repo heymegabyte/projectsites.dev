@@ -31,6 +31,7 @@ describe('sql-explain-logic — compose + gate + dispatch', () => {
     expect(prompt).toContain('Explain this SQL query and what its results mean, in plain English:');
     expect(prompt).toContain('SELECT id, name FROM users LIMIT 2;');
     expect(prompt).toContain('Sample rows:');
+
     // The rows are embedded as compact JSON the model can read.
     expect(prompt).toContain('"name": "Alice"');
     expect(prompt).toContain('"id": 2');
