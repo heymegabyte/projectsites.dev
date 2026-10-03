@@ -53,6 +53,7 @@
  */
 import React, { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { classNames } from '~/utils/classNames';
+import { PanelShell, PanelHeader } from './panel';
 import { ConfirmationDialog } from '~/components/ui/Dialog';
 import {
   isEmbedded,
@@ -935,7 +936,7 @@ export const ResourceDetailPanel = memo(({ target, onBack }: { target: ResourceD
     (everSettled || state.status === 'ready' || state.status === 'error');
 
   return (
-    <div className="h-full flex flex-col bg-bolt-elements-background-depth-1 text-bolt-elements-textPrimary">
+    <PanelShell>
       <DetailHeader target={target} child={child} onBack={onBack} onClearChild={() => setChild(null)} />
 
       {showWrite && (
@@ -986,7 +987,7 @@ export const ResourceDetailPanel = memo(({ target, onBack }: { target: ResourceD
           <AdapterErrorCard result={state.result} onRetry={refresh} />
         ))
       )}
-    </div>
+    </PanelShell>
   );
 });
 
@@ -1006,52 +1007,46 @@ const DetailHeader = memo(
     onBack: () => void;
     onClearChild: () => void;
   }) => (
-    <div className="flex items-center gap-2.5 px-4 py-3 border-b border-bolt-elements-borderColor shrink-0">
-      <button
-        type="button"
-        onClick={child ? onClearChild : onBack}
-        aria-label={child ? 'Back to resource' : 'Back to resources'}
-        title={child ? 'Back to resource' : 'Back to resources'}
-        className="min-h-[24px] min-w-[24px] flex items-center justify-center rounded border border-bolt-elements-borderColor bg-bolt-elements-background-depth-2 text-bolt-elements-item-contentAccent hover:bg-bolt-elements-background-depth-3 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-bolt-elements-item-contentAccent cursor-pointer shrink-0"
-      >
-        <div className="i-ph:arrow-left text-sm" />
-      </button>
-
-      <div
-        className={classNames(iconForKind(target.kind), 'text-xl text-bolt-elements-item-contentAccent shrink-0')}
-        aria-hidden="true"
-      />
-
-      <div className="min-w-0">
-        <h2
-          className="text-sm font-semibold text-bolt-elements-textPrimary truncate"
-          title={child ? child.label : target.concept || titleForKind(target.kind)}
-        >
-          {child ? child.label : target.concept || titleForKind(target.kind)}
-        </h2>
-        <p className="text-[10px] text-bolt-elements-textTertiary truncate">
+    <PanelHeader
+      icon={iconForKind(target.kind)}
+      title={child ? child.label : target.concept || titleForKind(target.kind)}
+      subtitle={
+        <>
           {titleForKind(target.kind)}
           {target.bindingName ? ` · ${target.bindingName}` : ''}
           {` · ${humanize(target.environment)}`}
           {child ? ' · viewing one item' : ''}
-        </p>
-      </div>
+        </>
+      }
+      actions={
+        <>
+          <button
+            type="button"
+            onClick={child ? onClearChild : onBack}
+            aria-label={child ? 'Back to resource' : 'Back to resources'}
+            title={child ? 'Back to resource' : 'Back to resources'}
+            className="min-h-[24px] min-w-[24px] flex items-center justify-center rounded border border-bolt-elements-borderColor bg-bolt-elements-background-depth-2 text-bolt-elements-item-contentAccent hover:bg-bolt-elements-background-depth-3 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-bolt-elements-item-contentAccent cursor-pointer shrink-0"
+          >
+            <div className="i-ph:arrow-left text-sm" />
+          </button>
 
-      {/* Live affordance — the view self-updates on a visibility-aware poll; no manual Refresh
-          (per `real-time-data-no-manual-refresh`). */}
-      <span
-        className="ml-auto hidden sm:inline-flex items-center gap-1.5 text-[10px] text-bolt-elements-textTertiary select-none shrink-0"
-        role="status"
-        aria-live="off"
-        title="This view updates itself automatically"
-      >
-        <span
-          aria-hidden="true"
-          className="h-1.5 w-1.5 rounded-full bg-bolt-elements-item-contentAccent animate-pulse motion-reduce:animate-none"
-        />
-        Live
-      </span>
-    </div>
+          {/* Live affordance — the view self-updates on a visibility-aware poll; no manual Refresh
+              (per `real-time-data-no-manual-refresh`). */}
+          <span
+            className="hidden sm:inline-flex items-center gap-1.5 text-[10px] text-bolt-elements-textTertiary select-none shrink-0"
+            role="status"
+            aria-live="off"
+            title="This view updates itself automatically"
+          >
+            <span
+              aria-hidden="true"
+              className="h-1.5 w-1.5 rounded-full bg-bolt-elements-item-contentAccent animate-pulse motion-reduce:animate-none"
+            />
+            Live
+          </span>
+        </>
+      }
+    />
   ),
 );
 
