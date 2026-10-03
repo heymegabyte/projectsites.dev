@@ -53,7 +53,7 @@
  */
 import React, { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { classNames } from '~/utils/classNames';
-import { PanelShell, PanelHeader } from './panel';
+import { PanelShell, PanelHeader, PanelLoading } from './panel';
 import { ConfirmationDialog } from '~/components/ui/Dialog';
 import {
   isEmbedded,
@@ -965,7 +965,9 @@ export const ResourceDetailPanel = memo(({ target, onBack }: { target: ResourceD
         </div>
       )}
 
-      {state.status === 'loading' && <Spinner label={child ? `Loading ${child.label}…` : 'Loading…'} />}
+      {state.status === 'loading' && (
+        <PanelLoading label={child ? `Loading ${child.label}…` : 'Loading…'} testId="resource-detail-loading" />
+      )}
       {state.status === 'disabled' && <DisabledCard kind={target.kind} />}
       {state.status === 'error' && <ErrorCard message={state.message} onRetry={refresh} />}
 
@@ -2182,21 +2184,7 @@ const RawJson = memo(({ data }: { data: unknown }) => {
 
 RawJson.displayName = 'ResourceDetailPanel.RawJson';
 
-// ── States (spinner / empty / disabled / errors) ──────────────────────────────
-
-const Spinner = memo(({ label }: { label: string }) => (
-  <div
-    className="flex-1 flex flex-col items-center justify-center gap-2 p-8 text-center"
-    role="status"
-    aria-live="polite"
-    data-testid="resource-detail-loading"
-  >
-    <div className="i-ph:circle-notch text-2xl text-bolt-elements-item-contentAccent animate-spin motion-reduce:animate-none" />
-    <p className="text-xs text-bolt-elements-textSecondary">{label}</p>
-  </div>
-));
-
-Spinner.displayName = 'ResourceDetailPanel.Spinner';
+// ── States (empty / disabled / errors) ────────────────────────────────────────
 
 const EmptyResult = memo(({ inChild }: { inChild: boolean }) => (
   <div

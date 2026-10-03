@@ -47,7 +47,7 @@
 import React, { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useVirtualizer } from '@tanstack/react-virtual';
 import { classNames } from '~/utils/classNames';
-import { PanelShell, PanelHeader } from './panel';
+import { PanelShell, PanelHeader, PanelLoading } from './panel';
 import { DEFAULT_MODEL, DEFAULT_PROVIDER } from '~/utils/constants';
 import {
   isEmbedded,
@@ -3070,16 +3070,7 @@ const Header = memo(
 
 Header.displayName = 'SiteTablesPanel.Header';
 
-// ── Shared: spinner + error ────────────────────────────────────────────────
-
-const Spinner = memo(({ label }: { label: string }) => (
-  <div className="flex-1 flex flex-col items-center justify-center gap-2 p-8 text-center" data-testid="sitedb-loading">
-    <div className="i-ph:circle-notch text-2xl text-bolt-elements-item-contentAccent animate-spin" />
-    <p className="text-xs text-bolt-elements-textSecondary">{label}</p>
-  </div>
-));
-
-Spinner.displayName = 'SiteTablesPanel.Spinner';
+// ── Shared: error ──────────────────────────────────────────────────────────
 
 const ErrorCard = memo(({ message, onRetry }: { message: string; onRetry: () => void }) => (
   <div className="flex-1 flex flex-col items-center justify-center gap-3 p-8 text-center" data-testid="sitedb-error">
@@ -4522,7 +4513,7 @@ const BrowseView = memo((props: BrowseViewProps) => {
       {/* Add-column dialog */}
       {addColOpen && <AddColumnForm onAdd={onAddColumn} onClose={onCloseAddCol} />}
 
-      {state.status === 'loading' && <Spinner label={`Loading "${table}"…`} />}
+      {state.status === 'loading' && <PanelLoading label={`Loading "${table}"…`} testId="sitedb-loading" />}
       {state.status === 'error' && <ErrorCard message={state.message} onRetry={onRetry} />}
 
       {state.status === 'ready' && (

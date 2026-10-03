@@ -42,19 +42,22 @@ export interface PanelLoadingProps {
 
   /** Extra classes on the outer container (e.g. a `data-testid` is passed via props, not here). */
   className?: string;
+
+  /** Overrides the outer container's `data-testid`. Defaults to `'panel-loading'` so existing asserts keep passing. */
+  testId?: string;
 }
 
 /**
  * A contained, centered in-panel loader: a small sized Nebula + an optional short status label.
  * Drop into any panel's loading branch in place of an `animate-spin` / "Loading…" block.
  */
-export const PanelLoading = memo(({ label, progress, className }: PanelLoadingProps) => (
+export const PanelLoading = memo(({ label, progress, className, testId }: PanelLoadingProps) => (
   <div
     className={classNames('flex-1 min-h-0 grid place-items-center p-6', className)}
     role="status"
     aria-live="polite"
     aria-busy="true"
-    data-testid="panel-loading"
+    data-testid={testId ?? 'panel-loading'}
   >
     <div className="flex flex-col items-center gap-3">
       {/* Sized nebula box — fixed small, never full-bleed. The CSS fallback ring sits BEHIND the
