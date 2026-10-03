@@ -9,6 +9,13 @@
 > `_CF_NATIVE_CONVERGENCE.md`, `_ADMIN_VQA_LEDGER.md`, `_INTERCONNECTEDNESS_LEDGER.md`). This is the
 > INDEX, not a duplicate.
 
+## fire-95 — 2026-10-03 (converge; root-caused + partially cleared the editor-app ESLint debt — 2209→881, prettier now self-healing)
+
+- **🔍 Root-caused a 4-fire mystery.** The editor `app/` ESLint (`ci.yaml` = `eslint app`) carried 2209 errors + stayed red across 5+ runs DESPITE the `format-autofix` bot — because the bot's trigger paths covered only `apps/project-sites/src` + `packages/shared/src`, NOT the editor `app/` (bolt.diy, repo root). So app/ prettier drift NEVER self-healed; the "47 errors" prior fires flagged was truncated CI output (real: 2209).
+- **Fix (durable + one-time).** Extended `format-autofix.yml` to cover `app/**` (trigger path + a pinned `npx prettier@3.8.3 --write app` step — root `.prettierrc` has no plugins, so no heavy root `npm ci`). One-time heal of 67 files dropped editor lint **2209 → 881 errors** (the 1329 `prettier/prettier` class cleared); the bot now keeps app/ prettier-clean on every push. `c9f993553`.
+- **Remaining 881 (scoped follow-up, NOT this fire):** eslint-autofixable comment-rules (`blitz/lines-around-comment` 243 · `multiline-comment-style` 82 · `blitz/newline-before-return` 65 + more) → a `eslint app --fix` dedicated fire; + ~13-30 genuinely-manual (`no-unused-vars` 9 · `exhaustive-deps` 3 [RISKY — behavior-changing, review each] · `ban-ts-comment` 1). (`no-empty-function` 34 are warnings, non-blocking.) ci.yaml stays red until the follow-up; the **worker deploy is UNAFFECTED** (separate `project-sites.yaml`, healthy).
+- **§7:** the bot-scope fix IS the loop-improvement — a recurring red-gate root-caused + made self-healing (prettier drift in app/ can no longer silently accumulate).
+
 ## fire-94 — 2026-10-03 (converge; money-path search `no_results` empty-state signal + worktree-node_modules §7)
 
 - **Money-path CREATE-funnel slice (Product rebalance per §3, after infra-heavy 90-93).** `/api/sites/search` returned a byte-identical `{data:[]}` for BOTH a too-short query AND a valid query that genuinely found nothing — so the homepage SPA couldn't tell them apart to render a "No sites found for 'X' — start a new one" launchpad (empty-state-as-launchpad / embarrassingly-easy). Handler now emits `meta.reason:'no_results'` + a message + the echoed bounded query on the valid-empty path (distinct from the existing `query_too_short`); results-found keeps the back-compat `{data}` shape. Additive, flag-free, no new per-`:siteId` handler. RED→GREEN `search_routes.test.ts` (55 pass), tsc 0. `9c2e51b1b` → cherry-picked to main.
