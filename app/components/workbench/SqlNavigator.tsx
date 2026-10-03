@@ -1394,7 +1394,6 @@ const SqlResult = memo(
             </p>
           </div>
         ) : (
-
           /*
            * The SAME grid form the Table-view uses — typed cells, sortable headers, search, pagination,
            * and honest whole-result export — so a SQL result reads exactly like a browsed table.

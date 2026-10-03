@@ -651,7 +651,6 @@ function mapSqliteType(type: string | undefined): SeedColumn['type'] {
 // ── Local presentational helpers ──────────────────────────────────────────────────────────────────────
 
 const Shell = memo(({ children }: { children: React.ReactNode }) => (
-
   /*
    * `[color-scheme:dark]` forces the native <select> popup, <option> list, and number-input spinners
    * to render dark — otherwise they show the browser's white default and break the black+cyan theme.

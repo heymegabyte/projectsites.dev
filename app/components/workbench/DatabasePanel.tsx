@@ -202,7 +202,6 @@ export const DatabasePanel = memo(() => {
       {/* Active sub-view — each stays lightweight; only the mounted view holds a live bridge. */}
       <div className="relative flex-1 overflow-hidden">
         {subView === 'table' && (
-
           /*
            * Tables-view is a vertical column: the tables browser scrolls (its OWN header holds the single
            * "Actions" dropdown — New Table / Import / History / Refresh), and the collapsed-by-default Danger

@@ -812,7 +812,6 @@ ImportPanel.displayName = 'ImportPanel';
 // ── Small presentational helpers (kept local — mirror SchemaBuilder's inline sub-components) ───────────
 
 const PanelShell = memo(({ children }: { children: React.ReactNode }) => (
-
   /*
    * `[color-scheme:dark]` forces native chrome (the <select> popup + <option> list, checkboxes,
    * scrollbars, autofill) to render dark instead of the browser's white default — no white leaks.

@@ -387,7 +387,6 @@ export const TimeTravelPanel = memo(() => {
 
   return (
     <div
-
       /*
        * `[color-scheme:dark]` renders the native <input type=datetime-local> calendar picker + its
        * spin fields and the <input type=range> track dark, instead of the browser's white chrome.
@@ -572,7 +571,6 @@ export const TimeTravelPanel = memo(() => {
                   step={60}
                   onChange={(e) => setRestoreAt(e.target.value)}
                   data-testid="tt-restore-datetime"
-
                   /*
                    * `[&::-webkit-calendar-picker-indicator]:invert` makes the native picker glyph a
                    * bright cyan-ish icon (it defaults to a dark, near-invisible glyph on the dark field).
