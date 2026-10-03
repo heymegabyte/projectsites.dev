@@ -479,3 +479,14 @@ bind unchanged. The old README lifecycle → CONSTITUTION § The 15-Minute Heart
 worktree isolation + main-only shipping (§ Git & shipping), category budgets
 (§ Convergence discipline), § Wedged-agent protocol, § Parallel-migration numbering,
 § Prod D1 migrations apply, and § Deep UI Explorer invariants.
+
+## § Verify/Ship addendum — push ≠ deploy (fire-92, 2026-10-02)
+
+A SINGLE red worker unit test silently SKIPS the deploy jobs in `project-sites.yaml`
+("Deploy to Staging"/"Deploy to Production" are downstream of the "Unit Tests" job), so a fire
+can push to `main` + report "shipped" while NO deploy ran. fire-86→fire-91 all pushed worker
+changes that never deployed because `feature_flags_docs.test.ts` was red (the `pricing_config_v2`
+flag was registered without its `FLAG_DOCS` entry). **Discipline (every worker-touching fire, §9):**
+after pushing, confirm `gh run --workflow=project-sites.yaml --limit 1` shows ✓ "Unit Tests" AND a
+"Deploy to Production" job that actually executed (not skipped) — a green push is NOT a green deploy.
+Unit Tests red → the deploy is dark; fix the failing test before claiming shipped.
