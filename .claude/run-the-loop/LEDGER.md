@@ -9,6 +9,13 @@
 > `_CF_NATIVE_CONVERGENCE.md`, `_ADMIN_VQA_LEDGER.md`, `_INTERCONNECTEDNESS_LEDGER.md`). This is the
 > INDEX, not a duplicate.
 
+## fire-102 — 2026-10-03 (converge; editor-bridge SSOT slice-1 — resolveResourceKind helper + migrated both PS_RES_* handlers)
+- Extracted the fire-101 field-name precedence (`kind` first, `resourceKind` legacy fallback) into ONE tested helper `frontend/src/app/services/ps-bridge.ts` (`resolveResourceKind`); migrated BOTH PS_RES_DETAIL/MUTATE handlers off their identical inline ternary so a 3rd handler can't re-introduce the drift. `9df793edc`. tsc clean; karma 33/33 (27 bolt-embed incl. the 2 fire-101 regressions + 6 new ps-bridge).
+- Shipped: frontend R2 deploy (300 files, CDN purged) `9df793edc`; prod proof = apex 200 + `/admin` shell 200 live. Zero behavioral change (same precedence) → 33/33 + live shell sufficient; the live interactive D1 cell-edit journey stays the queued `editor-data` Deep-UI-Explorer item.
+- KEY finding (de-risks the editor-bridge contract): the Angular frontend does NOT import `@project-sites/shared` (not a dep — it MIRRORS shared schemas, per email.ts). A shared-package helper would be an ORPHAN → SSOT is correctly frontend-local. The full cross-surface Zod contract needs the Angular build to consume shared (or a build-time codegen/sync) first — folded into the `editor-bridge` backlog item + memory `[brdg]`.
+- Standing browser roles (16/17) NOT run (honest) — the browser-role fleet-worktree execution path is itself a prerequisite; the live editor journey is queued.
+- Loop-improvement: the `resolveResourceKind` SSOT (prevents re-inlining the drift) + the mirrors-not-imports architectural finding captured in BACKLOG + memory so the next fire attacks the contract correctly. Lease `fire-102-converge`.
+
 ## fire-101b — 2026-10-03 (corrective §0.5 Downloads intake drain — fire-101's scan aborted on a zsh glob)
 - Drained 5 ~/Downloads prompts fire-101 missed (bare multi-pattern zsh glob aborts on a nomatch → falsely "none"): 3 THIS-REPO absorbed+deleted (agent-computer → 5 `AGENT-COMPUTER-*`; value-first → 3 convergence; 50-rounds → 4 deltas incl. `CBD-skills-7`/`INT-LANGFUSE-SSOT`/`INT-PROMPTFOO-GATE`/`REARC-REV`) + 1 net-new `INT-REGISTRY` ai-doctor = 13 items → BACKLOG §intake(fire-101b). 2 ROUTE-TO-GLOBAL left in place (shared-policy, all-capabilities — ~/.claude layer, spirit already absorbed).
 - Loop-improvement #2: hardened `run-the-loop.md` §0.5 scan to `find … -iname '*.md'` + content-sniff (zsh nomatch hazard). Lease `fire-101b-intake-drain` reclaimed → released.
