@@ -1018,33 +1018,32 @@ const DetailHeader = memo(
           {child ? ' · viewing one item' : ''}
         </>
       }
+      leading={
+        <button
+          type="button"
+          onClick={child ? onClearChild : onBack}
+          aria-label={child ? 'Back to resource' : 'Back to resources'}
+          title={child ? 'Back to resource' : 'Back to resources'}
+          className="min-h-[24px] min-w-[24px] flex items-center justify-center rounded border border-bolt-elements-borderColor bg-bolt-elements-background-depth-2 text-bolt-elements-item-contentAccent hover:bg-bolt-elements-background-depth-3 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-bolt-elements-item-contentAccent cursor-pointer shrink-0"
+        >
+          <div className="i-ph:arrow-left text-sm" />
+        </button>
+      }
       actions={
-        <>
-          <button
-            type="button"
-            onClick={child ? onClearChild : onBack}
-            aria-label={child ? 'Back to resource' : 'Back to resources'}
-            title={child ? 'Back to resource' : 'Back to resources'}
-            className="min-h-[24px] min-w-[24px] flex items-center justify-center rounded border border-bolt-elements-borderColor bg-bolt-elements-background-depth-2 text-bolt-elements-item-contentAccent hover:bg-bolt-elements-background-depth-3 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-bolt-elements-item-contentAccent cursor-pointer shrink-0"
-          >
-            <div className="i-ph:arrow-left text-sm" />
-          </button>
-
-          {/* Live affordance — the view self-updates on a visibility-aware poll; no manual Refresh
-              (per `real-time-data-no-manual-refresh`). */}
+        /* Live affordance — the view self-updates on a visibility-aware poll; no manual Refresh
+           (per `real-time-data-no-manual-refresh`). */
+        <span
+          className="hidden sm:inline-flex items-center gap-1.5 text-[10px] text-bolt-elements-textTertiary select-none shrink-0"
+          role="status"
+          aria-live="off"
+          title="This view updates itself automatically"
+        >
           <span
-            className="hidden sm:inline-flex items-center gap-1.5 text-[10px] text-bolt-elements-textTertiary select-none shrink-0"
-            role="status"
-            aria-live="off"
-            title="This view updates itself automatically"
-          >
-            <span
-              aria-hidden="true"
-              className="h-1.5 w-1.5 rounded-full bg-bolt-elements-item-contentAccent animate-pulse motion-reduce:animate-none"
-            />
-            Live
-          </span>
-        </>
+            aria-hidden="true"
+            className="h-1.5 w-1.5 rounded-full bg-bolt-elements-item-contentAccent animate-pulse motion-reduce:animate-none"
+          />
+          Live
+        </span>
       }
     />
   ),

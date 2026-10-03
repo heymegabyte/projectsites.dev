@@ -20,6 +20,8 @@ export interface PanelHeaderProps {
   /** Phosphor icon class, e.g. `'i-ph:stack-duotone'` — rendered inside the accent badge. */
   icon: string;
   title: string;
+  /** Left-of-icon slot — a back/nav affordance (e.g. a detail drill-in's "back" button), rendered BEFORE the icon badge so navigation reads left-to-right. */
+  leading?: ReactNode;
   /** One muted line under the title (status, scope, count). Omit for a bare title. */
   subtitle?: ReactNode;
   /** Right-aligned action cluster (live-freshness affordance, buttons). No manual Refresh buttons. */
@@ -33,6 +35,7 @@ export interface PanelHeaderProps {
 export const PanelHeader = memo(function PanelHeader({
   icon,
   title,
+  leading,
   subtitle,
   actions,
   toolbar,
@@ -56,6 +59,7 @@ export const PanelHeader = memo(function PanelHeader({
         }}
       />
       <div className="relative flex items-center gap-3 px-4 py-3">
+        {leading != null && <div className="flex items-center shrink-0">{leading}</div>}
         <div className="flex items-center justify-center h-9 w-9 rounded-xl border border-bolt-elements-item-contentAccent/30 bg-bolt-elements-item-contentAccent/[0.08] shrink-0">
           <div className={classNames(icon, 'text-xl text-bolt-elements-item-contentAccent')} aria-hidden="true" />
         </div>
