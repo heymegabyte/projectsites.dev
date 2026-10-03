@@ -22,6 +22,7 @@
 import React, { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 import { classNames } from '~/utils/classNames';
+import { PanelShell, PanelHeader } from './panel';
 import { ConfirmationDialog } from '~/components/ui/Dialog';
 import { isEmbedded, onParentMessage, postToParent, type ResDetailResponseMessage } from '~/lib/embed/embedded-mode';
 
@@ -443,79 +444,88 @@ export const R2Browser = memo(({ target, mutate }: R2BrowserProps) => {
 
   if (state.status === 'disabled') {
     return (
-      <div className="flex-1 flex items-center justify-center p-6 text-center">
-        <p className="text-sm text-bolt-elements-textTertiary">This surface isn’t enabled for your site.</p>
-      </div>
+      <PanelShell className="!h-auto flex-1 min-h-0">
+        <div className="flex-1 flex items-center justify-center p-6 text-center">
+          <p className="text-sm text-bolt-elements-textTertiary">This surface isn’t enabled for your site.</p>
+        </div>
+      </PanelShell>
     );
   }
 
   return (
-    <div className="flex-1 flex flex-col min-h-0" data-testid="r2-browser">
-      {/* Toolbar: breadcrumbs + upload + the quiet live affordance (self-updating; no manual refresh). */}
-      <div className="shrink-0 flex items-center gap-2 px-4 py-2.5 border-b border-bolt-elements-borderColor">
-        <nav className="flex items-center gap-1 min-w-0 flex-1 overflow-x-auto" aria-label="Folder path">
-          {crumbs.map((c, i) => (
-            <React.Fragment key={c.prefix}>
-              {i > 0 && <span className="text-bolt-elements-textTertiary text-xs shrink-0">/</span>}
-              <button
-                type="button"
-                onClick={() => setPrefix(c.prefix)}
+    <PanelShell className="!h-auto flex-1 min-h-0" testId="r2-browser">
+      {/* Canonical header: breadcrumbs as subtitle + upload + the quiet live affordance (self-updating; no manual refresh). */}
+      <PanelHeader
+        icon="i-ph:folder-duotone"
+        title="R2 storage"
+        subtitle={
+          <nav className="flex items-center gap-1 min-w-0 overflow-x-auto" aria-label="Folder path">
+            {crumbs.map((c, i) => (
+              <React.Fragment key={c.prefix}>
+                {i > 0 && <span className="text-bolt-elements-textTertiary text-xs shrink-0">/</span>}
+                <button
+                  type="button"
+                  onClick={() => setPrefix(c.prefix)}
+                  className={classNames(
+                    'text-xs rounded px-1.5 py-0.5 shrink-0 cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-bolt-elements-item-contentAccent',
+                    c.prefix === prefix
+                      ? 'text-bolt-elements-item-contentAccent font-semibold'
+                      : 'text-bolt-elements-textSecondary hover:text-bolt-elements-textPrimary',
+                  )}
+                >
+                  {c.label}
+                </button>
+              </React.Fragment>
+            ))}
+          </nav>
+        }
+        actions={
+          <>
+            <input
+              ref={fileInputRef}
+              type="file"
+              className="hidden"
+              data-testid="r2-upload-input"
+              onChange={(e) => {
+                const f = e.target.files?.[0];
+
+                if (f) {
+                  void upload(f);
+                }
+              }}
+            />
+            <button
+              type="button"
+              data-testid="r2-upload-button"
+              disabled={uploading}
+              onClick={() => fileInputRef.current?.click()}
+              className="min-h-[28px] inline-flex items-center gap-1.5 rounded-lg bg-bolt-elements-item-backgroundAccent px-2.5 py-1 text-xs font-semibold text-bolt-elements-item-contentAccent hover:bg-bolt-elements-background-depth-3 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-bolt-elements-item-contentAccent cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed shrink-0"
+            >
+              <div
                 className={classNames(
-                  'text-xs rounded px-1.5 py-0.5 shrink-0 cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-bolt-elements-item-contentAccent',
-                  c.prefix === prefix
-                    ? 'text-bolt-elements-item-contentAccent font-semibold'
-                    : 'text-bolt-elements-textSecondary hover:text-bolt-elements-textPrimary',
+                  uploading ? 'i-ph:circle-notch animate-spin motion-reduce:animate-none' : 'i-ph:upload-simple-duotone',
+                  'text-sm',
                 )}
-              >
-                {c.label}
-              </button>
-            </React.Fragment>
-          ))}
-        </nav>
-
-        <input
-          ref={fileInputRef}
-          type="file"
-          className="hidden"
-          data-testid="r2-upload-input"
-          onChange={(e) => {
-            const f = e.target.files?.[0];
-
-            if (f) {
-              void upload(f);
-            }
-          }}
-        />
-        <button
-          type="button"
-          data-testid="r2-upload-button"
-          disabled={uploading}
-          onClick={() => fileInputRef.current?.click()}
-          className="min-h-[28px] inline-flex items-center gap-1.5 rounded-lg bg-bolt-elements-item-backgroundAccent px-2.5 py-1 text-xs font-semibold text-bolt-elements-item-contentAccent hover:bg-bolt-elements-background-depth-3 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-bolt-elements-item-contentAccent cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed shrink-0"
-        >
-          <div
-            className={classNames(
-              uploading ? 'i-ph:circle-notch animate-spin motion-reduce:animate-none' : 'i-ph:upload-simple-duotone',
-              'text-sm',
-            )}
-          />
-          <span className="inline-block text-center">{uploading ? 'Uploading' : 'Upload'}</span>
-        </button>
-        {/* Live affordance — the listing self-updates on a visibility-aware poll; no manual Refresh
-            (per `real-time-data-no-manual-refresh`). */}
-        <span
-          className="hidden sm:inline-flex items-center gap-1.5 text-[10px] text-bolt-elements-textTertiary select-none shrink-0"
-          role="status"
-          aria-live="off"
-          title="This view updates itself automatically"
-        >
-          <span
-            aria-hidden="true"
-            className="h-1.5 w-1.5 rounded-full bg-bolt-elements-item-contentAccent animate-pulse motion-reduce:animate-none"
-          />
-          Live
-        </span>
-      </div>
+              />
+              <span className="inline-block text-center">{uploading ? 'Uploading' : 'Upload'}</span>
+            </button>
+            {/* Live affordance — the listing self-updates on a visibility-aware poll; no manual Refresh
+                (per `real-time-data-no-manual-refresh`). */}
+            <span
+              className="hidden sm:inline-flex items-center gap-1.5 text-[10px] text-bolt-elements-textTertiary select-none shrink-0"
+              role="status"
+              aria-live="off"
+              title="This view updates itself automatically"
+            >
+              <span
+                aria-hidden="true"
+                className="h-1.5 w-1.5 rounded-full bg-bolt-elements-item-contentAccent animate-pulse motion-reduce:animate-none"
+              />
+              Live
+            </span>
+          </>
+        }
+      />
 
       {banner && (
         <div
@@ -701,6 +711,6 @@ export const R2Browser = memo(({ target, mutate }: R2BrowserProps) => {
           }}
         />
       )}
-    </div>
+    </PanelShell>
   );
 });

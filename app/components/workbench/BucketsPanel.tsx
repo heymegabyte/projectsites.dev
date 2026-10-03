@@ -22,6 +22,7 @@
  */
 import React, { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { classNames } from '~/utils/classNames';
+import { PanelShell, PanelHeader } from './panel';
 import {
   isEmbedded,
   postToastToParent,
@@ -438,18 +439,15 @@ export const BucketsPanel = memo(() => {
 
   if (buckets.status === 'disabled') {
     return (
-      <div className="h-full flex flex-col bg-bolt-elements-background-depth-1 text-bolt-elements-textPrimary [color-scheme:dark]">
+      <PanelShell>
         <BucketsHeader buckets={[]} objectOpsAvailable={false} onCreate={() => {}} createDisabled />
         <DisabledCard />
-      </div>
+      </PanelShell>
     );
   }
 
   return (
-    <div
-      className="h-full flex flex-col bg-bolt-elements-background-depth-1 text-bolt-elements-textPrimary [color-scheme:dark]"
-      data-testid="buckets-panel"
-    >
+    <PanelShell testId="buckets-panel">
       <BucketsHeader
         buckets={buckets.status === 'ready' ? buckets.buckets : []}
         objectOpsAvailable={objectOpsAvailable}
@@ -513,7 +511,7 @@ export const BucketsPanel = memo(() => {
           onClose={() => setAddressTarget(null)}
         />
       )}
-    </div>
+    </PanelShell>
   );
 });
 
@@ -533,42 +531,27 @@ const BucketsHeader = memo(
     onCreate: () => void;
     createDisabled?: boolean;
   }) => {
-    // POLISH 3: usage rollup across all buckets (count + a subtle quota bar + est. monthly cost).
+    // POLISH 3: usage rollup across all buckets (count + est. monthly cost surfaced in the object list).
     const count = buckets.length;
     return (
-      <div className="relative border-b border-bolt-elements-borderColor shrink-0 overflow-hidden">
-        {/* POLISH 2: cinematic cyan→purple brand wash across the header. */}
-        <div
-          aria-hidden="true"
-          className="pointer-events-none absolute inset-0"
-          style={{
-            background:
-              'radial-gradient(120% 140% at 0% 0%, color-mix(in oklch, #00e5ff 12%, transparent), transparent 42%), ' +
-              'radial-gradient(90% 120% at 100% 0%, color-mix(in oklch, #7c3aed 12%, transparent), transparent 46%)',
-          }}
-        />
-        <div className="relative flex items-center gap-3 px-4 py-3">
-          <div className="flex items-center justify-center h-9 w-9 rounded-xl border border-bolt-elements-item-contentAccent/30 bg-bolt-elements-item-contentAccent/[0.08] shadow-inner shadow-bolt-elements-item-contentAccent/10 shrink-0">
-            <div className="i-ph:bucket-duotone text-xl text-bolt-elements-item-contentAccent" />
-          </div>
-          <div className="min-w-0 flex-1">
-            <h2 className="text-sm font-semibold text-bolt-elements-textPrimary tracking-tight">Buckets</h2>
-            <p className="text-[10px] text-bolt-elements-textTertiary truncate tabular-nums">
-              {count > 0 ? (
-                <>
-                  <span className="text-bolt-elements-textSecondary font-medium">{count}</span> bucket
-                  {count === 1 ? '' : 's'}
-                  {!objectOpsAvailable && (
-                    <span className="text-bolt-elements-textTertiary"> · object ops need R2 keys</span>
-                  )}
-                </>
-              ) : (
-                'Your site’s own R2 object storage'
+      <PanelHeader
+        icon="i-ph:bucket-duotone"
+        title="Buckets"
+        subtitle={
+          count > 0 ? (
+            <span className="tabular-nums">
+              <span className="text-bolt-elements-textSecondary font-medium">{count}</span> bucket
+              {count === 1 ? '' : 's'}
+              {!objectOpsAvailable && (
+                <span className="text-bolt-elements-textTertiary"> · object ops need R2 keys</span>
               )}
-            </p>
-          </div>
-
-          <div className="ml-auto flex items-center gap-2 shrink-0">
+            </span>
+          ) : (
+            'Your site’s own R2 object storage'
+          )
+        }
+        actions={
+          <>
             {/* POLISH 4: primary label span reserves its widest state so the button never resizes. */}
             <button
               type="button"
@@ -595,9 +578,9 @@ const BucketsHeader = memo(
               />
               Live
             </span>
-          </div>
-        </div>
-      </div>
+          </>
+        }
+      />
     );
   },
 );
