@@ -55,8 +55,7 @@ vi.mock('~/lib/embed/embedded-mode', () => ({
 // SiteTablesPanel uses @tanstack/react-virtual — stub it (jsdom has no layout engine).
 vi.mock('@tanstack/react-virtual', () => ({
   useVirtualizer: vi.fn(({ count }: { count: number }) => ({
-    getVirtualItems: () =>
-      Array.from({ length: count }, (_, i) => ({ key: i, index: i, start: i * 34, size: 34 })),
+    getVirtualItems: () => Array.from({ length: count }, (_, i) => ({ key: i, index: i, start: i * 34, size: 34 })),
     getTotalSize: () => count * 34,
   })),
 }));
@@ -386,9 +385,7 @@ async function replyKvList(
         action: 'list',
         ...(payload.enabled === undefined ? {} : { enabled: payload.enabled }),
         ...(payload.error ? { error: payload.error } : {}),
-        ...(payload.error
-          ? {}
-          : { result: { ok: true, data: { keys: payload.keys ?? [], listComplete: true } } }),
+        ...(payload.error ? {} : { result: { ok: true, data: { keys: payload.keys ?? [], listComplete: true } } }),
       });
     }
   });

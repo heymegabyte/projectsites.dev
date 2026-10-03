@@ -19,10 +19,7 @@ import { readFileSync } from 'node:fs';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-const SRC = readFileSync(
-  join(dirname(fileURLToPath(import.meta.url)), '..', 'ResourcesPanel.tsx'),
-  'utf8',
-);
+const SRC = readFileSync(join(dirname(fileURLToPath(import.meta.url)), '..', 'ResourcesPanel.tsx'), 'utf8');
 
 describe('ResourcesPanel real-time contract (fire-55)', () => {
   it('renders no manual Refresh/Reconcile control', () => {

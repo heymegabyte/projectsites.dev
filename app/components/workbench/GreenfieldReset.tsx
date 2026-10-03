@@ -23,12 +23,7 @@ import { memo, useCallback, useEffect, useRef, useState } from 'react';
 
 import type { ResetRequestMessage, ResetResponseMessage } from '~/lib/embed/embedded-mode';
 import { classNames } from '~/utils/classNames';
-import {
-  isResetConfirmed,
-  isResetEmpty,
-  summarizeResetImpact,
-  RESET_KEYWORD,
-} from './greenfield-reset-logic';
+import { isResetConfirmed, isResetEmpty, summarizeResetImpact, RESET_KEYWORD } from './greenfield-reset-logic';
 
 export interface GreenfieldResetProps {
   /** Post a bridge request to the admin parent (preview or execute). */
@@ -126,18 +121,14 @@ export const GreenfieldReset = memo(({ postToParent }: GreenfieldResetProps) => 
   const confirmed = isResetConfirmed(typed, deriveSlug(siteName));
 
   return (
-    <div
-      data-testid="greenfield-reset"
-      className="rounded-lg border border-red-500/40 bg-red-500/[0.04] p-3 space-y-3"
-    >
+    <div data-testid="greenfield-reset" className="rounded-lg border border-red-500/40 bg-red-500/[0.04] p-3 space-y-3">
       <div className="flex items-start gap-2">
         <div className="i-ph:warning-octagon-fill text-red-400 text-lg shrink-0 mt-px" />
         <div className="min-w-0">
           <div className="text-sm font-semibold text-red-300">Reset this site&rsquo;s data</div>
           <p className="text-[11px] leading-relaxed text-bolt-elements-textSecondary">
-            Wipes this site&rsquo;s <span className="font-medium">own</span> database, cache, and stored
-            files back to a clean slate. A recovery backup is taken first. This never touches other sites
-            or the platform.
+            Wipes this site&rsquo;s <span className="font-medium">own</span> database, cache, and stored files back to a
+            clean slate. A recovery backup is taken first. This never touches other sites or the platform.
           </p>
         </div>
       </div>
@@ -155,7 +146,10 @@ export const GreenfieldReset = memo(({ postToParent }: GreenfieldResetProps) => 
       )}
 
       {phase === 'previewing' && (
-        <div className="flex items-center gap-2 text-[11px] text-bolt-elements-textSecondary" data-testid="greenfield-reset-loading">
+        <div
+          className="flex items-center gap-2 text-[11px] text-bolt-elements-textSecondary"
+          data-testid="greenfield-reset-loading"
+        >
           <div className="i-svg-spinners:90-ring-with-bg text-red-400" /> Taking a backup and reading the data…
         </div>
       )}
@@ -166,7 +160,11 @@ export const GreenfieldReset = memo(({ postToParent }: GreenfieldResetProps) => 
           {preview?.available === false
             ? 'This site has no dedicated data resources yet — nothing to reset.'
             : 'This site&rsquo;s data is already empty — nothing to reset.'}
-          <button type="button" onClick={reset} className="ml-2 underline hover:text-bolt-elements-textPrimary cursor-pointer">
+          <button
+            type="button"
+            onClick={reset}
+            className="ml-2 underline hover:text-bolt-elements-textPrimary cursor-pointer"
+          >
             Close
           </button>
         </div>
@@ -204,7 +202,9 @@ export const GreenfieldReset = memo(({ postToParent }: GreenfieldResetProps) => 
                   Stored files
                 </span>
                 <span className="tabular-nums text-bolt-elements-textTertiary">
-                  {preview.r2?.objectsAvailable === false ? 'count unknown' : `${impact.r2ObjectCount.toLocaleString()} files`}
+                  {preview.r2?.objectsAvailable === false
+                    ? 'count unknown'
+                    : `${impact.r2ObjectCount.toLocaleString()} files`}
                 </span>
               </li>
             </ul>
@@ -217,7 +217,10 @@ export const GreenfieldReset = memo(({ postToParent }: GreenfieldResetProps) => 
 
           {/* The recovery receipt — surfaced BEFORE the wipe so the owner can copy it. */}
           {preview.backupBookmark && (
-            <div className="rounded-md bg-emerald-500/[0.06] border border-emerald-500/30 p-2 text-[10px] text-emerald-300/90" data-testid="greenfield-reset-bookmark">
+            <div
+              className="rounded-md bg-emerald-500/[0.06] border border-emerald-500/30 p-2 text-[10px] text-emerald-300/90"
+              data-testid="greenfield-reset-bookmark"
+            >
               <span className="i-ph:shield-check mr-1 align-[-2px]" />
               Backup taken. Recovery bookmark:{' '}
               <code className="font-mono text-emerald-200 break-all">{preview.backupBookmark}</code>
@@ -225,9 +228,7 @@ export const GreenfieldReset = memo(({ postToParent }: GreenfieldResetProps) => 
           )}
 
           <label className="block text-[11px] text-bolt-elements-textSecondary">
-            Type{' '}
-            <code className="font-mono text-red-300">{deriveSlug(siteName) ?? RESET_KEYWORD}</code>{' '}
-            to confirm:
+            Type <code className="font-mono text-red-300">{deriveSlug(siteName) ?? RESET_KEYWORD}</code> to confirm:
             <input
               type="text"
               value={typed}
@@ -299,7 +300,11 @@ export const GreenfieldReset = memo(({ postToParent }: GreenfieldResetProps) => 
               Some items could not be removed ({result.partialErrors.length}) — retry to finish.
             </p>
           ) : null}
-          <button type="button" onClick={reset} className="text-[11px] underline text-bolt-elements-textSecondary hover:text-bolt-elements-textPrimary cursor-pointer">
+          <button
+            type="button"
+            onClick={reset}
+            className="text-[11px] underline text-bolt-elements-textSecondary hover:text-bolt-elements-textPrimary cursor-pointer"
+          >
             Done
           </button>
         </div>
@@ -310,7 +315,11 @@ export const GreenfieldReset = memo(({ postToParent }: GreenfieldResetProps) => 
           <p className="text-[11px] text-red-400" role="alert">
             {error ?? 'Something went wrong.'}
           </p>
-          <button type="button" onClick={reset} className="text-[11px] underline text-bolt-elements-textSecondary hover:text-bolt-elements-textPrimary cursor-pointer">
+          <button
+            type="button"
+            onClick={reset}
+            className="text-[11px] underline text-bolt-elements-textSecondary hover:text-bolt-elements-textPrimary cursor-pointer"
+          >
             Close
           </button>
         </div>

@@ -315,7 +315,7 @@
   --bolt-elements-item-contentDefault: #8b91a6;
   --bolt-elements-item-contentActive: #f4f4ff;
   --bolt-elements-item-contentAccent: #00e5ff;
-  --bolt-elements-item-backgroundActive: rgba(0, 229, 255, 0.10);
+  --bolt-elements-item-backgroundActive: rgba(0, 229, 255, 0.1);
   --bolt-elements-item-backgroundAccent: rgba(0, 229, 255, 0.12);
 
   /* Icons — fixes vendor dark-theme bug (icon-primary was gray.950 = invisible) */
@@ -330,7 +330,7 @@
   --bolt-elements-actions-background: #0e0e28;
   --bolt-elements-messages-background: #0e0e28;
   --bolt-elements-prompt-background: rgba(10, 10, 24, 0.86);
-  --bolt-elements-cta-background: rgba(0, 229, 255, 0.10);
+  --bolt-elements-cta-background: rgba(0, 229, 255, 0.1);
   --bolt-elements-cta-text: #f4f4ff;
 
   /* Code surfaces */
@@ -338,8 +338,8 @@
   --bolt-elements-code-text: #f4f4ff;
 
   /* Sidebar */
-  --bolt-elements-sidebar-buttonBackgroundDefault: rgba(0, 229, 255, 0.10);
-  --bolt-elements-sidebar-buttonBackgroundHover: rgba(0, 229, 255, 0.20);
+  --bolt-elements-sidebar-buttonBackgroundDefault: rgba(0, 229, 255, 0.1);
+  --bolt-elements-sidebar-buttonBackgroundHover: rgba(0, 229, 255, 0.2);
   --bolt-elements-sidebar-buttonText: #00e5ff;
 
   /* Preview address bar */

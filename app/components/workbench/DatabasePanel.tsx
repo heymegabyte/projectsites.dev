@@ -245,7 +245,6 @@ export const DatabasePanel = memo(() => {
 
 DatabasePanel.displayName = 'DatabasePanel';
 
-
 // ── Tables-view action overlay (renders Import / History / Schema / AiSeed panels on top of the grid) ───
 
 const ACTION_META: Record<TableAction, { title: string; icon: string }> = {
@@ -271,55 +270,55 @@ const TableActionOverlay = memo(
     /** Swap this overlay to the guided Schema builder (the AI-seed empty state's "Create Table" CTA). */
     onSwitchToSchema: () => void;
   }) => {
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') {
-        onClose();
-      }
-    };
+    useEffect(() => {
+      const onKey = (e: KeyboardEvent) => {
+        if (e.key === 'Escape') {
+          onClose();
+        }
+      };
 
-    window.addEventListener('keydown', onKey);
+      window.addEventListener('keydown', onKey);
 
-    return () => window.removeEventListener('keydown', onKey);
-  }, [onClose]);
+      return () => window.removeEventListener('keydown', onKey);
+    }, [onClose]);
 
-  const meta = ACTION_META[action];
+    const meta = ACTION_META[action];
 
-  return (
-    <div
-      className="absolute inset-0 z-30 flex items-stretch justify-end"
-      role="dialog"
-      aria-modal="true"
-      aria-label={meta.title}
-      data-testid="database-action-overlay"
-    >
-      <button
-        type="button"
-        aria-label={`Close ${meta.title}`}
-        onClick={onClose}
-        className="absolute inset-0 bg-black/50 cursor-default motion-safe:animate-[fadeIn_120ms_ease-out]"
-      />
-      <div className="relative w-[min(560px,92%)] h-full bg-bolt-elements-background-depth-1 border-l border-bolt-elements-borderColor shadow-2xl flex flex-col motion-safe:animate-[fadeInRight_160ms_ease-out]">
-        <div className="flex items-center gap-2 px-4 py-3 border-b border-bolt-elements-borderColor shrink-0">
-          <div className={classNames(meta.icon, 'text-lg text-bolt-elements-item-contentAccent')} aria-hidden />
-          <h3 className="text-sm font-semibold text-bolt-elements-textPrimary flex-1 tracking-tight">{meta.title}</h3>
-          <button
-            type="button"
-            onClick={onClose}
-            aria-label="Close"
-            className="min-h-[24px] min-w-[24px] flex items-center justify-center rounded hover:bg-bolt-elements-background-depth-3 text-bolt-elements-textTertiary hover:text-bolt-elements-textPrimary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-bolt-elements-item-contentAccent cursor-pointer"
-          >
-            <div className="i-ph:x text-sm" />
-          </button>
-        </div>
-        <div className="flex-1 min-h-0 overflow-hidden">
-          {action === 'import' && <ImportPanel />}
-          {action === 'history' && <TimeTravelPanel />}
-          {action === 'schema' && <SchemaBuilder />}
-          {action === 'seed' && <AiSeedPanel onCreateTable={onSwitchToSchema} />}
+    return (
+      <div
+        className="absolute inset-0 z-30 flex items-stretch justify-end"
+        role="dialog"
+        aria-modal="true"
+        aria-label={meta.title}
+        data-testid="database-action-overlay"
+      >
+        <button
+          type="button"
+          aria-label={`Close ${meta.title}`}
+          onClick={onClose}
+          className="absolute inset-0 bg-black/50 cursor-default motion-safe:animate-[fadeIn_120ms_ease-out]"
+        />
+        <div className="relative w-[min(560px,92%)] h-full bg-bolt-elements-background-depth-1 border-l border-bolt-elements-borderColor shadow-2xl flex flex-col motion-safe:animate-[fadeInRight_160ms_ease-out]">
+          <div className="flex items-center gap-2 px-4 py-3 border-b border-bolt-elements-borderColor shrink-0">
+            <div className={classNames(meta.icon, 'text-lg text-bolt-elements-item-contentAccent')} aria-hidden />
+            <h3 className="text-sm font-semibold text-bolt-elements-textPrimary flex-1 tracking-tight">{meta.title}</h3>
+            <button
+              type="button"
+              onClick={onClose}
+              aria-label="Close"
+              className="min-h-[24px] min-w-[24px] flex items-center justify-center rounded hover:bg-bolt-elements-background-depth-3 text-bolt-elements-textTertiary hover:text-bolt-elements-textPrimary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-bolt-elements-item-contentAccent cursor-pointer"
+            >
+              <div className="i-ph:x text-sm" />
+            </button>
+          </div>
+          <div className="flex-1 min-h-0 overflow-hidden">
+            {action === 'import' && <ImportPanel />}
+            {action === 'history' && <TimeTravelPanel />}
+            {action === 'schema' && <SchemaBuilder />}
+            {action === 'seed' && <AiSeedPanel onCreateTable={onSwitchToSchema} />}
+          </div>
         </div>
       </div>
-    </div>
     );
   },
 );

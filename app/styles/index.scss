@@ -572,13 +572,7 @@ textarea[placeholder*='ask'] {
   left: 10px;
   right: 10px;
   height: 1px;
-  background: linear-gradient(
-    90deg,
-    transparent,
-    rgba(0, 229, 255, 0.6) 30%,
-    rgba(124, 58, 237, 0.4) 70%,
-    transparent
-  );
+  background: linear-gradient(90deg, transparent, rgba(0, 229, 255, 0.6) 30%, rgba(124, 58, 237, 0.4) 70%, transparent);
   pointer-events: none;
 }
 .ps-import-headline {
@@ -1685,7 +1679,10 @@ button:not(:disabled):not([class*='ResizeHandle']):not([data-panel-resize-handle
    structurally impossible; comprehensive pass.) */
 
 /* ── Native form controls — dark glass surface + brand ink + cyan-tint edge ── */
-[data-theme] input:not([type='checkbox']):not([type='radio']):not([type='range']):not([type='color']):not([type='button']):not([type='submit']):not([type='reset']):not(.ps-allow-surface),
+[data-theme]
+  input:not([type='checkbox']):not([type='radio']):not([type='range']):not([type='color']):not([type='button']):not(
+    [type='submit']
+  ):not([type='reset']):not(.ps-allow-surface),
 [data-theme] textarea:not(.ps-allow-surface),
 [data-theme] select:not(.ps-allow-surface) {
   background-color: var(--bolt-elements-bg-depth-2, #0a0a18);
@@ -1783,13 +1780,38 @@ button:not(:disabled):not([class*='ResizeHandle']):not([data-panel-resize-handle
    `bg-white` / `bg-gray-50/100` / near-white arbitrary fill on any panel, card,
    or wrapper. Repaint to an elevated brand surface so no container flashes
    white. Buttons are excluded (already handled) to avoid double-application. */
-[data-theme] :is(div, section, aside, header, footer, nav, ul, li, span, p, article, main, dl, dt, dd):is(.bg-white, [class*='bg-gray-5'], [class*='bg-gray-1'], [class*='bg-neutral-5'], [class*='bg-neutral-1'], [class*='bg-slate-5'], [class*='bg-slate-1'], [class*='bg-zinc-5'], [class*='bg-zinc-1'], [class*='bg-\[\#fff'], [class*='bg-\[\#FFF'], [class*='bg-\[\#fafafa'], [class*='bg-\[\#f5f5f5']):not(.ps-allow-surface) {
+[data-theme]
+  :is(div, section, aside, header, footer, nav, ul, li, span, p, article, main, dl, dt, dd):is(
+    .bg-white,
+    [class*='bg-gray-5'],
+    [class*='bg-gray-1'],
+    [class*='bg-neutral-5'],
+    [class*='bg-neutral-1'],
+    [class*='bg-slate-5'],
+    [class*='bg-slate-1'],
+    [class*='bg-zinc-5'],
+    [class*='bg-zinc-1'],
+    [class*='bg-\[\#fff'],
+    [class*='bg-\[\#FFF'],
+    [class*='bg-\[\#fafafa'],
+    [class*='bg-\[\#f5f5f5']
+  ):not(.ps-allow-surface) {
   background-color: var(--bolt-elements-bg-depth-2, #0a0a18) !important;
   color: var(--bolt-elements-textPrimary, #f4f4ff);
 }
 
 /* Near-black text utilities on any element read invisible on #060610 → brand ink */
-[data-theme] :is(.text-black, [class*='text-gray-9'], [class*='text-neutral-9'], [class*='text-slate-9'], [class*='text-zinc-9'], [class*='text-\[\#000'], [class*='text-\[\#111'], [class*='text-\[\#1a1a']):not(.ps-allow-surface):not(button):not([role='button']) {
+[data-theme]
+  :is(
+    .text-black,
+    [class*='text-gray-9'],
+    [class*='text-neutral-9'],
+    [class*='text-slate-9'],
+    [class*='text-zinc-9'],
+    [class*='text-\[\#000'],
+    [class*='text-\[\#111'],
+    [class*='text-\[\#1a1a']
+  ):not(.ps-allow-surface):not(button):not([role='button']) {
   color: var(--bolt-elements-textPrimary, #f4f4ff) !important;
 }
 
@@ -1859,10 +1881,15 @@ button:not(:disabled):not([class*='ResizeHandle']):not([data-panel-resize-handle
   flex: none;
 }
 .ps-nebula-ui__msg {
-  font: 500 12.5px/1 'Space Grotesk', system-ui, sans-serif;
+  font:
+    500 12.5px/1 'Space Grotesk',
+    system-ui,
+    sans-serif;
   letter-spacing: 0.02em;
   color: rgba(244, 244, 255, 0.92);
-  text-shadow: 0 1px 10px rgba(124, 58, 237, 0.55), 0 0 2px rgba(0, 0, 0, 0.6);
+  text-shadow:
+    0 1px 10px rgba(124, 58, 237, 0.55),
+    0 0 2px rgba(0, 0, 0, 0.6);
   white-space: nowrap;
   animation: ps-nebula-msg-in 620ms cubic-bezier(0.2, 0.7, 0.2, 1) both;
 }

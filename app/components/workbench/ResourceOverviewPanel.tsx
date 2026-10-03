@@ -318,7 +318,8 @@ export const ResourceOverviewPanel = memo(() => {
   /** Open the generic detail drill-in for a clicked resource card (never passes a CF id — kind + env only). */
   const openDetail = useCallback(
     (entry: ResourceOverviewEntry) => {
-      const env = entry.environment === 'preview' || entry.environment === 'production' ? entry.environment : environment;
+      const env =
+        entry.environment === 'preview' || entry.environment === 'production' ? entry.environment : environment;
       setSelected({
         kind: entry.resource_kind,
         environment: env,
@@ -588,14 +589,10 @@ export const ResourceOverviewPanel = memo(() => {
     }
   }, [overview, reconcile]);
 
-  const groups = useMemo(
-    () => (overview.status === 'ready' ? groupResources(overview.resources) : []),
-    [overview],
-  );
+  const groups = useMemo(() => (overview.status === 'ready' ? groupResources(overview.resources) : []), [overview]);
 
   const driftCount = useMemo(
-    () =>
-      overview.status === 'ready' ? overview.resources.filter((r) => Boolean(r.drift_code)).length : 0,
+    () => (overview.status === 'ready' ? overview.resources.filter((r) => Boolean(r.drift_code)).length : 0),
     [overview],
   );
 
@@ -636,11 +633,7 @@ export const ResourceOverviewPanel = memo(() => {
                 derived from the SAME inventory (no extra fetch). The at-a-glance accounting sits above
                 the per-kind cards. Reconcile runs automatically + silently, so no button is passed;
                 `onOpenKind` makes every supported kind tile a drill-in into its per-kind surface. */}
-            <NamespaceSummary
-              resources={overview.resources}
-              environment={overview.environment}
-              onOpenKind={openKind}
-            />
+            <NamespaceSummary resources={overview.resources} environment={overview.environment} onOpenKind={openKind} />
 
             {groups.map((group) => (
               <ResourceGroupSection key={group.key} group={group} onComingSoon={setNotice} onOpen={openDetail} />
@@ -694,8 +687,7 @@ const Header = memo(
         aria-hidden="true"
         className="pointer-events-none absolute inset-0 opacity-60"
         style={{
-          background:
-            'linear-gradient(90deg, color-mix(in oklch, #00e5ff 8%, transparent), transparent 40%)',
+          background: 'linear-gradient(90deg, color-mix(in oklch, #00e5ff 8%, transparent), transparent 40%)',
         }}
       />
       <div className="relative flex items-center justify-center h-9 w-9 rounded-xl border border-bolt-elements-item-contentAccent/30 bg-bolt-elements-item-contentAccent/[0.08] shrink-0">
@@ -825,8 +817,8 @@ const DisabledCard = memo(() => (
     <div className="i-ph:lock-key text-3xl text-bolt-elements-textTertiary" />
     <p className="text-sm font-medium text-bolt-elements-textSecondary">Resources isn't enabled yet</p>
     <p className="text-[11px] text-bolt-elements-textTertiary max-w-[260px]">
-      Your platform resource view is on the way. Once it's turned on, every database, bucket, and
-      function your site uses shows up here — nothing to set up.
+      Your platform resource view is on the way. Once it's turned on, every database, bucket, and function your site
+      uses shows up here — nothing to set up.
     </p>
   </div>
 ));
@@ -836,16 +828,13 @@ DisabledCard.displayName = 'ResourceOverviewPanel.DisabledCard';
 // ── Empty launchpad ──────────────────────────────────────────────────────────
 
 const EmptyLaunchpad = memo(() => (
-  <div
-    className="flex-1 flex flex-col items-center justify-center gap-4 p-8 text-center"
-    data-testid="resources-empty"
-  >
+  <div className="flex-1 flex flex-col items-center justify-center gap-4 p-8 text-center" data-testid="resources-empty">
     <div className="i-ph:stack text-4xl text-bolt-elements-textTertiary" />
     <div className="space-y-1">
       <p className="text-sm font-semibold text-bolt-elements-textPrimary">No resources yet</p>
       <p className="text-[11px] text-bolt-elements-textTertiary max-w-[300px]">
-        When your site uses a database, storage bucket, queue, or function, it appears here
-        automatically — this view keeps itself up to date, nothing to run.
+        When your site uses a database, storage bucket, queue, or function, it appears here automatically — this view
+        keeps itself up to date, nothing to run.
       </p>
     </div>
     {/* A quiet "watching" pulse — the surface self-detects; there is no button to press. */}
@@ -891,7 +880,10 @@ const ResourceGroupSection = memo(
         <span className="text-[10px] text-bolt-elements-textTertiary tabular-nums">
           {group.entries.length} item{group.entries.length === 1 ? '' : 's'}
         </span>
-        <div className="flex-1 h-px bg-gradient-to-r from-bolt-elements-borderColor/60 to-transparent ml-1" aria-hidden="true" />
+        <div
+          className="flex-1 h-px bg-gradient-to-r from-bolt-elements-borderColor/60 to-transparent ml-1"
+          aria-hidden="true"
+        />
       </div>
 
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
@@ -928,10 +920,22 @@ const ResourceCard = memo(
 
     const availabilityChip =
       availability === 'connected'
-        ? { label: 'Connected', cls: 'text-emerald-400 border-emerald-400/40 bg-emerald-400/10', icon: 'i-ph:plugs-connected' }
+        ? {
+            label: 'Connected',
+            cls: 'text-emerald-400 border-emerald-400/40 bg-emerald-400/10',
+            icon: 'i-ph:plugs-connected',
+          }
         : availability === 'available'
-          ? { label: 'Available to add', cls: 'text-bolt-elements-textTertiary border-bolt-elements-borderColor bg-bolt-elements-background-depth-2', icon: 'i-ph:plus-circle' }
-          : { label: 'Unsupported', cls: 'text-amber-400/90 border-amber-400/40 bg-amber-400/10', icon: 'i-ph:prohibit' };
+          ? {
+              label: 'Available to add',
+              cls: 'text-bolt-elements-textTertiary border-bolt-elements-borderColor bg-bolt-elements-background-depth-2',
+              icon: 'i-ph:plus-circle',
+            }
+          : {
+              label: 'Unsupported',
+              cls: 'text-amber-400/90 border-amber-400/40 bg-amber-400/10',
+              icon: 'i-ph:prohibit',
+            };
 
     const isAddable = availability === 'available';
 
@@ -1027,7 +1031,9 @@ const ResourceCard = memo(
         {entry.binding_name ? (
           <div className="flex items-center gap-1.5 min-w-0" title={`Binding: ${entry.binding_name}`}>
             <div className="i-ph:plug text-[11px] text-bolt-elements-textTertiary shrink-0" />
-            <code className="text-[11px] font-mono text-bolt-elements-textSecondary truncate">{entry.binding_name}</code>
+            <code className="text-[11px] font-mono text-bolt-elements-textSecondary truncate">
+              {entry.binding_name}
+            </code>
           </div>
         ) : (
           <div className="flex items-center gap-1.5 text-[10px] text-bolt-elements-textTertiary italic">
@@ -1065,7 +1071,12 @@ const ResourceCard = memo(
             <div className="i-ph:users-three text-[9px]" />
             {humanizeToken(entry.tenancy) || 'Tenancy n/a'}
           </span>
-          <span className={classNames('inline-flex items-center gap-1 text-[9px] uppercase tracking-wider px-1.5 py-0.5 rounded-full border', availabilityChip.cls)}>
+          <span
+            className={classNames(
+              'inline-flex items-center gap-1 text-[9px] uppercase tracking-wider px-1.5 py-0.5 rounded-full border',
+              availabilityChip.cls,
+            )}
+          >
             <div className={classNames(availabilityChip.icon, 'text-[9px]')} />
             {availabilityChip.label}
           </span>
@@ -1080,7 +1091,9 @@ const ResourceCard = memo(
           {isAddable && (
             <button
               type="button"
-              onClick={() => onComingSoon(`Adding ${entry.resource_concept || titleForKind(entry.resource_kind)} is coming next.`)}
+              onClick={() =>
+                onComingSoon(`Adding ${entry.resource_concept || titleForKind(entry.resource_kind)} is coming next.`)
+              }
               data-testid="resources-add"
               className="min-h-[24px] text-[10px] font-medium px-2 py-1 rounded border border-bolt-elements-item-contentAccent/50 bg-bolt-elements-background-depth-1 text-bolt-elements-item-contentAccent hover:bg-bolt-elements-background-depth-3 transition-colors flex items-center gap-1 shrink-0 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-bolt-elements-item-contentAccent cursor-pointer"
             >

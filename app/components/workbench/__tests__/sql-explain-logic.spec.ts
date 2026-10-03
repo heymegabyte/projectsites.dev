@@ -71,11 +71,7 @@ describe('sql-explain-logic — compose + gate + dispatch', () => {
   });
 
   it('builds the PS_SUBMIT_PROMPT dispatch that reuses the existing chat', () => {
-    const dispatch = buildExplainDispatch(
-      { sql: 'SELECT * FROM orders', rows: [{ total: 42 }] },
-      'site_123',
-      'acme',
-    );
+    const dispatch = buildExplainDispatch({ sql: 'SELECT * FROM orders', rows: [{ total: 42 }] }, 'site_123', 'acme');
 
     expect(dispatch).not.toBeNull();
     expect(dispatch!.type).toBe('PS_SUBMIT_PROMPT'); // the EXISTING chat auto-submit message — no new endpoint

@@ -61,8 +61,13 @@ describe('toast legibility — UA ButtonFace neutralizer (white "Loaded N files"
      * (author > UA) while every utility + component rule wins. Specificity side
      * is locked by accent-pill-ink-contrast.spec.ts.
      */
-    const rule = indexScss.match(/(^|\n):where\(\s*button\s*,[^{)]*\[type=['"]button['"]\][^{)]*\[type=['"]submit['"]\][^{)]*\)\s*\{([^}]*)\}/);
-    expect(rule, 'expected a `:where(button, [type=button], [type=reset], [type=submit])` rule in index.scss').toBeTruthy();
+    const rule = indexScss.match(
+      /(^|\n):where\(\s*button\s*,[^{)]*\[type=['"]button['"]\][^{)]*\[type=['"]submit['"]\][^{)]*\)\s*\{([^}]*)\}/,
+    );
+    expect(
+      rule,
+      'expected a `:where(button, [type=button], [type=reset], [type=submit])` rule in index.scss',
+    ).toBeTruthy();
     expect(rule![2]).toMatch(/background-color:\s*transparent/);
   });
 });
@@ -109,6 +114,9 @@ describe('toast legibility — resolved brand tokens meet WCAG AA (1.4.3)', () =
     expect(ink, 'brand override must pin a hex --bolt-elements-textPrimary').toBeTruthy();
 
     const ratio = contrast(surface![1], ink![1]);
-    expect(ratio, `toast ink ${ink![1]} on surface ${surface![1]} must be ≥ 4.5:1, got ${ratio.toFixed(2)}:1`).toBeGreaterThanOrEqual(4.5);
+    expect(
+      ratio,
+      `toast ink ${ink![1]} on surface ${surface![1]} must be ≥ 4.5:1, got ${ratio.toFixed(2)}:1`,
+    ).toBeGreaterThanOrEqual(4.5);
   });
 });

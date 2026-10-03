@@ -40,7 +40,12 @@ const { postToParentSpy, onParentMessageSpy, parentHandlers } = vi.hoisted(() =>
 });
 
 const { requestDbLoadSampleSpy, requestDbAiSeedSpy, postToastToParentSpy, requestDbAddColumnSpy } = vi.hoisted(() => ({
-  requestDbLoadSampleSpy: vi.fn(async () => ({ type: 'PS_DB_LOAD_SAMPLE_RESULT', ok: true, tablesCreated: 1, tables: ['sample'] })),
+  requestDbLoadSampleSpy: vi.fn(async () => ({
+    type: 'PS_DB_LOAD_SAMPLE_RESULT',
+    ok: true,
+    tablesCreated: 1,
+    tables: ['sample'],
+  })),
   requestDbAiSeedSpy: vi.fn(async () => ({ type: 'PS_DB_AI_SEED_RESULT', ok: true, rowsInserted: 10, table: 'posts' })),
   postToastToParentSpy: vi.fn(),
   // Add-column now flows through the dedicated typed bridge (POST /db/tables/:table/columns), NOT an
@@ -65,7 +70,12 @@ vi.mock('~/lib/embed/embedded-mode', () => ({
   requestDbAddColumn: requestDbAddColumnSpy,
   requestDbRenameColumn: vi.fn(async () => ({ type: 'PS_SITEDB_RENAME_COLUMN_RESPONSE', ok: true })),
   requestDbDropColumn: vi.fn(async () => ({ type: 'PS_SITEDB_DROP_COLUMN_RESPONSE', ok: true })),
-  requestDbSearch: vi.fn(async () => ({ type: 'PS_SITEDB_SEARCH_RESPONSE', ok: true, nameMatches: [], contentMatches: [] })),
+  requestDbSearch: vi.fn(async () => ({
+    type: 'PS_SITEDB_SEARCH_RESPONSE',
+    ok: true,
+    nameMatches: [],
+    contentMatches: [],
+  })),
   requestDbUpdateRow: vi.fn(async () => ({ type: 'PS_SITEDB_UPDATE_ROW_RESPONSE', ok: true, updated: 1 })),
 }));
 
@@ -311,7 +321,10 @@ describe('grid engine primitives (wired into the panel)', () => {
 
   it('toCsv / toTsv / toJsonRows serialize the WHOLE set with the engine escaping', () => {
     const cols = ['id', 'title'];
-    const rows = [{ id: 1, title: 'a,b' }, { id: 2, title: 'x' }];
+    const rows = [
+      { id: 1, title: 'a,b' },
+      { id: 2, title: 'x' },
+    ];
 
     const csv = toCsv(cols, rows);
     expect(csv.split('\r\n')[0]).toBe('Id,Title'); // columnLabel humanizes the header
@@ -689,10 +702,9 @@ describe('add row', () => {
     // The INSERT must NOT include the INTEGER PK "id" (it autoincrements).
     const insert = postToParentSpy.mock.calls
       .map((c) => c[0])
-      .find(
-        (m: unknown) =>
-          (m as { input?: { sql?: string } })?.input?.sql?.startsWith('INSERT INTO "posts"'),
-      ) as { input: { sql: string } };
+      .find((m: unknown) => (m as { input?: { sql?: string } })?.input?.sql?.startsWith('INSERT INTO "posts"')) as {
+      input: { sql: string };
+    };
     expect(insert.input.sql).not.toContain('"id"');
   });
 });
@@ -839,7 +851,9 @@ describe('AI-native features', () => {
       })
       .mockResolvedValue({
         ok: true,
-        json: async () => ({ text: '{"conditions":[{"col":"views","op":"gt","val":"50"}],"combinator":"AND","sorts":[]}' }),
+        json: async () => ({
+          text: '{"conditions":[{"col":"views","op":"gt","val":"50"}],"combinator":"AND","sorts":[]}',
+        }),
       });
 
     await openRichTable();

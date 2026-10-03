@@ -229,7 +229,8 @@ export const BucketsPanel = memo(() => {
   const refreshBuckets = useCallback(async () => {
     try {
       const reply = await requestR2({ op: 'listBuckets' });
-      if (reply.ok) setBuckets({ status: 'ready', buckets: reply.buckets ?? [], objectOpsAvailable: !!reply.objectOpsAvailable });
+      if (reply.ok)
+        setBuckets({ status: 'ready', buckets: reply.buckets ?? [], objectOpsAvailable: !!reply.objectOpsAvailable });
     } catch {
       /* keep prior list on a transient refresh error */
     }
@@ -321,7 +322,10 @@ export const BucketsPanel = memo(() => {
         postToastToParent(reply.needsCreds ? 'warning' : 'error', reply.error || 'Could not promote the bucket.');
         return;
       }
-      postToastToParent('success', `Promoted ${reply.objectsCopied ?? 0} object${(reply.objectsCopied ?? 0) === 1 ? '' : 's'} to production.`);
+      postToastToParent(
+        'success',
+        `Promoted ${reply.objectsCopied ?? 0} object${(reply.objectsCopied ?? 0) === 1 ? '' : 's'} to production.`,
+      );
       void refreshBuckets();
     },
     [refreshBuckets],
@@ -337,7 +341,10 @@ export const BucketsPanel = memo(() => {
   }
 
   return (
-    <div className="h-full flex flex-col bg-bolt-elements-background-depth-1 text-bolt-elements-textPrimary [color-scheme:dark]" data-testid="buckets-panel">
+    <div
+      className="h-full flex flex-col bg-bolt-elements-background-depth-1 text-bolt-elements-textPrimary [color-scheme:dark]"
+      data-testid="buckets-panel"
+    >
       <BucketsHeader
         buckets={buckets.status === 'ready' ? buckets.buckets : []}
         objectOpsAvailable={objectOpsAvailable}
@@ -388,8 +395,16 @@ export const BucketsPanel = memo(() => {
       </div>
 
       {showCreate && <CreateBucketModal onClose={() => setShowCreate(false)} onCreated={onCreated} />}
-      {deleteTarget && <DeleteBucketModal bucket={deleteTarget} onClose={() => setDeleteTarget(null)} onDeleted={onDeleted} />}
-      {addressTarget && <AddressModal bucket={addressTarget.bucket} address={addressTarget.address} onClose={() => setAddressTarget(null)} />}
+      {deleteTarget && (
+        <DeleteBucketModal bucket={deleteTarget} onClose={() => setDeleteTarget(null)} onDeleted={onDeleted} />
+      )}
+      {addressTarget && (
+        <AddressModal
+          bucket={addressTarget.bucket}
+          address={addressTarget.address}
+          onClose={() => setAddressTarget(null)}
+        />
+      )}
     </div>
   );
 });
@@ -433,8 +448,11 @@ const BucketsHeader = memo(
             <p className="text-[10px] text-bolt-elements-textTertiary truncate tabular-nums">
               {count > 0 ? (
                 <>
-                  <span className="text-bolt-elements-textSecondary font-medium">{count}</span> bucket{count === 1 ? '' : 's'}
-                  {!objectOpsAvailable && <span className="text-bolt-elements-textTertiary"> · object ops need R2 keys</span>}
+                  <span className="text-bolt-elements-textSecondary font-medium">{count}</span> bucket
+                  {count === 1 ? '' : 's'}
+                  {!objectOpsAvailable && (
+                    <span className="text-bolt-elements-textTertiary"> · object ops need R2 keys</span>
+                  )}
                 </>
               ) : (
                 'Your site’s own R2 object storage'
@@ -444,7 +462,14 @@ const BucketsHeader = memo(
 
           <div className="ml-auto flex items-center gap-2 shrink-0">
             {/* POLISH 4: primary label span reserves its widest state so the button never resizes. */}
-            <button type="button" onClick={onCreate} disabled={createDisabled} data-testid="buckets-create" title="Create a new bucket" className={classNames(BTN_PRIMARY, 'min-h-[26px] px-3 py-1 text-[11px]')}>
+            <button
+              type="button"
+              onClick={onCreate}
+              disabled={createDisabled}
+              data-testid="buckets-create"
+              title="Create a new bucket"
+              className={classNames(BTN_PRIMARY, 'min-h-[26px] px-3 py-1 text-[11px]')}
+            >
               <div className="i-ph:plus-bold text-sm shrink-0" aria-hidden />
               <span className="min-w-[9ch] text-center">New bucket</span>
             </button>
@@ -537,10 +562,18 @@ const BucketList = memo(
           >
             <div className="flex items-center gap-2 min-w-0">
               <div
-                className={classNames('i-ph:bucket-duotone text-base shrink-0', active ? 'text-bolt-elements-item-contentAccent' : 'text-bolt-elements-textTertiary group-hover:text-bolt-elements-item-contentAccent')}
+                className={classNames(
+                  'i-ph:bucket-duotone text-base shrink-0',
+                  active
+                    ? 'text-bolt-elements-item-contentAccent'
+                    : 'text-bolt-elements-textTertiary group-hover:text-bolt-elements-item-contentAccent',
+                )}
                 aria-hidden
               />
-              <span className="text-[12px] font-medium text-bolt-elements-textPrimary truncate flex-1" title={bucket.name}>
+              <span
+                className="text-[12px] font-medium text-bolt-elements-textPrimary truncate flex-1"
+                title={bucket.name}
+              >
                 {bucket.name}
               </span>
               {bucket.isDefault && (
@@ -560,18 +593,25 @@ const BucketList = memo(
                 className="inline-flex items-center gap-0.5"
                 title={bucket.public ? 'Public — has a public base URL' : 'Private'}
               >
-                <div className={classNames(bucket.public ? 'i-ph:globe-simple' : 'i-ph:lock-simple', 'text-[10px]')} aria-hidden />
+                <div
+                  className={classNames(bucket.public ? 'i-ph:globe-simple' : 'i-ph:lock-simple', 'text-[10px]')}
+                  aria-hidden
+                />
                 {bucket.public ? 'Public' : 'Private'}
               </span>
               {bucket.environment && (
                 <>
-                  <span className="opacity-40" aria-hidden>·</span>
+                  <span className="opacity-40" aria-hidden>
+                    ·
+                  </span>
                   <span>{bucket.environment}</span>
                 </>
               )}
               {bucket.createdAt && formatRelativeTime(bucket.createdAt) && (
                 <>
-                  <span className="opacity-40" aria-hidden>·</span>
+                  <span className="opacity-40" aria-hidden>
+                    ·
+                  </span>
                   <span>{formatRelativeTime(bucket.createdAt)}</span>
                 </>
               )}
@@ -676,7 +716,13 @@ const ObjectBrowser = memo(
         }
         setObjects({ status: 'loading' });
         try {
-          const reply = await requestR2({ op: 'listObjects', bucket: bucket.name, prefix: prefix || undefined, delimiter: '/', cursor });
+          const reply = await requestR2({
+            op: 'listObjects',
+            bucket: bucket.name,
+            prefix: prefix || undefined,
+            delimiter: '/',
+            cursor,
+          });
           if (!reply.ok) {
             if (reply.needsCreds) {
               setObjects({ status: 'needs-creds', message: reply.error || 'Object ops need R2 S3 credentials.' });
@@ -725,7 +771,12 @@ const ObjectBrowser = memo(
         try {
           const key = `${prefix}${file.name}`;
           const dataUrl = await fileToDataUrl(file);
-          const reply = await requestBucketUpload({ bucket: bucket.name, key, contentType: file.type || 'application/octet-stream', dataUrl });
+          const reply = await requestBucketUpload({
+            bucket: bucket.name,
+            key,
+            contentType: file.type || 'application/octet-stream',
+            dataUrl,
+          });
           if (!reply.ok) {
             postToastToParent(reply.needsCreds ? 'warning' : 'error', reply.error || 'Upload failed.');
             return;
@@ -763,7 +814,9 @@ const ObjectBrowser = memo(
             return;
           }
           postToastToParent('success', `Deleted ${key.split('/').pop()}.`);
-          setObjects((cur) => (cur.status === 'ready' ? { ...cur, objects: cur.objects.filter((o) => o.key !== key) } : cur));
+          setObjects((cur) =>
+            cur.status === 'ready' ? { ...cur, objects: cur.objects.filter((o) => o.key !== key) } : cur,
+          );
           setSelected((cur) => {
             const next = new Set(cur);
             next.delete(key);
@@ -821,7 +874,11 @@ const ObjectBrowser = memo(
     const copyObjectUrl = useCallback(
       async (key: string) => {
         const publicBase = bucket.publicUrl || bucket.address?.publicUrl;
-        const url = publicBase ? `${publicBase.replace(/\/$/, '')}/${key}` : bucket.address ? `${bucket.address.s3Endpoint}/${bucket.address.bucketName}/${key}` : key;
+        const url = publicBase
+          ? `${publicBase.replace(/\/$/, '')}/${key}`
+          : bucket.address
+            ? `${bucket.address.s3Endpoint}/${bucket.address.bucketName}/${key}`
+            : key;
         const ok = await copyText(url);
         postToastToParent(ok ? 'success' : 'error', ok ? 'Object URL copied.' : 'Could not copy the URL.');
       },
@@ -877,20 +934,37 @@ const ObjectBrowser = memo(
     const allSelected = shownObjects.length > 0 && shownObjects.every((o) => selected.has(o.key));
 
     return (
-      <div className="relative flex-1 flex flex-col min-h-0" onDragEnter={onDragEnter} onDragOver={onDragOver} onDragLeave={onDragLeave} onDrop={onDrop}>
+      <div
+        className="relative flex-1 flex flex-col min-h-0"
+        onDragEnter={onDragEnter}
+        onDragOver={onDragOver}
+        onDragLeave={onDragLeave}
+        onDrop={onDrop}
+      >
         {/* Toolbar */}
         <div className="flex items-center gap-2 px-3 py-2 border-b border-bolt-elements-borderColor/60 shrink-0 overflow-x-auto">
           {/* Breadcrumbs */}
           <nav className="flex items-center gap-1 text-[11px] min-w-0" aria-label="Prefix breadcrumbs">
-            <button type="button" onClick={() => setPrefix('')} className="inline-flex items-center gap-1 text-bolt-elements-item-contentAccent hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-bolt-elements-item-contentAccent rounded px-0.5" title={bucket.name}>
+            <button
+              type="button"
+              onClick={() => setPrefix('')}
+              className="inline-flex items-center gap-1 text-bolt-elements-item-contentAccent hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-bolt-elements-item-contentAccent rounded px-0.5"
+              title={bucket.name}
+            >
               <div className="i-ph:bucket text-xs" aria-hidden /> {bucket.name}
             </button>
             {segments.map((seg, i) => {
               const to = segments.slice(0, i + 1).join('/') + '/';
               return (
                 <span key={to} className="inline-flex items-center gap-1 min-w-0">
-                  <span className="text-bolt-elements-textTertiary" aria-hidden>/</span>
-                  <button type="button" onClick={() => setPrefix(to)} className="text-bolt-elements-textSecondary hover:text-bolt-elements-item-contentAccent truncate max-w-[120px] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-bolt-elements-item-contentAccent rounded px-0.5">
+                  <span className="text-bolt-elements-textTertiary" aria-hidden>
+                    /
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => setPrefix(to)}
+                    className="text-bolt-elements-textSecondary hover:text-bolt-elements-item-contentAccent truncate max-w-[120px] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-bolt-elements-item-contentAccent rounded px-0.5"
+                  >
                     {seg}
                   </button>
                 </span>
@@ -931,7 +1005,13 @@ const ObjectBrowser = memo(
               <option value="time">Newest</option>
             </select>
             {/* Copy bucket address */}
-            <button type="button" onClick={onCopyBucketAddress} title="Copy the bucket address" aria-label="Copy bucket address" className={classNames(BTN_GHOST, 'min-h-[26px] px-2 py-1 text-[11px]')}>
+            <button
+              type="button"
+              onClick={onCopyBucketAddress}
+              title="Copy the bucket address"
+              aria-label="Copy bucket address"
+              className={classNames(BTN_GHOST, 'min-h-[26px] px-2 py-1 text-[11px]')}
+            >
               <div className="i-ph:link text-sm" /> Address
             </button>
             {/* Upload — label reserves widest state so it never resizes. */}
@@ -943,7 +1023,13 @@ const ObjectBrowser = memo(
               title={objectOpsAvailable ? 'Upload files to this bucket' : 'Object uploads need R2 S3 credentials'}
               className={classNames(BTN_PRIMARY, 'min-h-[26px] px-3 py-1 text-[11px]')}
             >
-              <div className={classNames(uploading ? 'i-ph:circle-notch animate-spin motion-reduce:animate-none' : 'i-ph:upload-simple-bold', 'text-sm shrink-0')} aria-hidden />
+              <div
+                className={classNames(
+                  uploading ? 'i-ph:circle-notch animate-spin motion-reduce:animate-none' : 'i-ph:upload-simple-bold',
+                  'text-sm shrink-0',
+                )}
+                aria-hidden
+              />
               <span className="min-w-[8ch] text-center">{uploading ? 'Uploading…' : 'Upload'}</span>
             </button>
           </div>
@@ -951,12 +1037,26 @@ const ObjectBrowser = memo(
 
         {/* Bulk-action bar (visible only with a selection). */}
         {selected.size > 0 && (
-          <div className="flex items-center gap-2 px-3 py-1.5 border-b border-bolt-elements-borderColor/40 bg-bolt-elements-item-contentAccent/[0.05] shrink-0" data-testid="buckets-bulk-bar">
-            <span className="text-[11px] text-bolt-elements-item-contentAccent font-medium tabular-nums">{selected.size} selected</span>
-            <button type="button" onClick={() => setSelected(new Set())} className={classNames(BTN_GHOST, 'min-h-[24px] px-2 py-0.5 text-[10px]')}>
+          <div
+            className="flex items-center gap-2 px-3 py-1.5 border-b border-bolt-elements-borderColor/40 bg-bolt-elements-item-contentAccent/[0.05] shrink-0"
+            data-testid="buckets-bulk-bar"
+          >
+            <span className="text-[11px] text-bolt-elements-item-contentAccent font-medium tabular-nums">
+              {selected.size} selected
+            </span>
+            <button
+              type="button"
+              onClick={() => setSelected(new Set())}
+              className={classNames(BTN_GHOST, 'min-h-[24px] px-2 py-0.5 text-[10px]')}
+            >
               Clear
             </button>
-            <button type="button" onClick={() => void bulkDelete()} className={classNames(BTN_DESTRUCTIVE, 'min-h-[24px] px-2 py-0.5 text-[10px] ml-auto')} data-testid="buckets-bulk-delete">
+            <button
+              type="button"
+              onClick={() => void bulkDelete()}
+              className={classNames(BTN_DESTRUCTIVE, 'min-h-[24px] px-2 py-0.5 text-[10px] ml-auto')}
+              data-testid="buckets-bulk-delete"
+            >
               <div className="i-ph:trash text-xs" /> Delete selected
             </button>
           </div>
@@ -971,7 +1071,12 @@ const ObjectBrowser = memo(
           ) : objects.status === 'error' ? (
             <ErrorCard message={objects.message} onRetry={() => void loadObjects()} />
           ) : shownObjects.length === 0 && objects.prefixes.length === 0 ? (
-            <ObjectsEmpty hasFilter={!!search.trim()} uploading={uploading} onUpload={() => fileInputRef.current?.click()} objectOpsAvailable={objectOpsAvailable} />
+            <ObjectsEmpty
+              hasFilter={!!search.trim()}
+              uploading={uploading}
+              onUpload={() => fileInputRef.current?.click()}
+              objectOpsAvailable={objectOpsAvailable}
+            />
           ) : (
             <div data-testid="buckets-object-list">
               {/* Header row with select-all + count/size. */}
@@ -979,9 +1084,7 @@ const ObjectBrowser = memo(
                 <input
                   type="checkbox"
                   checked={allSelected}
-                  onChange={(e) =>
-                    setSelected(e.target.checked ? new Set(shownObjects.map((o) => o.key)) : new Set())
-                  }
+                  onChange={(e) => setSelected(e.target.checked ? new Set(shownObjects.map((o) => o.key)) : new Set())}
                   aria-label="Select all objects"
                   className="h-3.5 w-3.5 accent-[var(--bolt-elements-item-contentAccent)] cursor-pointer"
                 />
@@ -1002,9 +1105,17 @@ const ObjectBrowser = memo(
                     onClick={() => setPrefix(p)}
                     className="group w-full flex items-center gap-2.5 px-3 py-2 border-b border-bolt-elements-borderColor/25 hover:bg-bolt-elements-item-backgroundActive transition-colors motion-reduce:transition-none text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-bolt-elements-item-contentAccent"
                   >
-                    <div className="i-ph:folder-duotone text-base text-bolt-elements-item-contentAccent shrink-0" aria-hidden />
-                    <span className="text-[12px] font-medium text-bolt-elements-textPrimary truncate flex-1">{label}/</span>
-                    <div className="i-ph:caret-right text-xs text-bolt-elements-textTertiary group-hover:text-bolt-elements-item-contentAccent" aria-hidden />
+                    <div
+                      className="i-ph:folder-duotone text-base text-bolt-elements-item-contentAccent shrink-0"
+                      aria-hidden
+                    />
+                    <span className="text-[12px] font-medium text-bolt-elements-textPrimary truncate flex-1">
+                      {label}/
+                    </span>
+                    <div
+                      className="i-ph:caret-right text-xs text-bolt-elements-textTertiary group-hover:text-bolt-elements-item-contentAccent"
+                      aria-hidden
+                    />
                   </button>
                 );
               })}
@@ -1034,30 +1145,81 @@ const ObjectBrowser = memo(
                       aria-label={`Select ${name}`}
                       className="h-3.5 w-3.5 accent-[var(--bolt-elements-item-contentAccent)] cursor-pointer shrink-0"
                     />
-                    <div className={classNames(iconForObject(obj.key), 'text-base text-bolt-elements-textTertiary group-hover:text-bolt-elements-item-contentAccent transition-colors shrink-0')} aria-hidden />
-                    <span className="text-[12px] font-mono text-bolt-elements-textPrimary truncate flex-1" title={obj.key}>
+                    <div
+                      className={classNames(
+                        iconForObject(obj.key),
+                        'text-base text-bolt-elements-textTertiary group-hover:text-bolt-elements-item-contentAccent transition-colors shrink-0',
+                      )}
+                      aria-hidden
+                    />
+                    <span
+                      className="text-[12px] font-mono text-bolt-elements-textPrimary truncate flex-1"
+                      title={obj.key}
+                    >
                       {name}
                     </span>
-                    <span className="text-[10px] text-bolt-elements-textTertiary tabular-nums shrink-0">{formatBytes(obj.size)}</span>
+                    <span className="text-[10px] text-bolt-elements-textTertiary tabular-nums shrink-0">
+                      {formatBytes(obj.size)}
+                    </span>
                     {formatRelativeTime(obj.uploadedAt) && (
-                      <span className="hidden sm:inline text-[10px] text-bolt-elements-textTertiary/70 tabular-nums shrink-0 w-14 text-right">{formatRelativeTime(obj.uploadedAt)}</span>
+                      <span className="hidden sm:inline text-[10px] text-bolt-elements-textTertiary/70 tabular-nums shrink-0 w-14 text-right">
+                        {formatRelativeTime(obj.uploadedAt)}
+                      </span>
                     )}
 
                     {/* Row actions. */}
                     <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 transition-opacity motion-reduce:transition-none shrink-0">
                       {isImageKey(obj.key) && (
-                        <button type="button" onClick={() => void downloadObject(obj.key)} disabled={busy} title="Preview / download" aria-label={`Preview ${name}`} className={classNames(BTN_GHOST, 'min-h-[24px] min-w-[24px] p-1')}>
+                        <button
+                          type="button"
+                          onClick={() => void downloadObject(obj.key)}
+                          disabled={busy}
+                          title="Preview / download"
+                          aria-label={`Preview ${name}`}
+                          className={classNames(BTN_GHOST, 'min-h-[24px] min-w-[24px] p-1')}
+                        >
                           <div className="i-ph:eye text-xs" />
                         </button>
                       )}
-                      <button type="button" onClick={() => void copyObjectUrl(obj.key)} title="Copy object URL" aria-label={`Copy URL for ${name}`} className={classNames(BTN_GHOST, 'min-h-[24px] min-w-[24px] p-1')}>
+                      <button
+                        type="button"
+                        onClick={() => void copyObjectUrl(obj.key)}
+                        title="Copy object URL"
+                        aria-label={`Copy URL for ${name}`}
+                        className={classNames(BTN_GHOST, 'min-h-[24px] min-w-[24px] p-1')}
+                      >
                         <div className="i-ph:link text-xs" />
                       </button>
-                      <button type="button" onClick={() => void downloadObject(obj.key)} disabled={busy} title="Download" aria-label={`Download ${name}`} className={classNames(BTN_GHOST, 'min-h-[24px] min-w-[24px] p-1')}>
-                        <div className={classNames(busy ? 'i-ph:circle-notch animate-spin motion-reduce:animate-none' : 'i-ph:download-simple', 'text-xs')} />
+                      <button
+                        type="button"
+                        onClick={() => void downloadObject(obj.key)}
+                        disabled={busy}
+                        title="Download"
+                        aria-label={`Download ${name}`}
+                        className={classNames(BTN_GHOST, 'min-h-[24px] min-w-[24px] p-1')}
+                      >
+                        <div
+                          className={classNames(
+                            busy ? 'i-ph:circle-notch animate-spin motion-reduce:animate-none' : 'i-ph:download-simple',
+                            'text-xs',
+                          )}
+                        />
                       </button>
-                      <button type="button" onClick={() => void deleteObject(obj.key)} disabled={busy} title="Delete" aria-label={`Delete ${name}`} className={classNames(BTN_DESTRUCTIVE, 'min-h-[24px] min-w-[24px] p-1')} data-testid="buckets-object-delete">
-                        <div className={classNames(busy ? 'i-ph:circle-notch animate-spin motion-reduce:animate-none' : 'i-ph:trash', 'text-xs')} />
+                      <button
+                        type="button"
+                        onClick={() => void deleteObject(obj.key)}
+                        disabled={busy}
+                        title="Delete"
+                        aria-label={`Delete ${name}`}
+                        className={classNames(BTN_DESTRUCTIVE, 'min-h-[24px] min-w-[24px] p-1')}
+                        data-testid="buckets-object-delete"
+                      >
+                        <div
+                          className={classNames(
+                            busy ? 'i-ph:circle-notch animate-spin motion-reduce:animate-none' : 'i-ph:trash',
+                            'text-xs',
+                          )}
+                        />
                       </button>
                     </div>
                   </div>
@@ -1091,7 +1253,10 @@ const ObjectBrowser = memo(
             className="absolute inset-0 z-10 flex flex-col items-center justify-center gap-2 rounded-lg m-2 border-2 border-dashed border-bolt-elements-item-contentAccent bg-bolt-elements-background-depth-1/85 backdrop-blur-sm pointer-events-none"
             data-testid="buckets-drop-overlay"
           >
-            <div className="i-ph:upload-simple-duotone text-4xl text-bolt-elements-item-contentAccent motion-safe:animate-bounce motion-reduce:animate-none" aria-hidden />
+            <div
+              className="i-ph:upload-simple-duotone text-4xl text-bolt-elements-item-contentAccent motion-safe:animate-bounce motion-reduce:animate-none"
+              aria-hidden
+            />
             <p className="text-sm font-semibold text-bolt-elements-textPrimary">Drop to upload</p>
             <p className="text-[11px] text-bolt-elements-textTertiary">Files land under {prefix || bucket.name}</p>
           </div>
@@ -1100,12 +1265,25 @@ const ObjectBrowser = memo(
         {/* In-flight upload strip. */}
         {uploading && (
           <div className="flex items-center gap-2 px-3 py-1.5 border-t border-bolt-elements-item-contentAccent/30 bg-bolt-elements-item-contentAccent/[0.05] shrink-0">
-            <div className="i-ph:circle-notch text-sm text-bolt-elements-item-contentAccent animate-spin motion-reduce:animate-none" aria-hidden />
+            <div
+              className="i-ph:circle-notch text-sm text-bolt-elements-item-contentAccent animate-spin motion-reduce:animate-none"
+              aria-hidden
+            />
             <span className="text-[11px] text-bolt-elements-item-contentAccent truncate">Uploading {uploadName}…</span>
           </div>
         )}
 
-        <input ref={fileInputRef} type="file" multiple className="hidden" onChange={(e) => { if (e.target.files?.length) void uploadFiles(e.target.files); e.target.value = ''; }} data-testid="buckets-file-input" />
+        <input
+          ref={fileInputRef}
+          type="file"
+          multiple
+          className="hidden"
+          onChange={(e) => {
+            if (e.target.files?.length) void uploadFiles(e.target.files);
+            e.target.value = '';
+          }}
+          data-testid="buckets-file-input"
+        />
       </div>
     );
   },
@@ -1115,201 +1293,281 @@ ObjectBrowser.displayName = 'BucketsPanel.ObjectBrowser';
 
 // ── Create modal ─────────────────────────────────────────────────────────────
 
-const CreateBucketModal = memo(({ onClose, onCreated }: { onClose: () => void; onCreated: (b: BucketEntry) => void }) => {
-  const [name, setName] = useState('');
-  const [isPublic, setIsPublic] = useState(false);
-  const [creating, setCreating] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const inputRef = useRef<HTMLInputElement>(null);
+const CreateBucketModal = memo(
+  ({ onClose, onCreated }: { onClose: () => void; onCreated: (b: BucketEntry) => void }) => {
+    const [name, setName] = useState('');
+    const [isPublic, setIsPublic] = useState(false);
+    const [creating, setCreating] = useState(false);
+    const [error, setError] = useState<string | null>(null);
+    const inputRef = useRef<HTMLInputElement>(null);
 
-  useEffect(() => {
-    inputRef.current?.focus();
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') onClose();
-    };
-    window.addEventListener('keydown', onKey);
-    return () => window.removeEventListener('keydown', onKey);
-  }, [onClose]);
+    useEffect(() => {
+      inputRef.current?.focus();
+      const onKey = (e: KeyboardEvent) => {
+        if (e.key === 'Escape') onClose();
+      };
+      window.addEventListener('keydown', onKey);
+      return () => window.removeEventListener('keydown', onKey);
+    }, [onClose]);
 
-  const valid = /^[A-Za-z0-9][A-Za-z0-9 _-]{0,30}$/.test(name.trim());
+    const valid = /^[A-Za-z0-9][A-Za-z0-9 _-]{0,30}$/.test(name.trim());
 
-  const submit = useCallback(async () => {
-    if (!valid || creating) return;
-    setCreating(true);
-    setError(null);
-    try {
-      const reply = await requestR2({ op: 'createBucket', name: name.trim(), public: isPublic });
-      if (!reply.ok) {
-        setError(reply.error || 'Could not create the bucket.');
-        return;
+    const submit = useCallback(async () => {
+      if (!valid || creating) return;
+      setCreating(true);
+      setError(null);
+      try {
+        const reply = await requestR2({ op: 'createBucket', name: name.trim(), public: isPublic });
+        if (!reply.ok) {
+          setError(reply.error || 'Could not create the bucket.');
+          return;
+        }
+        postToastToParent('success', `Created ${name.trim()}.`);
+        onCreated(reply.bucket ?? { name: name.trim(), public: isPublic });
+      } catch (err) {
+        setError(err instanceof Error ? err.message : 'Could not create the bucket.');
+      } finally {
+        setCreating(false);
       }
-      postToastToParent('success', `Created ${name.trim()}.`);
-      onCreated(reply.bucket ?? { name: name.trim(), public: isPublic });
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Could not create the bucket.');
-    } finally {
-      setCreating(false);
-    }
-  }, [valid, creating, name, isPublic, onCreated]);
+    }, [valid, creating, name, isPublic, onCreated]);
 
-  return (
-    <ModalShell title="Create a bucket" icon="i-ph:bucket-duotone" onClose={onClose} testId="buckets-create-modal">
-      <label className="block">
-        <span className="text-[11px] font-medium text-bolt-elements-textSecondary">Bucket name</span>
-        <input
-          ref={inputRef}
-          value={name}
-          onChange={(e) => setName(e.target.value)}
-          onKeyDown={(e) => {
-            if (e.key === 'Enter') void submit();
-          }}
-          placeholder="uploads"
-          aria-label="Bucket name"
-          aria-invalid={name.length > 0 && !valid}
-          data-testid="buckets-create-name"
-          className="mt-1 w-full min-h-[34px] px-3 py-1.5 text-[13px] rounded-lg border border-bolt-elements-borderColor bg-bolt-elements-background-depth-1 text-bolt-elements-textPrimary placeholder:text-bolt-elements-textTertiary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-bolt-elements-item-contentAccent focus-visible:border-bolt-elements-item-contentAccent/50"
-        />
-        <span className="mt-1 block text-[10px] text-bolt-elements-textTertiary">
-          It’s created privately + site-prefixed so names never collide. Letters, numbers, spaces, dashes or underscores.
-        </span>
-      </label>
+    return (
+      <ModalShell title="Create a bucket" icon="i-ph:bucket-duotone" onClose={onClose} testId="buckets-create-modal">
+        <label className="block">
+          <span className="text-[11px] font-medium text-bolt-elements-textSecondary">Bucket name</span>
+          <input
+            ref={inputRef}
+            value={name}
+            onChange={(e) => setName(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') void submit();
+            }}
+            placeholder="uploads"
+            aria-label="Bucket name"
+            aria-invalid={name.length > 0 && !valid}
+            data-testid="buckets-create-name"
+            className="mt-1 w-full min-h-[34px] px-3 py-1.5 text-[13px] rounded-lg border border-bolt-elements-borderColor bg-bolt-elements-background-depth-1 text-bolt-elements-textPrimary placeholder:text-bolt-elements-textTertiary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-bolt-elements-item-contentAccent focus-visible:border-bolt-elements-item-contentAccent/50"
+          />
+          <span className="mt-1 block text-[10px] text-bolt-elements-textTertiary">
+            It’s created privately + site-prefixed so names never collide. Letters, numbers, spaces, dashes or
+            underscores.
+          </span>
+        </label>
 
-      <label className="mt-3 flex items-center gap-2 cursor-pointer">
-        <input type="checkbox" checked={isPublic} onChange={(e) => setIsPublic(e.target.checked)} className="h-4 w-4 accent-[var(--bolt-elements-item-contentAccent)] cursor-pointer" data-testid="buckets-create-public" />
-        <span className="text-[12px] text-bolt-elements-textSecondary">Make a public base URL available</span>
-      </label>
+        <label className="mt-3 flex items-center gap-2 cursor-pointer">
+          <input
+            type="checkbox"
+            checked={isPublic}
+            onChange={(e) => setIsPublic(e.target.checked)}
+            className="h-4 w-4 accent-[var(--bolt-elements-item-contentAccent)] cursor-pointer"
+            data-testid="buckets-create-public"
+          />
+          <span className="text-[12px] text-bolt-elements-textSecondary">Make a public base URL available</span>
+        </label>
 
-      {error && <p className="mt-3 text-[11px] text-red-400" role="alert">{error}</p>}
+        {error && (
+          <p className="mt-3 text-[11px] text-red-400" role="alert">
+            {error}
+          </p>
+        )}
 
-      <div className="mt-4 flex items-center justify-end gap-2">
-        <button type="button" onClick={onClose} className={classNames(BTN_GHOST, 'min-h-[32px] px-3 py-1.5 text-[12px]')}>Cancel</button>
-        <button type="button" onClick={() => void submit()} disabled={!valid || creating} data-testid="buckets-create-submit" className={classNames(BTN_PRIMARY, 'min-h-[32px] px-4 py-1.5 text-[12px]')}>
-          <div className={classNames(creating ? 'i-ph:circle-notch animate-spin motion-reduce:animate-none' : 'i-ph:plus-bold', 'text-sm')} aria-hidden />
-          <span className="min-w-[7ch] text-center">{creating ? 'Creating…' : 'Create'}</span>
-        </button>
-      </div>
-    </ModalShell>
-  );
-});
+        <div className="mt-4 flex items-center justify-end gap-2">
+          <button
+            type="button"
+            onClick={onClose}
+            className={classNames(BTN_GHOST, 'min-h-[32px] px-3 py-1.5 text-[12px]')}
+          >
+            Cancel
+          </button>
+          <button
+            type="button"
+            onClick={() => void submit()}
+            disabled={!valid || creating}
+            data-testid="buckets-create-submit"
+            className={classNames(BTN_PRIMARY, 'min-h-[32px] px-4 py-1.5 text-[12px]')}
+          >
+            <div
+              className={classNames(
+                creating ? 'i-ph:circle-notch animate-spin motion-reduce:animate-none' : 'i-ph:plus-bold',
+                'text-sm',
+              )}
+              aria-hidden
+            />
+            <span className="min-w-[7ch] text-center">{creating ? 'Creating…' : 'Create'}</span>
+          </button>
+        </div>
+      </ModalShell>
+    );
+  },
+);
 
 CreateBucketModal.displayName = 'BucketsPanel.CreateBucketModal';
 
 // ── Delete-bucket modal (type-to-confirm) ────────────────────────────────────
 
-const DeleteBucketModal = memo(({ bucket, onClose, onDeleted }: { bucket: BucketEntry; onClose: () => void; onDeleted: (name: string) => void }) => {
-  const [confirm, setConfirm] = useState('');
-  const [deleting, setDeleting] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const inputRef = useRef<HTMLInputElement>(null);
+const DeleteBucketModal = memo(
+  ({ bucket, onClose, onDeleted }: { bucket: BucketEntry; onClose: () => void; onDeleted: (name: string) => void }) => {
+    const [confirm, setConfirm] = useState('');
+    const [deleting, setDeleting] = useState(false);
+    const [error, setError] = useState<string | null>(null);
+    const inputRef = useRef<HTMLInputElement>(null);
 
-  useEffect(() => {
-    inputRef.current?.focus();
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') onClose();
-    };
-    window.addEventListener('keydown', onKey);
-    return () => window.removeEventListener('keydown', onKey);
-  }, [onClose]);
+    useEffect(() => {
+      inputRef.current?.focus();
+      const onKey = (e: KeyboardEvent) => {
+        if (e.key === 'Escape') onClose();
+      };
+      window.addEventListener('keydown', onKey);
+      return () => window.removeEventListener('keydown', onKey);
+    }, [onClose]);
 
-  const matches = confirm.trim() === bucket.name;
+    const matches = confirm.trim() === bucket.name;
 
-  const submit = useCallback(async () => {
-    if (!matches || deleting) return;
-    setDeleting(true);
-    setError(null);
-    try {
-      const reply = await requestR2({ op: 'deleteBucket', bucket: bucket.name });
-      if (!reply.ok) {
-        setError(reply.needsCreds ? 'This bucket has objects and needs R2 S3 credentials to empty first.' : reply.error || 'Could not delete the bucket.');
-        return;
+    const submit = useCallback(async () => {
+      if (!matches || deleting) return;
+      setDeleting(true);
+      setError(null);
+      try {
+        const reply = await requestR2({ op: 'deleteBucket', bucket: bucket.name });
+        if (!reply.ok) {
+          setError(
+            reply.needsCreds
+              ? 'This bucket has objects and needs R2 S3 credentials to empty first.'
+              : reply.error || 'Could not delete the bucket.',
+          );
+          return;
+        }
+        postToastToParent(
+          'success',
+          `Deleted ${bucket.name}${reply.objectsDeleted ? ` + ${reply.objectsDeleted} object${reply.objectsDeleted === 1 ? '' : 's'}` : ''}.`,
+        );
+        onDeleted(bucket.name);
+      } catch (err) {
+        setError(err instanceof Error ? err.message : 'Could not delete the bucket.');
+      } finally {
+        setDeleting(false);
       }
-      postToastToParent('success', `Deleted ${bucket.name}${reply.objectsDeleted ? ` + ${reply.objectsDeleted} object${reply.objectsDeleted === 1 ? '' : 's'}` : ''}.`);
-      onDeleted(bucket.name);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Could not delete the bucket.');
-    } finally {
-      setDeleting(false);
-    }
-  }, [matches, deleting, bucket.name, onDeleted]);
+    }, [matches, deleting, bucket.name, onDeleted]);
 
-  return (
-    <ModalShell title="Delete bucket" icon="i-ph:warning-duotone" danger onClose={onClose} testId="buckets-delete-modal">
-      <p className="text-[12px] text-bolt-elements-textSecondary leading-relaxed">
-        This empties then permanently deletes <span className="font-semibold text-bolt-elements-textPrimary">{bucket.name}</span> and every object in it. This can’t be undone.
-      </p>
-      <label className="mt-3 block">
-        <span className="text-[11px] font-medium text-bolt-elements-textSecondary">
-          Type <span className="font-mono text-red-400">{bucket.name}</span> to confirm
-        </span>
-        <input
-          ref={inputRef}
-          value={confirm}
-          onChange={(e) => setConfirm(e.target.value)}
-          onKeyDown={(e) => {
-            if (e.key === 'Enter') void submit();
-          }}
-          aria-label="Type the bucket name to confirm deletion"
-          data-testid="buckets-delete-confirm"
-          className="mt-1 w-full min-h-[34px] px-3 py-1.5 text-[13px] font-mono rounded-lg border border-red-400/40 bg-bolt-elements-background-depth-1 text-bolt-elements-textPrimary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red-400"
-        />
-      </label>
-      {error && <p className="mt-3 text-[11px] text-red-400" role="alert">{error}</p>}
-      <div className="mt-4 flex items-center justify-end gap-2">
-        <button type="button" onClick={onClose} className={classNames(BTN_GHOST, 'min-h-[32px] px-3 py-1.5 text-[12px]')}>Cancel</button>
-        <button type="button" onClick={() => void submit()} disabled={!matches || deleting} data-testid="buckets-delete-submit" className={classNames(BTN_DESTRUCTIVE, 'min-h-[32px] px-4 py-1.5 text-[12px]')}>
-          <div className={classNames(deleting ? 'i-ph:circle-notch animate-spin motion-reduce:animate-none' : 'i-ph:trash', 'text-sm')} aria-hidden />
-          <span className="min-w-[7ch] text-center">{deleting ? 'Deleting…' : 'Delete'}</span>
-        </button>
-      </div>
-    </ModalShell>
-  );
-});
+    return (
+      <ModalShell
+        title="Delete bucket"
+        icon="i-ph:warning-duotone"
+        danger
+        onClose={onClose}
+        testId="buckets-delete-modal"
+      >
+        <p className="text-[12px] text-bolt-elements-textSecondary leading-relaxed">
+          This empties then permanently deletes{' '}
+          <span className="font-semibold text-bolt-elements-textPrimary">{bucket.name}</span> and every object in it.
+          This can’t be undone.
+        </p>
+        <label className="mt-3 block">
+          <span className="text-[11px] font-medium text-bolt-elements-textSecondary">
+            Type <span className="font-mono text-red-400">{bucket.name}</span> to confirm
+          </span>
+          <input
+            ref={inputRef}
+            value={confirm}
+            onChange={(e) => setConfirm(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') void submit();
+            }}
+            aria-label="Type the bucket name to confirm deletion"
+            data-testid="buckets-delete-confirm"
+            className="mt-1 w-full min-h-[34px] px-3 py-1.5 text-[13px] font-mono rounded-lg border border-red-400/40 bg-bolt-elements-background-depth-1 text-bolt-elements-textPrimary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red-400"
+          />
+        </label>
+        {error && (
+          <p className="mt-3 text-[11px] text-red-400" role="alert">
+            {error}
+          </p>
+        )}
+        <div className="mt-4 flex items-center justify-end gap-2">
+          <button
+            type="button"
+            onClick={onClose}
+            className={classNames(BTN_GHOST, 'min-h-[32px] px-3 py-1.5 text-[12px]')}
+          >
+            Cancel
+          </button>
+          <button
+            type="button"
+            onClick={() => void submit()}
+            disabled={!matches || deleting}
+            data-testid="buckets-delete-submit"
+            className={classNames(BTN_DESTRUCTIVE, 'min-h-[32px] px-4 py-1.5 text-[12px]')}
+          >
+            <div
+              className={classNames(
+                deleting ? 'i-ph:circle-notch animate-spin motion-reduce:animate-none' : 'i-ph:trash',
+                'text-sm',
+              )}
+              aria-hidden
+            />
+            <span className="min-w-[7ch] text-center">{deleting ? 'Deleting…' : 'Delete'}</span>
+          </button>
+        </div>
+      </ModalShell>
+    );
+  },
+);
 
 DeleteBucketModal.displayName = 'BucketsPanel.DeleteBucketModal';
 
 // ── Address modal (copy S3 endpoint + binding + public URL) ───────────────────
 
-const AddressModal = memo(({ bucket, address, onClose }: { bucket: BucketEntry; address: BucketAddress; onClose: () => void }) => {
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') onClose();
-    };
-    window.addEventListener('keydown', onKey);
-    return () => window.removeEventListener('keydown', onKey);
-  }, [onClose]);
+const AddressModal = memo(
+  ({ bucket, address, onClose }: { bucket: BucketEntry; address: BucketAddress; onClose: () => void }) => {
+    useEffect(() => {
+      const onKey = (e: KeyboardEvent) => {
+        if (e.key === 'Escape') onClose();
+      };
+      window.addEventListener('keydown', onKey);
+      return () => window.removeEventListener('keydown', onKey);
+    }, [onClose]);
 
-  const rows: { label: string; value: string | null; hint?: string }[] = [
-    { hint: 'S3-compatible API endpoint', label: 'S3 endpoint', value: address.s3Endpoint },
-    { hint: 'The real Cloudflare bucket name', label: 'Bucket', value: address.bucketName },
-    { hint: 'Use this in wrangler.toml [[r2_buckets]]', label: 'Binding', value: address.bindingName },
-    { hint: 'CF account id', label: 'Account', value: address.accountId },
-    ...(address.publicUrl ? [{ hint: 'Public base URL', label: 'Public URL', value: address.publicUrl }] : []),
-  ];
+    const rows: { label: string; value: string | null; hint?: string }[] = [
+      { hint: 'S3-compatible API endpoint', label: 'S3 endpoint', value: address.s3Endpoint },
+      { hint: 'The real Cloudflare bucket name', label: 'Bucket', value: address.bucketName },
+      { hint: 'Use this in wrangler.toml [[r2_buckets]]', label: 'Binding', value: address.bindingName },
+      { hint: 'CF account id', label: 'Account', value: address.accountId },
+      ...(address.publicUrl ? [{ hint: 'Public base URL', label: 'Public URL', value: address.publicUrl }] : []),
+    ];
 
-  return (
-    <ModalShell title={`Address · ${bucket.name}`} icon="i-ph:link-duotone" onClose={onClose} testId="buckets-address-modal">
-      <div className="space-y-2">
-        {rows.map((row) => (
-          <AddressRow key={row.label} label={row.label} value={row.value} hint={row.hint} />
-        ))}
-      </div>
-      <div className="mt-4 flex items-center justify-end">
-        <button
-          type="button"
-          onClick={async () => {
-            const all = rows.filter((r) => r.value).map((r) => `${r.label}: ${r.value}`).join('\n');
-            const ok = await copyText(all);
-            postToastToParent(ok ? 'success' : 'error', ok ? 'Address copied.' : 'Could not copy.');
-          }}
-          data-testid="buckets-address-copy-all"
-          className={classNames(BTN_PRIMARY, 'min-h-[32px] px-4 py-1.5 text-[12px]')}
-        >
-          <div className="i-ph:copy text-sm" aria-hidden /> Copy all
-        </button>
-      </div>
-    </ModalShell>
-  );
-});
+    return (
+      <ModalShell
+        title={`Address · ${bucket.name}`}
+        icon="i-ph:link-duotone"
+        onClose={onClose}
+        testId="buckets-address-modal"
+      >
+        <div className="space-y-2">
+          {rows.map((row) => (
+            <AddressRow key={row.label} label={row.label} value={row.value} hint={row.hint} />
+          ))}
+        </div>
+        <div className="mt-4 flex items-center justify-end">
+          <button
+            type="button"
+            onClick={async () => {
+              const all = rows
+                .filter((r) => r.value)
+                .map((r) => `${r.label}: ${r.value}`)
+                .join('\n');
+              const ok = await copyText(all);
+              postToastToParent(ok ? 'success' : 'error', ok ? 'Address copied.' : 'Could not copy.');
+            }}
+            data-testid="buckets-address-copy-all"
+            className={classNames(BTN_PRIMARY, 'min-h-[32px] px-4 py-1.5 text-[12px]')}
+          >
+            <div className="i-ph:copy text-sm" aria-hidden /> Copy all
+          </button>
+        </div>
+      </ModalShell>
+    );
+  },
+);
 
 AddressModal.displayName = 'BucketsPanel.AddressModal';
 
@@ -1362,19 +1620,41 @@ const ModalShell = memo(
     testId?: string;
     children: React.ReactNode;
   }) => (
-    <div className="fixed inset-0 z-[100000] flex items-center justify-center p-4" role="dialog" aria-modal="true" aria-label={title} data-testid={testId}>
-      <div className="absolute inset-0 bg-black/60 backdrop-blur-sm motion-safe:animate-[fadeIn_.15s_ease-out]" onClick={onClose} aria-hidden />
+    <div
+      className="fixed inset-0 z-[100000] flex items-center justify-center p-4"
+      role="dialog"
+      aria-modal="true"
+      aria-label={title}
+      data-testid={testId}
+    >
+      <div
+        className="absolute inset-0 bg-black/60 backdrop-blur-sm motion-safe:animate-[fadeIn_.15s_ease-out]"
+        onClick={onClose}
+        aria-hidden
+      />
       {/* POLISH 5: glass modal card — cyan-tinted border, brand shadow, @starting-style-style entrance. */}
       <div className="relative w-full max-w-md rounded-2xl border border-bolt-elements-borderColor bg-bolt-elements-background-depth-2 shadow-2xl shadow-black/40 overflow-hidden">
         <div
           aria-hidden
           className="pointer-events-none absolute inset-x-0 top-0 h-px"
-          style={{ background: danger ? 'linear-gradient(90deg, transparent, #f87171, transparent)' : `linear-gradient(90deg, transparent, ${CYAN}, ${PURPLE}, transparent)` }}
+          style={{
+            background: danger
+              ? 'linear-gradient(90deg, transparent, #f87171, transparent)'
+              : `linear-gradient(90deg, transparent, ${CYAN}, ${PURPLE}, transparent)`,
+          }}
         />
         <div className="flex items-center gap-2 px-4 py-3 border-b border-bolt-elements-borderColor/60">
-          <div className={classNames(icon, 'text-lg', danger ? 'text-red-400' : 'text-bolt-elements-item-contentAccent')} aria-hidden />
+          <div
+            className={classNames(icon, 'text-lg', danger ? 'text-red-400' : 'text-bolt-elements-item-contentAccent')}
+            aria-hidden
+          />
           <h3 className="text-[13px] font-semibold text-bolt-elements-textPrimary flex-1 truncate">{title}</h3>
-          <button type="button" onClick={onClose} aria-label="Close" className={classNames(BTN_GHOST, 'min-h-[24px] min-w-[24px] p-1')}>
+          <button
+            type="button"
+            onClick={onClose}
+            aria-label="Close"
+            className={classNames(BTN_GHOST, 'min-h-[24px] min-w-[24px] p-1')}
+          >
             <div className="i-ph:x text-sm" />
           </button>
         </div>
@@ -1391,7 +1671,10 @@ ModalShell.displayName = 'BucketsPanel.ModalShell';
 const BucketsSkeleton = memo(() => (
   <div className="p-2 space-y-1.5" aria-busy="true" data-testid="buckets-skeleton">
     {Array.from({ length: 4 }).map((_, i) => (
-      <div key={i} className="rounded-xl border border-bolt-elements-borderColor bg-bolt-elements-background-depth-2 p-2.5">
+      <div
+        key={i}
+        className="rounded-xl border border-bolt-elements-borderColor bg-bolt-elements-background-depth-2 p-2.5"
+      >
         <div className="h-3 w-2/3 rounded bg-bolt-elements-background-depth-3 motion-safe:animate-pulse" />
         <div className="mt-1.5 h-2 w-1/3 rounded bg-bolt-elements-background-depth-3 motion-safe:animate-pulse" />
       </div>
@@ -1421,7 +1704,11 @@ const ErrorCard = memo(({ message, onRetry }: { message: string; onRetry: () => 
       <div className="i-ph:warning-circle-duotone text-2xl text-red-400" aria-hidden />
     </div>
     <p className="text-xs text-bolt-elements-textSecondary max-w-[280px] leading-relaxed">{message}</p>
-    <button type="button" onClick={onRetry} className={classNames(BTN_SECONDARY, 'min-h-[28px] mt-1 px-3 py-1.5 text-[11px]')}>
+    <button
+      type="button"
+      onClick={onRetry}
+      className={classNames(BTN_SECONDARY, 'min-h-[28px] mt-1 px-3 py-1.5 text-[11px]')}
+    >
       <div className="i-ph:arrow-clockwise text-sm" /> Try again
     </button>
   </div>
@@ -1430,7 +1717,10 @@ const ErrorCard = memo(({ message, onRetry }: { message: string; onRetry: () => 
 ErrorCard.displayName = 'BucketsPanel.ErrorCard';
 
 const DisabledCard = memo(() => (
-  <div className="flex-1 flex flex-col items-center justify-center gap-3 p-8 text-center" data-testid="buckets-disabled">
+  <div
+    className="flex-1 flex flex-col items-center justify-center gap-3 p-8 text-center"
+    data-testid="buckets-disabled"
+  >
     <div className="flex items-center justify-center h-14 w-14 rounded-2xl border border-bolt-elements-borderColor bg-bolt-elements-background-depth-2">
       <div className="i-ph:lock-key-duotone text-3xl text-bolt-elements-textTertiary" aria-hidden />
     </div>
@@ -1444,8 +1734,14 @@ const DisabledCard = memo(() => (
 DisabledCard.displayName = 'BucketsPanel.DisabledCard';
 
 const ObjectsNeedsCreds = memo(({ message }: { message: string }) => (
-  <div className="flex-1 flex flex-col items-center justify-center gap-3 p-8 text-center" data-testid="buckets-objects-needs-creds">
-    <div className="flex items-center justify-center h-14 w-14 rounded-2xl border" style={{ borderColor: `color-mix(in oklch, ${PURPLE} 40%, transparent)` }}>
+  <div
+    className="flex-1 flex flex-col items-center justify-center gap-3 p-8 text-center"
+    data-testid="buckets-objects-needs-creds"
+  >
+    <div
+      className="flex items-center justify-center h-14 w-14 rounded-2xl border"
+      style={{ borderColor: `color-mix(in oklch, ${PURPLE} 40%, transparent)` }}
+    >
       <div className="i-ph:key-duotone text-3xl" style={{ color: PURPLE_INK }} aria-hidden />
     </div>
     <p className="text-sm font-semibold text-bolt-elements-textSecondary">Object storage needs R2 keys</p>
@@ -1460,14 +1756,27 @@ ObjectsNeedsCreds.displayName = 'BucketsPanel.ObjectsNeedsCreds';
 const BucketsEmpty = memo(({ onCreate }: { onCreate: () => void }) => (
   <div className="flex-1 flex flex-col items-center justify-center gap-4 p-8 text-center" data-testid="buckets-empty">
     <div className="relative flex items-center justify-center h-16 w-16 rounded-2xl border border-bolt-elements-item-contentAccent/25 bg-bolt-elements-item-contentAccent/[0.06]">
-      <div aria-hidden className="absolute inset-0 rounded-2xl opacity-60" style={{ background: `radial-gradient(60% 60% at 50% 30%, color-mix(in oklch, ${PURPLE} 22%, transparent), transparent)` }} />
+      <div
+        aria-hidden
+        className="absolute inset-0 rounded-2xl opacity-60"
+        style={{
+          background: `radial-gradient(60% 60% at 50% 30%, color-mix(in oklch, ${PURPLE} 22%, transparent), transparent)`,
+        }}
+      />
       <div className="relative i-ph:bucket-duotone text-3xl text-bolt-elements-item-contentAccent" aria-hidden />
     </div>
     <div className="space-y-1">
       <p className="text-sm font-semibold text-bolt-elements-textPrimary">No buckets yet</p>
-      <p className="text-[11px] text-bolt-elements-textTertiary max-w-[240px] leading-relaxed">Create a bucket to store files for your site — uploads, media, exports, anything.</p>
+      <p className="text-[11px] text-bolt-elements-textTertiary max-w-[240px] leading-relaxed">
+        Create a bucket to store files for your site — uploads, media, exports, anything.
+      </p>
     </div>
-    <button type="button" onClick={onCreate} data-testid="buckets-empty-create" className={classNames(BTN_PRIMARY, 'min-h-[30px] px-4 py-2 text-[12px]')}>
+    <button
+      type="button"
+      onClick={onCreate}
+      data-testid="buckets-empty-create"
+      className={classNames(BTN_PRIMARY, 'min-h-[30px] px-4 py-2 text-[12px]')}
+    >
       <div className="i-ph:plus-bold text-sm" aria-hidden /> Create your first bucket
     </button>
   </div>
@@ -1475,24 +1784,53 @@ const BucketsEmpty = memo(({ onCreate }: { onCreate: () => void }) => (
 
 BucketsEmpty.displayName = 'BucketsPanel.BucketsEmpty';
 
-const ObjectsEmpty = memo(({ hasFilter, uploading, onUpload, objectOpsAvailable }: { hasFilter: boolean; uploading: boolean; onUpload: () => void; objectOpsAvailable: boolean }) => (
-  <div className="flex-1 flex flex-col items-center justify-center gap-4 p-8 text-center" data-testid="buckets-objects-empty">
-    <div className="flex items-center justify-center h-14 w-14 rounded-2xl border border-bolt-elements-borderColor bg-bolt-elements-background-depth-2">
-      <div className="i-ph:folder-dashed-duotone text-3xl text-bolt-elements-textTertiary" aria-hidden />
+const ObjectsEmpty = memo(
+  ({
+    hasFilter,
+    uploading,
+    onUpload,
+    objectOpsAvailable,
+  }: {
+    hasFilter: boolean;
+    uploading: boolean;
+    onUpload: () => void;
+    objectOpsAvailable: boolean;
+  }) => (
+    <div
+      className="flex-1 flex flex-col items-center justify-center gap-4 p-8 text-center"
+      data-testid="buckets-objects-empty"
+    >
+      <div className="flex items-center justify-center h-14 w-14 rounded-2xl border border-bolt-elements-borderColor bg-bolt-elements-background-depth-2">
+        <div className="i-ph:folder-dashed-duotone text-3xl text-bolt-elements-textTertiary" aria-hidden />
+      </div>
+      <div className="space-y-1">
+        <p className="text-sm font-semibold text-bolt-elements-textSecondary">
+          {hasFilter ? 'No matching objects' : 'This bucket is empty'}
+        </p>
+        <p className="text-[11px] text-bolt-elements-textTertiary max-w-[260px] leading-relaxed">
+          {hasFilter ? 'Try a different filter.' : 'Drag files here, or upload — they show up here to reuse anywhere.'}
+        </p>
+      </div>
+      {!hasFilter && objectOpsAvailable && (
+        <button
+          type="button"
+          onClick={onUpload}
+          disabled={uploading}
+          data-testid="buckets-objects-empty-upload"
+          className={classNames(BTN_PRIMARY, 'min-h-[30px] px-4 py-2 text-[12px]')}
+        >
+          <div
+            className={classNames(
+              uploading ? 'i-ph:circle-notch animate-spin motion-reduce:animate-none' : 'i-ph:upload-simple-bold',
+              'text-sm',
+            )}
+            aria-hidden
+          />
+          <span className="min-w-[10ch] text-center">{uploading ? 'Uploading…' : 'Upload a file'}</span>
+        </button>
+      )}
     </div>
-    <div className="space-y-1">
-      <p className="text-sm font-semibold text-bolt-elements-textSecondary">{hasFilter ? 'No matching objects' : 'This bucket is empty'}</p>
-      <p className="text-[11px] text-bolt-elements-textTertiary max-w-[260px] leading-relaxed">
-        {hasFilter ? 'Try a different filter.' : 'Drag files here, or upload — they show up here to reuse anywhere.'}
-      </p>
-    </div>
-    {!hasFilter && objectOpsAvailable && (
-      <button type="button" onClick={onUpload} disabled={uploading} data-testid="buckets-objects-empty-upload" className={classNames(BTN_PRIMARY, 'min-h-[30px] px-4 py-2 text-[12px]')}>
-        <div className={classNames(uploading ? 'i-ph:circle-notch animate-spin motion-reduce:animate-none' : 'i-ph:upload-simple-bold', 'text-sm')} aria-hidden />
-        <span className="min-w-[10ch] text-center">{uploading ? 'Uploading…' : 'Upload a file'}</span>
-      </button>
-    )}
-  </div>
-));
+  ),
+);
 
 ObjectsEmpty.displayName = 'BucketsPanel.ObjectsEmpty';

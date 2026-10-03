@@ -685,7 +685,9 @@ export default function SupabaseTab() {
             </span>
           </div>
           {connectionTest.timestamp && (
-            <p className="text-xs text-bolt-elements-textTertiary mt-1">{new Date(connectionTest.timestamp).toLocaleString()}</p>
+            <p className="text-xs text-bolt-elements-textTertiary mt-1">
+              {new Date(connectionTest.timestamp).toLocaleString()}
+            </p>
           )}
         </motion.div>
       )}

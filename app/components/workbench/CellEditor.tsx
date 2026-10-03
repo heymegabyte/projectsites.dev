@@ -75,7 +75,10 @@ export function CellEditor({
   const showNullToggle = editKind === 'text' || editKind === 'null';
 
   return (
-    <div className="flex w-full flex-col gap-1 [color-scheme:dark] accent-[color:var(--ps-accent,#00e5ff)]" data-testid="data-edit-cell">
+    <div
+      className="flex w-full flex-col gap-1 [color-scheme:dark] accent-[color:var(--ps-accent,#00e5ff)]"
+      data-testid="data-edit-cell"
+    >
       <div className="flex items-start gap-1.5">
         {/*
          * VALUE-ONLY: the per-edit data-type <select> was removed (Brian 2026-09-28) — a cell editor

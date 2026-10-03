@@ -469,7 +469,9 @@ export const KvBrowser = memo(() => {
         data-testid="database-kv-disabled"
       >
         <div className="i-ph:lock-key text-3xl text-bolt-elements-textTertiary" />
-        <p className="text-sm font-medium text-bolt-elements-textSecondary">Key-value storage isn&rsquo;t enabled yet</p>
+        <p className="text-sm font-medium text-bolt-elements-textSecondary">
+          Key-value storage isn&rsquo;t enabled yet
+        </p>
         <p className="text-[11px] text-bolt-elements-textTertiary max-w-[260px]">
           Your site&rsquo;s own KV is on the way. Once it&rsquo;s turned on, you can browse, add, and edit keys here —
           nothing to set up.

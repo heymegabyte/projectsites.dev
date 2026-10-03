@@ -410,7 +410,10 @@ export const TimeTravelPanel = memo(() => {
               className="rounded-lg border border-bolt-elements-item-contentAccent/30 bg-bolt-elements-item-contentAccent/[0.05] p-3 flex items-center gap-3 shadow-[inset_2px_0_0_var(--bolt-elements-item-contentAccent)]"
               data-testid="tt-current"
             >
-              <div className="i-ph:git-commit-duotone text-lg text-bolt-elements-item-contentAccent shrink-0" aria-hidden />
+              <div
+                className="i-ph:git-commit-duotone text-lg text-bolt-elements-item-contentAccent shrink-0"
+                aria-hidden
+              />
               <div className="min-w-0">
                 <p className="text-[12px] text-bolt-elements-textPrimary font-mono truncate">
                   {info.bookmark ? shortBookmark(info.bookmark) : 'Now'}
@@ -499,15 +502,18 @@ export const TimeTravelPanel = memo(() => {
               </div>
               <p className="text-[11px] text-bolt-elements-textTertiary">
                 Cloudflare Time Travel is minute-precise: scrub to any moment in the last{' '}
-                {info.retentionDays ?? TIME_TRAVEL_RETENTION_DAYS} days and your database returns to exactly how it
-                was then.
+                {info.retentionDays ?? TIME_TRAVEL_RETENTION_DAYS} days and your database returns to exactly how it was
+                then.
               </p>
 
               {/* Live readout of the selected instant */}
               <div className="rounded-lg border border-amber-400/30 bg-amber-400/[0.05] px-3 py-2 flex items-center gap-3">
                 <div className="i-ph:clock-clockwise-duotone text-lg text-amber-300 shrink-0" aria-hidden />
                 <div className="min-w-0">
-                  <p className="text-[13px] font-semibold text-bolt-elements-textPrimary tabular-nums" data-testid="tt-scrubber-readout">
+                  <p
+                    className="text-[13px] font-semibold text-bolt-elements-textPrimary tabular-nums"
+                    data-testid="tt-scrubber-readout"
+                  >
                     {new Date(selectedMs).toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' })}
                   </p>
                   <p className="text-[10px] text-bolt-elements-textTertiary">

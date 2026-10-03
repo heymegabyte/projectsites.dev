@@ -8,12 +8,7 @@
  * rather than dead-ending, and that `fill` is never chosen without a selection.
  */
 import { describe, expect, it } from 'vitest';
-import {
-  buildAskSystemPrompt,
-  parseAskPlan,
-  stripJsonFence,
-  type AskPlan,
-} from './ai-ask-logic';
+import { buildAskSystemPrompt, parseAskPlan, stripJsonFence, type AskPlan } from './ai-ask-logic';
 
 describe('stripJsonFence', () => {
   it('removes ```json fences and trims', () => {
@@ -46,11 +41,7 @@ describe('parseAskPlan — the unified intent router', () => {
   });
 
   it('routes a column request', () => {
-    const plan = parseAskPlan(
-      '{"action":"column","instruction":"add a status column"}',
-      'add a status column',
-      false,
-    );
+    const plan = parseAskPlan('{"action":"column","instruction":"add a status column"}', 'add a status column', false);
     expect(plan).toEqual<AskPlan>({ action: 'column', instruction: 'add a status column' });
   });
 
@@ -73,11 +64,7 @@ describe('parseAskPlan — the unified intent router', () => {
   });
 
   it('DOWNGRADES fill to filter when nothing is selected (never strand the user)', () => {
-    const plan = parseAskPlan(
-      '{"action":"fill","column":"c","instruction":"fill it"}',
-      'fill it',
-      false,
-    );
+    const plan = parseAskPlan('{"action":"fill","column":"c","instruction":"fill it"}', 'fill it', false);
     expect(plan.action).toBe('filter');
     expect(plan.instruction).toBe('fill it');
   });

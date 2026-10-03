@@ -23,12 +23,7 @@ import React, { memo, useCallback, useEffect, useMemo, useRef, useState } from '
 
 import { classNames } from '~/utils/classNames';
 import { ConfirmationDialog } from '~/components/ui/Dialog';
-import {
-  isEmbedded,
-  onParentMessage,
-  postToParent,
-  type ResDetailResponseMessage,
-} from '~/lib/embed/embedded-mode';
+import { isEmbedded, onParentMessage, postToParent, type ResDetailResponseMessage } from '~/lib/embed/embedded-mode';
 
 import type { ResourceDetailTarget, ResourceMutateFn } from './ResourceDetailPanel';
 
@@ -106,9 +101,16 @@ export const R2Browser = memo(function R2Browser({ target, mutate }: R2BrowserPr
   const [confirmDelete, setConfirmDelete] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  const pendingRef = useRef<Map<string, { resolve: (m: ResDetailResponseMessage) => void; reject: (e: Error) => void; timer: ReturnType<typeof setTimeout> }>>(
-    new Map(),
-  );
+  const pendingRef = useRef<
+    Map<
+      string,
+      {
+        resolve: (m: ResDetailResponseMessage) => void;
+        reject: (e: Error) => void;
+        timer: ReturnType<typeof setTimeout>;
+      }
+    >
+  >(new Map());
 
   // ONE listener resolving list replies by correlationId (repo []-deps stale-ref rule). Mutate replies are
   // resolved by the panel's own listener via the `mutate` prop — we only own list here.
@@ -192,7 +194,8 @@ export const R2Browser = memo(function R2Browser({ target, mutate }: R2BrowserPr
           truncated: data.truncated === true,
         });
       } catch (err) {
-        if (!silent) setState({ status: 'error', message: err instanceof Error ? err.message : 'Could not list objects.' });
+        if (!silent)
+          setState({ status: 'error', message: err instanceof Error ? err.message : 'Could not list objects.' });
       }
     },
     [requestList],
@@ -269,7 +272,10 @@ export const R2Browser = memo(function R2Browser({ target, mutate }: R2BrowserPr
           return;
         }
         const approach = typeof outcome.result.approach === 'string' ? outcome.result.approach : undefined;
-        setBanner({ message: approach ?? 'A scoped download link is not available for this object yet.', tone: 'warn' });
+        setBanner({
+          message: approach ?? 'A scoped download link is not available for this object yet.',
+          tone: 'warn',
+        });
         return;
       }
       setBanner({ message: outcome.message, tone: outcome.kind === 'not_available' ? 'warn' : 'err' });
@@ -318,7 +324,10 @@ export const R2Browser = memo(function R2Browser({ target, mutate }: R2BrowserPr
         }
 
         // No scoped URL — fall back to an inline put for a small text-ish file; otherwise honest note.
-        if (file.size <= INLINE_FALLBACK_MAX_BYTES && (file.type.startsWith('text/') || file.type === 'application/json')) {
+        if (
+          file.size <= INLINE_FALLBACK_MAX_BYTES &&
+          (file.type.startsWith('text/') || file.type === 'application/json')
+        ) {
           const body = await file.text();
           const put = await mutate('put', { body, contentType: file.type, key }, true);
           if (put.kind === 'success') {
@@ -396,7 +405,12 @@ export const R2Browser = memo(function R2Browser({ target, mutate }: R2BrowserPr
           onClick={() => fileInputRef.current?.click()}
           className="min-h-[28px] inline-flex items-center gap-1.5 rounded-lg bg-bolt-elements-item-backgroundAccent px-2.5 py-1 text-xs font-semibold text-bolt-elements-item-contentAccent hover:bg-bolt-elements-background-depth-3 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-bolt-elements-item-contentAccent cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed shrink-0"
         >
-          <div className={classNames(uploading ? 'i-ph:circle-notch animate-spin motion-reduce:animate-none' : 'i-ph:upload-simple-duotone', 'text-sm')} />
+          <div
+            className={classNames(
+              uploading ? 'i-ph:circle-notch animate-spin motion-reduce:animate-none' : 'i-ph:upload-simple-duotone',
+              'text-sm',
+            )}
+          />
           <span className="inline-block text-center">{uploading ? 'Uploading' : 'Upload'}</span>
         </button>
         {/* Live affordance — the listing self-updates on a visibility-aware poll; no manual Refresh
@@ -430,12 +444,21 @@ export const R2Browser = memo(function R2Browser({ target, mutate }: R2BrowserPr
         >
           <div
             className={classNames(
-              banner.tone === 'ok' ? 'i-ph:check-circle-duotone' : banner.tone === 'warn' ? 'i-ph:info-duotone' : 'i-ph:x-circle-duotone',
+              banner.tone === 'ok'
+                ? 'i-ph:check-circle-duotone'
+                : banner.tone === 'warn'
+                  ? 'i-ph:info-duotone'
+                  : 'i-ph:x-circle-duotone',
               'text-base shrink-0 mt-0.5',
             )}
           />
           <p className="min-w-0 flex-1 leading-relaxed">{banner.message}</p>
-          <button type="button" onClick={() => setBanner(null)} aria-label="Dismiss" className="i-ph:x text-sm shrink-0 opacity-70 hover:opacity-100 cursor-pointer" />
+          <button
+            type="button"
+            onClick={() => setBanner(null)}
+            aria-label="Dismiss"
+            className="i-ph:x text-sm shrink-0 opacity-70 hover:opacity-100 cursor-pointer"
+          />
         </div>
       )}
 
@@ -522,7 +545,9 @@ export const R2Browser = memo(function R2Browser({ target, mutate }: R2BrowserPr
                         </span>
                       </span>
                     </td>
-                    <td className="px-3 py-1.5 text-right text-bolt-elements-textTertiary tabular-nums">{formatBytes(file.size)}</td>
+                    <td className="px-3 py-1.5 text-right text-bolt-elements-textTertiary tabular-nums">
+                      {formatBytes(file.size)}
+                    </td>
                     <td className="px-4 py-1.5">
                       <div className="flex items-center justify-end gap-1">
                         <button
@@ -534,7 +559,14 @@ export const R2Browser = memo(function R2Browser({ target, mutate }: R2BrowserPr
                           title="Download"
                           className="min-h-[24px] min-w-[24px] flex items-center justify-center rounded text-bolt-elements-item-contentAccent hover:bg-bolt-elements-background-depth-3 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-bolt-elements-item-contentAccent cursor-pointer disabled:opacity-40"
                         >
-                          <div className={classNames(rowBusy ? 'i-ph:circle-notch animate-spin motion-reduce:animate-none' : 'i-ph:download-simple', 'text-sm')} />
+                          <div
+                            className={classNames(
+                              rowBusy
+                                ? 'i-ph:circle-notch animate-spin motion-reduce:animate-none'
+                                : 'i-ph:download-simple',
+                              'text-sm',
+                            )}
+                          />
                         </button>
                         <button
                           type="button"

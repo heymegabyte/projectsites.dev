@@ -76,21 +76,11 @@ describe('dedupeColumnNames', () => {
   it('appends _2, _3 to case-insensitive collisions, preserving order + input casing', () => {
     // Collisions are detected case-insensitively; the suffix is added to the string as received.
     // (Real callers pass slugified lower-case names, so casing is uniform in practice.)
-    expect(dedupeColumnNames(['name', 'name', 'Name', 'email'])).toEqual([
-      'name',
-      'name_2',
-      'Name_3',
-      'email',
-    ]);
+    expect(dedupeColumnNames(['name', 'name', 'Name', 'email'])).toEqual(['name', 'name_2', 'Name_3', 'email']);
   });
 
   it('de-dupes uniform lower-case names (the real caller path)', () => {
-    expect(dedupeColumnNames(['name', 'name', 'name', 'email'])).toEqual([
-      'name',
-      'name_2',
-      'name_3',
-      'email',
-    ]);
+    expect(dedupeColumnNames(['name', 'name', 'name', 'email'])).toEqual(['name', 'name_2', 'name_3', 'email']);
   });
 });
 
@@ -245,7 +235,12 @@ describe('inferMappings', () => {
     const grid = parseCsv('First Name,Age\nAlice,30\nBob,25');
     const maps = inferMappings(grid);
     expect(maps).toHaveLength(2);
-    expect(maps[0]).toMatchObject({ sourceHeader: 'First Name', targetColumn: 'first_name', type: 'TEXT', include: true });
+    expect(maps[0]).toMatchObject({
+      sourceHeader: 'First Name',
+      targetColumn: 'first_name',
+      type: 'TEXT',
+      include: true,
+    });
     expect(maps[1]).toMatchObject({ targetColumn: 'age', type: 'INTEGER', include: true });
   });
 
@@ -297,7 +292,14 @@ describe('buildInsertPlan', () => {
   });
 
   it('binds an empty cell as null', () => {
-    const plan = buildInsertPlan('t', map([{ col: 'a', type: 'TEXT' }, { col: 'b', type: 'INTEGER' }]), [['', '']]);
+    const plan = buildInsertPlan(
+      't',
+      map([
+        { col: 'a', type: 'TEXT' },
+        { col: 'b', type: 'INTEGER' },
+      ]),
+      [['', '']],
+    );
     expect(plan.batches[0].params).toEqual([null, null]);
   });
 
@@ -361,7 +363,13 @@ describe('buildInsertPlan', () => {
 
 describe('buildCreateTableForImport', () => {
   it('prepends an id PK by default + types every column', () => {
-    const sql = buildCreateTableForImport('people', map([{ col: 'name', type: 'TEXT' }, { col: 'age', type: 'INTEGER' }]));
+    const sql = buildCreateTableForImport(
+      'people',
+      map([
+        { col: 'name', type: 'TEXT' },
+        { col: 'age', type: 'INTEGER' },
+      ]),
+    );
     expect(sql).toContain('CREATE TABLE "people"');
     expect(sql).toContain('"id" INTEGER PRIMARY KEY');
     expect(sql).toContain('"name" TEXT');
@@ -369,7 +377,13 @@ describe('buildCreateTableForImport', () => {
   });
 
   it('uses a source id column instead of the synthetic one when present', () => {
-    const sql = buildCreateTableForImport('t', map([{ col: 'id', type: 'INTEGER' }, { col: 'name', type: 'TEXT' }]));
+    const sql = buildCreateTableForImport(
+      't',
+      map([
+        { col: 'id', type: 'INTEGER' },
+        { col: 'name', type: 'TEXT' },
+      ]),
+    );
     // Only ONE id column — the source's, not a duplicate synthetic PK.
     expect(sql.match(/"id"/g)?.length).toBe(1);
   });

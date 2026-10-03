@@ -49,15 +49,7 @@ type Artifacts = MapStore<Record<string, ArtifactState>>;
 // The `git` TAB was retired (Promote workflow) — git history now lives in the Code-view Project hub
 // (`ProjectHub.tsx`, `PS_CODE_HISTORY` bridge); the Source-Control view shipped as `SourceControlPanel`
 // (a tab beside Files/Search/Locks in EditorPanel), sharing the `git-browser-logic` helpers.
-export type WorkbenchViewType =
-  | 'chat'
-  | 'code'
-  | 'preview'
-  | 'functions'
-  | 'data'
-  | 'database'
-  | 'resources'
-  | 'git';
+export type WorkbenchViewType = 'chat' | 'code' | 'preview' | 'functions' | 'data' | 'database' | 'resources' | 'git';
 
 export class WorkbenchStore {
   /**

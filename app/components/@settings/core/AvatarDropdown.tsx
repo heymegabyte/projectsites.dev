@@ -49,12 +49,7 @@ export const AvatarDropdown = ({ onSelectTab }: AvatarDropdownProps) => {
           sideOffset={5}
           align="end"
         >
-          <div
-            className={classNames(
-              'px-4 py-3 flex items-center gap-3',
-              'border-b border-bolt-elements-borderColor',
-            )}
-          >
+          <div className={classNames('px-4 py-3 flex items-center gap-3', 'border-b border-bolt-elements-borderColor')}>
             <div className="w-10 h-10 rounded-full overflow-hidden flex-shrink-0 bg-bolt-elements-background-depth-3 shadow-sm">
               {profile?.avatar ? (
                 <img

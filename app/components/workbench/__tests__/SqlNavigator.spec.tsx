@@ -417,7 +417,9 @@ describe('SqlNavigator — rich per-site SQL workspace', () => {
     const postSpy = vi.spyOn(window.parent, 'postMessage');
     fireEvent.click(screen.getByTestId('database-sql-ai-explain'));
 
-    const submit = [...postSpy.mock.calls].reverse().find((c) => (c[0] as { type?: string })?.type === 'PS_SUBMIT_PROMPT')?.[0] as
+    const submit = [...postSpy.mock.calls]
+      .reverse()
+      .find((c) => (c[0] as { type?: string })?.type === 'PS_SUBMIT_PROMPT')?.[0] as
       | { type: string; prompt: string }
       | undefined;
     expect(submit).toBeTruthy();

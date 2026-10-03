@@ -51,10 +51,26 @@ vi.mock('~/lib/embed/embedded-mode', () => ({
 
 // Stub the heavy ConfirmationDialog (framer-motion + react-window) with a minimal, testable version.
 vi.mock('~/components/ui/Dialog', () => ({
-  ConfirmationDialog: ({ isOpen, title, onConfirm, onClose, confirmLabel }: { isOpen: boolean; title: string; onConfirm: () => void; onClose: () => void; confirmLabel?: string }) =>
+  ConfirmationDialog: ({
+    isOpen,
+    title,
+    onConfirm,
+    onClose,
+    confirmLabel,
+  }: {
+    isOpen: boolean;
+    title: string;
+    onConfirm: () => void;
+    onClose: () => void;
+    confirmLabel?: string;
+  }) =>
     isOpen
       ? React.createElement('div', { role: 'dialog', 'aria-label': title }, [
-          React.createElement('button', { key: 'ok', 'data-testid': 'confirm-ok', onClick: onConfirm }, confirmLabel ?? 'Confirm'),
+          React.createElement(
+            'button',
+            { key: 'ok', 'data-testid': 'confirm-ok', onClick: onConfirm },
+            confirmLabel ?? 'Confirm',
+          ),
           React.createElement('button', { key: 'no', 'data-testid': 'confirm-cancel', onClick: onClose }, 'Cancel'),
         ])
       : null,
@@ -121,18 +137,28 @@ describe('supports-driven write controls', () => {
 
 describe('provision', () => {
   it('opens the confirm dialog then sends PS_RES_MUTATE_REQUEST { action:provision, confirm:true } and renders success', async () => {
-    render(<ResourceDetailPanel target={{ kind: 'kv', environment: 'production', availability: 'available' }} onBack={() => {}} />);
+    render(
+      <ResourceDetailPanel
+        target={{ kind: 'kv', environment: 'production', availability: 'available' }}
+        onBack={() => {}}
+      />,
+    );
 
     await waitFor(() => expect(last()?.type).toBe('PS_RES_DETAIL_REQUEST'));
     // An "available to add" resource resolves not_registered on read.
-    replyToLast('PS_RES_DETAIL_RESPONSE', { ok: true, result: { ok: false, error: { code: 'not_registered', message: 'Not connected yet.' } } });
+    replyToLast('PS_RES_DETAIL_RESPONSE', {
+      ok: true,
+      result: { ok: false, error: { code: 'not_registered', message: 'Not connected yet.' } },
+    });
 
     await waitFor(() => expect(screen.getByTestId('resource-mutate-provision')).toBeTruthy());
     fireEvent.click(screen.getByTestId('resource-mutate-provision'));
 
     // Provision is confirm-gated → the dialog appears; the mutate must NOT have been posted yet.
     await waitFor(() => expect(screen.getByTestId('confirm-ok')).toBeTruthy());
-    const detailPosts = postToParent.mock.calls.filter((c) => (c[0] as { type: string }).type === 'PS_RES_MUTATE_REQUEST');
+    const detailPosts = postToParent.mock.calls.filter(
+      (c) => (c[0] as { type: string }).type === 'PS_RES_MUTATE_REQUEST',
+    );
     expect(detailPosts.length).toBe(0);
 
     fireEvent.click(screen.getByTestId('confirm-ok'));
@@ -144,7 +170,13 @@ describe('provision', () => {
     expect(req.kind).toBe('kv');
 
     // Answer the mutate with a success → the outcome card renders.
-    replyToLast('PS_RES_MUTATE_RESPONSE', { ok: true, result: { ok: true, data: { action: 'provision', resourceId: 'ns-new', created: true, displayName: 'KV namespace' } } });
+    replyToLast('PS_RES_MUTATE_RESPONSE', {
+      ok: true,
+      result: {
+        ok: true,
+        data: { action: 'provision', resourceId: 'ns-new', created: true, displayName: 'KV namespace' },
+      },
+    });
     await waitFor(() => expect(screen.getByTestId('resource-mutate-outcome')).toBeTruthy());
     expect(screen.getByTestId('resource-mutate-outcome').textContent).toContain('succeeded');
   });
@@ -157,7 +189,10 @@ describe('destructive delete', () => {
     render(<ResourceDetailPanel target={{ kind: 'kv', environment: 'production' }} onBack={() => {}} />);
 
     await waitFor(() => expect(last()?.type).toBe('PS_RES_DETAIL_REQUEST'));
-    replyToLast('PS_RES_DETAIL_RESPONSE', { ok: true, result: { ok: true, data: { keys: [{ name: 'greeting' }], listComplete: true } } });
+    replyToLast('PS_RES_DETAIL_RESPONSE', {
+      ok: true,
+      result: { ok: true, data: { keys: [{ name: 'greeting' }], listComplete: true } },
+    });
 
     await waitFor(() => expect(screen.getByTestId('resource-mutate-key-delete')).toBeTruthy());
 
@@ -168,7 +203,9 @@ describe('destructive delete', () => {
     fireEvent.click(deleteBtn);
 
     await waitFor(() => expect(screen.getByTestId('confirm-ok')).toBeTruthy());
-    expect(postToParent.mock.calls.filter((c) => (c[0] as { type: string }).type === 'PS_RES_MUTATE_REQUEST').length).toBe(0);
+    expect(
+      postToParent.mock.calls.filter((c) => (c[0] as { type: string }).type === 'PS_RES_MUTATE_REQUEST').length,
+    ).toBe(0);
 
     fireEvent.click(screen.getByTestId('confirm-ok'));
     await waitFor(() => expect(last()?.type).toBe('PS_RES_MUTATE_REQUEST'));
@@ -202,7 +239,10 @@ describe('honest outcomes', () => {
     // The server says the key exists → confirmation_required. The panel must show it honestly (not success).
     replyToLast('PS_RES_MUTATE_RESPONSE', {
       ok: true,
-      result: { ok: false, error: { code: 'confirmation_required', message: 'KV key "greeting" already exists — writing overwrites it.' } },
+      result: {
+        ok: false,
+        error: { code: 'confirmation_required', message: 'KV key "greeting" already exists — writing overwrites it.' },
+      },
     });
 
     await waitFor(() => expect(screen.getByTestId('resource-mutate-outcome')).toBeTruthy());
@@ -339,9 +379,7 @@ describe('CSV export', () => {
 describe('real-time detail view — no manual refresh', () => {
   /** Count how many detail read requests the panel has posted so far. */
   function detailCount(): number {
-    return postToParent.mock.calls.filter(
-      (c) => (c[0] as { type?: string })?.type === 'PS_RES_DETAIL_REQUEST',
-    ).length;
+    return postToParent.mock.calls.filter((c) => (c[0] as { type?: string })?.type === 'PS_RES_DETAIL_REQUEST').length;
   }
 
   it('renders NO manual Refresh button in the header — the view self-updates', async () => {

@@ -28,10 +28,7 @@ import { fileURLToPath } from 'node:url';
 import type { FileHistory } from '~/types/actions';
 import { computeFileDiffStat } from '../file-diff-stat';
 
-const WORKBENCH_SRC = readFileSync(
-  join(dirname(fileURLToPath(import.meta.url)), '..', 'Workbench.client.tsx'),
-  'utf8',
-);
+const WORKBENCH_SRC = readFileSync(join(dirname(fileURLToPath(import.meta.url)), '..', 'Workbench.client.tsx'), 'utf8');
 
 describe('Workbench.client fileHistory construction contract (fire-73)', () => {
   it('never casts a partial object `as FileHistory` (the exact crash-causing pattern)', () => {

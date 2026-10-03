@@ -78,9 +78,7 @@ export const PortDropdown = memo(
           title="Switch preview port"
         >
           <span className="i-ph:plug text-base" aria-hidden="true"></span>
-          {activePreview && !isDropdownOpen ? (
-            <span className="text-xs font-medium">{activePreview.port}</span>
-          ) : null}
+          {activePreview && !isDropdownOpen ? <span className="text-xs font-medium">{activePreview.port}</span> : null}
         </button>
 
         {isDropdownOpen && (

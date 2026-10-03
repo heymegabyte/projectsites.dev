@@ -54,7 +54,12 @@ const { postToParentSpy, onParentMessageSpy, parentHandlers } = vi.hoisted(() =>
 });
 
 const { requestDbLoadSampleSpy, requestDbAiSeedSpy, postToastToParentSpy, requestDbUpdateRowSpy } = vi.hoisted(() => ({
-  requestDbLoadSampleSpy: vi.fn(async () => ({ type: 'PS_DB_LOAD_SAMPLE_RESULT', ok: true, tablesCreated: 1, tables: ['sample'] })),
+  requestDbLoadSampleSpy: vi.fn(async () => ({
+    type: 'PS_DB_LOAD_SAMPLE_RESULT',
+    ok: true,
+    tablesCreated: 1,
+    tables: ['sample'],
+  })),
   requestDbAiSeedSpy: vi.fn(async () => ({ type: 'PS_DB_AI_SEED_RESULT', ok: true, rowsInserted: 10, table: 'posts' })),
   postToastToParentSpy: vi.fn(),
   // Revision 1 — the dedicated rowid UPDATE sender (PATCH …/rows/:rowid). Defaults to a success reply.
@@ -76,7 +81,12 @@ vi.mock('~/lib/embed/embedded-mode', () => ({
   requestDbAddColumn: vi.fn(async () => ({ type: 'PS_SITEDB_ADD_COLUMN_RESPONSE', ok: true })),
   requestDbRenameColumn: vi.fn(async () => ({ type: 'PS_SITEDB_RENAME_COLUMN_RESPONSE', ok: true })),
   requestDbDropColumn: vi.fn(async () => ({ type: 'PS_SITEDB_DROP_COLUMN_RESPONSE', ok: true })),
-  requestDbSearch: vi.fn(async () => ({ type: 'PS_SITEDB_SEARCH_RESPONSE', ok: true, nameMatches: [], contentMatches: [] })),
+  requestDbSearch: vi.fn(async () => ({
+    type: 'PS_SITEDB_SEARCH_RESPONSE',
+    ok: true,
+    nameMatches: [],
+    contentMatches: [],
+  })),
 }));
 
 /*
@@ -1317,7 +1327,10 @@ describe('SiteTablesPanel — Rev 2 schema/table rail', () => {
           { name: 'title', type: 'TEXT', notnull: 0, pk: 0 },
           { name: 'body', type: 'TEXT', notnull: 0, pk: 0 },
         ],
-        rows: [{ id: 1, title: 'A', body: 'x' }, { id: 2, title: 'B', body: 'y' }],
+        rows: [
+          { id: 1, title: 'A', body: 'x' },
+          { id: 2, title: 'B', body: 'y' },
+        ],
         limit: 25,
         offset: 0,
         total: 2,
@@ -1616,9 +1629,8 @@ describe('SiteTablesPanel — real-time data, no manual Refresh', () => {
 
   /** Count how many table-list reads the panel has issued so far. */
   function tablesRequestCount(): number {
-    return postToParentSpy.mock.calls.filter(
-      (c) => (c[0] as { type?: string })?.type === 'PS_SITEDB_TABLES_REQUEST',
-    ).length;
+    return postToParentSpy.mock.calls.filter((c) => (c[0] as { type?: string })?.type === 'PS_SITEDB_TABLES_REQUEST')
+      .length;
   }
 
   /** Reply to the panel's latest tables request with a ready (empty) database. */

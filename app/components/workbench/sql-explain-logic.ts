@@ -36,7 +36,10 @@ export interface ExplainInput {
  * are no rows (a write, or a read that matched nothing) so the prompt cleanly omits the "Sample rows"
  * block instead of showing an empty array.
  */
-export function sampleRowsJson(rows: readonly Record<string, unknown>[] | undefined, limit = EXPLAIN_SAMPLE_ROWS): string {
+export function sampleRowsJson(
+  rows: readonly Record<string, unknown>[] | undefined,
+  limit = EXPLAIN_SAMPLE_ROWS,
+): string {
   const list = Array.isArray(rows) ? rows.slice(0, Math.max(0, limit)) : [];
 
   if (list.length === 0) {

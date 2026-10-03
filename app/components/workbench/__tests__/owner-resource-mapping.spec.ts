@@ -76,10 +76,7 @@ describe('NamespaceSummary kind mapping (owner-grade wire kinds)', () => {
 });
 
 describe('ResourceOverviewPanel owner-grade rendering contract', () => {
-  const SRC = readFileSync(
-    join(dirname(fileURLToPath(import.meta.url)), '..', 'ResourceOverviewPanel.tsx'),
-    'utf8',
-  );
+  const SRC = readFileSync(join(dirname(fileURLToPath(import.meta.url)), '..', 'ResourceOverviewPanel.tsx'), 'utf8');
 
   it('renders the owner label + display name (never a raw concept-only headline)', () => {
     expect(SRC).toMatch(/entry\.owner_label/);

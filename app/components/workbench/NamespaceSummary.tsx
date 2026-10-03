@@ -458,7 +458,10 @@ export const NamespaceSummary = memo(
                     {envLabel}
                   </span>
                 </div>
-                <div className="mt-1 flex items-center gap-1.5 min-w-0" title="Workers-for-Platforms dispatch namespace">
+                <div
+                  className="mt-1 flex items-center gap-1.5 min-w-0"
+                  title="Workers-for-Platforms dispatch namespace"
+                >
                   <div className="i-ph:function text-[13px] text-bolt-elements-textTertiary shrink-0" />
                   <code className="text-[12px] font-mono text-bolt-elements-textSecondary truncate">
                     {rollup.namespaceLabel ?? 'dispatch namespace · resolved server-side'}
@@ -527,9 +530,7 @@ export const NamespaceSummary = memo(
                 aria-hidden="true"
                 className={classNames(
                   'h-1.5 w-1.5 rounded-full shrink-0',
-                  syncing
-                    ? 'bg-amber-400 animate-pulse motion-reduce:animate-none'
-                    : 'bg-emerald-400',
+                  syncing ? 'bg-amber-400 animate-pulse motion-reduce:animate-none' : 'bg-emerald-400',
                 )}
               />
               <span className="tabular-nums">{syncLabel}</span>
@@ -571,7 +572,10 @@ const HeroStat = memo(
     return (
       <div
         data-testid={testid}
-        className={classNames('flex flex-col items-center justify-center rounded-xl border px-3.5 py-2 min-w-[76px]', toneCls)}
+        className={classNames(
+          'flex flex-col items-center justify-center rounded-xl border px-3.5 py-2 min-w-[76px]',
+          toneCls,
+        )}
       >
         <div className="flex items-center gap-1.5">
           <div className={classNames(icon, 'text-sm')} aria-hidden="true" />
@@ -655,7 +659,10 @@ const KindTile = memo(({ row, onOpen }: { row: KindRollup; onOpen?: (target: Ope
           {row.total}
         </span>
         {drifted && (
-          <span className="text-[9px] font-semibold uppercase tracking-wider text-amber-300" title={`${row.drifted} drifted`}>
+          <span
+            className="text-[9px] font-semibold uppercase tracking-wider text-amber-300"
+            title={`${row.drifted} drifted`}
+          >
             {row.drifted} drift
           </span>
         )}

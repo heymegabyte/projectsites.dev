@@ -2372,7 +2372,9 @@ export function defaultKanbanGroupField(
 
     const distinct = distinctCount(c);
 
-    return distinct >= 1 && distinct <= KANBAN_MAX_GROUPS && (rows.length === 0 || distinct <= Math.ceil(rows.length / 2));
+    return (
+      distinct >= 1 && distinct <= KANBAN_MAX_GROUPS && (rows.length === 0 || distinct <= Math.ceil(rows.length / 2))
+    );
   });
 
   if (enumLike) {

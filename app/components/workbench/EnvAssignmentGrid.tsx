@@ -72,7 +72,10 @@ function slotFor(entries: ResourceOverviewEntry[], kind: string): EnvSlot {
   if (!match) return { present: false };
   return {
     bindingName: match.binding_name,
-    displayName: (match as { resource_display_name?: string }).resource_display_name ?? match.resource_concept ?? match.resource_kind,
+    displayName:
+      (match as { resource_display_name?: string }).resource_display_name ??
+      match.resource_concept ??
+      match.resource_kind,
     lifecycleState: match.lifecycle_state,
     present: true,
   };
@@ -92,9 +95,16 @@ export interface EnvAssignmentGridProps {
  */
 export const EnvAssignmentGrid = memo(function EnvAssignmentGrid({ kind, environment }: EnvAssignmentGridProps) {
   const [state, setState] = useState<GridState>({ status: 'loading' });
-  const pendingRef = useRef<Map<string, { resolve: (m: ResOverviewResponseMessage) => void; reject: (e: Error) => void; timer: ReturnType<typeof setTimeout> }>>(
-    new Map(),
-  );
+  const pendingRef = useRef<
+    Map<
+      string,
+      {
+        resolve: (m: ResOverviewResponseMessage) => void;
+        reject: (e: Error) => void;
+        timer: ReturnType<typeof setTimeout>;
+      }
+    >
+  >(new Map());
 
   // ONE parent-message listener resolving overview replies by correlationId (repo []-deps stale-ref rule).
   useEffect(() => {
@@ -137,36 +147,41 @@ export const EnvAssignmentGrid = memo(function EnvAssignmentGrid({ kind, environ
    *   on-screen (no loading flash) and a transient failure keeps the last good view — freshness is
    *   invisible, per `real-time-data-no-manual-refresh`.
    */
-  const load = useCallback(async (silent = false) => {
-    if (!silent) setState({ status: 'loading' });
-    if (!isEmbedded) {
-      setState({ status: 'error', message: 'Open this from the ProjectSites admin to see environments.' });
-      return;
-    }
-    try {
-      const [preview, production] = await Promise.all([requestOverview('preview'), requestOverview('production')]);
-
-      // Either reply being flag-dark means the whole surface is off.
-      for (const reply of [preview, production]) {
-        if (!reply.ok && (reply.enabled === false || (reply.error && reply.error.includes(DISABLED_404)))) {
-          setState({ status: 'disabled' });
-          return;
-        }
-      }
-      if (!preview.ok && !production.ok) {
-        if (!silent) setState({ status: 'error', message: preview.error || production.error || 'Could not load environments.' });
+  const load = useCallback(
+    async (silent = false) => {
+      if (!silent) setState({ status: 'loading' });
+      if (!isEmbedded) {
+        setState({ status: 'error', message: 'Open this from the ProjectSites admin to see environments.' });
         return;
       }
+      try {
+        const [preview, production] = await Promise.all([requestOverview('preview'), requestOverview('production')]);
 
-      setState({
-        preview: slotFor(preview.resources ?? [], kind),
-        production: slotFor(production.resources ?? [], kind),
-        status: 'ready',
-      });
-    } catch (err) {
-      if (!silent) setState({ status: 'error', message: err instanceof Error ? err.message : 'Could not load environments.' });
-    }
-  }, [kind, requestOverview]);
+        // Either reply being flag-dark means the whole surface is off.
+        for (const reply of [preview, production]) {
+          if (!reply.ok && (reply.enabled === false || (reply.error && reply.error.includes(DISABLED_404)))) {
+            setState({ status: 'disabled' });
+            return;
+          }
+        }
+        if (!preview.ok && !production.ok) {
+          if (!silent)
+            setState({ status: 'error', message: preview.error || production.error || 'Could not load environments.' });
+          return;
+        }
+
+        setState({
+          preview: slotFor(preview.resources ?? [], kind),
+          production: slotFor(production.resources ?? [], kind),
+          status: 'ready',
+        });
+      } catch (err) {
+        if (!silent)
+          setState({ status: 'error', message: err instanceof Error ? err.message : 'Could not load environments.' });
+      }
+    },
+    [kind, requestOverview],
+  );
 
   useEffect(() => {
     void load();
@@ -236,9 +251,7 @@ export const EnvAssignmentGrid = memo(function EnvAssignmentGrid({ kind, environ
         </div>
       )}
 
-      {state.status === 'error' && (
-        <p className="px-1 py-2 text-xs text-red-300">{state.message}</p>
-      )}
+      {state.status === 'error' && <p className="px-1 py-2 text-xs text-red-300">{state.message}</p>}
 
       {state.status === 'ready' && (
         <div className="grid grid-cols-2 gap-1.5">
@@ -291,7 +304,10 @@ export const EnvAssignmentGrid = memo(function EnvAssignmentGrid({ kind, environ
                         </span>
                       )}
                       {slot.bindingName && (
-                        <span className="text-[9px] font-mono text-bolt-elements-textTertiary truncate" title={slot.bindingName}>
+                        <span
+                          className="text-[9px] font-mono text-bolt-elements-textTertiary truncate"
+                          title={slot.bindingName}
+                        >
                           {slot.bindingName}
                         </span>
                       )}

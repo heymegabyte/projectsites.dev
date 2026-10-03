@@ -967,7 +967,9 @@ export const SqlNavigator = memo(() => {
                 disabled={!!explainDisabled}
                 data-testid="database-sql-ai-explain"
                 aria-label="Explain this query and its results in plain English using the editor AI chat"
-                title={explainDisabled ?? 'Ask the AI to explain this query and its results in plain English (opens in chat)'}
+                title={
+                  explainDisabled ?? 'Ask the AI to explain this query and its results in plain English (opens in chat)'
+                }
                 className="min-h-[24px] text-[11px] font-medium px-3 py-1.5 rounded-lg border border-[#00e5ff66] bg-[#00e5ff14] text-bolt-elements-item-contentAccent enabled:hover:bg-[#00e5ff26] disabled:opacity-40 disabled:cursor-not-allowed transition-colors flex items-center gap-1.5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-bolt-elements-item-contentAccent cursor-pointer"
               >
                 <div className="i-ph:sparkle" /> Explain with AI
@@ -1390,7 +1392,6 @@ const SqlResult = memo(
             </p>
           </div>
         ) : (
-
           /*
            * The SAME grid form the Table-view uses — typed cells, sortable headers, search, pagination,
            * and honest whole-result export — so a SQL result reads exactly like a browsed table.

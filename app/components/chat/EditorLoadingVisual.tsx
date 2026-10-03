@@ -45,8 +45,7 @@ export const EditorLoadingVisual = memo(
   ({ leaving = false, onTransitionEnd, progress, message }: EditorLoadingVisualProps) => {
     const [idx, setIdx] = useState(0);
     const [burst, setBurst] = useState(0);
-    const reduced =
-      typeof window !== 'undefined' && window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
+    const reduced = typeof window !== 'undefined' && window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
 
     useEffect(() => {
       if (message || reduced) {

@@ -2696,9 +2696,7 @@ export function requestFromParent<R extends ParentToChildMessage>(
  * "📊 Load sample data" — seed the site's OWN D1 with a ready-made starter dataset.
  * Resolves with the parent's {@link DbLoadSampleResponseMessage}.
  */
-export function requestDbLoadSample(
-  input: { environment?: string } = {},
-): Promise<DbLoadSampleResponseMessage> {
+export function requestDbLoadSample(input: { environment?: string } = {}): Promise<DbLoadSampleResponseMessage> {
   return requestFromParent<DbLoadSampleResponseMessage>(
     { type: 'PS_DB_LOAD_SAMPLE', correlationId: nextBridgeCorrelationId(), environment: input.environment },
     'PS_DB_LOAD_SAMPLE_RESULT',
@@ -2730,9 +2728,10 @@ export function requestDbAiSeed(
  * parent's {@link SiteDbQueryResponseMessage} — `{ rows, meta, rowCount, truncated }` on success, a
  * verbatim `error` on a SQL error, or `enabled:false` when the `per_site_data` flag is dark.
  */
-export function requestDbQuery(
-  input: { sql: string; params?: (string | number | boolean | null)[] },
-): Promise<SiteDbQueryResponseMessage> {
+export function requestDbQuery(input: {
+  sql: string;
+  params?: (string | number | boolean | null)[];
+}): Promise<SiteDbQueryResponseMessage> {
   return requestFromParent<SiteDbQueryResponseMessage>(
     {
       type: 'PS_SITEDB_QUERY_REQUEST',
@@ -2766,9 +2765,10 @@ export function requestDbSearch(input: { q: string; limit?: number }): Promise<S
  * `ok:true` on success, a verbatim `error` on a DDL/validation failure, or `enabled:false` when the
  * `per_site_data` flag is dark.
  */
-export function requestDbCreateTable(
-  input: { name: string; columns: SiteDbColumnSpec[] },
-): Promise<SiteDbCreateTableResponseMessage> {
+export function requestDbCreateTable(input: {
+  name: string;
+  columns: SiteDbColumnSpec[];
+}): Promise<SiteDbCreateTableResponseMessage> {
   return requestFromParent<SiteDbCreateTableResponseMessage>(
     {
       type: 'PS_SITEDB_CREATE_TABLE_REQUEST',
@@ -2802,9 +2802,11 @@ export function requestDbDropTable(input: { table: string }): Promise<SiteDbDrop
  * {@link SiteDbAddColumnResponseMessage} — `ok:true` on success, a verbatim `error` on a DDL/validation
  * failure, or `enabled:false` when the `per_site_data` flag is dark.
  */
-export function requestDbAddColumn(
-  input: { table: string; name: string; type: 'TEXT' | 'INTEGER' | 'REAL' },
-): Promise<SiteDbAddColumnResponseMessage> {
+export function requestDbAddColumn(input: {
+  table: string;
+  name: string;
+  type: 'TEXT' | 'INTEGER' | 'REAL';
+}): Promise<SiteDbAddColumnResponseMessage> {
   return requestFromParent<SiteDbAddColumnResponseMessage>(
     {
       type: 'PS_SITEDB_ADD_COLUMN_REQUEST',
@@ -2823,9 +2825,11 @@ export function requestDbAddColumn(
  * {@link SiteDbRenameColumnResponseMessage} — `ok:true` on success, a verbatim `error` on failure, or
  * `enabled:false` when the `per_site_data` flag is dark.
  */
-export function requestDbRenameColumn(
-  input: { table: string; column: string; name: string },
-): Promise<SiteDbRenameColumnResponseMessage> {
+export function requestDbRenameColumn(input: {
+  table: string;
+  column: string;
+  name: string;
+}): Promise<SiteDbRenameColumnResponseMessage> {
   return requestFromParent<SiteDbRenameColumnResponseMessage>(
     {
       type: 'PS_SITEDB_RENAME_COLUMN_REQUEST',
@@ -2846,9 +2850,12 @@ export function requestDbRenameColumn(
  * limitation. Resolves with the parent's {@link SiteDbUpdateRowResponseMessage} — `ok:true` (+ `updated`)
  * on success, a verbatim `error` on failure, or `enabled:false` when the `per_site_data` flag is dark.
  */
-export function requestDbUpdateRow(
-  input: { table: string; rowid: number; column: string; value: string | number | boolean | null },
-): Promise<SiteDbUpdateRowResponseMessage> {
+export function requestDbUpdateRow(input: {
+  table: string;
+  rowid: number;
+  column: string;
+  value: string | number | boolean | null;
+}): Promise<SiteDbUpdateRowResponseMessage> {
   return requestFromParent<SiteDbUpdateRowResponseMessage>(
     {
       type: 'PS_SITEDB_UPDATE_ROW_REQUEST',
@@ -2868,9 +2875,10 @@ export function requestDbUpdateRow(
  * {@link SiteDbDropColumnResponseMessage} — `ok:true` on success, a verbatim `error` on failure, or
  * `enabled:false` when the `per_site_data` flag is dark.
  */
-export function requestDbDropColumn(
-  input: { table: string; column: string },
-): Promise<SiteDbDropColumnResponseMessage> {
+export function requestDbDropColumn(input: {
+  table: string;
+  column: string;
+}): Promise<SiteDbDropColumnResponseMessage> {
   return requestFromParent<SiteDbDropColumnResponseMessage>(
     {
       type: 'PS_SITEDB_DROP_COLUMN_REQUEST',
@@ -2883,18 +2891,16 @@ export function requestDbDropColumn(
 }
 
 /** List / delete the site's media assets. Resolves with the parent's {@link ResMediaResponseMessage}. */
-export function requestResMedia(
-  input: {
-    action: 'list' | 'delete';
-    environment?: string;
-    kind?: string;
-    source?: string;
-    search?: string;
-    limit?: number;
-    cursor?: string;
-    id?: string;
-  },
-): Promise<ResMediaResponseMessage> {
+export function requestResMedia(input: {
+  action: 'list' | 'delete';
+  environment?: string;
+  kind?: string;
+  source?: string;
+  search?: string;
+  limit?: number;
+  cursor?: string;
+  id?: string;
+}): Promise<ResMediaResponseMessage> {
   return requestFromParent<ResMediaResponseMessage>(
     { type: 'PS_RES_MEDIA', correlationId: nextBridgeCorrelationId(), ...input },
     'PS_RES_MEDIA_RESULT',
@@ -2902,9 +2908,12 @@ export function requestResMedia(
 }
 
 /** Upload one media asset (base64 data URL). Resolves with the parent's {@link MediaUploadResponseMessage}. */
-export function requestMediaUpload(
-  input: { name: string; contentType: string; dataUrl: string; environment?: string },
-): Promise<MediaUploadResponseMessage> {
+export function requestMediaUpload(input: {
+  name: string;
+  contentType: string;
+  dataUrl: string;
+  environment?: string;
+}): Promise<MediaUploadResponseMessage> {
   return requestFromParent<MediaUploadResponseMessage>(
     { type: 'PS_RES_MEDIA_UPLOAD', correlationId: nextBridgeCorrelationId(), ...input },
     'PS_RES_MEDIA_UPLOAD_RESULT',
@@ -2916,7 +2925,12 @@ export function requestResSiteFiles(
   input: { version?: string; environment?: string } = {},
 ): Promise<ResSiteFilesResponseMessage> {
   return requestFromParent<ResSiteFilesResponseMessage>(
-    { type: 'PS_RES_SITE_FILES', correlationId: nextBridgeCorrelationId(), version: input.version, environment: input.environment },
+    {
+      type: 'PS_RES_SITE_FILES',
+      correlationId: nextBridgeCorrelationId(),
+      version: input.version,
+      environment: input.environment,
+    },
     'PS_RES_SITE_FILES_RESULT',
   );
 }
@@ -2934,9 +2948,12 @@ export function requestR2(input: Omit<R2RequestMessage, 'type' | 'correlationId'
 }
 
 /** Upload one object to a bucket (base64 data URL). Resolves with the parent's {@link BucketUploadResponseMessage}. */
-export function requestBucketUpload(
-  input: { bucket: string; key: string; contentType: string; dataUrl: string },
-): Promise<BucketUploadResponseMessage> {
+export function requestBucketUpload(input: {
+  bucket: string;
+  key: string;
+  contentType: string;
+  dataUrl: string;
+}): Promise<BucketUploadResponseMessage> {
   return requestFromParent<BucketUploadResponseMessage>(
     { type: 'PS_R2_UPLOAD', correlationId: nextBridgeCorrelationId(), ...input },
     'PS_R2_UPLOAD_RESULT',
@@ -2944,9 +2961,7 @@ export function requestBucketUpload(
 }
 
 /** Download one object from a bucket. Resolves with the parent's {@link BucketDownloadResponseMessage}. */
-export function requestBucketDownload(
-  input: { bucket: string; key: string },
-): Promise<BucketDownloadResponseMessage> {
+export function requestBucketDownload(input: { bucket: string; key: string }): Promise<BucketDownloadResponseMessage> {
   return requestFromParent<BucketDownloadResponseMessage>(
     { type: 'PS_R2_DOWNLOAD', correlationId: nextBridgeCorrelationId(), ...input },
     'PS_R2_DOWNLOAD_RESULT',

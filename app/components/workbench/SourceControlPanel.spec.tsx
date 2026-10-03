@@ -447,7 +447,9 @@ describe('SourceControlPanel', () => {
     expect(retry.getAttribute('aria-label')).toMatch(/retry|publish/i);
 
     // Count PS_PROMOTE_REQUEST calls before Retry.
-    const before = postToParent.mock.calls.filter((c) => (c[0] as { type?: string }).type === 'PS_PROMOTE_REQUEST').length;
+    const before = postToParent.mock.calls.filter(
+      (c) => (c[0] as { type?: string }).type === 'PS_PROMOTE_REQUEST',
+    ).length;
 
     fireEvent.click(retry);
 
@@ -460,7 +462,9 @@ describe('SourceControlPanel', () => {
     });
 
     // The retried message carries the SAME frozen draft revision + tree digest (idempotent replay).
-    const promoteCalls = postToParent.mock.calls.filter((c) => (c[0] as { type?: string }).type === 'PS_PROMOTE_REQUEST');
+    const promoteCalls = postToParent.mock.calls.filter(
+      (c) => (c[0] as { type?: string }).type === 'PS_PROMOTE_REQUEST',
+    );
     const lastMsg = promoteCalls[promoteCalls.length - 1][0] as { draftRevision: number; treeDigest: string };
     expect(lastMsg.draftRevision).toBe(7);
     expect(lastMsg.treeDigest).toBe('digest-7');

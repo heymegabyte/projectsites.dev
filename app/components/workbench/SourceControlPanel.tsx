@@ -974,7 +974,10 @@ const ReleaseOutcomeCard = memo(
                   'focus-visible:ring-bolt-elements-item-contentAccent transition-colors duration-150 motion-reduce:transition-none',
                 )}
               >
-                <div className={classNames(copied ? 'i-ph:check-bold' : 'i-ph:copy', 'text-[11px]')} aria-hidden="true" />
+                <div
+                  className={classNames(copied ? 'i-ph:check-bold' : 'i-ph:copy', 'text-[11px]')}
+                  aria-hidden="true"
+                />
               </button>
             </span>
           )}
@@ -1433,10 +1436,7 @@ const ServingShaChip = memo(({ servingSha }: { servingSha: string | null }) => {
       title="Proof-of-serving SHA — what Production demonstrably serves for this release"
     >
       <div className="i-ph:broadcast text-[10px] text-bolt-elements-item-contentAccent" aria-hidden="true" />
-      <code
-        className="font-mono text-[10px] tabular-nums text-bolt-elements-item-contentAccent"
-        title={servingSha}
-      >
+      <code className="font-mono text-[10px] tabular-nums text-bolt-elements-item-contentAccent" title={servingSha}>
         {shaPrefix}
       </code>
       <button

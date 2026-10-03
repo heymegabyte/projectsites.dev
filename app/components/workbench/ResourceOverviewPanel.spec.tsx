@@ -83,9 +83,8 @@ function lastCorrelationId(): string {
 
 /** How many inventory (overview) requests the panel has sent so far. */
 function overviewRequestCount(): number {
-  return postToParent.mock.calls.filter(
-    (call) => (call[0] as { type?: string })?.type === 'PS_RES_OVERVIEW_REQUEST',
-  ).length;
+  return postToParent.mock.calls.filter((call) => (call[0] as { type?: string })?.type === 'PS_RES_OVERVIEW_REQUEST')
+    .length;
 }
 
 /** Reply to the panel's latest inventory request with a ready inventory (keeps it in the `ready` state). */

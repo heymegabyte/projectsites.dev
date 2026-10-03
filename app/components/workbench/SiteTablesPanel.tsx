@@ -669,48 +669,51 @@ export const SiteTablesPanel = memo(
      *   on-screen (no loading flash) and a transient failure keeps the last good view — freshness is
      *   invisible, per `real-time-data-no-manual-refresh`.
      */
-    const loadTables = useCallback(async (silent = false) => {
-      if (!silent) {
-        setTables({ status: 'loading' });
-      }
+    const loadTables = useCallback(
+      async (silent = false) => {
+        if (!silent) {
+          setTables({ status: 'loading' });
+        }
 
-      if (!isEmbedded) {
-        setTables({ status: 'error', message: 'Open this from the ProjectSites admin to browse your data.' });
-        return;
-      }
-
-      try {
-        const reply = (await request({
-          type: 'PS_SITEDB_TABLES_REQUEST',
-          correlationId: nextCorrelationId(),
-        })) as SiteDbTablesResponseMessage;
-
-        if (!reply.ok) {
-          // Dark-flag 404 → friendly disabled state, not an error card.
-          if (reply.enabled === false || (reply.error && reply.error.includes(DISABLED_404))) {
-            setTables({ status: 'disabled' });
-            return;
-          }
-
-          if (!silent) {
-            setTables({ status: 'error', message: reply.error || 'Could not load your tables.' });
-          }
-
+        if (!isEmbedded) {
+          setTables({ status: 'error', message: 'Open this from the ProjectSites admin to browse your data.' });
           return;
         }
 
-        setTables({
-          status: 'ready',
-          databaseId: reply.databaseId ?? '',
-          provisioned: reply.provisioned ?? false,
-          tables: reply.tables ?? [],
-        });
-      } catch (err) {
-        if (!silent) {
-          setTables({ status: 'error', message: err instanceof Error ? err.message : 'Could not load your tables.' });
+        try {
+          const reply = (await request({
+            type: 'PS_SITEDB_TABLES_REQUEST',
+            correlationId: nextCorrelationId(),
+          })) as SiteDbTablesResponseMessage;
+
+          if (!reply.ok) {
+            // Dark-flag 404 → friendly disabled state, not an error card.
+            if (reply.enabled === false || (reply.error && reply.error.includes(DISABLED_404))) {
+              setTables({ status: 'disabled' });
+              return;
+            }
+
+            if (!silent) {
+              setTables({ status: 'error', message: reply.error || 'Could not load your tables.' });
+            }
+
+            return;
+          }
+
+          setTables({
+            status: 'ready',
+            databaseId: reply.databaseId ?? '',
+            provisioned: reply.provisioned ?? false,
+            tables: reply.tables ?? [],
+          });
+        } catch (err) {
+          if (!silent) {
+            setTables({ status: 'error', message: err instanceof Error ? err.message : 'Could not load your tables.' });
+          }
         }
-      }
-    }, [request]);
+      },
+      [request],
+    );
 
     /**
      * Resolve which columns are GENERATED (computed) for a table via `pragma_table_xinfo` over the
@@ -1466,11 +1469,7 @@ export const SiteTablesPanel = memo(
         // and arm ONE batch Undo covering the anchor + all propagated cells.
         const sel = cellSelRef.current;
         const isBulk =
-          sel !== null &&
-          sel.column === col.name &&
-          sel.keys.size > 1 &&
-          stableKey !== null &&
-          sel.keys.has(stableKey);
+          sel !== null && sel.column === col.name && sel.keys.size > 1 && stableKey !== null && sel.keys.has(stableKey);
 
         if (isBulk && stableKey !== null) {
           const others = pageRowsRef.current.filter((r) => {
@@ -2048,11 +2047,7 @@ export const SiteTablesPanel = memo(
       });
 
       setAddingRow(true);
-      const res = await execSql(
-        `INSERT INTO ${quoteIdent(table)} (${colList}) VALUES (${placeholders})`,
-        params,
-        true,
-      );
+      const res = await execSql(`INSERT INTO ${quoteIdent(table)} (${colList}) VALUES (${placeholders})`, params, true);
       setAddingRow(false);
 
       if (!res.ok) {
@@ -2228,7 +2223,10 @@ export const SiteTablesPanel = memo(
           downloadText(toJsonRows(cols, data), `${table}.json`, 'application/json');
         }
 
-        postToastToParent('success', `Exported ${data.length} row${data.length === 1 ? '' : 's'} as ${format.toUpperCase()}.`);
+        postToastToParent(
+          'success',
+          `Exported ${data.length} row${data.length === 1 ? '' : 's'} as ${format.toUpperCase()}.`,
+        );
       },
       [rows, allColumnNames, processedRows],
     );
@@ -2274,7 +2272,13 @@ export const SiteTablesPanel = memo(
           res = await fetch('/api/llmcall', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ system, message, model: DEFAULT_MODEL, provider: DEFAULT_PROVIDER, streamOutput: false }),
+            body: JSON.stringify({
+              system,
+              message,
+              model: DEFAULT_MODEL,
+              provider: DEFAULT_PROVIDER,
+              streamOutput: false,
+            }),
           });
         } catch {
           lastErr = 'AI is temporarily unreachable. Please try again.';
@@ -2344,7 +2348,10 @@ export const SiteTablesPanel = memo(
 
         try {
           const text = await callAi(system, q);
-          const jsonText = text.trim().replace(/^```(?:json)?\s*/i, '').replace(/```$/i, '');
+          const jsonText = text
+            .trim()
+            .replace(/^```(?:json)?\s*/i, '')
+            .replace(/```$/i, '');
           const plan = JSON.parse(jsonText) as {
             conditions?: Array<{ col?: string; op?: string; val?: string }>;
             combinator?: string;
@@ -2410,15 +2417,17 @@ export const SiteTablesPanel = memo(
 
         try {
           const text = await callAi(system, d);
-          const jsonText = text.trim().replace(/^```(?:json)?\s*/i, '').replace(/```$/i, '');
+          const jsonText = text
+            .trim()
+            .replace(/^```(?:json)?\s*/i, '')
+            .replace(/```$/i, '');
           const plan = JSON.parse(jsonText) as { name?: string; type?: string; expr?: string };
 
           if (!plan.name) {
             throw new Error('AI did not return a column name.');
           }
 
-          const kind: FieldKind =
-            plan.type === 'INTEGER' ? 'number' : plan.type === 'REAL' ? 'number' : 'text';
+          const kind: FieldKind = plan.type === 'INTEGER' ? 'number' : plan.type === 'REAL' ? 'number' : 'text';
           const added = await addColumn(plan.name, kind);
 
           if (!added.ok) {
@@ -2487,7 +2496,10 @@ export const SiteTablesPanel = memo(
 
         try {
           const text = await callAi(system, message);
-          const jsonText = text.trim().replace(/^```(?:json)?\s*/i, '').replace(/```$/i, '');
+          const jsonText = text
+            .trim()
+            .replace(/^```(?:json)?\s*/i, '')
+            .replace(/```$/i, '');
           const values = JSON.parse(jsonText) as unknown[];
 
           if (!Array.isArray(values) || values.length === 0) {
@@ -2499,11 +2511,7 @@ export const SiteTablesPanel = memo(
           for (let i = 0; i < targets.length && i < values.length; i++) {
             const v = values[i];
             const bound: BoundValue =
-              v === null || v === undefined
-                ? null
-                : typeof v === 'number' || typeof v === 'boolean'
-                  ? v
-                  : String(v);
+              v === null || v === undefined ? null : typeof v === 'number' || typeof v === 'boolean' ? v : String(v);
 
             let stmt: { sql: string; params: BoundValue[] };
 
@@ -2673,7 +2681,13 @@ export const SiteTablesPanel = memo(
                     </button>
                   </div>
                 ) : erdSchema.status === 'ready' && erdSchema.tables.length >= 2 ? (
-                  <ErdView tables={erdSchema.tables} onOpenTable={(name) => { setErdOpen(false); openTable(name); }} />
+                  <ErdView
+                    tables={erdSchema.tables}
+                    onOpenTable={(name) => {
+                      setErdOpen(false);
+                      openTable(name);
+                    }}
+                  />
                 ) : (
                   <div
                     data-testid="sitedb-erd-empty"
@@ -2683,135 +2697,135 @@ export const SiteTablesPanel = memo(
                     <p className="font-medium text-bolt-elements-textPrimary">Add tables to see the schema map</p>
                     <p className="text-[12px] text-bolt-elements-textTertiary">
                       The schema map draws how your tables relate. Create at least two tables (a
-                      <code className="mx-1">customer_id</code> column links to a <code>customers</code> table)
-                      and it fills in here.
+                      <code className="mx-1">customer_id</code> column links to a <code>customers</code> table) and it
+                      fills in here.
                     </p>
                   </div>
                 )}
               </div>
             ) : !selectedTable ? (
-          <TableListView
-            state={tables}
-            onOpen={openTable}
-            onRetry={() => void loadTables()}
-            onComingSoon={flashComingSoon}
-            onCreateTable={() => (onCreateTable ? onCreateTable() : setCreateTableOpen(true))}
-            onDropTable={(name) => setDropTarget(name)}
-            onSeedWithAi={() => void seedWithAi()}
-            onLoadSample={() => void loadSampleData()}
-            onImportCsv={onImportCsv}
-            quickFill={quickFill}
-          />
-        ) : (
-          <BrowseView
-            table={selectedTable}
-            state={rows}
-            // engine-derived
-            allColumns={allColumns}
-            shownColumns={shownColumns}
-            shownNames={shownNames}
-            orderedNames={orderedNames}
-            hiddenCols={hiddenCols}
-            pageRows={pageRows}
-            filteredCount={filteredCount}
-            loadedTotal={loadedTotal}
-            pageIndex={safePageIndex}
-            pageCount={pageCount}
-            pageSize={pageSize}
-            density={density}
-            rowHeight={rowHeight}
-            viewMode={viewMode}
-            sorts={sorts}
-            sortFor={sortFor}
-            search={search}
-            conditions={conditions}
-            combinator={combinator}
-            filterBarOpen={filterBarOpen}
-            colMenuOpen={colMenuOpen}
-            selectedRowKeys={selectedRowKeys}
-            selectedOnPage={selectedOnPage}
-            canMutateRows={canMutateRows}
-            bulkBusy={bulkBusy}
-            addingRow={addingRow}
-            addColOpen={addColOpen}
-            aiPanel={aiPanel}
-            aiBusy={aiBusy}
-            aiError={aiError}
-            // edit engine
-            editableColumn={editableColumn}
-            editing={editing}
-            editKind={editKind}
-            editValue={editValue}
-            editError={editError}
-            editBusy={editBusy}
-            pkCols={pkCols}
-            generatedCols={generatedCols}
-            // cell selection (fill-down + bulk edit)
-            cellSel={cellSel}
-            fillBusy={fillBusy}
-            // handlers
-            onBack={backToList}
-            onSetSearch={setSearch}
-            onSortColumn={onSortColumn}
-            onSetPageSize={(n) => setPageSize(clampPageSize(n))}
-            onPrevPage={() => setPageIndex((p) => Math.max(0, p - 1))}
-            onNextPage={() => setPageIndex((p) => Math.min(pageCount - 1, p + 1))}
-            onToggleFilterBar={() => setFilterBarOpen((o) => !o)}
-            onToggleColMenu={() => setColMenuOpen((o) => !o)}
-            onToggleHidden={(col) =>
-              setHiddenCols((cur) => (cur.includes(col) ? cur.filter((c) => c !== col) : [...cur, col]))
-            }
-            onMoveColumn={(col, dir) => setColOrder((cur) => moveColumn(allColumnNames, cur, col, dir))}
-            onSetDensity={setDensity}
-            onSetViewMode={setViewMode}
-            groupField={groupField}
-            onSetGroupField={setGroupField}
-            dateField={dateField}
-            onSetDateField={setDateField}
-            onAddCondition={() => setConditions((c) => addCondition(c))}
-            onRemoveCondition={(i) => setConditions((c) => removeCondition(c, i))}
-            onUpdateCondition={(i, patch) => setConditions((c) => updateCondition(c, i, patch))}
-            onSetCombinator={setCombinator}
-            onClearFilters={() => {
-              setConditions([]);
-              setSearch('');
-              setSorts([]);
-            }}
-            onRowClick={setDetailRow}
-            onStartEdit={startEdit}
-            onCellSelect={selectCell}
-            onFillDown={fillDownSelection}
-            onClearCellSel={clearCellSel}
-            onToggleBoolean={toggleBooleanCell}
-            onEditKindChange={setEditKind}
-            onEditValueChange={setEditValue}
-            onEditSave={submitEdit}
-            onEditCancel={cancelEdit}
-            onToggleRowSelected={toggleRowSelected}
-            onToggleSelectAll={toggleSelectAll}
-            onDeleteRow={deleteRow}
-            onDeleteSelected={deleteSelected}
-            onClearSelection={() => setSelectedRowKeys(new Set())}
-            onAddRow={addRow}
-            onOpenAddCol={() => setAddColOpen(true)}
-            onCloseAddCol={() => setAddColOpen(false)}
-            onAddColumn={addColumn}
-            onDropColumn={dropColumn}
-            onRenameColumn={renameColumn}
-            onExport={exportData}
-            onOpenAi={(which) => {
-              setAiError('');
-              setAiPanel(which);
-            }}
-            onCloseAi={() => setAiPanel(null)}
-            onAsk={askAi}
-            onAiFilter={aiFilter}
-            onAiGenerateColumn={aiGenerateColumn}
-            onAiFillColumn={aiFillColumn}
-            onSeedWithAi={() => void seedWithAi(selectedTable)}
-            onRetry={() => void loadRows(selectedTable)}
-          />
-        )}
+              <TableListView
+                state={tables}
+                onOpen={openTable}
+                onRetry={() => void loadTables()}
+                onComingSoon={flashComingSoon}
+                onCreateTable={() => (onCreateTable ? onCreateTable() : setCreateTableOpen(true))}
+                onDropTable={(name) => setDropTarget(name)}
+                onSeedWithAi={() => void seedWithAi()}
+                onLoadSample={() => void loadSampleData()}
+                onImportCsv={onImportCsv}
+                quickFill={quickFill}
+              />
+            ) : (
+              <BrowseView
+                table={selectedTable}
+                state={rows}
+                // engine-derived
+                allColumns={allColumns}
+                shownColumns={shownColumns}
+                shownNames={shownNames}
+                orderedNames={orderedNames}
+                hiddenCols={hiddenCols}
+                pageRows={pageRows}
+                filteredCount={filteredCount}
+                loadedTotal={loadedTotal}
+                pageIndex={safePageIndex}
+                pageCount={pageCount}
+                pageSize={pageSize}
+                density={density}
+                rowHeight={rowHeight}
+                viewMode={viewMode}
+                sorts={sorts}
+                sortFor={sortFor}
+                search={search}
+                conditions={conditions}
+                combinator={combinator}
+                filterBarOpen={filterBarOpen}
+                colMenuOpen={colMenuOpen}
+                selectedRowKeys={selectedRowKeys}
+                selectedOnPage={selectedOnPage}
+                canMutateRows={canMutateRows}
+                bulkBusy={bulkBusy}
+                addingRow={addingRow}
+                addColOpen={addColOpen}
+                aiPanel={aiPanel}
+                aiBusy={aiBusy}
+                aiError={aiError}
+                // edit engine
+                editableColumn={editableColumn}
+                editing={editing}
+                editKind={editKind}
+                editValue={editValue}
+                editError={editError}
+                editBusy={editBusy}
+                pkCols={pkCols}
+                generatedCols={generatedCols}
+                // cell selection (fill-down + bulk edit)
+                cellSel={cellSel}
+                fillBusy={fillBusy}
+                // handlers
+                onBack={backToList}
+                onSetSearch={setSearch}
+                onSortColumn={onSortColumn}
+                onSetPageSize={(n) => setPageSize(clampPageSize(n))}
+                onPrevPage={() => setPageIndex((p) => Math.max(0, p - 1))}
+                onNextPage={() => setPageIndex((p) => Math.min(pageCount - 1, p + 1))}
+                onToggleFilterBar={() => setFilterBarOpen((o) => !o)}
+                onToggleColMenu={() => setColMenuOpen((o) => !o)}
+                onToggleHidden={(col) =>
+                  setHiddenCols((cur) => (cur.includes(col) ? cur.filter((c) => c !== col) : [...cur, col]))
+                }
+                onMoveColumn={(col, dir) => setColOrder((cur) => moveColumn(allColumnNames, cur, col, dir))}
+                onSetDensity={setDensity}
+                onSetViewMode={setViewMode}
+                groupField={groupField}
+                onSetGroupField={setGroupField}
+                dateField={dateField}
+                onSetDateField={setDateField}
+                onAddCondition={() => setConditions((c) => addCondition(c))}
+                onRemoveCondition={(i) => setConditions((c) => removeCondition(c, i))}
+                onUpdateCondition={(i, patch) => setConditions((c) => updateCondition(c, i, patch))}
+                onSetCombinator={setCombinator}
+                onClearFilters={() => {
+                  setConditions([]);
+                  setSearch('');
+                  setSorts([]);
+                }}
+                onRowClick={setDetailRow}
+                onStartEdit={startEdit}
+                onCellSelect={selectCell}
+                onFillDown={fillDownSelection}
+                onClearCellSel={clearCellSel}
+                onToggleBoolean={toggleBooleanCell}
+                onEditKindChange={setEditKind}
+                onEditValueChange={setEditValue}
+                onEditSave={submitEdit}
+                onEditCancel={cancelEdit}
+                onToggleRowSelected={toggleRowSelected}
+                onToggleSelectAll={toggleSelectAll}
+                onDeleteRow={deleteRow}
+                onDeleteSelected={deleteSelected}
+                onClearSelection={() => setSelectedRowKeys(new Set())}
+                onAddRow={addRow}
+                onOpenAddCol={() => setAddColOpen(true)}
+                onCloseAddCol={() => setAddColOpen(false)}
+                onAddColumn={addColumn}
+                onDropColumn={dropColumn}
+                onRenameColumn={renameColumn}
+                onExport={exportData}
+                onOpenAi={(which) => {
+                  setAiError('');
+                  setAiPanel(which);
+                }}
+                onCloseAi={() => setAiPanel(null)}
+                onAsk={askAi}
+                onAiFilter={aiFilter}
+                onAiGenerateColumn={aiGenerateColumn}
+                onAiFillColumn={aiFillColumn}
+                onSeedWithAi={() => void seedWithAi(selectedTable)}
+                onRetry={() => void loadRows(selectedTable)}
+              />
+            )}
           </div>
         </div>
 
@@ -2901,9 +2915,7 @@ export const SiteTablesPanel = memo(
         )}
 
         {/* Create-table modal (guided, no-SQL — name + typed columns → POST /db/tables) */}
-        {createTableOpen && (
-          <CreateTableModal onCreate={createTable} onClose={() => setCreateTableOpen(false)} />
-        )}
+        {createTableOpen && <CreateTableModal onCreate={createTable} onClose={() => setCreateTableOpen(false)} />}
 
         {/* Drop-table danger confirm (DELETE /db/tables/:table) */}
         {dropTarget && (
@@ -3187,10 +3199,7 @@ const EmptyLaunchpad = memo(
                   )}
                 >
                   {tile.primary && (
-                    <span
-                      aria-hidden="true"
-                      className="absolute left-0 top-0 bottom-0 w-0.5 bg-[#00e5ffb2]"
-                    />
+                    <span aria-hidden="true" className="absolute left-0 top-0 bottom-0 w-0.5 bg-[#00e5ffb2]" />
                   )}
                   <div className="flex items-center gap-2.5">
                     <div
@@ -3419,7 +3428,10 @@ const TableSearch = memo(({ onOpen }: { onOpen: (name: string) => void }) => {
     <div className="relative">
       {expanded ? (
         <div className="flex items-center gap-1 rounded border border-[#00e5ff80] bg-bolt-elements-background-depth-2 pl-2 pr-1 transition-[width] duration-150 motion-reduce:transition-none">
-          <div className="i-ph:magnifying-glass text-[12px] text-bolt-elements-item-contentAccent shrink-0" aria-hidden />
+          <div
+            className="i-ph:magnifying-glass text-[12px] text-bolt-elements-item-contentAccent shrink-0"
+            aria-hidden
+          />
           <input
             ref={inputRef}
             type="text"
@@ -3433,7 +3445,10 @@ const TableSearch = memo(({ onOpen }: { onOpen: (name: string) => void }) => {
             className="w-40 sm:w-52 bg-transparent py-0.5 text-[11px] text-bolt-elements-textPrimary placeholder:text-bolt-elements-textTertiary focus:outline-none"
           />
           {phase.status === 'searching' && (
-            <div className="i-ph:circle-notch animate-spin motion-reduce:animate-none text-[12px] text-bolt-elements-item-contentAccent shrink-0" aria-hidden />
+            <div
+              className="i-ph:circle-notch animate-spin motion-reduce:animate-none text-[12px] text-bolt-elements-item-contentAccent shrink-0"
+              aria-hidden
+            />
           )}
           <button
             type="button"
@@ -3464,7 +3479,10 @@ const TableSearch = memo(({ onOpen }: { onOpen: (name: string) => void }) => {
         >
           {phase.status === 'searching' && (
             <div className="flex items-center gap-2 px-3 py-3 text-[11px] text-bolt-elements-textSecondary">
-              <div className="i-ph:circle-notch animate-spin motion-reduce:animate-none text-bolt-elements-item-contentAccent" aria-hidden />
+              <div
+                className="i-ph:circle-notch animate-spin motion-reduce:animate-none text-bolt-elements-item-contentAccent"
+                aria-hidden
+              />
               Searching your data…
             </div>
           )}
@@ -3483,9 +3501,7 @@ const TableSearch = memo(({ onOpen }: { onOpen: (name: string) => void }) => {
                 data-testid="sitedb-search-empty"
               >
                 <div className="i-ph:magnifying-glass text-xl text-bolt-elements-textTertiary/60" aria-hidden />
-                <p className="text-[11px] text-bolt-elements-textSecondary">
-                  No matches for &ldquo;{phase.q}&rdquo;
-                </p>
+                <p className="text-[11px] text-bolt-elements-textSecondary">No matches for &ldquo;{phase.q}&rdquo;</p>
                 <p className="text-[10px] text-bolt-elements-textTertiary">Try a table name or a value in a cell.</p>
               </div>
             ) : (
@@ -3504,11 +3520,17 @@ const TableSearch = memo(({ onOpen }: { onOpen: (name: string) => void }) => {
                         data-testid="sitedb-search-name-row"
                         className="w-full flex items-center gap-2 px-3 py-1.5 text-left hover:bg-bolt-elements-item-backgroundActive transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-bolt-elements-item-contentAccent cursor-pointer"
                       >
-                        <div className="i-ph:database text-[13px] text-bolt-elements-item-contentAccent shrink-0" aria-hidden />
+                        <div
+                          className="i-ph:database text-[13px] text-bolt-elements-item-contentAccent shrink-0"
+                          aria-hidden
+                        />
                         <span className="text-[12px] text-bolt-elements-textPrimary font-mono flex-1 truncate">
                           {name}
                         </span>
-                        <div className="i-ph:arrow-right text-[11px] text-bolt-elements-textTertiary shrink-0" aria-hidden />
+                        <div
+                          className="i-ph:arrow-right text-[11px] text-bolt-elements-textTertiary shrink-0"
+                          aria-hidden
+                        />
                       </button>
                     ))}
                   </div>
@@ -3517,7 +3539,8 @@ const TableSearch = memo(({ onOpen }: { onOpen: (name: string) => void }) => {
                 {phase.contentMatches.length > 0 && (
                   <div className="py-1 border-t border-bolt-elements-borderColor/60">
                     <div className="px-3 pt-1.5 pb-1 text-[9px] uppercase tracking-wider text-bolt-elements-item-contentAccent/80 flex items-center gap-1">
-                      <div className="i-ph:magnifying-glass text-bolt-elements-item-contentAccent" aria-hidden /> In content
+                      <div className="i-ph:magnifying-glass text-bolt-elements-item-contentAccent" aria-hidden /> In
+                      content
                     </div>
                     {phase.contentMatches.map((m, i) => (
                       <button
@@ -3778,8 +3801,7 @@ const SchemaRail = memo(
                     className="shrink-0 text-[10px] font-mono text-bolt-elements-textTertiary tabular-nums"
                     title={`${activeColumnCount} columns · ${activeRowCount ?? 0} rows`}
                   >
-                    {activeColumnCount}c
-                    {activeRowCount !== null ? ` · ${activeRowCount}r` : ''}
+                    {activeColumnCount}c{activeRowCount !== null ? ` · ${activeRowCount}r` : ''}
                   </span>
                 )}
               </button>
@@ -4123,10 +4145,7 @@ const BrowseView = memo((props: BrowseViewProps) => {
    * loaded rows and LABELLED as such — never implying whole-table numbers.
    */
   const [showInsights, setShowInsights] = useState(false);
-  const insights = useMemo<TableInsights>(
-    () => computeTableInsights(pageRows, shownColumns),
-    [pageRows, shownColumns],
-  );
+  const insights = useMemo<TableInsights>(() => computeTableInsights(pageRows, shownColumns), [pageRows, shownColumns]);
 
   /**
    * The kanban group-by column actually used: the owner's pick when it's still a visible column, else the
@@ -4222,7 +4241,11 @@ const BrowseView = memo((props: BrowseViewProps) => {
           </label>
         )}
         {/* View toggle: Grid | Gallery | Kanban | Calendar */}
-        <div className="flex items-center rounded-md border border-bolt-elements-borderColor overflow-hidden shrink-0" role="group" aria-label="View mode">
+        <div
+          className="flex items-center rounded-md border border-bolt-elements-borderColor overflow-hidden shrink-0"
+          role="group"
+          aria-label="View mode"
+        >
           {(['grid', 'gallery', 'kanban', 'calendar'] as const).map((v) => {
             // Calendar needs a strict-ISO date column — disable (with reason) rather than ship a doomed view.
             const disabled = v === 'calendar' && !hasDateColumn;
@@ -4255,9 +4278,7 @@ const BrowseView = memo((props: BrowseViewProps) => {
                 title={title}
                 className={classNames(
                   'min-h-[24px] px-2 py-1 text-[11px] flex items-center gap-1 transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-bolt-elements-item-contentAccent',
-                  disabled
-                    ? 'text-bolt-elements-textTertiary/40 cursor-not-allowed'
-                    : 'cursor-pointer',
+                  disabled ? 'text-bolt-elements-textTertiary/40 cursor-not-allowed' : 'cursor-pointer',
                   !disabled && viewMode === v
                     ? 'bg-bolt-elements-item-backgroundAccent/20 text-bolt-elements-item-contentAccent'
                     : !disabled
@@ -4320,7 +4341,11 @@ const BrowseView = memo((props: BrowseViewProps) => {
         </div>
 
         {/* Density */}
-        <div className="flex items-center rounded-md border border-bolt-elements-borderColor overflow-hidden" role="group" aria-label="Row density">
+        <div
+          className="flex items-center rounded-md border border-bolt-elements-borderColor overflow-hidden"
+          role="group"
+          aria-label="Row density"
+        >
           {(['compact', 'cozy', 'comfortable'] as const).map((d) => (
             <button
               key={d}
@@ -4355,7 +4380,13 @@ const BrowseView = memo((props: BrowseViewProps) => {
         {/* Unified AI action (WLK-04): ONE "Ask AI" box replaces the split AI-filter/AI-column/AI-fill
             buttons — the model classifies the request (filter · add column · fill selected cells) and
             dispatches. One obvious entry point; the three powerful actions all live behind it. */}
-        <ToolbarButton testId="sitedb-ask-ai" icon="i-ph:sparkle" label="Ask AI" accent onClick={() => onOpenAi('ask')} />
+        <ToolbarButton
+          testId="sitedb-ask-ai"
+          icon="i-ph:sparkle"
+          label="Ask AI"
+          accent
+          onClick={() => onOpenAi('ask')}
+        />
         {selectedRowKeys.size > 0 && (
           <span className="text-[10px] text-bolt-elements-textTertiary hidden sm:inline" aria-hidden>
             · try “summarize the selected rows”
@@ -4364,9 +4395,7 @@ const BrowseView = memo((props: BrowseViewProps) => {
 
         <div className="ml-auto flex items-center gap-1.5">
           {/* Export menu */}
-          {pageRows.length > 0 && (
-            <ExportMenu onExport={onExport} />
-          )}
+          {pageRows.length > 0 && <ExportMenu onExport={onExport} />}
           {/* Add column */}
           {canMutateRows && (
             <ToolbarButton testId="sitedb-add-column" icon="i-ph:plus-circle" label="Column" onClick={onOpenAddCol} />
@@ -4412,9 +4441,7 @@ const BrowseView = memo((props: BrowseViewProps) => {
           data-testid="sitedb-bulk-bar"
           role="status"
         >
-          <span className="text-bolt-elements-item-contentAccent font-medium">
-            {selectedRowKeys.size} selected
-          </span>
+          <span className="text-bolt-elements-item-contentAccent font-medium">{selectedRowKeys.size} selected</span>
           <button
             type="button"
             onClick={onDeleteSelected}
@@ -4494,11 +4521,7 @@ const BrowseView = memo((props: BrowseViewProps) => {
               )}
             </div>
           ) : viewMode === 'gallery' ? (
-            <GalleryView
-              columns={shownColumns}
-              rows={pageRows}
-              onRowClick={onRowClick}
-            />
+            <GalleryView columns={shownColumns} rows={pageRows} onRowClick={onRowClick} />
           ) : viewMode === 'kanban' ? (
             <KanbanView
               columns={shownColumns}
@@ -4601,7 +4624,9 @@ const BrowseView = memo((props: BrowseViewProps) => {
                           className="ml-auto flex items-center gap-0.5 text-bolt-elements-item-contentAccent shrink-0"
                           data-testid={`sitedb-sort-${col.name}`}
                         >
-                          <div className={s.dir === 'asc' ? 'i-ph:caret-up text-[10px]' : 'i-ph:caret-down text-[10px]'} />
+                          <div
+                            className={s.dir === 'asc' ? 'i-ph:caret-up text-[10px]' : 'i-ph:caret-down text-[10px]'}
+                          />
                           {props.sorts.length > 1 && (
                             <span className="inline-flex items-center justify-center h-3 min-w-3 px-0.5 rounded-full bg-[color:var(--ps-accent-secondary)]/30 text-[color:var(--ps-accent-secondary)] text-[8px] font-semibold leading-none ring-1 ring-[color:var(--ps-accent-secondary)]/40">
                               {s.priority}
@@ -4612,11 +4637,7 @@ const BrowseView = memo((props: BrowseViewProps) => {
                         <div className="i-ph:arrows-down-up ml-auto text-[9px] text-bolt-elements-textTertiary/0 group-hover/hdr:text-bolt-elements-textTertiary/50 shrink-0 transition-colors" />
                       )}
                       {canMutateRows && (
-                        <ColumnHeaderMenu
-                          column={col}
-                          onRename={onRenameColumn}
-                          onDrop={onDropColumn}
-                        />
+                        <ColumnHeaderMenu column={col} onRename={onRenameColumn} onDrop={onDropColumn} />
                       )}
                     </div>
                   );
@@ -4704,7 +4725,11 @@ const BrowseView = memo((props: BrowseViewProps) => {
                     title="Copy the top selected value to every selected cell below (⌘/Ctrl+D)"
                     className="inline-flex items-center gap-1 rounded-full border border-[#00e5ff66] bg-bolt-elements-item-backgroundAccent/15 px-2.5 py-1 text-[11px] font-medium text-bolt-elements-item-contentAccent enabled:hover:bg-bolt-elements-item-backgroundAccent/25 disabled:opacity-50 disabled:cursor-not-allowed transition-colors cursor-pointer focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-bolt-elements-item-contentAccent"
                   >
-                    <div className={fillBusy ? 'i-ph:circle-notch animate-spin text-[12px]' : 'i-ph:arrow-line-down text-[12px]'} />
+                    <div
+                      className={
+                        fillBusy ? 'i-ph:circle-notch animate-spin text-[12px]' : 'i-ph:arrow-line-down text-[12px]'
+                      }
+                    />
                     <span className="min-w-[6ch] text-center">{fillBusy ? 'Filling…' : 'Fill down'}</span>
                   </button>
                   <button
@@ -4728,7 +4753,9 @@ const BrowseView = memo((props: BrowseViewProps) => {
               <span data-testid="sitedb-page-info">
                 Showing {pageIndex * pageSize + 1} to {Math.min((pageIndex + 1) * pageSize, filteredCount)} of{' '}
                 {filteredCount}
-                {filteredCount !== loadedTotal && <span className="text-bolt-elements-textTertiary/60"> (filtered from {loadedTotal})</span>}
+                {filteredCount !== loadedTotal && (
+                  <span className="text-bolt-elements-textTertiary/60"> (filtered from {loadedTotal})</span>
+                )}
               </span>
 
               <label className="ml-3 flex items-center gap-1">
@@ -4895,10 +4922,20 @@ const ExportMenu = memo(({ onExport }: { onExport: (format: 'csv' | 'tsv' | 'jso
 
   return (
     <div className="relative">
-      <ToolbarButton testId="sitedb-export" icon="i-ph:download-simple" label="Export" onClick={() => setOpen((o) => !o)} />
+      <ToolbarButton
+        testId="sitedb-export"
+        icon="i-ph:download-simple"
+        label="Export"
+        onClick={() => setOpen((o) => !o)}
+      />
       {open && (
         <>
-          <button type="button" aria-hidden className="fixed inset-0 z-30 cursor-default" onClick={() => setOpen(false)} />
+          <button
+            type="button"
+            aria-hidden
+            className="fixed inset-0 z-30 cursor-default"
+            onClick={() => setOpen(false)}
+          />
           <div
             className="absolute right-0 top-full mt-1 z-40 w-40 rounded-md border border-bolt-elements-borderColor bg-bolt-elements-background-depth-2 shadow-xl py-1"
             data-testid="sitedb-export-menu"
@@ -4954,7 +4991,9 @@ const ColumnsMenu = memo(
           data-testid="sitedb-columns-menu"
           role="menu"
         >
-          <p className="px-3 py-1 text-[9px] uppercase tracking-wider text-bolt-elements-textTertiary">Show / hide · reorder</p>
+          <p className="px-3 py-1 text-[9px] uppercase tracking-wider text-bolt-elements-textTertiary">
+            Show / hide · reorder
+          </p>
           {columns.map((col, i) => (
             <div
               key={col.name}
@@ -5028,7 +5067,9 @@ const FilterBar = memo(
       data-testid="sitedb-filter-bar"
     >
       {conditions.length === 0 && (
-        <p className="text-[11px] text-bolt-elements-textTertiary">No filters yet — add a condition to narrow the rows.</p>
+        <p className="text-[11px] text-bolt-elements-textTertiary">
+          No filters yet — add a condition to narrow the rows.
+        </p>
       )}
       {conditions.map((c, i) => {
         const valueFree = filterOpIsValueFree(c.op);
@@ -5036,7 +5077,9 @@ const FilterBar = memo(
         return (
           <div key={i} className="flex items-center gap-1.5" data-testid="sitedb-filter-condition">
             {i === 0 ? (
-              <span className="text-[10px] uppercase tracking-wider text-bolt-elements-textTertiary w-[54px] shrink-0">Where</span>
+              <span className="text-[10px] uppercase tracking-wider text-bolt-elements-textTertiary w-[54px] shrink-0">
+                Where
+              </span>
             ) : (
               <select
                 value={combinator}
@@ -5045,8 +5088,12 @@ const FilterBar = memo(
                 data-testid="sitedb-filter-combinator"
                 className="w-[54px] shrink-0 min-h-[24px] rounded border border-bolt-elements-borderColor bg-bolt-elements-background-depth-2 px-1 py-0.5 text-[10px] text-bolt-elements-textPrimary focus:outline-none cursor-pointer"
               >
-                <option className="bg-[#0e0e28] text-bolt-elements-textPrimary" value="AND">And</option>
-                <option className="bg-[#0e0e28] text-bolt-elements-textPrimary" value="OR">Or</option>
+                <option className="bg-[#0e0e28] text-bolt-elements-textPrimary" value="AND">
+                  And
+                </option>
+                <option className="bg-[#0e0e28] text-bolt-elements-textPrimary" value="OR">
+                  Or
+                </option>
               </select>
             )}
             <select
@@ -5056,7 +5103,9 @@ const FilterBar = memo(
               data-testid="sitedb-filter-col"
               className="min-h-[24px] max-w-[140px] rounded border border-bolt-elements-borderColor bg-bolt-elements-background-depth-2 px-1.5 py-0.5 text-[11px] text-bolt-elements-textPrimary focus:outline-none cursor-pointer"
             >
-              <option className="bg-[#0e0e28] text-bolt-elements-textPrimary" value="">column…</option>
+              <option className="bg-[#0e0e28] text-bolt-elements-textPrimary" value="">
+                column…
+              </option>
               {columns.map((col) => (
                 <option className="bg-[#0e0e28] text-bolt-elements-textPrimary" key={col.name} value={col.name}>
                   {col.name}
@@ -5196,7 +5245,9 @@ const AiPanel = memo(
           <div className="i-ph:sparkle-duotone text-bolt-elements-item-contentAccent text-sm" />
           <span className="text-[11px] font-semibold text-bolt-elements-item-contentAccent">{title}</span>
           {mode === 'fill' && (
-            <span className="text-[10px] text-bolt-elements-textTertiary">· {selectedCount} row{selectedCount === 1 ? '' : 's'} selected</span>
+            <span className="text-[10px] text-bolt-elements-textTertiary">
+              · {selectedCount} row{selectedCount === 1 ? '' : 's'} selected
+            </span>
           )}
           <button
             type="button"
@@ -5680,8 +5731,18 @@ const CreateTableModal = memo(
     };
 
     return (
-      <div className="absolute inset-0 z-40 flex items-center justify-center p-4" role="dialog" aria-modal="true" aria-label="Create a new table">
-        <button type="button" aria-hidden className="absolute inset-0 bg-black/60 cursor-default" onClick={() => !busy && onClose()} />
+      <div
+        className="absolute inset-0 z-40 flex items-center justify-center p-4"
+        role="dialog"
+        aria-modal="true"
+        aria-label="Create a new table"
+      >
+        <button
+          type="button"
+          aria-hidden
+          className="absolute inset-0 bg-black/60 cursor-default"
+          onClick={() => !busy && onClose()}
+        />
         <div
           className="relative w-full max-w-[460px] max-h-full overflow-auto modern-scrollbar rounded-xl border border-bolt-elements-borderColor bg-bolt-elements-background-depth-1 shadow-2xl"
           data-testid="sitedb-create-table"
@@ -5701,7 +5762,10 @@ const CreateTableModal = memo(
 
           <div className="p-4 space-y-4">
             <div className="space-y-1.5">
-              <label htmlFor="sitedb-create-table-name" className="text-[10px] uppercase tracking-wider text-bolt-elements-textTertiary">
+              <label
+                htmlFor="sitedb-create-table-name"
+                className="text-[10px] uppercase tracking-wider text-bolt-elements-textTertiary"
+              >
                 Table name
               </label>
               <input
@@ -5870,8 +5934,18 @@ const DropTableConfirm = memo(
     }, [busy, onCancel]);
 
     return (
-      <div className="absolute inset-0 z-50 flex items-center justify-center p-4" role="dialog" aria-modal="true" aria-label={`Drop table ${table}`}>
-        <button type="button" aria-hidden className="absolute inset-0 bg-black/60 cursor-default" onClick={() => !busy && onCancel()} />
+      <div
+        className="absolute inset-0 z-50 flex items-center justify-center p-4"
+        role="dialog"
+        aria-modal="true"
+        aria-label={`Drop table ${table}`}
+      >
+        <button
+          type="button"
+          aria-hidden
+          className="absolute inset-0 bg-black/60 cursor-default"
+          onClick={() => !busy && onCancel()}
+        />
         <div
           className="relative w-full max-w-[380px] rounded-xl border border-red-500/40 bg-bolt-elements-background-depth-1 shadow-2xl p-4 space-y-3"
           data-testid="sitedb-drop-table-confirm"
@@ -5977,7 +6051,9 @@ const GridRow = memo((props: GridRowProps) => {
         <div
           className={classNames(
             'sticky left-0 z-10 shrink-0 w-[36px] flex items-center justify-center border-r border-bolt-elements-borderColor/20',
-            selected ? 'bg-bolt-elements-item-backgroundAccent/10' : 'bg-bolt-elements-background-depth-1 group-hover/row:bg-bolt-elements-item-backgroundActive',
+            selected
+              ? 'bg-bolt-elements-item-backgroundAccent/10'
+              : 'bg-bolt-elements-background-depth-1 group-hover/row:bg-bolt-elements-item-backgroundActive',
             densityCellClass(density),
           )}
         >
@@ -6167,7 +6243,8 @@ const GalleryView = memo(
         <div className="grid gap-2.5" style={{ gridTemplateColumns: 'repeat(auto-fill, minmax(220px, 1fr))' }}>
           {rows.map((row, i) => {
             const titleVal = titleField ? row[titleField] : null;
-            const title = titleVal === null || titleVal === undefined || titleVal === '' ? '(untitled)' : String(titleVal);
+            const title =
+              titleVal === null || titleVal === undefined || titleVal === '' ? '(untitled)' : String(titleVal);
 
             return (
               <button
@@ -6244,10 +6321,7 @@ const KanbanView = memo(
     // Honest empty / no-group states — never a blank board.
     if (rows.length === 0 || !groupField) {
       return (
-        <div
-          className="flex-1 flex items-center justify-center p-6 text-center"
-          data-testid="sitedb-kanban"
-        >
+        <div className="flex-1 flex items-center justify-center p-6 text-center" data-testid="sitedb-kanban">
           <p className="text-[12px] text-bolt-elements-textTertiary max-w-xs">
             {rows.length === 0
               ? 'No rows to show on this board yet.'
@@ -6291,9 +6365,7 @@ const KanbanView = memo(
                 {laneRows.map((row, i) => {
                   const titleVal = titleField ? row[titleField] : null;
                   const title =
-                    titleVal === null || titleVal === undefined || titleVal === ''
-                      ? '(untitled)'
-                      : String(titleVal);
+                    titleVal === null || titleVal === undefined || titleVal === '' ? '(untitled)' : String(titleVal);
 
                   return (
                     <button
@@ -6303,9 +6375,7 @@ const KanbanView = memo(
                       data-testid="sitedb-kanban-card"
                       className="group/kcard relative w-full overflow-hidden text-left rounded-lg border border-bolt-elements-borderColor bg-bolt-elements-background-depth-2 p-2 hover:border-[#00e5ff66] hover:bg-bolt-elements-background-depth-3 hover:shadow-md hover:shadow-[#00e5ff0d] transition-all duration-150 motion-reduce:transition-none focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-bolt-elements-item-contentAccent cursor-pointer flex flex-col gap-1"
                     >
-                      <div className="text-[11.5px] font-semibold text-bolt-elements-textPrimary truncate">
-                        {title}
-                      </div>
+                      <div className="text-[11.5px] font-semibold text-bolt-elements-textPrimary truncate">{title}</div>
                       {bodyFields.map((field) => {
                         const col = columns.find((c) => c.name === field);
 
@@ -6580,7 +6650,12 @@ const RowDrawer = memo(
 
     return (
       <div className="absolute inset-0 z-20 flex justify-end" role="dialog" aria-modal="true" aria-label="Row detail">
-        <button type="button" aria-label="Close row detail" onClick={onClose} className="absolute inset-0 bg-black/40 cursor-default" />
+        <button
+          type="button"
+          aria-label="Close row detail"
+          onClick={onClose}
+          className="absolute inset-0 bg-black/40 cursor-default"
+        />
         <div
           className="animated fadeInRight relative w-[min(420px,80%)] h-full bg-bolt-elements-background-depth-2 border-l border-bolt-elements-borderColor shadow-2xl flex flex-col"
           data-testid="sitedb-row-drawer"

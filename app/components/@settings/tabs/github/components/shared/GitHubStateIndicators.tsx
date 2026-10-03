@@ -186,7 +186,9 @@ export function InformationState({
 
   return (
     <div className={classNames('flex flex-col items-center justify-center py-8 text-center', className)}>
-      {React.createElement(icon, { className: classNames('text-bolt-elements-item-contentAccent mb-2', sizeClasses[size]) })}
+      {React.createElement(icon, {
+        className: classNames('text-bolt-elements-item-contentAccent mb-2', sizeClasses[size]),
+      })}
       <h3 className={classNames('font-medium text-bolt-elements-textPrimary mb-1', textSizeClasses[size])}>{title}</h3>
       <p className={classNames('text-bolt-elements-textSecondary mb-4', textSizeClasses[size])}>{message}</p>
       {onAction && (
@@ -258,7 +260,9 @@ export function ConnectionTestIndicator({ status, message, timestamp, className 
         {getStatusIcon()}
         <span className={classNames('text-sm font-medium', getStatusTextColor())}>{message || status}</span>
       </div>
-      {timestamp && <p className="text-xs text-bolt-elements-textTertiary mt-1">{new Date(timestamp).toLocaleString()}</p>}
+      {timestamp && (
+        <p className="text-xs text-bolt-elements-textTertiary mt-1">{new Date(timestamp).toLocaleString()}</p>
+      )}
     </div>
   );
 }

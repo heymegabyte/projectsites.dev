@@ -201,7 +201,9 @@ $code-font-size: $chat-fs-code;
     }
 
     tr:nth-child(2n) {
-      background-color: var(--bolt-elements-messages-inlineCode-background); // pass 16 — themed zebra, not light-only #f6f8fa (was invisible/wrong in dark)
+      background-color: var(
+        --bolt-elements-messages-inlineCode-background
+      ); // pass 16 — themed zebra, not light-only #f6f8fa (was invisible/wrong in dark)
     }
   }
 }

@@ -39,11 +39,14 @@ import { EnvAssignmentGrid } from './EnvAssignmentGrid';
 /** Deliver a PS_RES_OVERVIEW_RESPONSE for the pending request whose environment matches. */
 function replyOverview(env: string, payload: Record<string, unknown>) {
   const call = postToParent.mock.calls.find(
-    (c) => (c[0] as { type: string; environment?: string }).type === 'PS_RES_OVERVIEW_REQUEST' && (c[0] as { environment?: string }).environment === env,
+    (c) =>
+      (c[0] as { type: string; environment?: string }).type === 'PS_RES_OVERVIEW_REQUEST' &&
+      (c[0] as { environment?: string }).environment === env,
   );
   if (!call) throw new Error(`no pending overview request for ${env}`);
   const cid = (call[0] as { correlationId: string }).correlationId;
-  for (const h of [...handlers]) h({ type: 'PS_RES_OVERVIEW_RESPONSE', correlationId: cid, ok: true, environment: env, ...payload });
+  for (const h of [...handlers])
+    h({ type: 'PS_RES_OVERVIEW_RESPONSE', correlationId: cid, ok: true, environment: env, ...payload });
 }
 
 beforeEach(() => {
@@ -64,7 +67,15 @@ describe('environment assignment grid', () => {
     replyOverview('preview', { resources: [] });
     replyOverview('production', {
       resources: [
-        { id: '1', resource_kind: 'r2', resource_concept: 'account_resource', environment: 'production', tenancy: 'dedicated', lifecycle_state: 'active', resource_display_name: 'ps-site-abc' },
+        {
+          id: '1',
+          resource_kind: 'r2',
+          resource_concept: 'account_resource',
+          environment: 'production',
+          tenancy: 'dedicated',
+          lifecycle_state: 'active',
+          resource_display_name: 'ps-site-abc',
+        },
       ],
     });
 
@@ -84,7 +95,15 @@ describe('environment assignment grid', () => {
     replyOverview('preview', { resources: [] });
     replyOverview('production', {
       resources: [
-        { id: '2', resource_kind: 'd1', resource_concept: 'account_resource', environment: 'production', tenancy: 'dedicated', lifecycle_state: 'active', resource_display_name: 'a-d1-db' },
+        {
+          id: '2',
+          resource_kind: 'd1',
+          resource_concept: 'account_resource',
+          environment: 'production',
+          tenancy: 'dedicated',
+          lifecycle_state: 'active',
+          resource_display_name: 'a-d1-db',
+        },
       ],
     });
 
@@ -101,10 +120,13 @@ describe('environment assignment grid', () => {
     // Reply flag-dark to both.
     for (const env of ['preview', 'production']) {
       const call = postToParent.mock.calls.find(
-        (c) => (c[0] as { type: string; environment?: string }).type === 'PS_RES_OVERVIEW_REQUEST' && (c[0] as { environment?: string }).environment === env,
+        (c) =>
+          (c[0] as { type: string; environment?: string }).type === 'PS_RES_OVERVIEW_REQUEST' &&
+          (c[0] as { environment?: string }).environment === env,
       );
       const cid = (call![0] as { correlationId: string }).correlationId;
-      for (const h of [...handlers]) h({ type: 'PS_RES_OVERVIEW_RESPONSE', correlationId: cid, ok: false, enabled: false, error: 'not enabled' });
+      for (const h of [...handlers])
+        h({ type: 'PS_RES_OVERVIEW_RESPONSE', correlationId: cid, ok: false, enabled: false, error: 'not enabled' });
     }
 
     await waitFor(() => expect(container.querySelector('[data-testid="resource-env-grid"]')).toBeNull());
@@ -114,9 +136,8 @@ describe('environment assignment grid', () => {
 describe('environment assignment grid — real-time, no manual refresh (R1)', () => {
   /** Count how many overview requests (either environment) the grid has posted so far. */
   function overviewCount(): number {
-    return postToParent.mock.calls.filter(
-      (c) => (c[0] as { type?: string })?.type === 'PS_RES_OVERVIEW_REQUEST',
-    ).length;
+    return postToParent.mock.calls.filter((c) => (c[0] as { type?: string })?.type === 'PS_RES_OVERVIEW_REQUEST')
+      .length;
   }
 
   it('renders NO manual Refresh button — the grid self-updates', async () => {

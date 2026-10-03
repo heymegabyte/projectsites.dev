@@ -140,9 +140,7 @@ export const Preview = memo(({ setSelectedElement }: PreviewProps) => {
    * only the path with no domain until the embed messages arrive.
    */
   const querySlug =
-    typeof window !== 'undefined'
-      ? new URLSearchParams(window.location.search).get('slug') ?? undefined
-      : undefined;
+    typeof window !== 'undefined' ? (new URLSearchParams(window.location.search).get('slug') ?? undefined) : undefined;
   /*
    * PIN the slug the first moment it's known (atom or `?slug`) and keep it for the
    * whole editor session, so the site's primary URL stays HARDCODED in the address
@@ -764,7 +762,9 @@ export const Preview = memo(({ setSelectedElement }: PreviewProps) => {
           <IconButton
             icon="i-ph:selection"
             onClick={() => setIsSelectionMode(!isSelectionMode)}
-            className={isSelectionMode ? 'bg-bolt-elements-background-depth-3 !text-bolt-elements-item-contentAccent' : ''}
+            className={
+              isSelectionMode ? 'bg-bolt-elements-background-depth-3 !text-bolt-elements-item-contentAccent' : ''
+            }
             title={isSelectionMode ? 'Exit screenshot selection' : 'Select area to screenshot'}
           />
         </div>
@@ -891,165 +891,165 @@ export const Preview = memo(({ setSelectedElement }: PreviewProps) => {
           )}
 
           {showLegacyPreviewControls && (
-          <div className="flex items-center relative">
-            <IconButton
-              icon="i-ph:list"
-              onClick={() => setIsWindowSizeDropdownOpen(!isWindowSizeDropdownOpen)}
-              title="New Window Options"
-            />
+            <div className="flex items-center relative">
+              <IconButton
+                icon="i-ph:list"
+                onClick={() => setIsWindowSizeDropdownOpen(!isWindowSizeDropdownOpen)}
+                title="New Window Options"
+              />
 
-            {isWindowSizeDropdownOpen && (
-              <>
-                <div className="fixed inset-0 z-50" onClick={() => setIsWindowSizeDropdownOpen(false)} />
-                <div className="absolute right-0 top-full mt-2 z-50 min-w-[240px] max-h-[400px] overflow-y-auto bg-bolt-elements-background-depth-2 rounded-xl shadow-2xl border border-bolt-elements-borderColor overflow-hidden">
-                  <div className="p-3 border-b border-bolt-elements-borderColor">
-                    <div className="flex items-center justify-between mb-2">
-                      <span className="text-sm font-medium text-bolt-elements-textPrimary">Window Options</span>
-                    </div>
-                    <div className="flex flex-col gap-2">
-                      <button
-                        type="button"
-                        title="Open the preview in a new browser tab"
-                        className={`flex w-full justify-between items-center text-start bg-transparent text-xs text-bolt-elements-textTertiary hover:text-bolt-elements-item-contentAccent focus-visible:outline-none focus-visible:text-bolt-elements-item-contentAccent transition-colors`}
-                        onClick={() => {
-                          openInNewTab();
-                        }}
-                      >
-                        <span>Open in new tab</span>
-                        <div className="i-ph:arrow-square-out h-5 w-4" />
-                      </button>
-                      <button
-                        type="button"
-                        title="Open the preview in a new browser window"
-                        className={`flex w-full justify-between items-center text-start bg-transparent text-xs text-bolt-elements-textTertiary hover:text-bolt-elements-item-contentAccent focus-visible:outline-none focus-visible:text-bolt-elements-item-contentAccent transition-colors`}
-                        onClick={() => {
-                          if (!activePreview?.baseUrl) {
-                            console.warn('[Preview] No active preview available');
-                            return;
-                          }
-
-                          const match = activePreview.baseUrl.match(
-                            /^https?:\/\/([^.]+)\.local-credentialless\.webcontainer-api\.io/,
-                          );
-
-                          if (!match) {
-                            console.warn('[Preview] Invalid WebContainer URL:', activePreview.baseUrl);
-                            return;
-                          }
-
-                          const previewId = match[1];
-                          const previewUrl = `/webcontainer/preview/${previewId}`;
-
-                          // Open in a new window with simple parameters
-                          window.open(
-                            previewUrl,
-                            `preview-${previewId}`,
-                            'width=1280,height=720,menubar=no,toolbar=no,location=no,status=no,resizable=yes',
-                          );
-                        }}
-                      >
-                        <span>Open in new window</span>
-                        <div className="i-ph:browser h-5 w-4" />
-                      </button>
-                      <div className="flex items-center justify-between">
-                        <span className="text-xs text-bolt-elements-textTertiary">Show Device Frame</span>
+              {isWindowSizeDropdownOpen && (
+                <>
+                  <div className="fixed inset-0 z-50" onClick={() => setIsWindowSizeDropdownOpen(false)} />
+                  <div className="absolute right-0 top-full mt-2 z-50 min-w-[240px] max-h-[400px] overflow-y-auto bg-bolt-elements-background-depth-2 rounded-xl shadow-2xl border border-bolt-elements-borderColor overflow-hidden">
+                    <div className="p-3 border-b border-bolt-elements-borderColor">
+                      <div className="flex items-center justify-between mb-2">
+                        <span className="text-sm font-medium text-bolt-elements-textPrimary">Window Options</span>
+                      </div>
+                      <div className="flex flex-col gap-2">
                         <button
                           type="button"
-                          aria-label="Toggle device frame"
-                          aria-pressed={showDeviceFrame}
-                          title={showDeviceFrame ? 'Device frame on' : 'Device frame off'}
-                          className={`w-10 h-5 rounded-full transition-colors duration-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-bolt-elements-item-contentAccent ${
-                            showDeviceFrame
-                              ? 'bg-bolt-elements-item-contentAccent'
-                              : 'bg-bolt-elements-background-depth-4 border border-bolt-elements-borderColor'
-                          } relative`}
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            setShowDeviceFrame(!showDeviceFrame);
+                          title="Open the preview in a new browser tab"
+                          className={`flex w-full justify-between items-center text-start bg-transparent text-xs text-bolt-elements-textTertiary hover:text-bolt-elements-item-contentAccent focus-visible:outline-none focus-visible:text-bolt-elements-item-contentAccent transition-colors`}
+                          onClick={() => {
+                            openInNewTab();
                           }}
                         >
-                          <span
-                            className={`absolute top-0.5 left-0.5 w-4 h-4 rounded-full bg-bolt-elements-textPrimary shadow-sm transition-transform duration-200 ${
-                              showDeviceFrame ? 'transform translate-x-5' : ''
-                            }`}
-                          />
+                          <span>Open in new tab</span>
+                          <div className="i-ph:arrow-square-out h-5 w-4" />
                         </button>
-                      </div>
-                      <div className="flex items-center justify-between">
-                        <span className="text-xs text-bolt-elements-textTertiary">Landscape Mode</span>
                         <button
                           type="button"
-                          aria-label="Toggle landscape mode"
-                          aria-pressed={isLandscape}
-                          title={isLandscape ? 'Landscape on' : 'Landscape off'}
-                          className={`w-10 h-5 rounded-full transition-colors duration-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-bolt-elements-item-contentAccent ${
-                            isLandscape
-                              ? 'bg-bolt-elements-item-contentAccent'
-                              : 'bg-bolt-elements-background-depth-4 border border-bolt-elements-borderColor'
-                          } relative`}
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            setIsLandscape(!isLandscape);
+                          title="Open the preview in a new browser window"
+                          className={`flex w-full justify-between items-center text-start bg-transparent text-xs text-bolt-elements-textTertiary hover:text-bolt-elements-item-contentAccent focus-visible:outline-none focus-visible:text-bolt-elements-item-contentAccent transition-colors`}
+                          onClick={() => {
+                            if (!activePreview?.baseUrl) {
+                              console.warn('[Preview] No active preview available');
+                              return;
+                            }
+
+                            const match = activePreview.baseUrl.match(
+                              /^https?:\/\/([^.]+)\.local-credentialless\.webcontainer-api\.io/,
+                            );
+
+                            if (!match) {
+                              console.warn('[Preview] Invalid WebContainer URL:', activePreview.baseUrl);
+                              return;
+                            }
+
+                            const previewId = match[1];
+                            const previewUrl = `/webcontainer/preview/${previewId}`;
+
+                            // Open in a new window with simple parameters
+                            window.open(
+                              previewUrl,
+                              `preview-${previewId}`,
+                              'width=1280,height=720,menubar=no,toolbar=no,location=no,status=no,resizable=yes',
+                            );
                           }}
                         >
-                          <span
-                            className={`absolute top-0.5 left-0.5 w-4 h-4 rounded-full bg-bolt-elements-textPrimary shadow-sm transition-transform duration-200 ${
-                              isLandscape ? 'transform translate-x-5' : ''
-                            }`}
-                          />
+                          <span>Open in new window</span>
+                          <div className="i-ph:browser h-5 w-4" />
                         </button>
-                      </div>
-                    </div>
-                  </div>
-                  {WINDOW_SIZES.map((size) => (
-                    <button
-                      key={size.name}
-                      type="button"
-                      title={`Open ${size.name} preview window`}
-                      className="w-full px-4 py-3.5 text-left text-bolt-elements-textPrimary text-sm whitespace-nowrap flex items-center gap-3 group bg-bolt-elements-background-depth-2 hover:bg-bolt-elements-item-backgroundActive focus-visible:outline-none focus-visible:bg-bolt-elements-item-backgroundActive transition-colors duration-200"
-                      onClick={() => {
-                        setSelectedWindowSize(size);
-                        setIsWindowSizeDropdownOpen(false);
-                        openInNewWindow(size);
-                      }}
-                    >
-                      <div
-                        className={`${size.icon} w-5 h-5 text-bolt-elements-textTertiary group-hover:text-bolt-elements-item-contentAccent transition-colors duration-200`}
-                      />
-                      <div className="flex-grow flex flex-col">
-                        <span className="font-medium group-hover:text-bolt-elements-item-contentAccent transition-colors duration-200">
-                          {size.name}
-                        </span>
-                        <span className="text-xs text-bolt-elements-textTertiary group-hover:text-bolt-elements-item-contentAccent transition-colors duration-200">
-                          {isLandscape && (size.frameType === 'mobile' || size.frameType === 'tablet')
-                            ? `${size.height} × ${size.width}`
-                            : `${size.width} × ${size.height}`}
-                          {size.hasFrame && showDeviceFrame ? ' (with frame)' : ''}
-                        </span>
-                      </div>
-                      {selectedWindowSize.name === size.name && (
-                        <div className="text-bolt-elements-item-contentAccent">
-                          <svg
-                            xmlns="http://www.w3.org/2000/svg"
-                            width="16"
-                            height="16"
-                            viewBox="0 0 24 24"
-                            fill="none"
-                            stroke="currentColor"
-                            strokeWidth="2"
-                            strokeLinecap="round"
-                            strokeLinejoin="round"
+                        <div className="flex items-center justify-between">
+                          <span className="text-xs text-bolt-elements-textTertiary">Show Device Frame</span>
+                          <button
+                            type="button"
+                            aria-label="Toggle device frame"
+                            aria-pressed={showDeviceFrame}
+                            title={showDeviceFrame ? 'Device frame on' : 'Device frame off'}
+                            className={`w-10 h-5 rounded-full transition-colors duration-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-bolt-elements-item-contentAccent ${
+                              showDeviceFrame
+                                ? 'bg-bolt-elements-item-contentAccent'
+                                : 'bg-bolt-elements-background-depth-4 border border-bolt-elements-borderColor'
+                            } relative`}
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setShowDeviceFrame(!showDeviceFrame);
+                            }}
                           >
-                            <polyline points="20 6 9 17 4 12"></polyline>
-                          </svg>
+                            <span
+                              className={`absolute top-0.5 left-0.5 w-4 h-4 rounded-full bg-bolt-elements-textPrimary shadow-sm transition-transform duration-200 ${
+                                showDeviceFrame ? 'transform translate-x-5' : ''
+                              }`}
+                            />
+                          </button>
                         </div>
-                      )}
-                    </button>
-                  ))}
-                </div>
-              </>
-            )}
-          </div>
+                        <div className="flex items-center justify-between">
+                          <span className="text-xs text-bolt-elements-textTertiary">Landscape Mode</span>
+                          <button
+                            type="button"
+                            aria-label="Toggle landscape mode"
+                            aria-pressed={isLandscape}
+                            title={isLandscape ? 'Landscape on' : 'Landscape off'}
+                            className={`w-10 h-5 rounded-full transition-colors duration-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-bolt-elements-item-contentAccent ${
+                              isLandscape
+                                ? 'bg-bolt-elements-item-contentAccent'
+                                : 'bg-bolt-elements-background-depth-4 border border-bolt-elements-borderColor'
+                            } relative`}
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setIsLandscape(!isLandscape);
+                            }}
+                          >
+                            <span
+                              className={`absolute top-0.5 left-0.5 w-4 h-4 rounded-full bg-bolt-elements-textPrimary shadow-sm transition-transform duration-200 ${
+                                isLandscape ? 'transform translate-x-5' : ''
+                              }`}
+                            />
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+                    {WINDOW_SIZES.map((size) => (
+                      <button
+                        key={size.name}
+                        type="button"
+                        title={`Open ${size.name} preview window`}
+                        className="w-full px-4 py-3.5 text-left text-bolt-elements-textPrimary text-sm whitespace-nowrap flex items-center gap-3 group bg-bolt-elements-background-depth-2 hover:bg-bolt-elements-item-backgroundActive focus-visible:outline-none focus-visible:bg-bolt-elements-item-backgroundActive transition-colors duration-200"
+                        onClick={() => {
+                          setSelectedWindowSize(size);
+                          setIsWindowSizeDropdownOpen(false);
+                          openInNewWindow(size);
+                        }}
+                      >
+                        <div
+                          className={`${size.icon} w-5 h-5 text-bolt-elements-textTertiary group-hover:text-bolt-elements-item-contentAccent transition-colors duration-200`}
+                        />
+                        <div className="flex-grow flex flex-col">
+                          <span className="font-medium group-hover:text-bolt-elements-item-contentAccent transition-colors duration-200">
+                            {size.name}
+                          </span>
+                          <span className="text-xs text-bolt-elements-textTertiary group-hover:text-bolt-elements-item-contentAccent transition-colors duration-200">
+                            {isLandscape && (size.frameType === 'mobile' || size.frameType === 'tablet')
+                              ? `${size.height} × ${size.width}`
+                              : `${size.width} × ${size.height}`}
+                            {size.hasFrame && showDeviceFrame ? ' (with frame)' : ''}
+                          </span>
+                        </div>
+                        {selectedWindowSize.name === size.name && (
+                          <div className="text-bolt-elements-item-contentAccent">
+                            <svg
+                              xmlns="http://www.w3.org/2000/svg"
+                              width="16"
+                              height="16"
+                              viewBox="0 0 24 24"
+                              fill="none"
+                              stroke="currentColor"
+                              strokeWidth="2"
+                              strokeLinecap="round"
+                              strokeLinejoin="round"
+                            >
+                              <polyline points="20 6 9 17 4 12"></polyline>
+                            </svg>
+                          </div>
+                        )}
+                      </button>
+                    ))}
+                  </div>
+                </>
+              )}
+            </div>
           )}
         </div>
       </div>

@@ -371,137 +371,140 @@ export const DataGrid = memo(
               <div className="i-ph:chart-bar text-2xl text-bolt-elements-textTertiary" aria-hidden />
               <p className="text-xs text-bolt-elements-textSecondary">No chartable columns in this result</p>
               <p className="text-[11px] text-bolt-elements-textTertiary max-w-[280px]">
-                A chart needs a label column plus a numeric column to plot. Try a query that groups by a
-                category and returns a count or sum.
+                A chart needs a label column plus a numeric column to plot. Try a query that groups by a category and
+                returns a count or sum.
               </p>
             </div>
           ))}
 
         {/* Grid */}
         {view === 'grid' && (
-        <div
-          className={classNames(
-            'overflow-auto modern-scrollbar rounded-md border border-bolt-elements-borderColor shadow-[inset_0_1px_0_rgba(255,255,255,0.02)]',
-            maxHeightClass,
-          )}
-        >
-          <table className="min-w-full text-xs font-mono border-collapse tabular-nums" data-testid={`${testId}-table`}>
-            <thead>
-              <tr className="bg-bolt-elements-background-depth-2">
-                {columns.map((name) => {
-                  const s = sortFor(name);
-                  return (
-                    <th
-                      key={name}
-                      onClick={() => onSortColumn(name)}
-                      title={`Sort by ${name}`}
-                      className="sticky top-0 z-10 cursor-pointer select-none text-left px-3 py-1.5 text-[10px] uppercase tracking-wider text-bolt-elements-textTertiary font-medium border-b border-bolt-elements-borderColor bg-bolt-elements-background-depth-2 whitespace-nowrap hover:text-bolt-elements-item-contentAccent after:absolute after:inset-x-0 after:bottom-0 after:h-px after:bg-[#00e5ff40]"
-                    >
-                      <span className="inline-flex items-center gap-1">
-                        {name}
-                        {s && (
-                          <span className="inline-flex items-center text-bolt-elements-item-contentAccent">
-                            <div
-                              className={classNames(
-                                s.dir === 'asc' ? 'i-ph:arrow-up' : 'i-ph:arrow-down',
-                                'text-[10px]',
-                              )}
-                              aria-hidden
-                            />
-                            {sorts.length > 1 && <span className="text-[9px]">{s.priority}</span>}
-                          </span>
-                        )}
-                      </span>
-                    </th>
-                  );
-                })}
-              </tr>
-            </thead>
-            <tbody>
-              {pageRows.map((row, ri) => (
-                <tr
-                  key={ri}
-                  className="odd:bg-bolt-elements-background-depth-1 even:bg-bolt-elements-background-depth-2/30 hover:bg-bolt-elements-item-backgroundAccent/10 transition-colors motion-reduce:transition-none"
-                >
+          <div
+            className={classNames(
+              'overflow-auto modern-scrollbar rounded-md border border-bolt-elements-borderColor shadow-[inset_0_1px_0_rgba(255,255,255,0.02)]',
+              maxHeightClass,
+            )}
+          >
+            <table
+              className="min-w-full text-xs font-mono border-collapse tabular-nums"
+              data-testid={`${testId}-table`}
+            >
+              <thead>
+                <tr className="bg-bolt-elements-background-depth-2">
                   {columns.map((name) => {
-                    const classified = classifyCell(row[name]);
-                    const cellKey = `${ri}:${name}`;
-                    const isCopied = copiedCell === cellKey;
-
-                    /*
-                     * Openable cell: when a drill-in handler is wired for this column and the value is a real
-                     * string, the cell IS the "open" action (cyan, clickable) — it takes precedence over copy.
-                     */
-                    const rawValue = row[name];
-                    const isOpenable =
-                      !!onOpenValue &&
-                      name === openableColumn &&
-                      typeof rawValue === 'string' &&
-                      rawValue.trim().length > 0;
-
-                    if (isOpenable) {
-                      const value = String(rawValue);
-                      return (
-                        <td
-                          key={name}
-                          className="px-3 py-1.5 border-b border-bolt-elements-borderColor/30 whitespace-nowrap max-w-[280px]"
-                        >
-                          <button
-                            type="button"
-                            onClick={() => onOpenValue!(name, value)}
-                            data-testid={`${testId}-open`}
-                            title={`Open ${value} — browse this table`}
-                            className="inline-flex max-w-full items-center gap-1 truncate rounded text-left font-medium text-bolt-elements-item-contentAccent hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-bolt-elements-item-contentAccent cursor-pointer"
-                          >
-                            <div className="i-ph:table shrink-0 text-xs" aria-hidden />
-                            <span className="truncate">{value}</span>
-                          </button>
-                        </td>
-                      );
-                    }
-
+                    const s = sortFor(name);
                     return (
-                      <td
+                      <th
                         key={name}
-                        onClick={() => copyCell(cellKey, row[name])}
-                        onKeyDown={(e) => {
-                          if (e.key === 'Enter' || e.key === ' ') {
-                            e.preventDefault();
-                            copyCell(cellKey, row[name]);
-                          }
-                        }}
-                        role="button"
-                        tabIndex={0}
-                        aria-label={`Copy ${name}`}
-                        className={classNames(
-                          'px-3 py-1.5 border-b border-bolt-elements-borderColor/30 whitespace-nowrap max-w-[280px] truncate cursor-pointer',
-                          'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-bolt-elements-item-contentAccent',
-                          isCopied && 'ring-2 ring-inset ring-[#00e5ffb2]',
-                          classified.className,
-                        )}
-                        title={
-                          classified.kind === 'null'
-                            ? 'null · click to copy'
-                            : `${classified.title ?? classified.display} · click to copy`
-                        }
+                        onClick={() => onSortColumn(name)}
+                        title={`Sort by ${name}`}
+                        className="sticky top-0 z-10 cursor-pointer select-none text-left px-3 py-1.5 text-[10px] uppercase tracking-wider text-bolt-elements-textTertiary font-medium border-b border-bolt-elements-borderColor bg-bolt-elements-background-depth-2 whitespace-nowrap hover:text-bolt-elements-item-contentAccent after:absolute after:inset-x-0 after:bottom-0 after:h-px after:bg-[#00e5ff40]"
                       >
-                        {isCopied ? (
-                          <span className="inline-flex items-center gap-1 text-bolt-elements-item-contentAccent">
-                            <div className="i-ph:check text-xs" aria-hidden /> Copied
-                          </span>
-                        ) : classified.kind === 'null' ? (
-                          <span className="text-bolt-elements-textTertiary/50">—</span>
-                        ) : (
-                          classified.display
-                        )}
-                      </td>
+                        <span className="inline-flex items-center gap-1">
+                          {name}
+                          {s && (
+                            <span className="inline-flex items-center text-bolt-elements-item-contentAccent">
+                              <div
+                                className={classNames(
+                                  s.dir === 'asc' ? 'i-ph:arrow-up' : 'i-ph:arrow-down',
+                                  'text-[10px]',
+                                )}
+                                aria-hidden
+                              />
+                              {sorts.length > 1 && <span className="text-[9px]">{s.priority}</span>}
+                            </span>
+                          )}
+                        </span>
+                      </th>
                     );
                   })}
                 </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
+              </thead>
+              <tbody>
+                {pageRows.map((row, ri) => (
+                  <tr
+                    key={ri}
+                    className="odd:bg-bolt-elements-background-depth-1 even:bg-bolt-elements-background-depth-2/30 hover:bg-bolt-elements-item-backgroundAccent/10 transition-colors motion-reduce:transition-none"
+                  >
+                    {columns.map((name) => {
+                      const classified = classifyCell(row[name]);
+                      const cellKey = `${ri}:${name}`;
+                      const isCopied = copiedCell === cellKey;
+
+                      /*
+                       * Openable cell: when a drill-in handler is wired for this column and the value is a real
+                       * string, the cell IS the "open" action (cyan, clickable) — it takes precedence over copy.
+                       */
+                      const rawValue = row[name];
+                      const isOpenable =
+                        !!onOpenValue &&
+                        name === openableColumn &&
+                        typeof rawValue === 'string' &&
+                        rawValue.trim().length > 0;
+
+                      if (isOpenable) {
+                        const value = String(rawValue);
+                        return (
+                          <td
+                            key={name}
+                            className="px-3 py-1.5 border-b border-bolt-elements-borderColor/30 whitespace-nowrap max-w-[280px]"
+                          >
+                            <button
+                              type="button"
+                              onClick={() => onOpenValue!(name, value)}
+                              data-testid={`${testId}-open`}
+                              title={`Open ${value} — browse this table`}
+                              className="inline-flex max-w-full items-center gap-1 truncate rounded text-left font-medium text-bolt-elements-item-contentAccent hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-bolt-elements-item-contentAccent cursor-pointer"
+                            >
+                              <div className="i-ph:table shrink-0 text-xs" aria-hidden />
+                              <span className="truncate">{value}</span>
+                            </button>
+                          </td>
+                        );
+                      }
+
+                      return (
+                        <td
+                          key={name}
+                          onClick={() => copyCell(cellKey, row[name])}
+                          onKeyDown={(e) => {
+                            if (e.key === 'Enter' || e.key === ' ') {
+                              e.preventDefault();
+                              copyCell(cellKey, row[name]);
+                            }
+                          }}
+                          role="button"
+                          tabIndex={0}
+                          aria-label={`Copy ${name}`}
+                          className={classNames(
+                            'px-3 py-1.5 border-b border-bolt-elements-borderColor/30 whitespace-nowrap max-w-[280px] truncate cursor-pointer',
+                            'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-bolt-elements-item-contentAccent',
+                            isCopied && 'ring-2 ring-inset ring-[#00e5ffb2]',
+                            classified.className,
+                          )}
+                          title={
+                            classified.kind === 'null'
+                              ? 'null · click to copy'
+                              : `${classified.title ?? classified.display} · click to copy`
+                          }
+                        >
+                          {isCopied ? (
+                            <span className="inline-flex items-center gap-1 text-bolt-elements-item-contentAccent">
+                              <div className="i-ph:check text-xs" aria-hidden /> Copied
+                            </span>
+                          ) : classified.kind === 'null' ? (
+                            <span className="text-bolt-elements-textTertiary/50">—</span>
+                          ) : (
+                            classified.display
+                          )}
+                        </td>
+                      );
+                    })}
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
         )}
 
         {/* Pager */}

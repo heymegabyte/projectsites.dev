@@ -91,7 +91,9 @@ export interface ResourceDetailTarget {
 }
 
 /** The safe, non-identifier operands forwarded into the adapter's `list`/`get` (a CF id is NEVER one). */
-type DetailParams = NonNullable<Extract<import('~/lib/embed/embedded-mode').ResDetailRequestMessage, { type: 'PS_RES_DETAIL_REQUEST' }>['params']>;
+type DetailParams = NonNullable<
+  Extract<import('~/lib/embed/embedded-mode').ResDetailRequestMessage, { type: 'PS_RES_DETAIL_REQUEST' }>['params']
+>;
 
 type DetailState =
   | { status: 'loading' }
@@ -289,9 +291,11 @@ function iconForKind(kind: string): string {
 
   if (k.includes('d1') || k.includes('database') || k.includes('sql')) return 'i-ph:database-duotone';
   if (k.includes('kv') || k.includes('key')) return 'i-ph:key-duotone';
-  if (k.includes('r2') || k.includes('bucket') || k.includes('storage') || k.includes('object')) return 'i-ph:cloud-duotone';
+  if (k.includes('r2') || k.includes('bucket') || k.includes('storage') || k.includes('object'))
+    return 'i-ph:cloud-duotone';
   if (k.includes('queue')) return 'i-ph:queue-duotone';
-  if (k.includes('function') || k.includes('worker') || k.includes('wfp') || k.includes('dispatch')) return 'i-ph:function-duotone';
+  if (k.includes('function') || k.includes('worker') || k.includes('wfp') || k.includes('dispatch'))
+    return 'i-ph:function-duotone';
   if (k.includes('do') || k.includes('durable')) return 'i-ph:cube-duotone';
   if (k.includes('vectorize') || k.includes('vector') || k.includes('index')) return 'i-ph:graph-duotone';
   if (k.includes('workflow')) return 'i-ph:flow-arrow-duotone';
@@ -313,7 +317,18 @@ function findCollection(data: unknown): { field: string; rows: Record<string, un
   }
 
   // Prefer well-known collection names first (stable column order), then any array-of-objects.
-  const preferred = ['rows', 'tables', 'keys', 'objects', 'vectors', 'runs', 'instances', 'connections', 'items', 'namespaces'];
+  const preferred = [
+    'rows',
+    'tables',
+    'keys',
+    'objects',
+    'vectors',
+    'runs',
+    'instances',
+    'connections',
+    'items',
+    'namespaces',
+  ];
   const record = data as Record<string, unknown>;
   const arrayFields = Object.keys(record).filter((k) => Array.isArray(record[k]));
   const ordered = [
@@ -500,7 +515,11 @@ function friendlyError(result: ResourceDetailResult): { title: string; hint: str
     case 'invalid_table':
       return { title: 'Not found', hint: message, tone: 'warn' };
     case 'cf_unauthorized':
-      return { title: 'Couldn’t connect', hint: 'We couldn’t reach this resource right now. Try again in a moment.', tone: 'warn' };
+      return {
+        title: 'Couldn’t connect',
+        hint: 'We couldn’t reach this resource right now. Try again in a moment.',
+        tone: 'warn',
+      };
     case 'not_implemented':
       return { title: 'Coming soon', hint: 'Reading this resource this way is on the way.', tone: 'muted' };
     default:
@@ -510,7 +529,11 @@ function friendlyError(result: ResourceDetailResult): { title: string; hint: str
 
 /** True when a read result's error means "not connected yet" (⇒ lead with the Provision affordance). */
 function isNotRegistered(result: ResourceDetailResult | null): boolean {
-  return Boolean(result && result.ok === false && (result.error?.code === 'not_registered' || result.error?.code === 'not_provisioned'));
+  return Boolean(
+    result &&
+    result.ok === false &&
+    (result.error?.code === 'not_registered' || result.error?.code === 'not_provisioned'),
+  );
 }
 
 // ── Component ────────────────────────────────────────────────────────────────
@@ -620,7 +643,10 @@ export const ResourceDetailPanel = memo(({ target, onBack }: { target: ResourceD
           return;
         }
 
-        setState({ status: 'ready', result: reply.result ?? { ok: false, error: { code: 'empty', message: 'No result.' } } });
+        setState({
+          status: 'ready',
+          result: reply.result ?? { ok: false, error: { code: 'empty', message: 'No result.' } },
+        });
       } catch (err) {
         if (!silent) {
           setState({ status: 'error', message: err instanceof Error ? err.message : 'Could not load this resource.' });
@@ -687,7 +713,11 @@ export const ResourceDetailPanel = memo(({ target, onBack }: { target: ResourceD
 
         return { kind: 'error', action, message };
       } catch (err) {
-        return { kind: 'error', action, message: err instanceof Error ? err.message : 'That action didn’t go through.' };
+        return {
+          kind: 'error',
+          action,
+          message: err instanceof Error ? err.message : 'That action didn’t go through.',
+        };
       }
     },
     [request, target.kind, target.environment],
@@ -772,7 +802,8 @@ export const ResourceDetailPanel = memo(({ target, onBack }: { target: ResourceD
   const childParamsForRow = useCallback(
     (row: Record<string, unknown>): { label: string; params: DetailParams } | null => {
       const k = target.kind.toLowerCase();
-      const str = (v: unknown): string | undefined => (typeof v === 'string' && v ? v : typeof v === 'number' ? String(v) : undefined);
+      const str = (v: unknown): string | undefined =>
+        typeof v === 'string' && v ? v : typeof v === 'number' ? String(v) : undefined;
 
       if (k.includes('d1') && str(row.name)) {
         return { label: str(row.name)!, params: { table: str(row.name)! } };
@@ -809,16 +840,14 @@ export const ResourceDetailPanel = memo(({ target, onBack }: { target: ResourceD
   useEffect(() => {
     if (state.status === 'ready' || state.status === 'error') setEverSettled(true);
   }, [state.status]);
-  const showWrite = mutations.length > 0 && state.status !== 'disabled' && (everSettled || state.status === 'ready' || state.status === 'error');
+  const showWrite =
+    mutations.length > 0 &&
+    state.status !== 'disabled' &&
+    (everSettled || state.status === 'ready' || state.status === 'error');
 
   return (
     <div className="h-full flex flex-col bg-bolt-elements-background-depth-1 text-bolt-elements-textPrimary">
-      <DetailHeader
-        target={target}
-        child={child}
-        onBack={onBack}
-        onClearChild={() => setChild(null)}
-      />
+      <DetailHeader target={target} child={child} onBack={onBack} onClearChild={() => setChild(null)} />
 
       {showWrite && (
         <WriteControls
@@ -899,10 +928,16 @@ const DetailHeader = memo(
         <div className="i-ph:arrow-left text-sm" />
       </button>
 
-      <div className={classNames(iconForKind(target.kind), 'text-xl text-bolt-elements-item-contentAccent shrink-0')} aria-hidden="true" />
+      <div
+        className={classNames(iconForKind(target.kind), 'text-xl text-bolt-elements-item-contentAccent shrink-0')}
+        aria-hidden="true"
+      />
 
       <div className="min-w-0">
-        <h2 className="text-sm font-semibold text-bolt-elements-textPrimary truncate" title={child ? child.label : target.concept || titleForKind(target.kind)}>
+        <h2
+          className="text-sm font-semibold text-bolt-elements-textPrimary truncate"
+          title={child ? child.label : target.concept || titleForKind(target.kind)}
+        >
           {child ? child.label : target.concept || titleForKind(target.kind)}
         </h2>
         <p className="text-[10px] text-bolt-elements-textTertiary truncate">
@@ -962,7 +997,11 @@ const WriteControls = memo(
     const [busyAction, setBusyAction] = useState<string | null>(null);
     const [outcome, setOutcome] = useState<MutateOutcome | null>(null);
     /** The action currently awaiting a confirm-dialog decision (destructive / provision), with its input. */
-    const [confirming, setConfirming] = useState<{ action: string; input?: Record<string, unknown>; label: string } | null>(null);
+    const [confirming, setConfirming] = useState<{
+      action: string;
+      input?: Record<string, unknown>;
+      label: string;
+    } | null>(null);
 
     const k = kind.toLowerCase();
     const has = useCallback((action: string) => mutations.includes(action), [mutations]);
@@ -1049,7 +1088,10 @@ const WriteControls = memo(
       : undefined;
 
     return (
-      <div className="shrink-0 border-b border-bolt-elements-borderColor bg-bolt-elements-background-depth-2/40 px-4 py-3 space-y-3" data-testid="resource-detail-write">
+      <div
+        className="shrink-0 border-b border-bolt-elements-borderColor bg-bolt-elements-background-depth-2/40 px-4 py-3 space-y-3"
+        data-testid="resource-detail-write"
+      >
         {/* Provision — lead with it when the resource isn't connected yet. */}
         {has(PROVISION_ACTION) && (
           <div className="flex items-center gap-2">
@@ -1065,23 +1107,40 @@ const WriteControls = memo(
                   : 'border border-bolt-elements-borderColor bg-bolt-elements-background-depth-2 text-bolt-elements-textSecondary hover:bg-bolt-elements-background-depth-3',
               )}
             >
-              <div className={classNames(busyAction === PROVISION_ACTION ? 'i-ph:circle-notch animate-spin motion-reduce:animate-none' : iconForAction(PROVISION_ACTION), 'text-sm')} />
+              <div
+                className={classNames(
+                  busyAction === PROVISION_ACTION
+                    ? 'i-ph:circle-notch animate-spin motion-reduce:animate-none'
+                    : iconForAction(PROVISION_ACTION),
+                  'text-sm',
+                )}
+              />
               {notRegistered ? `Provision ${titleForKind(kind)}` : 'Re-provision'}
             </button>
             {notRegistered && (
-              <span className="text-[10px] text-bolt-elements-textTertiary">Creates a dedicated resource for your site.</span>
+              <span className="text-[10px] text-bolt-elements-textTertiary">
+                Creates a dedicated resource for your site.
+              </span>
             )}
           </div>
         )}
 
         {/* KV put — key + value + optional TTL. */}
         {bespoke.has('put') && k.includes('kv') && (
-          <KvPutForm busy={busyAction === 'put'} disabledReason={doomedReason} onSubmit={(input) => dispatch('put', input, String(input.key))} />
+          <KvPutForm
+            busy={busyAction === 'put'}
+            disabledReason={doomedReason}
+            onSubmit={(input) => dispatch('put', input, String(input.key))}
+          />
         )}
 
         {/* R2 put (create/overwrite an object) — key + value. */}
         {bespoke.has('put') && k.includes('r2') && (
-          <R2PutForm busy={busyAction === 'put'} disabledReason={doomedReason} onSubmit={(input) => dispatch('put', input, String(input.key))} />
+          <R2PutForm
+            busy={busyAction === 'put'}
+            disabledReason={doomedReason}
+            onSubmit={(input) => dispatch('put', input, String(input.key))}
+          />
         )}
 
         {/* Delete by key (KV / R2) — key input, destructive. */}
@@ -1097,7 +1156,11 @@ const WriteControls = memo(
 
         {/* Vectorize delete by ids — comma/space-separated ids, destructive. */}
         {bespoke.has('delete') && k.includes('vector') && (
-          <VectorDeleteForm busy={busyAction === 'delete'} disabledReason={doomedReason} onSubmit={(ids) => dispatch('delete', { ids }, `${ids.length} vector${ids.length === 1 ? '' : 's'}`)} />
+          <VectorDeleteForm
+            busy={busyAction === 'delete'}
+            disabledReason={doomedReason}
+            onSubmit={(ids) => dispatch('delete', { ids }, `${ids.length} vector${ids.length === 1 ? '' : 's'}`)}
+          />
         )}
 
         {/* D1 exec — SQL textarea + optional JSON params. Mutating SQL is confirm-gated server-side. */}
@@ -1106,14 +1169,20 @@ const WriteControls = memo(
             busy={busyAction === 'exec'}
             disabledReason={doomedReason}
             onSubmit={(input, isDestructive) =>
-              isDestructive ? setConfirming({ action: 'exec', input, label: 'this SQL statement' }) : void run('exec', input, true)
+              isDestructive
+                ? setConfirming({ action: 'exec', input, label: 'this SQL statement' })
+                : void run('exec', input, true)
             }
           />
         )}
 
         {/* Generic named-action buttons (workflow start/pause/…, DO status_probe/reset, queue send, …). */}
         {genericActions.length > 0 && (
-          <div className="flex flex-wrap items-center gap-1.5" data-testid="resource-mutate-actions" title={doomedReason}>
+          <div
+            className="flex flex-wrap items-center gap-1.5"
+            data-testid="resource-mutate-actions"
+            title={doomedReason}
+          >
             {genericActions.map((action) => (
               <GenericActionButton
                 key={action}
@@ -1157,65 +1226,157 @@ interface DoomedGate {
   disabledReason?: string;
 }
 
-const KvPutForm = memo(({ busy, disabledReason, onSubmit }: { busy: boolean; onSubmit: (input: Record<string, unknown>) => void } & DoomedGate) => {
-  const [key, setKey] = useState('');
-  const [value, setValue] = useState('');
-  const [ttl, setTtl] = useState('');
-  const doomed = Boolean(disabledReason);
+const KvPutForm = memo(
+  ({
+    busy,
+    disabledReason,
+    onSubmit,
+  }: { busy: boolean; onSubmit: (input: Record<string, unknown>) => void } & DoomedGate) => {
+    const [key, setKey] = useState('');
+    const [value, setValue] = useState('');
+    const [ttl, setTtl] = useState('');
+    const doomed = Boolean(disabledReason);
 
-  const submit = () => {
-    if (!key.trim()) return;
+    const submit = () => {
+      if (!key.trim()) return;
 
-    const input: Record<string, unknown> = { key: key.trim(), value };
-    const ttlNum = Number(ttl);
-    if (ttl.trim() && Number.isFinite(ttlNum) && ttlNum >= 60) input.expirationTtl = Math.trunc(ttlNum);
-    onSubmit(input);
-  };
+      const input: Record<string, unknown> = { key: key.trim(), value };
+      const ttlNum = Number(ttl);
+      if (ttl.trim() && Number.isFinite(ttlNum) && ttlNum >= 60) input.expirationTtl = Math.trunc(ttlNum);
+      onSubmit(input);
+    };
 
-  return (
-    <div className="space-y-1.5" data-testid="resource-mutate-kv-put" title={disabledReason} aria-disabled={doomed || undefined}>
-      <label className="block text-[10px] uppercase tracking-wider text-bolt-elements-textTertiary">Write a key</label>
-      <input className={inputClass} placeholder="key" aria-label="KV key to write" disabled={doomed} value={key} onChange={(e) => setKey(e.target.value)} />
-      <textarea className={classNames(inputClass, 'min-h-[52px] resize-y')} placeholder="value" aria-label="KV value" disabled={doomed} value={value} onChange={(e) => setValue(e.target.value)} />
-      <div className="flex items-center gap-2">
-        <input className={classNames(inputClass, 'w-32')} placeholder="TTL secs (≥60)" aria-label="Optional TTL in seconds" inputMode="numeric" disabled={doomed} value={ttl} onChange={(e) => setTtl(e.target.value)} />
-        <button type="button" className={primaryBtnClass} disabled={busy || doomed || !key.trim()} title={disabledReason} onClick={submit}>
-          <div className={classNames(busy ? 'i-ph:circle-notch animate-spin motion-reduce:animate-none' : 'i-ph:floppy-disk-duotone', 'text-sm')} /> Write key
-        </button>
+    return (
+      <div
+        className="space-y-1.5"
+        data-testid="resource-mutate-kv-put"
+        title={disabledReason}
+        aria-disabled={doomed || undefined}
+      >
+        <label className="block text-[10px] uppercase tracking-wider text-bolt-elements-textTertiary">
+          Write a key
+        </label>
+        <input
+          className={inputClass}
+          placeholder="key"
+          aria-label="KV key to write"
+          disabled={doomed}
+          value={key}
+          onChange={(e) => setKey(e.target.value)}
+        />
+        <textarea
+          className={classNames(inputClass, 'min-h-[52px] resize-y')}
+          placeholder="value"
+          aria-label="KV value"
+          disabled={doomed}
+          value={value}
+          onChange={(e) => setValue(e.target.value)}
+        />
+        <div className="flex items-center gap-2">
+          <input
+            className={classNames(inputClass, 'w-32')}
+            placeholder="TTL secs (≥60)"
+            aria-label="Optional TTL in seconds"
+            inputMode="numeric"
+            disabled={doomed}
+            value={ttl}
+            onChange={(e) => setTtl(e.target.value)}
+          />
+          <button
+            type="button"
+            className={primaryBtnClass}
+            disabled={busy || doomed || !key.trim()}
+            title={disabledReason}
+            onClick={submit}
+          >
+            <div
+              className={classNames(
+                busy ? 'i-ph:circle-notch animate-spin motion-reduce:animate-none' : 'i-ph:floppy-disk-duotone',
+                'text-sm',
+              )}
+            />{' '}
+            Write key
+          </button>
+        </div>
       </div>
-    </div>
-  );
-});
+    );
+  },
+);
 
 KvPutForm.displayName = 'ResourceDetailPanel.KvPutForm';
 
-const R2PutForm = memo(({ busy, disabledReason, onSubmit }: { busy: boolean; onSubmit: (input: Record<string, unknown>) => void } & DoomedGate) => {
-  const [key, setKey] = useState('');
-  const [value, setValue] = useState('');
-  const doomed = Boolean(disabledReason);
+const R2PutForm = memo(
+  ({
+    busy,
+    disabledReason,
+    onSubmit,
+  }: { busy: boolean; onSubmit: (input: Record<string, unknown>) => void } & DoomedGate) => {
+    const [key, setKey] = useState('');
+    const [value, setValue] = useState('');
+    const doomed = Boolean(disabledReason);
 
-  const submit = () => {
-    if (!key.trim()) return;
+    const submit = () => {
+      if (!key.trim()) return;
 
-    onSubmit({ key: key.trim(), value });
-  };
+      onSubmit({ key: key.trim(), value });
+    };
 
-  return (
-    <div className="space-y-1.5" data-testid="resource-mutate-r2-put" title={disabledReason} aria-disabled={doomed || undefined}>
-      <label className="block text-[10px] uppercase tracking-wider text-bolt-elements-textTertiary">Write an object</label>
-      <input className={inputClass} placeholder="object key" aria-label="R2 object key to write" disabled={doomed} value={key} onChange={(e) => setKey(e.target.value)} />
-      <textarea className={classNames(inputClass, 'min-h-[52px] resize-y')} placeholder="contents" aria-label="R2 object contents" disabled={doomed} value={value} onChange={(e) => setValue(e.target.value)} />
-      <button type="button" className={primaryBtnClass} disabled={busy || doomed || !key.trim()} title={disabledReason} onClick={submit}>
-        <div className={classNames(busy ? 'i-ph:circle-notch animate-spin motion-reduce:animate-none' : 'i-ph:floppy-disk-duotone', 'text-sm')} /> Write object
-      </button>
-    </div>
-  );
-});
+    return (
+      <div
+        className="space-y-1.5"
+        data-testid="resource-mutate-r2-put"
+        title={disabledReason}
+        aria-disabled={doomed || undefined}
+      >
+        <label className="block text-[10px] uppercase tracking-wider text-bolt-elements-textTertiary">
+          Write an object
+        </label>
+        <input
+          className={inputClass}
+          placeholder="object key"
+          aria-label="R2 object key to write"
+          disabled={doomed}
+          value={key}
+          onChange={(e) => setKey(e.target.value)}
+        />
+        <textarea
+          className={classNames(inputClass, 'min-h-[52px] resize-y')}
+          placeholder="contents"
+          aria-label="R2 object contents"
+          disabled={doomed}
+          value={value}
+          onChange={(e) => setValue(e.target.value)}
+        />
+        <button
+          type="button"
+          className={primaryBtnClass}
+          disabled={busy || doomed || !key.trim()}
+          title={disabledReason}
+          onClick={submit}
+        >
+          <div
+            className={classNames(
+              busy ? 'i-ph:circle-notch animate-spin motion-reduce:animate-none' : 'i-ph:floppy-disk-duotone',
+              'text-sm',
+            )}
+          />{' '}
+          Write object
+        </button>
+      </div>
+    );
+  },
+);
 
 R2PutForm.displayName = 'ResourceDetailPanel.R2PutForm';
 
 const KeyDeleteForm = memo(
-  ({ label, busy, disabledReason, defaultKey, onSubmit }: { label: string; busy: boolean; defaultKey: string; onSubmit: (key: string) => void } & DoomedGate) => {
+  ({
+    label,
+    busy,
+    disabledReason,
+    defaultKey,
+    onSubmit,
+  }: { label: string; busy: boolean; defaultKey: string; onSubmit: (key: string) => void } & DoomedGate) => {
     const [key, setKey] = useState(defaultKey);
     const doomed = Boolean(disabledReason);
 
@@ -1225,12 +1386,38 @@ const KeyDeleteForm = memo(
     }, [defaultKey]);
 
     return (
-      <div className="space-y-1.5" data-testid="resource-mutate-key-delete" title={disabledReason} aria-disabled={doomed || undefined}>
-        <label className="block text-[10px] uppercase tracking-wider text-bolt-elements-textTertiary">Delete a {label}</label>
+      <div
+        className="space-y-1.5"
+        data-testid="resource-mutate-key-delete"
+        title={disabledReason}
+        aria-disabled={doomed || undefined}
+      >
+        <label className="block text-[10px] uppercase tracking-wider text-bolt-elements-textTertiary">
+          Delete a {label}
+        </label>
         <div className="flex items-center gap-2">
-          <input className={inputClass} placeholder={label} aria-label={`The ${label} to delete`} disabled={doomed} value={key} onChange={(e) => setKey(e.target.value)} />
-          <button type="button" className={dangerBtnClass} disabled={busy || doomed || !key.trim()} title={disabledReason} onClick={() => key.trim() && onSubmit(key.trim())}>
-            <div className={classNames(busy ? 'i-ph:circle-notch animate-spin motion-reduce:animate-none' : 'i-ph:trash-duotone', 'text-sm')} /> Delete
+          <input
+            className={inputClass}
+            placeholder={label}
+            aria-label={`The ${label} to delete`}
+            disabled={doomed}
+            value={key}
+            onChange={(e) => setKey(e.target.value)}
+          />
+          <button
+            type="button"
+            className={dangerBtnClass}
+            disabled={busy || doomed || !key.trim()}
+            title={disabledReason}
+            onClick={() => key.trim() && onSubmit(key.trim())}
+          >
+            <div
+              className={classNames(
+                busy ? 'i-ph:circle-notch animate-spin motion-reduce:animate-none' : 'i-ph:trash-duotone',
+                'text-sm',
+              )}
+            />{' '}
+            Delete
           </button>
         </div>
       </div>
@@ -1240,106 +1427,177 @@ const KeyDeleteForm = memo(
 
 KeyDeleteForm.displayName = 'ResourceDetailPanel.KeyDeleteForm';
 
-const VectorDeleteForm = memo(({ busy, disabledReason, onSubmit }: { busy: boolean; onSubmit: (ids: string[]) => void } & DoomedGate) => {
-  const [raw, setRaw] = useState('');
-  const doomed = Boolean(disabledReason);
+const VectorDeleteForm = memo(
+  ({ busy, disabledReason, onSubmit }: { busy: boolean; onSubmit: (ids: string[]) => void } & DoomedGate) => {
+    const [raw, setRaw] = useState('');
+    const doomed = Boolean(disabledReason);
 
-  const ids = useMemo(() => raw.split(/[\s,]+/).map((s) => s.trim()).filter(Boolean), [raw]);
+    const ids = useMemo(
+      () =>
+        raw
+          .split(/[\s,]+/)
+          .map((s) => s.trim())
+          .filter(Boolean),
+      [raw],
+    );
 
-  return (
-    <div className="space-y-1.5" data-testid="resource-mutate-vector-delete" title={disabledReason} aria-disabled={doomed || undefined}>
-      <label className="block text-[10px] uppercase tracking-wider text-bolt-elements-textTertiary">Delete vectors by id</label>
-      <div className="flex items-center gap-2">
-        <input className={inputClass} placeholder="id1, id2, id3" aria-label="Vector ids to delete (comma or space separated)" disabled={doomed} value={raw} onChange={(e) => setRaw(e.target.value)} />
-        <button type="button" className={dangerBtnClass} disabled={busy || doomed || ids.length === 0} title={disabledReason} onClick={() => ids.length > 0 && onSubmit(ids)}>
-          <div className={classNames(busy ? 'i-ph:circle-notch animate-spin motion-reduce:animate-none' : 'i-ph:trash-duotone', 'text-sm')} /> Delete{ids.length > 0 ? ` (${ids.length})` : ''}
-        </button>
+    return (
+      <div
+        className="space-y-1.5"
+        data-testid="resource-mutate-vector-delete"
+        title={disabledReason}
+        aria-disabled={doomed || undefined}
+      >
+        <label className="block text-[10px] uppercase tracking-wider text-bolt-elements-textTertiary">
+          Delete vectors by id
+        </label>
+        <div className="flex items-center gap-2">
+          <input
+            className={inputClass}
+            placeholder="id1, id2, id3"
+            aria-label="Vector ids to delete (comma or space separated)"
+            disabled={doomed}
+            value={raw}
+            onChange={(e) => setRaw(e.target.value)}
+          />
+          <button
+            type="button"
+            className={dangerBtnClass}
+            disabled={busy || doomed || ids.length === 0}
+            title={disabledReason}
+            onClick={() => ids.length > 0 && onSubmit(ids)}
+          >
+            <div
+              className={classNames(
+                busy ? 'i-ph:circle-notch animate-spin motion-reduce:animate-none' : 'i-ph:trash-duotone',
+                'text-sm',
+              )}
+            />{' '}
+            Delete{ids.length > 0 ? ` (${ids.length})` : ''}
+          </button>
+        </div>
       </div>
-    </div>
-  );
-});
+    );
+  },
+);
 
 VectorDeleteForm.displayName = 'ResourceDetailPanel.VectorDeleteForm';
 
-const D1ExecForm = memo(({ busy, disabledReason, onSubmit }: { busy: boolean; onSubmit: (input: Record<string, unknown>, isDestructive: boolean) => void } & DoomedGate) => {
-  const [sql, setSql] = useState('');
-  const [paramsRaw, setParamsRaw] = useState('');
-  const [paramsError, setParamsError] = useState<string | null>(null);
-  const doomed = Boolean(disabledReason);
+const D1ExecForm = memo(
+  ({
+    busy,
+    disabledReason,
+    onSubmit,
+  }: { busy: boolean; onSubmit: (input: Record<string, unknown>, isDestructive: boolean) => void } & DoomedGate) => {
+    const [sql, setSql] = useState('');
+    const [paramsRaw, setParamsRaw] = useState('');
+    const [paramsError, setParamsError] = useState<string | null>(null);
+    const doomed = Boolean(disabledReason);
 
-  // Best-effort client hint (the WORKER classifies authoritatively): flag likely-destructive DDL/DML so the
-  // confirm dialog fires up-front. The server re-classifies + gates regardless, so this is only UX.
-  const likelyDestructive = /^\s*(drop|truncate|alter|delete)\b/i.test(sql) && !/\bwhere\b/i.test(sql.replace(/^\s*delete\b/i, 'delete'));
-  const likelyMutating = /^\s*(insert|update|delete|replace|create|alter|drop|truncate)\b/i.test(sql);
+    // Best-effort client hint (the WORKER classifies authoritatively): flag likely-destructive DDL/DML so the
+    // confirm dialog fires up-front. The server re-classifies + gates regardless, so this is only UX.
+    const likelyDestructive =
+      /^\s*(drop|truncate|alter|delete)\b/i.test(sql) && !/\bwhere\b/i.test(sql.replace(/^\s*delete\b/i, 'delete'));
+    const likelyMutating = /^\s*(insert|update|delete|replace|create|alter|drop|truncate)\b/i.test(sql);
 
-  const submit = () => {
-    if (!sql.trim()) return;
+    const submit = () => {
+      if (!sql.trim()) return;
 
-    setParamsError(null);
+      setParamsError(null);
 
-    let params: unknown[] | undefined;
+      let params: unknown[] | undefined;
 
-    if (paramsRaw.trim()) {
-      try {
-        const parsed = JSON.parse(paramsRaw);
+      if (paramsRaw.trim()) {
+        try {
+          const parsed = JSON.parse(paramsRaw);
 
-        if (!Array.isArray(parsed)) {
-          setParamsError('Params must be a JSON array, e.g. ["a", 1, true].');
+          if (!Array.isArray(parsed)) {
+            setParamsError('Params must be a JSON array, e.g. ["a", 1, true].');
+            return;
+          }
+
+          params = parsed;
+        } catch {
+          setParamsError('Params must be valid JSON (an array of values).');
           return;
         }
-
-        params = parsed;
-      } catch {
-        setParamsError('Params must be valid JSON (an array of values).');
-        return;
       }
-    }
 
-    const input: Record<string, unknown> = { sql: sql.trim() };
-    if (params) input.params = params;
-    // A mutating statement is confirm-gated (destructive → dialog; other mutating → the server still
-    // requires confirm:true, which we pass). A read-only statement runs with no confirm.
-    onSubmit(input, likelyDestructive || likelyMutating);
-  };
+      const input: Record<string, unknown> = { sql: sql.trim() };
+      if (params) input.params = params;
+      // A mutating statement is confirm-gated (destructive → dialog; other mutating → the server still
+      // requires confirm:true, which we pass). A read-only statement runs with no confirm.
+      onSubmit(input, likelyDestructive || likelyMutating);
+    };
 
-  return (
-    <div className="space-y-1.5" data-testid="resource-mutate-d1-exec" title={disabledReason} aria-disabled={doomed || undefined}>
-      <label className="block text-[10px] uppercase tracking-wider text-bolt-elements-textTertiary">Run SQL</label>
-      <textarea
-        className={classNames(inputClass, 'min-h-[64px] resize-y')}
-        placeholder="SELECT * FROM my_table LIMIT 10;"
-        aria-label="SQL statement to run"
-        disabled={doomed}
-        value={sql}
-        onChange={(e) => setSql(e.target.value)}
-      />
-      <input
-        className={inputClass}
-        placeholder='params (JSON array, optional) — e.g. ["a", 1]'
-        aria-label="Bound SQL parameters as a JSON array"
-        disabled={doomed}
-        value={paramsRaw}
-        onChange={(e) => setParamsRaw(e.target.value)}
-      />
-      {paramsError && <p className="text-[10px] text-red-400">{paramsError}</p>}
-      <div className="flex items-center gap-2">
-        <button type="button" className={likelyDestructive ? dangerBtnClass : primaryBtnClass} disabled={busy || doomed || !sql.trim()} title={disabledReason} onClick={submit}>
-          <div className={classNames(busy ? 'i-ph:circle-notch animate-spin motion-reduce:animate-none' : 'i-ph:play-duotone', 'text-sm')} /> Run
-        </button>
-        {likelyMutating && (
-          <span className="text-[10px] text-amber-400/90">
-            {likelyDestructive ? 'This looks destructive — you’ll confirm first.' : 'This modifies data — you’ll confirm first.'}
-          </span>
-        )}
+    return (
+      <div
+        className="space-y-1.5"
+        data-testid="resource-mutate-d1-exec"
+        title={disabledReason}
+        aria-disabled={doomed || undefined}
+      >
+        <label className="block text-[10px] uppercase tracking-wider text-bolt-elements-textTertiary">Run SQL</label>
+        <textarea
+          className={classNames(inputClass, 'min-h-[64px] resize-y')}
+          placeholder="SELECT * FROM my_table LIMIT 10;"
+          aria-label="SQL statement to run"
+          disabled={doomed}
+          value={sql}
+          onChange={(e) => setSql(e.target.value)}
+        />
+        <input
+          className={inputClass}
+          placeholder='params (JSON array, optional) — e.g. ["a", 1]'
+          aria-label="Bound SQL parameters as a JSON array"
+          disabled={doomed}
+          value={paramsRaw}
+          onChange={(e) => setParamsRaw(e.target.value)}
+        />
+        {paramsError && <p className="text-[10px] text-red-400">{paramsError}</p>}
+        <div className="flex items-center gap-2">
+          <button
+            type="button"
+            className={likelyDestructive ? dangerBtnClass : primaryBtnClass}
+            disabled={busy || doomed || !sql.trim()}
+            title={disabledReason}
+            onClick={submit}
+          >
+            <div
+              className={classNames(
+                busy ? 'i-ph:circle-notch animate-spin motion-reduce:animate-none' : 'i-ph:play-duotone',
+                'text-sm',
+              )}
+            />{' '}
+            Run
+          </button>
+          {likelyMutating && (
+            <span className="text-[10px] text-amber-400/90">
+              {likelyDestructive
+                ? 'This looks destructive — you’ll confirm first.'
+                : 'This modifies data — you’ll confirm first.'}
+            </span>
+          )}
+        </div>
       </div>
-    </div>
-  );
-});
+    );
+  },
+);
 
 D1ExecForm.displayName = 'ResourceDetailPanel.D1ExecForm';
 
 const GenericActionButton = memo(
-  ({ action, busy, disabled, onRun }: { action: string; busy: boolean; disabled: boolean; onRun: (input?: Record<string, unknown>) => void }) => {
+  ({
+    action,
+    busy,
+    disabled,
+    onRun,
+  }: {
+    action: string;
+    busy: boolean;
+    disabled: boolean;
+    onRun: (input?: Record<string, unknown>) => void;
+  }) => {
     const destructive = DESTRUCTIVE_ACTIONS.has(action);
     // Instance-scoped verbs need an id; ask for it inline so the button isn't a dead control.
     const needsInstance = ['pause', 'resume', 'restart', 'terminate'].includes(action);
@@ -1350,11 +1608,18 @@ const GenericActionButton = memo(
     if (needsInstance || needsObject || needsMessages) {
       const field = needsInstance ? 'instanceId' : needsObject ? 'objectId' : 'messages';
       const placeholder = needsMessages ? 'message body' : needsInstance ? 'run instance id' : 'object id';
-      const buildInput = (): Record<string, unknown> => (needsMessages ? { messages: [value.trim()] } : { [field]: value.trim() });
+      const buildInput = (): Record<string, unknown> =>
+        needsMessages ? { messages: [value.trim()] } : { [field]: value.trim() };
 
       return (
         <div className="flex items-center gap-1.5">
-          <input className={classNames(inputClass, 'w-40')} placeholder={placeholder} aria-label={`${labelForAction(action)} — ${placeholder}`} value={value} onChange={(e) => setValue(e.target.value)} />
+          <input
+            className={classNames(inputClass, 'w-40')}
+            placeholder={placeholder}
+            aria-label={`${labelForAction(action)} — ${placeholder}`}
+            value={value}
+            onChange={(e) => setValue(e.target.value)}
+          />
           <button
             type="button"
             data-testid={`resource-mutate-action-${action}`}
@@ -1362,7 +1627,12 @@ const GenericActionButton = memo(
             onClick={() => value.trim() && onRun(buildInput())}
             className={destructive ? dangerBtnClass : primaryBtnClass}
           >
-            <div className={classNames(busy ? 'i-ph:circle-notch animate-spin motion-reduce:animate-none' : iconForAction(action), 'text-sm')} />
+            <div
+              className={classNames(
+                busy ? 'i-ph:circle-notch animate-spin motion-reduce:animate-none' : iconForAction(action),
+                'text-sm',
+              )}
+            />
             {labelForAction(action)}
           </button>
         </div>
@@ -1377,7 +1647,12 @@ const GenericActionButton = memo(
         onClick={() => onRun()}
         className={destructive ? dangerBtnClass : primaryBtnClass}
       >
-        <div className={classNames(busy ? 'i-ph:circle-notch animate-spin motion-reduce:animate-none' : iconForAction(action), 'text-sm')} />
+        <div
+          className={classNames(
+            busy ? 'i-ph:circle-notch animate-spin motion-reduce:animate-none' : iconForAction(action),
+            'text-sm',
+          )}
+        />
         {labelForAction(action)}
       </button>
     );
@@ -1389,10 +1664,18 @@ GenericActionButton.displayName = 'ResourceDetailPanel.GenericActionButton';
 /** Renders the classified {@link MutateOutcome} inline — honest success/confirmation/not-available/error. */
 const MutateOutcomeCard = memo(({ outcome, onDismiss }: { outcome: MutateOutcome; onDismiss: () => void }) => {
   const config: Record<MutateOutcome['kind'], { icon: string; tone: string; title: string }> = {
-    success: { icon: 'i-ph:check-circle-duotone', tone: 'text-emerald-400', title: `${labelForAction(outcome.action)} succeeded` },
+    success: {
+      icon: 'i-ph:check-circle-duotone',
+      tone: 'text-emerald-400',
+      title: `${labelForAction(outcome.action)} succeeded`,
+    },
     confirmation: { icon: 'i-ph:shield-warning-duotone', tone: 'text-amber-400', title: 'Confirmation needed' },
     not_available: { icon: 'i-ph:prohibit-duotone', tone: 'text-bolt-elements-textTertiary', title: 'Not available' },
-    error: { icon: 'i-ph:warning-circle-duotone', tone: 'text-red-400', title: `${labelForAction(outcome.action)} didn’t go through` },
+    error: {
+      icon: 'i-ph:warning-circle-duotone',
+      tone: 'text-red-400',
+      title: `${labelForAction(outcome.action)} didn’t go through`,
+    },
   };
   const c = config[outcome.kind];
 
@@ -1481,8 +1764,13 @@ const ResultView = memo(
         {scalars.length > 0 && (
           <dl className="grid grid-cols-1 sm:grid-cols-2 gap-2" data-testid="resource-detail-scalars">
             {scalars.map(([k, v]) => (
-              <div key={k} className="rounded-lg border border-bolt-elements-borderColor bg-bolt-elements-background-depth-2 px-3 py-2 min-w-0">
-                <dt className="text-[9px] uppercase tracking-wider text-bolt-elements-textTertiary truncate">{humanize(k)}</dt>
+              <div
+                key={k}
+                className="rounded-lg border border-bolt-elements-borderColor bg-bolt-elements-background-depth-2 px-3 py-2 min-w-0"
+              >
+                <dt className="text-[9px] uppercase tracking-wider text-bolt-elements-textTertiary truncate">
+                  {humanize(k)}
+                </dt>
                 <dd className="text-xs font-mono text-bolt-elements-textPrimary truncate" title={renderCell(v)}>
                   {renderCell(v)}
                 </dd>
@@ -1562,7 +1850,9 @@ const CollectionTable = memo(
       <section>
         <div className="flex items-center gap-2 mb-2">
           <div className="i-ph:list-bullets text-sm text-bolt-elements-item-contentAccent shrink-0" />
-          <h3 className="text-xs font-semibold uppercase tracking-wider text-bolt-elements-textSecondary">{humanize(field)}</h3>
+          <h3 className="text-xs font-semibold uppercase tracking-wider text-bolt-elements-textSecondary">
+            {humanize(field)}
+          </h3>
           <span className="text-[10px] text-bolt-elements-textTertiary">
             {rows.length} {rows.length === 1 ? 'item' : 'items'}
           </span>
@@ -1583,7 +1873,10 @@ const CollectionTable = memo(
             <thead>
               <tr className="bg-bolt-elements-background-depth-2">
                 {columns.map((col) => (
-                  <th key={col} className="text-[10px] uppercase tracking-wider text-bolt-elements-textTertiary font-semibold px-3 py-2 whitespace-nowrap border-b border-bolt-elements-borderColor">
+                  <th
+                    key={col}
+                    className="text-[10px] uppercase tracking-wider text-bolt-elements-textTertiary font-semibold px-3 py-2 whitespace-nowrap border-b border-bolt-elements-borderColor"
+                  >
                     {humanize(col)}
                   </th>
                 ))}
@@ -1693,7 +1986,12 @@ const RowDrawer = memo(({ row, onClose }: { row: Record<string, unknown>; onClos
 
   return (
     <div className="absolute inset-0 z-20 flex justify-end" role="dialog" aria-modal="true" aria-label="Row detail">
-      <button type="button" aria-label="Close row detail" onClick={onClose} className="absolute inset-0 bg-black/40 cursor-default" />
+      <button
+        type="button"
+        aria-label="Close row detail"
+        onClick={onClose}
+        className="absolute inset-0 bg-black/40 cursor-default"
+      />
       <div
         className="animated fadeInRight relative w-[min(420px,80%)] h-full bg-bolt-elements-background-depth-2 border-l border-bolt-elements-borderColor shadow-2xl flex flex-col motion-reduce:animate-none"
         data-testid="resource-detail-row-drawer"
@@ -1717,7 +2015,9 @@ const RowDrawer = memo(({ row, onClose }: { row: Record<string, unknown>; onClos
             const isNull = value === null || value === undefined;
             return (
               <div key={key} className="space-y-0.5">
-                <span className="text-[10px] uppercase tracking-wider text-bolt-elements-textTertiary font-medium">{humanize(key)}</span>
+                <span className="text-[10px] uppercase tracking-wider text-bolt-elements-textTertiary font-medium">
+                  {humanize(key)}
+                </span>
                 <div
                   className={classNames(
                     'text-xs font-mono break-words whitespace-pre-wrap rounded bg-bolt-elements-background-depth-1 border border-bolt-elements-borderColor px-2.5 py-1.5',
@@ -1747,7 +2047,10 @@ const RawJson = memo(({ data }: { data: unknown }) => {
   }, [data]);
 
   return (
-    <pre className="text-[11px] font-mono text-bolt-elements-textSecondary bg-bolt-elements-background-depth-2 border border-bolt-elements-borderColor rounded-lg p-3 overflow-auto modern-scrollbar" data-testid="resource-detail-raw">
+    <pre
+      className="text-[11px] font-mono text-bolt-elements-textSecondary bg-bolt-elements-background-depth-2 border border-bolt-elements-borderColor rounded-lg p-3 overflow-auto modern-scrollbar"
+      data-testid="resource-detail-raw"
+    >
       {text}
     </pre>
   );
@@ -1758,7 +2061,12 @@ RawJson.displayName = 'ResourceDetailPanel.RawJson';
 // ── States (spinner / empty / disabled / errors) ──────────────────────────────
 
 const Spinner = memo(({ label }: { label: string }) => (
-  <div className="flex-1 flex flex-col items-center justify-center gap-2 p-8 text-center" role="status" aria-live="polite" data-testid="resource-detail-loading">
+  <div
+    className="flex-1 flex flex-col items-center justify-center gap-2 p-8 text-center"
+    role="status"
+    aria-live="polite"
+    data-testid="resource-detail-loading"
+  >
     <div className="i-ph:circle-notch text-2xl text-bolt-elements-item-contentAccent animate-spin motion-reduce:animate-none" />
     <p className="text-xs text-bolt-elements-textSecondary">{label}</p>
   </div>
@@ -1767,11 +2075,16 @@ const Spinner = memo(({ label }: { label: string }) => (
 Spinner.displayName = 'ResourceDetailPanel.Spinner';
 
 const EmptyResult = memo(({ inChild }: { inChild: boolean }) => (
-  <div className="flex flex-col items-center justify-center gap-2 py-10 text-center" data-testid="resource-detail-empty">
+  <div
+    className="flex flex-col items-center justify-center gap-2 py-10 text-center"
+    data-testid="resource-detail-empty"
+  >
     <div className="i-ph:tray text-3xl text-bolt-elements-textTertiary" />
     <p className="text-sm font-medium text-bolt-elements-textSecondary">Nothing here yet</p>
     <p className="text-[11px] text-bolt-elements-textTertiary max-w-[280px]">
-      {inChild ? 'This item has no rows yet.' : 'This resource is empty right now. When your site writes data here, it shows up.'}
+      {inChild
+        ? 'This item has no rows yet.'
+        : 'This resource is empty right now. When your site writes data here, it shows up.'}
     </p>
   </div>
 ));
@@ -1785,12 +2098,16 @@ EmptyResult.displayName = 'ResourceDetailPanel.EmptyResult';
  * in its context, so it never advertises an action the viewer may not have.)
  */
 const DisabledCard = memo(({ kind }: { kind: string }) => (
-  <div className="flex-1 flex flex-col items-center justify-center gap-3 p-8 text-center" data-testid="resource-detail-disabled">
+  <div
+    className="flex-1 flex flex-col items-center justify-center gap-3 p-8 text-center"
+    data-testid="resource-detail-disabled"
+  >
     <div className="i-ph:lock-key text-3xl text-bolt-elements-textTertiary" />
     <p className="text-sm font-medium text-bolt-elements-textSecondary">{titleForKind(kind)} — not enabled yet</p>
     <p className="text-[11px] text-bolt-elements-textTertiary max-w-[280px]">{explainerForKind(kind)}</p>
     <p className="text-[11px] text-bolt-elements-textTertiary max-w-[280px]">
-      Nothing is broken — this surface just isn’t switched on for your site yet. It appears here automatically once it is.
+      Nothing is broken — this surface just isn’t switched on for your site yet. It appears here automatically once it
+      is.
     </p>
   </div>
 ));
@@ -1798,7 +2115,10 @@ const DisabledCard = memo(({ kind }: { kind: string }) => (
 DisabledCard.displayName = 'ResourceDetailPanel.DisabledCard';
 
 const ErrorCard = memo(({ message, onRetry }: { message: string; onRetry: () => void }) => (
-  <div className="flex-1 flex flex-col items-center justify-center gap-3 p-8 text-center" data-testid="resource-detail-error">
+  <div
+    className="flex-1 flex flex-col items-center justify-center gap-3 p-8 text-center"
+    data-testid="resource-detail-error"
+  >
     <div className="i-ph:warning-circle text-3xl text-red-400" />
     <p className="text-xs text-bolt-elements-textSecondary max-w-[280px]">{message}</p>
     <button
@@ -1819,7 +2139,10 @@ const AdapterErrorCard = memo(({ result, onRetry }: { result: ResourceDetailResu
   const retryable = result.error?.retryable === true;
 
   return (
-    <div className="flex-1 flex flex-col items-center justify-center gap-3 p-8 text-center" data-testid="resource-detail-adapter-error">
+    <div
+      className="flex-1 flex flex-col items-center justify-center gap-3 p-8 text-center"
+      data-testid="resource-detail-adapter-error"
+    >
       <div
         className={classNames(
           friendly.tone === 'warn' ? 'i-ph:warning text-amber-400/90' : 'i-ph:tray text-bolt-elements-textTertiary',

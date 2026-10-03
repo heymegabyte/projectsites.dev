@@ -4,12 +4,7 @@
  */
 import { describe, it, expect } from 'vitest';
 import type { ResetPreviewData } from '~/lib/embed/embedded-mode';
-import {
-  isResetConfirmed,
-  summarizeResetImpact,
-  isResetEmpty,
-  RESET_KEYWORD,
-} from './greenfield-reset-logic.js';
+import { isResetConfirmed, summarizeResetImpact, isResetEmpty, RESET_KEYWORD } from './greenfield-reset-logic.js';
 
 describe('isResetConfirmed', () => {
   it('authorizes the literal RESET keyword (any case, trimmed)', () => {

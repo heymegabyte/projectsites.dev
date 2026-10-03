@@ -213,7 +213,9 @@ describe('SqlNavigator — WLK-05 computed-contrast regression (reads the real b
 
   function parseAlphaInk(token: string): { ink: [number, number, number]; alpha: number } {
     // Matches e.g. `--bolt-elements-textSecondary: rgba(244, 244, 255, 0.65);`
-    const re = new RegExp(`--bolt-elements-${token}:\\s*rgba\\(\\s*(\\d+)\\s*,\\s*(\\d+)\\s*,\\s*(\\d+)\\s*,\\s*([0-9.]+)\\s*\\)`);
+    const re = new RegExp(
+      `--bolt-elements-${token}:\\s*rgba\\(\\s*(\\d+)\\s*,\\s*(\\d+)\\s*,\\s*(\\d+)\\s*,\\s*([0-9.]+)\\s*\\)`,
+    );
     const m = scss.match(re);
     if (!m) {
       throw new Error(`could not parse --bolt-elements-${token} as rgba() in index.scss`);

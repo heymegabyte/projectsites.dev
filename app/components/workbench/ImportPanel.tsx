@@ -813,7 +813,10 @@ ImportPanel.displayName = 'ImportPanel';
 const PanelShell = memo(({ children }: { children: React.ReactNode }) => (
   // `[color-scheme:dark]` forces native chrome (the <select> popup + <option> list, checkboxes,
   // scrollbars, autofill) to render dark instead of the browser's white default — no white leaks.
-  <div className="h-full overflow-auto modern-scrollbar p-4 [color-scheme:dark] bg-bolt-elements-background-depth-1" data-testid="import-panel">
+  <div
+    className="h-full overflow-auto modern-scrollbar p-4 [color-scheme:dark] bg-bolt-elements-background-depth-1"
+    data-testid="import-panel"
+  >
     <div className="max-w-[720px]">{children}</div>
   </div>
 ));

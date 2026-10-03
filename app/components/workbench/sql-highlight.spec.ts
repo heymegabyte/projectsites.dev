@@ -19,7 +19,7 @@ describe('tokenizeSql', () => {
       '',
       'SELECT 1',
       "SELECT * FROM users WHERE email = 'a@b.com' -- find\nLIMIT 10;",
-      "UPDATE t SET n = n + 1 /* bump */ WHERE id = ?1;",
+      'UPDATE t SET n = n + 1 /* bump */ WHERE id = ?1;',
       'weird   \t\n  spacing  ()[],;',
       "unterminated 'string",
     ]) {

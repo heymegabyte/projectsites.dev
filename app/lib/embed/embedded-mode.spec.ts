@@ -42,7 +42,12 @@ describe('embedded-mode — release bridge carries serving_sha (Slice 6b)', () =
       outcome: 'success',
       created_at: '2026-09-29T13:00:00Z',
     };
-    const unserved: ReleaseHistoryRecord = { ...served, id: 'r2', serving_sha: null, outcome: 'commit_ok_deploy_failed' };
+    const unserved: ReleaseHistoryRecord = {
+      ...served,
+      id: 'r2',
+      serving_sha: null,
+      outcome: 'commit_ok_deploy_failed',
+    };
 
     expect(served.serving_sha).toBe('deadbeef1234feedface5678');
     expect(unserved.serving_sha).toBeNull();

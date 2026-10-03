@@ -181,7 +181,10 @@ export const CreateMenu = memo(({ className }: CreateMenuProps) => {
         <DropdownSeparator />
 
         <div className={groupLabel}>Code</div>
-        <DropdownItem className="ps-create-item" onSelect={() => quickCreate({ kind: 'function', name: 'my-function' })}>
+        <DropdownItem
+          className="ps-create-item"
+          onSelect={() => quickCreate({ kind: 'function', name: 'my-function' })}
+        >
           <div className="i-ph:function text-base" aria-hidden />
           Add Function
         </DropdownItem>
@@ -202,7 +205,10 @@ export const CreateMenu = memo(({ className }: CreateMenuProps) => {
           <div className="i-ph:clock-duotone text-base" aria-hidden />
           Schedule Job
         </DropdownItem>
-        <DropdownItem className="ps-create-item" onSelect={() => quickCreate({ kind: 'workflow', name: 'my-workflow' })}>
+        <DropdownItem
+          className="ps-create-item"
+          onSelect={() => quickCreate({ kind: 'workflow', name: 'my-workflow' })}
+        >
           <div className="i-ph:flow-arrow-duotone text-base" aria-hidden />
           Create Workflow
         </DropdownItem>

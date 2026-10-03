@@ -336,7 +336,7 @@ export function usePromote(): UsePromote {
       const release = reply.release;
       setLastResult({
         outcome,
-        servingSha: outcome === 'success' ? release?.serving_sha ?? null : null,
+        servingSha: outcome === 'success' ? (release?.serving_sha ?? null) : null,
         releaseId: release?.id ?? null,
         version: release?.deployment_id ?? null,
       });

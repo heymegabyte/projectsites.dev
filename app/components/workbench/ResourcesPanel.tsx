@@ -584,7 +584,11 @@ export const ResourcesPanel = memo(() => {
     return (
       <div className="h-full flex flex-col bg-bolt-elements-background-depth-1">
         <div className="flex items-center gap-2 px-3 py-2 border-b border-bolt-elements-borderColor shrink-0">
-          <button type="button" onClick={() => setShowConsole(false)} className={classNames(BTN_GHOST, 'min-h-[26px] px-2.5 py-1 text-[11px]')}>
+          <button
+            type="button"
+            onClick={() => setShowConsole(false)}
+            className={classNames(BTN_GHOST, 'min-h-[26px] px-2.5 py-1 text-[11px]')}
+          >
             <div className="i-ph:arrow-left text-sm" /> Back to assets
           </button>
           <span className="text-[11px] text-bolt-elements-textTertiary">Advanced · Cloudflare resources</span>
@@ -728,7 +732,6 @@ const Header = memo(
             >
               <div className="i-ph:stack text-sm" /> Advanced
             </button>
-
           </div>
         </div>
       )}
@@ -830,7 +833,9 @@ const StorageSummaryLine = memo(({ usage }: { usage: MediaUsageSummary }) => {
                     'inline-flex items-center gap-0.5 rounded-full border px-1.5 py-px text-[9px] font-medium tabular-nums',
                     m.neutral && 'border-bolt-elements-borderColor text-bolt-elements-textSecondary',
                   )}
-                  style={m.neutral ? {} : { borderColor: `color-mix(in oklch, ${m.color} 40%, transparent)`, color: m.ink }}
+                  style={
+                    m.neutral ? {} : { borderColor: `color-mix(in oklch, ${m.color} 40%, transparent)`, color: m.ink }
+                  }
                 >
                   <span
                     className={classNames('h-1.5 w-1.5 rounded-full', m.neutral && 'bg-bolt-elements-textTertiary')}
@@ -853,7 +858,11 @@ StorageSummaryLine.displayName = 'ResourcesPanel.StorageSummaryLine';
 // ── Shared states ──────────────────────────────────────────────────────────
 
 const Spinner = memo(({ label }: { label: string }) => (
-  <div className="flex-1 flex flex-col items-center justify-center gap-2 p-8 text-center" role="status" aria-live="polite">
+  <div
+    className="flex-1 flex flex-col items-center justify-center gap-2 p-8 text-center"
+    role="status"
+    aria-live="polite"
+  >
     <div className="i-ph:circle-notch text-2xl text-bolt-elements-item-contentAccent animate-spin motion-reduce:animate-none" />
     <p className="text-xs text-bolt-elements-textSecondary">{label}</p>
   </div>
@@ -867,7 +876,11 @@ const ErrorCard = memo(({ message, onRetry }: { message: string; onRetry: () => 
       <div className="i-ph:warning-circle-duotone text-2xl text-red-400" aria-hidden />
     </div>
     <p className="text-xs text-bolt-elements-textSecondary max-w-[280px] leading-relaxed">{message}</p>
-    <button type="button" onClick={onRetry} className={classNames(BTN_SECONDARY, 'min-h-[28px] mt-1 px-3 py-1.5 text-[11px]')}>
+    <button
+      type="button"
+      onClick={onRetry}
+      className={classNames(BTN_SECONDARY, 'min-h-[28px] mt-1 px-3 py-1.5 text-[11px]')}
+    >
       <div className="i-ph:arrow-clockwise text-sm" /> Try again
     </button>
   </div>
@@ -876,7 +889,10 @@ const ErrorCard = memo(({ message, onRetry }: { message: string; onRetry: () => 
 ErrorCard.displayName = 'ResourcesPanel.ErrorCard';
 
 const DisabledCard = memo(({ what }: { what: string }) => (
-  <div className="flex-1 flex flex-col items-center justify-center gap-3 p-8 text-center" data-testid="resources-disabled">
+  <div
+    className="flex-1 flex flex-col items-center justify-center gap-3 p-8 text-center"
+    data-testid="resources-disabled"
+  >
     <div className="flex items-center justify-center h-14 w-14 rounded-2xl border border-bolt-elements-borderColor bg-bolt-elements-background-depth-2">
       <div className="i-ph:lock-key-duotone text-3xl text-bolt-elements-textTertiary" aria-hidden />
     </div>
@@ -1040,14 +1056,23 @@ const MediaLibrary = memo(
         {state.status === 'error' && <ErrorCard message={state.message} onRetry={onRetry} />}
         {state.status === 'ready' &&
           (state.assets.length === 0 ? (
-            <MediaEmpty hasFilter={Boolean(kind) || Boolean(search.trim())} uploading={uploading} onUpload={onPickFile} />
+            <MediaEmpty
+              hasFilter={Boolean(kind) || Boolean(search.trim())}
+              uploading={uploading}
+              onUpload={onPickFile}
+            />
           ) : (
             <div className="flex-1 overflow-auto modern-scrollbar p-3" data-testid="resources-media-grid">
               <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-2.5">
                 {/* Live upload placeholder card — reads as "in progress", not a broken tile. */}
                 {uploading && <UploadingCard name={uploadName} />}
                 {state.assets.map((asset) => (
-                  <MediaCard key={asset.id} asset={asset} deleting={deletingId === asset.id} onDelete={() => onDelete(asset)} />
+                  <MediaCard
+                    key={asset.id}
+                    asset={asset}
+                    deleting={deletingId === asset.id}
+                    onDelete={() => onDelete(asset)}
+                  />
                 ))}
               </div>
             </div>
@@ -1059,9 +1084,14 @@ const MediaLibrary = memo(
             className="absolute inset-0 z-10 flex flex-col items-center justify-center gap-2 rounded-lg m-2 border-2 border-dashed border-bolt-elements-item-contentAccent bg-bolt-elements-background-depth-1/85 backdrop-blur-sm pointer-events-none"
             data-testid="resources-drop-overlay"
           >
-            <div className="i-ph:upload-simple-duotone text-4xl text-bolt-elements-item-contentAccent motion-safe:animate-bounce motion-reduce:animate-none" aria-hidden />
+            <div
+              className="i-ph:upload-simple-duotone text-4xl text-bolt-elements-item-contentAccent motion-safe:animate-bounce motion-reduce:animate-none"
+              aria-hidden
+            />
             <p className="text-sm font-semibold text-bolt-elements-textPrimary">Drop to upload</p>
-            <p className="text-[11px] text-bolt-elements-textTertiary">Release the file to add it to your media library</p>
+            <p className="text-[11px] text-bolt-elements-textTertiary">
+              Release the file to add it to your media library
+            </p>
           </div>
         )}
       </div>
@@ -1075,7 +1105,10 @@ const MediaSkeleton = memo(() => (
   <div className="flex-1 overflow-hidden p-3" aria-busy="true" data-testid="resources-media-skeleton">
     <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-2.5">
       {Array.from({ length: 8 }).map((_, i) => (
-        <div key={i} className="rounded-xl border border-bolt-elements-borderColor bg-bolt-elements-background-depth-2 overflow-hidden">
+        <div
+          key={i}
+          className="rounded-xl border border-bolt-elements-borderColor bg-bolt-elements-background-depth-2 overflow-hidden"
+        >
           <div className="aspect-[4/3] bg-gradient-to-br from-bolt-elements-background-depth-3 to-bolt-elements-background-depth-2 motion-safe:animate-pulse" />
           <div className="p-2 space-y-1.5">
             <div className="h-2.5 w-3/4 rounded bg-bolt-elements-background-depth-3 motion-safe:animate-pulse" />
@@ -1089,30 +1122,52 @@ const MediaSkeleton = memo(() => (
 
 MediaSkeleton.displayName = 'ResourcesPanel.MediaSkeleton';
 
-const MediaEmpty = memo(({ hasFilter, uploading, onUpload }: { hasFilter: boolean; uploading: boolean; onUpload: () => void }) => (
-  <div className="flex-1 flex flex-col items-center justify-center gap-4 p-8 text-center" data-testid="resources-media-empty">
-    <div className="relative flex items-center justify-center h-16 w-16 rounded-2xl border border-bolt-elements-item-contentAccent/25 bg-bolt-elements-item-contentAccent/[0.06]">
-      <div
-        aria-hidden
-        className="absolute inset-0 rounded-2xl opacity-60"
-        style={{ background: 'radial-gradient(60% 60% at 50% 30%, color-mix(in oklch, #7c3aed 22%, transparent), transparent)' }}
-      />
-      <div className="relative i-ph:image-duotone text-3xl text-bolt-elements-item-contentAccent" aria-hidden />
+const MediaEmpty = memo(
+  ({ hasFilter, uploading, onUpload }: { hasFilter: boolean; uploading: boolean; onUpload: () => void }) => (
+    <div
+      className="flex-1 flex flex-col items-center justify-center gap-4 p-8 text-center"
+      data-testid="resources-media-empty"
+    >
+      <div className="relative flex items-center justify-center h-16 w-16 rounded-2xl border border-bolt-elements-item-contentAccent/25 bg-bolt-elements-item-contentAccent/[0.06]">
+        <div
+          aria-hidden
+          className="absolute inset-0 rounded-2xl opacity-60"
+          style={{
+            background:
+              'radial-gradient(60% 60% at 50% 30%, color-mix(in oklch, #7c3aed 22%, transparent), transparent)',
+          }}
+        />
+        <div className="relative i-ph:image-duotone text-3xl text-bolt-elements-item-contentAccent" aria-hidden />
+      </div>
+      <div className="space-y-1">
+        <p className="text-sm font-semibold text-bolt-elements-textPrimary">
+          {hasFilter ? 'No matching files' : 'No media yet'}
+        </p>
+        <p className="text-[11px] text-bolt-elements-textTertiary max-w-[290px] leading-relaxed">
+          {hasFilter
+            ? 'Try a different filter or search — or drag a file here to upload.'
+            : 'Drag a file here, or upload images, video, or documents — they show up here to reuse anywhere on your site.'}
+        </p>
+      </div>
+      <button
+        type="button"
+        onClick={onUpload}
+        disabled={uploading}
+        data-testid="resources-media-empty-upload"
+        className={classNames(BTN_PRIMARY, 'min-h-[30px] px-4 py-2 text-[12px]')}
+      >
+        <div
+          className={classNames(
+            uploading ? 'i-ph:circle-notch animate-spin motion-reduce:animate-none' : 'i-ph:upload-simple-bold',
+            'text-sm',
+          )}
+          aria-hidden
+        />
+        <span className="min-w-[10ch] text-center">{uploading ? 'Uploading…' : 'Upload a file'}</span>
+      </button>
     </div>
-    <div className="space-y-1">
-      <p className="text-sm font-semibold text-bolt-elements-textPrimary">{hasFilter ? 'No matching files' : 'No media yet'}</p>
-      <p className="text-[11px] text-bolt-elements-textTertiary max-w-[290px] leading-relaxed">
-        {hasFilter
-          ? 'Try a different filter or search — or drag a file here to upload.'
-          : 'Drag a file here, or upload images, video, or documents — they show up here to reuse anywhere on your site.'}
-      </p>
-    </div>
-    <button type="button" onClick={onUpload} disabled={uploading} data-testid="resources-media-empty-upload" className={classNames(BTN_PRIMARY, 'min-h-[30px] px-4 py-2 text-[12px]')}>
-      <div className={classNames(uploading ? 'i-ph:circle-notch animate-spin motion-reduce:animate-none' : 'i-ph:upload-simple-bold', 'text-sm')} aria-hidden />
-      <span className="min-w-[10ch] text-center">{uploading ? 'Uploading…' : 'Upload a file'}</span>
-    </button>
-  </div>
-));
+  ),
+);
 
 MediaEmpty.displayName = 'ResourcesPanel.MediaEmpty';
 
@@ -1124,7 +1179,10 @@ const UploadingCard = memo(({ name }: { name: string | null }) => (
     aria-busy="true"
   >
     <div className="relative aspect-[4/3] flex items-center justify-center overflow-hidden bg-bolt-elements-background-depth-1">
-      <div className="i-ph:circle-notch text-3xl text-bolt-elements-item-contentAccent animate-spin motion-reduce:animate-none" aria-hidden />
+      <div
+        className="i-ph:circle-notch text-3xl text-bolt-elements-item-contentAccent animate-spin motion-reduce:animate-none"
+        aria-hidden
+      />
       {/* Indeterminate cyan progress sweep (uses the built-in pulse keyframe — no bespoke CSS). */}
       <div className="absolute bottom-0 left-0 right-0 h-1 bg-bolt-elements-background-depth-3 overflow-hidden">
         <div className="h-full w-2/3 bg-bolt-elements-item-contentAccent motion-safe:animate-pulse" />
@@ -1141,116 +1199,137 @@ const UploadingCard = memo(({ name }: { name: string | null }) => (
 
 UploadingCard.displayName = 'ResourcesPanel.UploadingCard';
 
-const MediaCard = memo(({ asset, deleting, onDelete }: { asset: MediaAssetEntry; deleting: boolean; onDelete: () => void }) => {
-  const image = isImageAsset(asset);
-  const name = asset.name || asset.url.split('/').pop() || 'file';
-  const kind = kindOf(asset);
-  const meta = KIND_META[kind];
-  const ext = extOf(asset);
-  const when = formatRelativeTime(asset.uploaded);
-  const isGenerated = (asset.source || '').toLowerCase() === 'generated';
+const MediaCard = memo(
+  ({ asset, deleting, onDelete }: { asset: MediaAssetEntry; deleting: boolean; onDelete: () => void }) => {
+    const image = isImageAsset(asset);
+    const name = asset.name || asset.url.split('/').pop() || 'file';
+    const kind = kindOf(asset);
+    const meta = KIND_META[kind];
+    const ext = extOf(asset);
+    const when = formatRelativeTime(asset.uploaded);
+    const isGenerated = (asset.source || '').toLowerCase() === 'generated';
 
-  return (
-    <div
-      className="group relative overflow-hidden rounded-xl border border-bolt-elements-borderColor bg-bolt-elements-background-depth-2 flex flex-col transition-all duration-200 motion-reduce:transition-none hover:border-bolt-elements-item-contentAccent/50 hover:shadow-lg hover:shadow-bolt-elements-item-contentAccent/10 motion-safe:hover:-translate-y-0.5"
-      data-testid="resources-media-card"
-    >
-      {/* Thumbnail / glyph */}
-      <div className="relative aspect-[4/3] bg-bolt-elements-background-depth-1 flex items-center justify-center overflow-hidden">
-        {image ? (
-          <img
-            src={asset.url}
-            alt={name}
-            loading="lazy"
-            decoding="async"
-            className="h-full w-full object-cover transition-transform duration-300 motion-reduce:transition-none motion-safe:group-hover:scale-[1.04]"
-          />
-        ) : (
-          <>
-            {/* Kind-tinted radial backdrop so non-image tiles aren't flat black. */}
-            <div
-              aria-hidden
-              className={classNames('absolute inset-0 opacity-30', meta.neutral && 'text-bolt-elements-textTertiary')}
-              style={{ background: 'radial-gradient(70% 70% at 50% 40%, currentColor, transparent)', ...(meta.neutral ? {} : { color: meta.color }) }}
+    return (
+      <div
+        className="group relative overflow-hidden rounded-xl border border-bolt-elements-borderColor bg-bolt-elements-background-depth-2 flex flex-col transition-all duration-200 motion-reduce:transition-none hover:border-bolt-elements-item-contentAccent/50 hover:shadow-lg hover:shadow-bolt-elements-item-contentAccent/10 motion-safe:hover:-translate-y-0.5"
+        data-testid="resources-media-card"
+      >
+        {/* Thumbnail / glyph */}
+        <div className="relative aspect-[4/3] bg-bolt-elements-background-depth-1 flex items-center justify-center overflow-hidden">
+          {image ? (
+            <img
+              src={asset.url}
+              alt={name}
+              loading="lazy"
+              decoding="async"
+              className="h-full w-full object-cover transition-transform duration-300 motion-reduce:transition-none motion-safe:group-hover:scale-[1.04]"
             />
-            <div
-              className={classNames(iconForAsset(asset), 'relative text-4xl', meta.neutral && 'text-bolt-elements-textSecondary')}
-              style={meta.neutral ? {} : { color: meta.ink }}
-              aria-hidden
-            />
-          </>
-        )}
-
-        {/* Kind badge — top-left, always visible; identifies the file type at a glance. */}
-        <span
-          className={classNames(
-            'absolute top-1.5 left-1.5 inline-flex items-center gap-0.5 rounded-md border px-1.5 py-px text-[9px] font-semibold uppercase tracking-wide backdrop-blur-sm bg-bolt-elements-background-depth-1/80',
-            meta.neutral && 'border-bolt-elements-borderColor text-bolt-elements-textSecondary',
-          )}
-          style={meta.neutral ? {} : { borderColor: `color-mix(in oklch, ${meta.color} 45%, transparent)`, color: meta.ink }}
-          title={`${meta.label}${ext ? ` · ${ext}` : ''}`}
-        >
-          <div className={classNames(meta.icon, 'text-[11px]')} aria-hidden />
-          {ext || meta.label}
-        </span>
-
-        {/* Source badge — bottom-left, only when generated (distinguishes AI-made assets). */}
-        {isGenerated && (
-          <span
-            className="absolute bottom-1.5 left-1.5 inline-flex items-center gap-0.5 rounded-md border bg-bolt-elements-background-depth-1/80 backdrop-blur-sm px-1.5 py-px text-[9px] font-medium"
-            style={{ borderColor: `color-mix(in oklch, ${PURPLE} 45%, transparent)`, color: PURPLE_INK }}
-            title="Generated by AI"
-          >
-            <div className="i-ph:sparkle-duotone text-[11px]" aria-hidden /> AI
-          </span>
-        )}
-
-        {/* Hover actions — open + delete. Keyboard-reachable (focus-within reveals). */}
-        <div className="absolute top-1.5 right-1.5 flex items-center gap-1 opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 transition-opacity motion-reduce:transition-none">
-          <a
-            href={asset.url}
-            target="_blank"
-            rel="noreferrer noopener"
-            aria-label={`Open ${name} in a new tab`}
-            title="Open in new tab"
-            className={classNames(BTN_GHOST, 'min-h-[24px] min-w-[24px] p-1 bg-bolt-elements-background-depth-1/90 backdrop-blur text-bolt-elements-textSecondary')}
-          >
-            <div className="i-ph:arrow-square-out text-sm" />
-          </a>
-          <button
-            type="button"
-            onClick={onDelete}
-            disabled={deleting}
-            aria-label={`Delete ${name}`}
-            title="Delete"
-            data-testid="resources-media-delete"
-            className={classNames(BTN_DESTRUCTIVE, 'min-h-[24px] min-w-[24px] p-1')}
-          >
-            <div className={classNames(deleting ? 'i-ph:circle-notch animate-spin motion-reduce:animate-none' : 'i-ph:trash', 'text-sm')} />
-          </button>
-        </div>
-      </div>
-
-      {/* Caption — name + size · relative time. */}
-      <div className="p-2 min-w-0">
-        <p className="text-[11px] font-medium text-bolt-elements-textPrimary truncate" title={name}>
-          {name}
-        </p>
-        <p className="text-[10px] text-bolt-elements-textTertiary tabular-nums flex items-center gap-1">
-          <span>{formatBytes(asset.size)}</span>
-          {when && (
+          ) : (
             <>
-              <span className="text-bolt-elements-textTertiary/50" aria-hidden>
-                ·
-              </span>
-              <span>{when}</span>
+              {/* Kind-tinted radial backdrop so non-image tiles aren't flat black. */}
+              <div
+                aria-hidden
+                className={classNames('absolute inset-0 opacity-30', meta.neutral && 'text-bolt-elements-textTertiary')}
+                style={{
+                  background: 'radial-gradient(70% 70% at 50% 40%, currentColor, transparent)',
+                  ...(meta.neutral ? {} : { color: meta.color }),
+                }}
+              />
+              <div
+                className={classNames(
+                  iconForAsset(asset),
+                  'relative text-4xl',
+                  meta.neutral && 'text-bolt-elements-textSecondary',
+                )}
+                style={meta.neutral ? {} : { color: meta.ink }}
+                aria-hidden
+              />
             </>
           )}
-        </p>
+
+          {/* Kind badge — top-left, always visible; identifies the file type at a glance. */}
+          <span
+            className={classNames(
+              'absolute top-1.5 left-1.5 inline-flex items-center gap-0.5 rounded-md border px-1.5 py-px text-[9px] font-semibold uppercase tracking-wide backdrop-blur-sm bg-bolt-elements-background-depth-1/80',
+              meta.neutral && 'border-bolt-elements-borderColor text-bolt-elements-textSecondary',
+            )}
+            style={
+              meta.neutral
+                ? {}
+                : { borderColor: `color-mix(in oklch, ${meta.color} 45%, transparent)`, color: meta.ink }
+            }
+            title={`${meta.label}${ext ? ` · ${ext}` : ''}`}
+          >
+            <div className={classNames(meta.icon, 'text-[11px]')} aria-hidden />
+            {ext || meta.label}
+          </span>
+
+          {/* Source badge — bottom-left, only when generated (distinguishes AI-made assets). */}
+          {isGenerated && (
+            <span
+              className="absolute bottom-1.5 left-1.5 inline-flex items-center gap-0.5 rounded-md border bg-bolt-elements-background-depth-1/80 backdrop-blur-sm px-1.5 py-px text-[9px] font-medium"
+              style={{ borderColor: `color-mix(in oklch, ${PURPLE} 45%, transparent)`, color: PURPLE_INK }}
+              title="Generated by AI"
+            >
+              <div className="i-ph:sparkle-duotone text-[11px]" aria-hidden /> AI
+            </span>
+          )}
+
+          {/* Hover actions — open + delete. Keyboard-reachable (focus-within reveals). */}
+          <div className="absolute top-1.5 right-1.5 flex items-center gap-1 opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 transition-opacity motion-reduce:transition-none">
+            <a
+              href={asset.url}
+              target="_blank"
+              rel="noreferrer noopener"
+              aria-label={`Open ${name} in a new tab`}
+              title="Open in new tab"
+              className={classNames(
+                BTN_GHOST,
+                'min-h-[24px] min-w-[24px] p-1 bg-bolt-elements-background-depth-1/90 backdrop-blur text-bolt-elements-textSecondary',
+              )}
+            >
+              <div className="i-ph:arrow-square-out text-sm" />
+            </a>
+            <button
+              type="button"
+              onClick={onDelete}
+              disabled={deleting}
+              aria-label={`Delete ${name}`}
+              title="Delete"
+              data-testid="resources-media-delete"
+              className={classNames(BTN_DESTRUCTIVE, 'min-h-[24px] min-w-[24px] p-1')}
+            >
+              <div
+                className={classNames(
+                  deleting ? 'i-ph:circle-notch animate-spin motion-reduce:animate-none' : 'i-ph:trash',
+                  'text-sm',
+                )}
+              />
+            </button>
+          </div>
+        </div>
+
+        {/* Caption — name + size · relative time. */}
+        <div className="p-2 min-w-0">
+          <p className="text-[11px] font-medium text-bolt-elements-textPrimary truncate" title={name}>
+            {name}
+          </p>
+          <p className="text-[10px] text-bolt-elements-textTertiary tabular-nums flex items-center gap-1">
+            <span>{formatBytes(asset.size)}</span>
+            {when && (
+              <>
+                <span className="text-bolt-elements-textTertiary/50" aria-hidden>
+                  ·
+                </span>
+                <span>{when}</span>
+              </>
+            )}
+          </p>
+        </div>
       </div>
-    </div>
-  );
-});
+    );
+  },
+);
 
 MediaCard.displayName = 'ResourcesPanel.MediaCard';
 
@@ -1271,7 +1350,10 @@ const BuildFiles = memo(({ state, onRetry }: { state: FilesState; onRetry: () =>
 
   if (state.files.length === 0) {
     return (
-      <div className="flex-1 flex flex-col items-center justify-center gap-3 p-8 text-center" data-testid="resources-files-empty">
+      <div
+        className="flex-1 flex flex-col items-center justify-center gap-3 p-8 text-center"
+        data-testid="resources-files-empty"
+      >
         <div className="flex items-center justify-center h-14 w-14 rounded-2xl border border-bolt-elements-borderColor bg-bolt-elements-background-depth-2">
           <div className="i-ph:folder-dashed-duotone text-3xl text-bolt-elements-textTertiary" aria-hidden />
         </div>
@@ -1308,11 +1390,19 @@ const BuildFiles = memo(({ state, onRetry }: { state: FilesState; onRetry: () =>
           className="group flex items-center gap-2.5 px-4 py-2 border-b border-bolt-elements-borderColor/25 hover:bg-bolt-elements-item-backgroundActive transition-colors motion-reduce:transition-none"
           data-testid="resources-file-row"
         >
-          <div className={classNames(iconForBuildFile(file), 'text-base text-bolt-elements-textTertiary group-hover:text-bolt-elements-item-contentAccent transition-colors shrink-0')} aria-hidden />
+          <div
+            className={classNames(
+              iconForBuildFile(file),
+              'text-base text-bolt-elements-textTertiary group-hover:text-bolt-elements-item-contentAccent transition-colors shrink-0',
+            )}
+            aria-hidden
+          />
           <span className="text-[12px] font-mono text-bolt-elements-textPrimary truncate flex-1" title={file.name}>
             {file.name}
           </span>
-          <span className="text-[10px] text-bolt-elements-textTertiary tabular-nums shrink-0">{formatBytes(file.size)}</span>
+          <span className="text-[10px] text-bolt-elements-textTertiary tabular-nums shrink-0">
+            {formatBytes(file.size)}
+          </span>
           {file.url && (
             <a
               href={file.url}
@@ -1320,7 +1410,10 @@ const BuildFiles = memo(({ state, onRetry }: { state: FilesState; onRetry: () =>
               rel="noreferrer noopener"
               aria-label={`Open ${file.name} in a new tab`}
               title="Open in new tab"
-              className={classNames(BTN_GHOST, 'min-h-[24px] min-w-[24px] p-1 shrink-0 opacity-0 group-hover:opacity-100 group-focus-within:opacity-100')}
+              className={classNames(
+                BTN_GHOST,
+                'min-h-[24px] min-w-[24px] p-1 shrink-0 opacity-0 group-hover:opacity-100 group-focus-within:opacity-100',
+              )}
             >
               <div className="i-ph:arrow-square-out text-xs" />
             </a>

@@ -14,6 +14,7 @@ on:
   push:
     branches: [main]
     paths:
+      - 'app/**'
       - 'apps/project-sites/src/**'
       - 'packages/shared/src/**'
 
@@ -66,6 +67,13 @@ jobs:
       - name: Prettier --write (worker)
         working-directory: apps/project-sites
         run: npx prettier --write src
+
+      - name: Prettier --write (editor app)
+        # The editor app/ (bolt.diy, repo root) is what ci.yaml lints (`eslint app`),
+        # but it was NOT covered here — so its prettier drift never self-healed and the
+        # ci.yaml prettier/prettier rule stayed red (1329 errors across 67 files, fire-95).
+        # Root .prettierrc has NO plugins, so a pinned npx avoids a heavy root npm ci.
+        run: npx prettier@3.8.3 --write app
 
       - name: Commit + push the format delta (if any)
         run: |

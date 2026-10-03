@@ -79,8 +79,7 @@ describe('filled-pill tabs stay legible under the brand override (fire-53)', () 
     const offenders: string[] = [];
     for (const file of workbenchSources()) {
       const src = readFileSync(file, 'utf8');
-      const rendersFilledTabPill =
-        src.includes('role="tab"') && src.includes('bg-bolt-elements-item-contentAccent');
+      const rendersFilledTabPill = src.includes('role="tab"') && src.includes('bg-bolt-elements-item-contentAccent');
       if (rendersFilledTabPill && !src.includes('data-filled-pill')) {
         offenders.push(file.replace(WORKBENCH_DIR, 'workbench'));
       }

@@ -169,7 +169,9 @@ function SetupGuide({ onBack }: { onBack: () => void }) {
               <div className="mt-3 p-3 rounded-lg bg-[#00E5FF]/5 border border-[#00E5FF]/20">
                 <div className="flex items-center gap-2 mb-1">
                   <Globe className="w-4 h-4 text-bolt-elements-item-contentAccent" />
-                  <span className="font-medium text-bolt-elements-item-contentAccent text-sm">Built-in Web Interface</span>
+                  <span className="font-medium text-bolt-elements-item-contentAccent text-sm">
+                    Built-in Web Interface
+                  </span>
                 </div>
                 <p className="text-xs text-bolt-elements-textSecondary">
                   Desktop app includes a web interface at{' '}

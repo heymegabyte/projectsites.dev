@@ -466,9 +466,7 @@ const ResultRow = React.forwardRef<
       onClick={onActivate}
       className={classNames(
         'w-full text-left rounded-md px-2.5 py-1.5 flex items-center gap-2.5 transition-colors motion-reduce:transition-none cursor-pointer focus-visible:outline-none',
-        active
-          ? 'bg-[#00e5ff1f] ring-1 ring-[#00e5ff55]'
-          : 'hover:bg-bolt-elements-background-depth-3',
+        active ? 'bg-[#00e5ff1f] ring-1 ring-[#00e5ff55]' : 'hover:bg-bolt-elements-background-depth-3',
       )}
     >
       <div

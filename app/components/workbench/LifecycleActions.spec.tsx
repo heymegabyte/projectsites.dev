@@ -16,10 +16,26 @@ import { render, screen, cleanup, fireEvent, waitFor } from '@testing-library/re
 import React from 'react';
 
 vi.mock('~/components/ui/Dialog', () => ({
-  ConfirmationDialog: ({ isOpen, title, onConfirm, onClose, confirmLabel }: { isOpen: boolean; title: string; onConfirm: () => void; onClose: () => void; confirmLabel?: string }) =>
+  ConfirmationDialog: ({
+    isOpen,
+    title,
+    onConfirm,
+    onClose,
+    confirmLabel,
+  }: {
+    isOpen: boolean;
+    title: string;
+    onConfirm: () => void;
+    onClose: () => void;
+    confirmLabel?: string;
+  }) =>
     isOpen
       ? React.createElement('div', { role: 'dialog', 'aria-label': title }, [
-          React.createElement('button', { key: 'ok', 'data-testid': 'confirm-ok', onClick: onConfirm }, confirmLabel ?? 'Confirm'),
+          React.createElement(
+            'button',
+            { key: 'ok', 'data-testid': 'confirm-ok', onClick: onConfirm },
+            confirmLabel ?? 'Confirm',
+          ),
           React.createElement('button', { key: 'no', 'data-testid': 'confirm-cancel', onClick: onClose }, 'Cancel'),
         ])
       : null,
@@ -44,9 +60,7 @@ afterEach(() => {
 
 describe('lifecycle action strip', () => {
   it('renders promote/teardown/clone buttons for a kind that declares them', () => {
-    render(
-      <LifecycleActions kind="r2" mutations={R2_MUTATIONS} mutate={vi.fn()} onMutated={() => {}} />,
-    );
+    render(<LifecycleActions kind="r2" mutations={R2_MUTATIONS} mutate={vi.fn()} onMutated={() => {}} />);
     expect(screen.getByTestId('resource-lifecycle')).toBeTruthy();
     expect(screen.getByTestId('resource-lifecycle-promote')).toBeTruthy();
     expect(screen.getByTestId('resource-lifecycle-teardown')).toBeTruthy();
@@ -61,7 +75,13 @@ describe('lifecycle action strip', () => {
   });
 
   it('teardown opens the confirm dialog then calls mutate(teardown, undefined, true) + onMutated on success', async () => {
-    const mutate = vi.fn(async (): Promise<MutateOutcome> => ({ action: 'teardown', kind: 'success', result: { deletedCfResource: true } }));
+    const mutate = vi.fn(
+      async (): Promise<MutateOutcome> => ({
+        action: 'teardown',
+        kind: 'success',
+        result: { deletedCfResource: true },
+      }),
+    );
     const onMutated = vi.fn();
     render(<LifecycleActions kind="r2" mutations={R2_MUTATIONS} mutate={mutate} onMutated={onMutated} />);
 
@@ -75,7 +95,13 @@ describe('lifecycle action strip', () => {
   });
 
   it('promote opens the confirm dialog then calls mutate(promote, undefined, true)', async () => {
-    const mutate = vi.fn(async (): Promise<MutateOutcome> => ({ action: 'promote', kind: 'success', result: { note: 'Production ensured.' } }));
+    const mutate = vi.fn(
+      async (): Promise<MutateOutcome> => ({
+        action: 'promote',
+        kind: 'success',
+        result: { note: 'Production ensured.' },
+      }),
+    );
     render(<LifecycleActions kind="kv" mutations={R2_MUTATIONS} mutate={mutate} onMutated={() => {}} />);
 
     fireEvent.click(screen.getByTestId('resource-lifecycle-promote'));
@@ -86,7 +112,13 @@ describe('lifecycle action strip', () => {
   });
 
   it('renders an honest not_available outcome (never a fake success) for clone', async () => {
-    const mutate = vi.fn(async (): Promise<MutateOutcome> => ({ action: 'clone', kind: 'not_available', message: 'Cloning is not available for this resource.' }));
+    const mutate = vi.fn(
+      async (): Promise<MutateOutcome> => ({
+        action: 'clone',
+        kind: 'not_available',
+        message: 'Cloning is not available for this resource.',
+      }),
+    );
     render(<LifecycleActions kind="d1" mutations={R2_MUTATIONS} mutate={mutate} onMutated={() => {}} />);
 
     // Clone runs immediately (no confirm).

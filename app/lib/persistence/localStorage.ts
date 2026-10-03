@@ -32,6 +32,9 @@ export function setLocalStorage(key: string, value: any): void {
     // A quota-full / permission-denied WRITE must be OBSERVABLE — otherwise the
     // caller believes it persisted and silently loses the user's data. Warn with
     // the key so the breach is greppable, then swallow (the write is best-effort).
-    console.warn(`localStorage write FAILED for key "${key}" (quota exceeded or access denied) — value NOT persisted:`, error);
+    console.warn(
+      `localStorage write FAILED for key "${key}" (quota exceeded or access denied) — value NOT persisted:`,
+      error,
+    );
   }
 }

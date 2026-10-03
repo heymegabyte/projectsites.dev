@@ -653,7 +653,10 @@ function mapSqliteType(type: string | undefined): SeedColumn['type'] {
 const Shell = memo(({ children }: { children: React.ReactNode }) => (
   // `[color-scheme:dark]` forces the native <select> popup, <option> list, and number-input spinners
   // to render dark — otherwise they show the browser's white default and break the black+cyan theme.
-  <div className="h-full overflow-auto modern-scrollbar p-4 [color-scheme:dark] bg-bolt-elements-background-depth-1" data-testid="ai-seed-panel">
+  <div
+    className="h-full overflow-auto modern-scrollbar p-4 [color-scheme:dark] bg-bolt-elements-background-depth-1"
+    data-testid="ai-seed-panel"
+  >
     <div className="max-w-[720px]">{children}</div>
   </div>
 ));

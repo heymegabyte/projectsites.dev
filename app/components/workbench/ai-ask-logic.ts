@@ -99,13 +99,9 @@ export function parseAskPlan(raw: string, userText: string, hasSelection: boolea
   }
 
   const instruction =
-    typeof obj.instruction === 'string' && obj.instruction.trim()
-      ? obj.instruction.trim()
-      : userText.trim();
+    typeof obj.instruction === 'string' && obj.instruction.trim() ? obj.instruction.trim() : userText.trim();
 
   const column = typeof obj.column === 'string' && obj.column.trim() ? obj.column.trim() : undefined;
 
-  return action === 'fill'
-    ? { action, column, instruction }
-    : { action, instruction };
+  return action === 'fill' ? { action, column, instruction } : { action, instruction };
 }

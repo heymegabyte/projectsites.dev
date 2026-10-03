@@ -117,9 +117,7 @@ export default function ProfileTab() {
             </div>
 
             <div className="flex-1 pt-1">
-              <label className="block text-base font-medium text-bolt-elements-textPrimary mb-1">
-                Profile Picture
-              </label>
+              <label className="block text-base font-medium text-bolt-elements-textPrimary mb-1">Profile Picture</label>
               <p className="text-sm text-bolt-elements-textTertiary">Upload a profile picture or avatar</p>
             </div>
           </div>

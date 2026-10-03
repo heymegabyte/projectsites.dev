@@ -33,10 +33,26 @@ vi.mock('~/lib/embed/embedded-mode', () => ({
 }));
 
 vi.mock('~/components/ui/Dialog', () => ({
-  ConfirmationDialog: ({ isOpen, title, onConfirm, onClose, confirmLabel }: { isOpen: boolean; title: string; onConfirm: () => void; onClose: () => void; confirmLabel?: string }) =>
+  ConfirmationDialog: ({
+    isOpen,
+    title,
+    onConfirm,
+    onClose,
+    confirmLabel,
+  }: {
+    isOpen: boolean;
+    title: string;
+    onConfirm: () => void;
+    onClose: () => void;
+    confirmLabel?: string;
+  }) =>
     isOpen
       ? React.createElement('div', { role: 'dialog', 'aria-label': title }, [
-          React.createElement('button', { key: 'ok', 'data-testid': 'confirm-ok', onClick: onConfirm }, confirmLabel ?? 'Confirm'),
+          React.createElement(
+            'button',
+            { key: 'ok', 'data-testid': 'confirm-ok', onClick: onConfirm },
+            confirmLabel ?? 'Confirm',
+          ),
           React.createElement('button', { key: 'no', 'data-testid': 'confirm-cancel', onClick: onClose }, 'Cancel'),
         ])
       : null,
@@ -53,7 +69,9 @@ const TARGET = { kind: 'r2' as const, environment: 'production' as const };
 
 /** Reply to the LAST pending list request with the given objects. */
 function replyList(objects: Array<{ key: string; size?: number }>, opts: { truncated?: boolean } = {}) {
-  const call = [...postToParent.mock.calls].reverse().find((c) => (c[0] as { type: string }).type === 'PS_RES_DETAIL_REQUEST');
+  const call = [...postToParent.mock.calls]
+    .reverse()
+    .find((c) => (c[0] as { type: string }).type === 'PS_RES_DETAIL_REQUEST');
   if (!call) throw new Error('no pending list request');
   const cid = (call[0] as { correlationId: string }).correlationId;
   for (const h of [...handlers]) {
@@ -82,7 +100,10 @@ describe('R2 object browser', () => {
     render(<R2Browser target={TARGET} mutate={vi.fn()} />);
     await waitFor(() => expect(postToParent.mock.calls.length).toBeGreaterThanOrEqual(1));
 
-    replyList([{ key: 'logo.png', size: 2048 }, { key: 'images/hero.jpg', size: 4096 }]);
+    replyList([
+      { key: 'logo.png', size: 2048 },
+      { key: 'images/hero.jpg', size: 4096 },
+    ]);
 
     await waitFor(() => expect(screen.getByTestId('r2-browser')).toBeTruthy());
     // One leaf file at root + one folder (images/).
@@ -109,7 +130,13 @@ describe('R2 object browser', () => {
 
   it('Download mints a scoped preview_url and opens it (never a credential in the client)', async () => {
     const openSpy = vi.spyOn(window, 'open').mockImplementation(() => null);
-    const mutate = vi.fn(async (): Promise<MutateOutcome> => ({ action: 'preview_url', kind: 'success', result: { available: true, url: 'https://acct.r2.cloudflarestorage.com/bucket/logo.png?X-Amz-Signature=abc' } }));
+    const mutate = vi.fn(
+      async (): Promise<MutateOutcome> => ({
+        action: 'preview_url',
+        kind: 'success',
+        result: { available: true, url: 'https://acct.r2.cloudflarestorage.com/bucket/logo.png?X-Amz-Signature=abc' },
+      }),
+    );
     render(<R2Browser target={TARGET} mutate={mutate} />);
     await waitFor(() => expect(postToParent.mock.calls.length).toBeGreaterThanOrEqual(1));
     replyList([{ key: 'logo.png', size: 2048 }]);
@@ -120,13 +147,19 @@ describe('R2 object browser', () => {
     await waitFor(() => expect(mutate).toHaveBeenCalledWith('preview_url', { key: 'logo.png' }));
     await waitFor(() => expect(openSpy).toHaveBeenCalled());
     // The opened URL is a scoped presigned handle, not a raw credential.
-    expect((openSpy.mock.calls[0][0] as string)).toContain('X-Amz-Signature');
+    expect(openSpy.mock.calls[0][0] as string).toContain('X-Amz-Signature');
     openSpy.mockRestore();
   });
 
   it('shows an honest banner (no window.open) when scoped URL minting is not wired', async () => {
     const openSpy = vi.spyOn(window, 'open').mockImplementation(() => null);
-    const mutate = vi.fn(async (): Promise<MutateOutcome> => ({ action: 'preview_url', kind: 'success', result: { available: false, approach: 'A server-streamed proxy is used instead.' } }));
+    const mutate = vi.fn(
+      async (): Promise<MutateOutcome> => ({
+        action: 'preview_url',
+        kind: 'success',
+        result: { available: false, approach: 'A server-streamed proxy is used instead.' },
+      }),
+    );
     render(<R2Browser target={TARGET} mutate={mutate} />);
     await waitFor(() => expect(postToParent.mock.calls.length).toBeGreaterThanOrEqual(1));
     replyList([{ key: 'logo.png', size: 2048 }]);
@@ -141,7 +174,13 @@ describe('R2 object browser', () => {
   });
 
   it('Delete opens the confirm dialog then calls mutate(delete, {key}, true)', async () => {
-    const mutate = vi.fn(async (): Promise<MutateOutcome> => ({ action: 'delete', kind: 'success', result: { existed: true, key: 'logo.png' } }));
+    const mutate = vi.fn(
+      async (): Promise<MutateOutcome> => ({
+        action: 'delete',
+        kind: 'success',
+        result: { existed: true, key: 'logo.png' },
+      }),
+    );
     render(<R2Browser target={TARGET} mutate={mutate} />);
     await waitFor(() => expect(postToParent.mock.calls.length).toBeGreaterThanOrEqual(1));
     replyList([{ key: 'logo.png', size: 2048 }]);
@@ -158,9 +197,7 @@ describe('R2 object browser', () => {
 describe('R2 object browser — real-time, no manual refresh (R1)', () => {
   /** Count how many list requests the browser has posted so far. */
   function listCount(): number {
-    return postToParent.mock.calls.filter(
-      (c) => (c[0] as { type?: string })?.type === 'PS_RES_DETAIL_REQUEST',
-    ).length;
+    return postToParent.mock.calls.filter((c) => (c[0] as { type?: string })?.type === 'PS_RES_DETAIL_REQUEST').length;
   }
 
   it('renders NO manual Refresh button — the listing self-updates', async () => {

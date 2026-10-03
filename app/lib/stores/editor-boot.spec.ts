@@ -17,9 +17,7 @@ describe('isBootReady', () => {
 
   it('never fades an import before its files arrive — even once the chat shell is ready', () => {
     // The exact race we must not lose: imported site, chat painted, still 0 files.
-    expect(
-      isBootReady({ ...base, isImport: true, chatReady: true, fileCount: 0, emptyTicks: 999 }),
-    ).toBe(false);
+    expect(isBootReady({ ...base, isImport: true, chatReady: true, fileCount: 0, emptyTicks: 999 })).toBe(false);
   });
 
   it('dismisses a fresh, file-less chat once it is confirmed empty (chat ready + zero files, held)', () => {
@@ -30,7 +28,13 @@ describe('isBootReady', () => {
 
   it('waits out the confirm window before declaring a non-import chat empty', () => {
     expect(
-      isBootReady({ ...base, isImport: false, chatReady: true, fileCount: 0, emptyTicks: EMPTY_CHAT_CONFIRM_TICKS - 1 }),
+      isBootReady({
+        ...base,
+        isImport: false,
+        chatReady: true,
+        fileCount: 0,
+        emptyTicks: EMPTY_CHAT_CONFIRM_TICKS - 1,
+      }),
     ).toBe(false);
   });
 

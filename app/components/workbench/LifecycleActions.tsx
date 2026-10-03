@@ -158,7 +158,10 @@ export const LifecycleActions = memo(function LifecycleActions({
       data-testid="resource-lifecycle"
     >
       <div className="flex items-center gap-1.5">
-        <div className="i-ph:arrows-clockwise-duotone text-sm text-bolt-elements-item-contentAccent" aria-hidden="true" />
+        <div
+          className="i-ph:arrows-clockwise-duotone text-sm text-bolt-elements-item-contentAccent"
+          aria-hidden="true"
+        />
         <span className="text-[11px] font-semibold uppercase tracking-wider text-bolt-elements-textSecondary">
           Lifecycle
         </span>
@@ -240,17 +243,24 @@ const LifecycleOutcomeCard = memo(function LifecycleOutcomeCard({
 }) {
   const tone =
     outcome.kind === 'success'
-      ? { border: 'border-emerald-500/40', bg: 'bg-emerald-500/10', text: 'text-emerald-300', icon: 'i-ph:check-circle-duotone' }
+      ? {
+          border: 'border-emerald-500/40',
+          bg: 'bg-emerald-500/10',
+          text: 'text-emerald-300',
+          icon: 'i-ph:check-circle-duotone',
+        }
       : outcome.kind === 'not_available'
         ? { border: 'border-amber-500/40', bg: 'bg-amber-500/10', text: 'text-amber-300', icon: 'i-ph:info-duotone' }
         : outcome.kind === 'confirmation'
-          ? { border: 'border-amber-500/40', bg: 'bg-amber-500/10', text: 'text-amber-300', icon: 'i-ph:warning-duotone' }
+          ? {
+              border: 'border-amber-500/40',
+              bg: 'bg-amber-500/10',
+              text: 'text-amber-300',
+              icon: 'i-ph:warning-duotone',
+            }
           : { border: 'border-red-500/40', bg: 'bg-red-500/10', text: 'text-red-300', icon: 'i-ph:x-circle-duotone' };
 
-  const message =
-    outcome.kind === 'success'
-      ? summarizeSuccess(outcome.action, outcome.result)
-      : outcome.message;
+  const message = outcome.kind === 'success' ? summarizeSuccess(outcome.action, outcome.result) : outcome.message;
 
   return (
     <div

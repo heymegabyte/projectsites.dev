@@ -26,13 +26,7 @@
 import React, { memo, useMemo } from 'react';
 
 import { classNames } from '~/utils/classNames';
-import {
-  inferErdEdges,
-  layoutErdNodes,
-  ERD_MAX_TABLES,
-  type ErdSchemaTable,
-  type ErdNode,
-} from './data-panel-logic';
+import { inferErdEdges, layoutErdNodes, ERD_MAX_TABLES, type ErdSchemaTable, type ErdNode } from './data-panel-logic';
 
 export interface ErdViewProps {
   /** The assembled schema map — every table + its columns (gathered via the existing rows bridge). */
@@ -121,9 +115,7 @@ export const ErdView = memo(({ tables, gridColumns = 3, onOpenTable, testId = 'e
             </span>
           </span>
         )}
-        {truncated && (
-          <span className="text-bolt-elements-textTertiary">· showing first {ERD_MAX_TABLES}</span>
-        )}
+        {truncated && <span className="text-bolt-elements-textTertiary">· showing first {ERD_MAX_TABLES}</span>}
       </div>
 
       {/* The diagram — a single inline SVG, no graph library. */}

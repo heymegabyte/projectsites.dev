@@ -28,11 +28,47 @@ export interface SqlSchema {
 
 /** Keywords offered when they prefix-match the current word (lower priority than schema idents). */
 const COMPLETION_KEYWORDS: readonly string[] = [
-  'SELECT', 'FROM', 'WHERE', 'INSERT INTO', 'UPDATE', 'DELETE FROM', 'CREATE TABLE', 'CREATE INDEX',
-  'DROP TABLE', 'ALTER TABLE', 'VALUES', 'SET', 'JOIN', 'LEFT JOIN', 'INNER JOIN', 'ON', 'GROUP BY',
-  'ORDER BY', 'LIMIT', 'OFFSET', 'HAVING', 'DISTINCT', 'AND', 'OR', 'NOT', 'NULL', 'IS NULL',
-  'IS NOT NULL', 'IN', 'LIKE', 'BETWEEN', 'AS', 'ASC', 'DESC', 'COUNT(', 'SUM(', 'AVG(', 'MIN(',
-  'MAX(', 'PRAGMA', 'EXPLAIN QUERY PLAN',
+  'SELECT',
+  'FROM',
+  'WHERE',
+  'INSERT INTO',
+  'UPDATE',
+  'DELETE FROM',
+  'CREATE TABLE',
+  'CREATE INDEX',
+  'DROP TABLE',
+  'ALTER TABLE',
+  'VALUES',
+  'SET',
+  'JOIN',
+  'LEFT JOIN',
+  'INNER JOIN',
+  'ON',
+  'GROUP BY',
+  'ORDER BY',
+  'LIMIT',
+  'OFFSET',
+  'HAVING',
+  'DISTINCT',
+  'AND',
+  'OR',
+  'NOT',
+  'NULL',
+  'IS NULL',
+  'IS NOT NULL',
+  'IN',
+  'LIKE',
+  'BETWEEN',
+  'AS',
+  'ASC',
+  'DESC',
+  'COUNT(',
+  'SUM(',
+  'AVG(',
+  'MIN(',
+  'MAX(',
+  'PRAGMA',
+  'EXPLAIN QUERY PLAN',
 ];
 
 const MAX_COMPLETIONS = 8;
@@ -99,11 +135,7 @@ export function sqlCompletions(textBeforeCaret: string, schema: SqlSchema): SqlC
  * @example applyCompletion('SELECT * FROM us', 16, 'users')
  *   // → { text: 'SELECT * FROM users', caret: 19 }
  */
-export function applyCompletion(
-  fullText: string,
-  caret: number,
-  completion: string,
-): { text: string; caret: number } {
+export function applyCompletion(fullText: string, caret: number, completion: string): { text: string; caret: number } {
   const before = fullText.slice(0, caret);
   const after = fullText.slice(caret);
   const word = currentWord(before);

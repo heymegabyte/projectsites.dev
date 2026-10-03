@@ -3263,9 +3263,7 @@ describe('inferErdEdges (relationship inference — no real FK data, naming conv
       { name: 'author', columns: [{ name: 'id', type: 'INTEGER', pk: 1 }] },
     ];
 
-    expect(inferErdEdges(s)).toEqual([
-      { from: 'posts', fromColumn: 'author_id', to: 'author', inferred: true },
-    ]);
+    expect(inferErdEdges(s)).toEqual([{ from: 'posts', fromColumn: 'author_id', to: 'author', inferred: true }]);
   });
 
   it('matches an `-es` plural target (box_id → boxes)', () => {
@@ -3274,9 +3272,7 @@ describe('inferErdEdges (relationship inference — no real FK data, naming conv
       { name: 'boxes', columns: [{ name: 'id', type: 'INTEGER', pk: 1 }] },
     ];
 
-    expect(inferErdEdges(s)).toEqual([
-      { from: 'items', fromColumn: 'box_id', to: 'boxes', inferred: true },
-    ]);
+    expect(inferErdEdges(s)).toEqual([{ from: 'items', fromColumn: 'box_id', to: 'boxes', inferred: true }]);
   });
 
   it('is case-insensitive on the derived base and the table name', () => {
@@ -3285,9 +3281,7 @@ describe('inferErdEdges (relationship inference — no real FK data, naming conv
       { name: 'CUSTOMERS', columns: [{ name: 'id', type: 'INTEGER', pk: 1 }] },
     ];
 
-    expect(inferErdEdges(s)).toEqual([
-      { from: 'Orders', fromColumn: 'Customer_ID', to: 'CUSTOMERS', inferred: true },
-    ]);
+    expect(inferErdEdges(s)).toEqual([{ from: 'Orders', fromColumn: 'Customer_ID', to: 'CUSTOMERS', inferred: true }]);
   });
 
   it('emits NO edge for a `_id` column with no matching table (dangling reference)', () => {
@@ -3363,7 +3357,15 @@ describe('layoutErdNodes (deterministic grid layout — no physics engine)', () 
 
   it('carries each table columns onto its node (name + pk flag preserved)', () => {
     const nodes = layoutErdNodes(
-      [{ name: 'orders', columns: [{ name: 'id', type: 'INTEGER', pk: 1 }, { name: 'customer_id', type: 'INTEGER', pk: 0 }] }],
+      [
+        {
+          name: 'orders',
+          columns: [
+            { name: 'id', type: 'INTEGER', pk: 1 },
+            { name: 'customer_id', type: 'INTEGER', pk: 0 },
+          ],
+        },
+      ],
       { columns: 3 },
     );
     expect(nodes[0].columns).toEqual([
