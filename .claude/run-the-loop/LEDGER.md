@@ -9,6 +9,11 @@
 > `_CF_NATIVE_CONVERGENCE.md`, `_ADMIN_VQA_LEDGER.md`, `_INTERCONNECTEDNESS_LEDGER.md`). This is the
 > INDEX, not a duplicate.
 
+## fire-106 — 2026-10-03 (converge; lean cleanup — removed dead legacy pages/signin + elevated the 6-fire-deferred golden journey)
+- SHIPPED cleanup: removed the orphaned legacy `pages/signin/` component (4 files — `SigninComponent`, selector `app-signin`, the pre-Better-Auth magic-link page). Confirmed fully orphaned (zero route/import/template refs across src + e2e; the live auth component's own comment calls it "the now-orphaned pages/signin"). `15f7709aa`; tsc clean; unreferenced → already tree-shaken, deployed output UNCHANGED (no deploy needed). Kills the duplicate-component drift behind fire-104's wrong-file misread (interconnectedness).
+- Loop-improvement (§7): elevated the LIVE editor Data-tab golden-path journey to **NEXT-FIRE-FIRST** in BACKLOG — it's slipped across fires 101→106 (each fire reached it context-heavy at the tail). The deferral pattern + the fix (run it FIRST on a FRESH lead, via lead-Bash per the browser-role contract) is now an explicit frontier LEAD so it stops deferring.
+- Deliberately lean (6 fires deep, trending context-heavy — 2 ECONNRESETs across the session). `progress.md` left "No active checkpoint" (NOT hard-stopped; the BACKLOG frontier + LEDGER + the fire-104 contract are the resume path). Lease `fire-106-converge`.
+
 ## fire-105 — 2026-10-03 (converge; /signin nested-main a11y fix VERIFIED LIVE — public funnel now landmark-clean; corrects fire-104's misdiagnosis)
 - SHIPPED a11y: /signin outer wrapper `<main data-testid=sign-in-page>` → `<div>` in `pages/auth/sign-in.component.ts` (the LIVE Better-Auth /signin; the inner `<section aria-labelledby>` stays the content region). Resolves landmark-main-is-top-level + -no-duplicate-main + -unique. `bafce3e19`; tsc + karma 20/20; deployed R2.
 - VERIFIED LIVE (real browser, SW-BYPASSED per fire-104's method lesson — fresh context + `Storage.clearDataForOrigin`, NO reload): /signin axe-CLEAN of landmark rules at 375 + 1280; exactly ONE `<main>` (the shell `#main-content`); wrapper now `<div data-testid=sign-in-page>`; form renders. **With fire-104's homepage contentinfo fix, the public money-path funnel (`/` + `/signin`) is landmark-clean.**
