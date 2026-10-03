@@ -132,7 +132,9 @@ html, body {
   transition: background 200ms ease, color 200ms ease;
 }
 
-html { scroll-behavior: smooth; height: 100%; }
+// scroll-padding-top keeps anchored + keyboard-focused targets clear of the fixed header
+// (WCAG 2.2 2.4.11 Focus Not Obscured, AA — fire-103; generous 5rem > header so focus never hides under it)
+html { scroll-behavior: smooth; height: 100%; scroll-padding-top: 5rem; }
 
 *, *::before, *::after { box-sizing: border-box; }
 
