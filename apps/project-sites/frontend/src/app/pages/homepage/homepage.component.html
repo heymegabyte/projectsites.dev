@@ -683,7 +683,8 @@
 </section>
 
 <!-- ═══════════════════ FOOTER ═══════════════════ -->
-<footer role="contentinfo" class="border-t border-white/5 py-16">
+<!-- No role="contentinfo": this footer renders inside the shell's <main id="main-content">, and ARIA forbids a contentinfo landmark nested in main (axe landmark-contentinfo-is-top-level). A proper top-level contentinfo belongs in the app shell outside <main> — tracked as a backlog a11y-structure item. (fire-104) -->
+<footer class="border-t border-white/5 py-16">
   <div class="max-w-6xl mx-auto px-4">
     <div class="grid sm:grid-cols-2 lg:grid-cols-4 gap-10 mb-12">
       <!-- Brand -->
