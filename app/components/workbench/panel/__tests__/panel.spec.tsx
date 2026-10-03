@@ -44,11 +44,7 @@ describe('workbench panel primitives', () => {
 
   it('PanelHeader renders the leading slot BEFORE the icon badge (detail back-nav)', () => {
     const html = renderToStaticMarkup(
-      <PanelHeader
-        icon="i-ph:table-duotone"
-        title="customers"
-        leading={<button type="button">Back</button>}
-      />,
+      <PanelHeader icon="i-ph:table-duotone" title="customers" leading={<button type="button">Back</button>} />,
     );
     // leading content present, and ordered before the accent icon badge
     expect(html).toContain('Back');

@@ -504,7 +504,9 @@ export const R2Browser = memo(({ target, mutate }: R2BrowserProps) => {
             >
               <div
                 className={classNames(
-                  uploading ? 'i-ph:circle-notch animate-spin motion-reduce:animate-none' : 'i-ph:upload-simple-duotone',
+                  uploading
+                    ? 'i-ph:circle-notch animate-spin motion-reduce:animate-none'
+                    : 'i-ph:upload-simple-duotone',
                   'text-sm',
                 )}
               />
@@ -599,7 +601,9 @@ export const R2Browser = memo(({ target, mutate }: R2BrowserProps) => {
               >
                 <div
                   className={classNames(
-                    uploading ? 'i-ph:circle-notch animate-spin motion-reduce:animate-none' : 'i-ph:upload-simple-duotone',
+                    uploading
+                      ? 'i-ph:circle-notch animate-spin motion-reduce:animate-none'
+                      : 'i-ph:upload-simple-duotone',
                     'text-sm',
                   )}
                   aria-hidden

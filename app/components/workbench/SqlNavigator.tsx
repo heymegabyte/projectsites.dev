@@ -721,176 +721,178 @@ export const SqlNavigator = memo(() => {
         toolbar={
           <div className="space-y-2">
             <div className="flex flex-wrap items-center gap-1.5">
-          <span className="text-[10px] uppercase tracking-wider text-bolt-elements-textSecondary mr-0.5">Starters</span>
-          {STARTERS.map((s) => (
-            <button
-              key={s.label}
-              type="button"
-              onClick={() => {
-                /*
-                 * Populate-before-run (WLK-05): drop the preset SQL into the editor so the user SEES
-                 * it, then presses Run. Never auto-execute — the query must be visible first.
-                 */
-                setSql(s.query);
-                setExplainSent(false);
-              }}
-              data-testid="database-sql-starter"
-              title="Load this query into the editor — review it, then press Run"
-              className="min-h-[24px] text-[10px] rounded-full px-2.5 py-0.5 border border-bolt-elements-borderColor text-bolt-elements-textSecondary hover:border-[#00e5ff66] hover:text-bolt-elements-textPrimary transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-bolt-elements-item-contentAccent cursor-pointer"
-            >
-              {s.label}
-            </button>
-          ))}
-          <span className="mx-0.5 h-3 w-px bg-bolt-elements-borderColor" aria-hidden />
-          <button
-            type="button"
-            onClick={() => setSql(NEW_TABLE_TEMPLATE)}
-            data-testid="database-sql-new-table"
-            title="Drop a CREATE TABLE template into the editor — edit the name + columns, then Run"
-            className="min-h-[24px] text-[10px] rounded-full px-2.5 py-0.5 border border-[#00e5ff66] text-bolt-elements-item-contentAccent hover:bg-[#00e5ff1a] transition-colors flex items-center gap-1 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-bolt-elements-item-contentAccent cursor-pointer"
-          >
-            <div className="i-ph:plus" /> New table
-          </button>
-          <button
-            type="button"
-            onClick={() => {
-              setAskOpen((v) => !v);
-              setAskError(null);
-            }}
-            data-testid="database-sql-ask-toggle"
-            aria-expanded={askOpen}
-            title="Ask in plain English — the AI writes the SQL from your site's own tables"
-            className={classNames(
-              'min-h-[24px] text-[10px] rounded-full px-2.5 py-0.5 border flex items-center gap-1 transition-colors motion-reduce:transition-none focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-bolt-elements-item-contentAccent cursor-pointer',
-              askOpen
-                ? 'border-[#00e5ff99] bg-[#00e5ff26] text-bolt-elements-item-contentAccent shadow-[0_0_0_1px_rgba(0,229,255,0.15),0_2px_12px_-4px_rgba(0,229,255,0.4)]'
-                : 'border-[#00e5ff66] text-bolt-elements-item-contentAccent hover:bg-[#00e5ff1a]',
-            )}
-          >
-            <div className="i-ph:sparkle" /> Ask AI
-          </button>
-          <button
-            type="button"
-            onClick={() => setRailOpen((v) => !v)}
-            data-testid="database-sql-rail-toggle"
-            aria-expanded={railOpen}
-            aria-controls="database-sql-rail"
-            title="Show or hide the saved queries + run-history rail (this browser)"
-            className={classNames(
-              'min-h-[24px] text-[10px] rounded-full px-2.5 py-0.5 border flex items-center gap-1 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-bolt-elements-item-contentAccent cursor-pointer',
-              railOpen
-                ? 'border-[#00e5ff66] text-bolt-elements-item-contentAccent bg-[#00e5ff14]'
-                : 'border-bolt-elements-borderColor text-bolt-elements-textSecondary hover:border-[#00e5ff66] hover:text-bolt-elements-textPrimary',
-            )}
-          >
-            <div className="i-ph:clock-counter-clockwise" /> Saved &amp; history
-            {saved.length + history.length > 0 && (
-              <span className="tabular-nums opacity-80">({saved.length + history.length})</span>
-            )}
-          </button>
-          <span className="inline-flex items-center gap-1">
-            <input
-              type="text"
-              value={saveName}
-              onChange={(e) => setSaveName(e.target.value)}
-              onKeyDown={(e) => {
-                if (e.key === 'Enter') {
-                  e.preventDefault();
-                  saveCurrent();
-                }
-              }}
-              placeholder="Name…"
-              data-testid="database-sql-save-name"
-              aria-label="Name to save the current query under"
-              className="w-24 min-h-[24px] rounded-full bg-bolt-elements-background-depth-2 border border-bolt-elements-borderColor px-2.5 py-0.5 text-[10px] text-bolt-elements-textPrimary placeholder:text-bolt-elements-textTertiary focus:outline-none focus:border-[#00e5ff80]"
-            />
-            <button
-              type="button"
-              onClick={saveCurrent}
-              disabled={!saveName.trim() || !sql.trim()}
-              data-testid="database-sql-save"
-              title="Save the current query under this name for one-click reuse"
-              className={classNames(
-                'min-h-[24px] text-[10px] rounded-full px-2.5 py-0.5 border flex items-center gap-1 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-bolt-elements-item-contentAccent',
-                !saveName.trim() || !sql.trim()
-                  ? 'border-bolt-elements-borderColor text-bolt-elements-textTertiary cursor-not-allowed'
-                  : 'border-[#00e5ff66] text-bolt-elements-item-contentAccent hover:bg-[#00e5ff1a] cursor-pointer',
-              )}
-            >
-              <div className="i-ph:bookmark-simple" /> Save
-            </button>
-          </span>
-        </div>
-
-        {/* Ask AI — plain-English → SQL grounded on the site's OWN schema, dropped into the editor to review */}
-        {askOpen && (
-          <div
-            data-testid="database-sql-ask"
-            className="rounded-md border border-[#00e5ff4c] bg-[#00e5ff0d] p-2.5 space-y-2 motion-safe:animate-[fadeIn_140ms_ease-out]"
-          >
-            <div className="flex items-center gap-1.5 text-[11px] font-medium text-bolt-elements-textSecondary">
-              <div className="i-ph:sparkle-duotone text-bolt-elements-item-contentAccent" aria-hidden /> Ask your
-              database
-            </div>
-            <div className="flex items-center gap-1.5">
-              <input
-                type="text"
-                value={askQuestion}
-                onChange={(e) => setAskQuestion(e.target.value)}
-                onKeyDown={(e) => {
-                  if (e.key === 'Enter') {
-                    e.preventDefault();
-                    void askSql();
-                  }
-                }}
-                placeholder="e.g. show the 10 most recent orders"
-                data-testid="database-sql-ask-input"
-                aria-label="Ask a question about your database in plain English"
-                spellCheck={false}
-                className="min-w-0 flex-1 rounded border border-bolt-elements-borderColor bg-bolt-elements-background-depth-2 px-2.5 py-1 text-[12px] text-bolt-elements-textPrimary placeholder:text-bolt-elements-textTertiary focus:outline-none focus:border-[#00e5ff80] focus:ring-1 focus:ring-[#00e5ff66] transition-colors"
-              />
+              <span className="text-[10px] uppercase tracking-wider text-bolt-elements-textSecondary mr-0.5">
+                Starters
+              </span>
+              {STARTERS.map((s) => (
+                <button
+                  key={s.label}
+                  type="button"
+                  onClick={() => {
+                    /*
+                     * Populate-before-run (WLK-05): drop the preset SQL into the editor so the user SEES
+                     * it, then presses Run. Never auto-execute — the query must be visible first.
+                     */
+                    setSql(s.query);
+                    setExplainSent(false);
+                  }}
+                  data-testid="database-sql-starter"
+                  title="Load this query into the editor — review it, then press Run"
+                  className="min-h-[24px] text-[10px] rounded-full px-2.5 py-0.5 border border-bolt-elements-borderColor text-bolt-elements-textSecondary hover:border-[#00e5ff66] hover:text-bolt-elements-textPrimary transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-bolt-elements-item-contentAccent cursor-pointer"
+                >
+                  {s.label}
+                </button>
+              ))}
+              <span className="mx-0.5 h-3 w-px bg-bolt-elements-borderColor" aria-hidden />
               <button
                 type="button"
-                onClick={() => void askSql()}
-                disabled={askBusy || !askQuestion.trim()}
-                data-testid="database-sql-ask-submit"
+                onClick={() => setSql(NEW_TABLE_TEMPLATE)}
+                data-testid="database-sql-new-table"
+                title="Drop a CREATE TABLE template into the editor — edit the name + columns, then Run"
+                className="min-h-[24px] text-[10px] rounded-full px-2.5 py-0.5 border border-[#00e5ff66] text-bolt-elements-item-contentAccent hover:bg-[#00e5ff1a] transition-colors flex items-center gap-1 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-bolt-elements-item-contentAccent cursor-pointer"
+              >
+                <div className="i-ph:plus" /> New table
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setAskOpen((v) => !v);
+                  setAskError(null);
+                }}
+                data-testid="database-sql-ask-toggle"
+                aria-expanded={askOpen}
+                title="Ask in plain English — the AI writes the SQL from your site's own tables"
                 className={classNames(
-                  'min-h-[24px] flex shrink-0 items-center gap-1 rounded px-2.5 py-1 text-[11px] font-semibold transition-colors motion-reduce:transition-none focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-bolt-elements-item-contentAccent',
-                  askBusy || !askQuestion.trim()
-                    ? 'cursor-not-allowed bg-bolt-elements-background-depth-3 text-bolt-elements-textTertiary opacity-60'
-                    : 'cursor-pointer bg-[#00e5ff26] text-bolt-elements-item-contentAccent hover:bg-[#00e5ff40]',
+                  'min-h-[24px] text-[10px] rounded-full px-2.5 py-0.5 border flex items-center gap-1 transition-colors motion-reduce:transition-none focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-bolt-elements-item-contentAccent cursor-pointer',
+                  askOpen
+                    ? 'border-[#00e5ff99] bg-[#00e5ff26] text-bolt-elements-item-contentAccent shadow-[0_0_0_1px_rgba(0,229,255,0.15),0_2px_12px_-4px_rgba(0,229,255,0.4)]'
+                    : 'border-[#00e5ff66] text-bolt-elements-item-contentAccent hover:bg-[#00e5ff1a]',
                 )}
               >
-                <div className={askBusy ? 'i-ph:circle-notch animate-spin' : 'i-ph:arrow-right'} />
-                <span className="min-w-[6ch] text-center">{askBusy ? 'Writing…' : 'Write SQL'}</span>
+                <div className="i-ph:sparkle" /> Ask AI
               </button>
-            </div>
-            <p className="text-[9px] italic text-bolt-elements-textSecondary">
-              The AI reads your site&rsquo;s own tables + columns and drafts the SQL into the editor. You review it and
-              press Run — nothing runs automatically, and writes ask before they change data.
-            </p>
-            {askError && (
-              <div
-                className="rounded border border-red-500/30 bg-red-500/10 px-2 py-1 text-[11px] text-red-400"
-                role="alert"
-                data-testid="database-sql-ask-error"
+              <button
+                type="button"
+                onClick={() => setRailOpen((v) => !v)}
+                data-testid="database-sql-rail-toggle"
+                aria-expanded={railOpen}
+                aria-controls="database-sql-rail"
+                title="Show or hide the saved queries + run-history rail (this browser)"
+                className={classNames(
+                  'min-h-[24px] text-[10px] rounded-full px-2.5 py-0.5 border flex items-center gap-1 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-bolt-elements-item-contentAccent cursor-pointer',
+                  railOpen
+                    ? 'border-[#00e5ff66] text-bolt-elements-item-contentAccent bg-[#00e5ff14]'
+                    : 'border-bolt-elements-borderColor text-bolt-elements-textSecondary hover:border-[#00e5ff66] hover:text-bolt-elements-textPrimary',
+                )}
               >
-                {askError}
+                <div className="i-ph:clock-counter-clockwise" /> Saved &amp; history
+                {saved.length + history.length > 0 && (
+                  <span className="tabular-nums opacity-80">({saved.length + history.length})</span>
+                )}
+              </button>
+              <span className="inline-flex items-center gap-1">
+                <input
+                  type="text"
+                  value={saveName}
+                  onChange={(e) => setSaveName(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') {
+                      e.preventDefault();
+                      saveCurrent();
+                    }
+                  }}
+                  placeholder="Name…"
+                  data-testid="database-sql-save-name"
+                  aria-label="Name to save the current query under"
+                  className="w-24 min-h-[24px] rounded-full bg-bolt-elements-background-depth-2 border border-bolt-elements-borderColor px-2.5 py-0.5 text-[10px] text-bolt-elements-textPrimary placeholder:text-bolt-elements-textTertiary focus:outline-none focus:border-[#00e5ff80]"
+                />
+                <button
+                  type="button"
+                  onClick={saveCurrent}
+                  disabled={!saveName.trim() || !sql.trim()}
+                  data-testid="database-sql-save"
+                  title="Save the current query under this name for one-click reuse"
+                  className={classNames(
+                    'min-h-[24px] text-[10px] rounded-full px-2.5 py-0.5 border flex items-center gap-1 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-bolt-elements-item-contentAccent',
+                    !saveName.trim() || !sql.trim()
+                      ? 'border-bolt-elements-borderColor text-bolt-elements-textTertiary cursor-not-allowed'
+                      : 'border-[#00e5ff66] text-bolt-elements-item-contentAccent hover:bg-[#00e5ff1a] cursor-pointer',
+                  )}
+                >
+                  <div className="i-ph:bookmark-simple" /> Save
+                </button>
+              </span>
+            </div>
+
+            {/* Ask AI — plain-English → SQL grounded on the site's OWN schema, dropped into the editor to review */}
+            {askOpen && (
+              <div
+                data-testid="database-sql-ask"
+                className="rounded-md border border-[#00e5ff4c] bg-[#00e5ff0d] p-2.5 space-y-2 motion-safe:animate-[fadeIn_140ms_ease-out]"
+              >
+                <div className="flex items-center gap-1.5 text-[11px] font-medium text-bolt-elements-textSecondary">
+                  <div className="i-ph:sparkle-duotone text-bolt-elements-item-contentAccent" aria-hidden /> Ask your
+                  database
+                </div>
+                <div className="flex items-center gap-1.5">
+                  <input
+                    type="text"
+                    value={askQuestion}
+                    onChange={(e) => setAskQuestion(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter') {
+                        e.preventDefault();
+                        void askSql();
+                      }
+                    }}
+                    placeholder="e.g. show the 10 most recent orders"
+                    data-testid="database-sql-ask-input"
+                    aria-label="Ask a question about your database in plain English"
+                    spellCheck={false}
+                    className="min-w-0 flex-1 rounded border border-bolt-elements-borderColor bg-bolt-elements-background-depth-2 px-2.5 py-1 text-[12px] text-bolt-elements-textPrimary placeholder:text-bolt-elements-textTertiary focus:outline-none focus:border-[#00e5ff80] focus:ring-1 focus:ring-[#00e5ff66] transition-colors"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => void askSql()}
+                    disabled={askBusy || !askQuestion.trim()}
+                    data-testid="database-sql-ask-submit"
+                    className={classNames(
+                      'min-h-[24px] flex shrink-0 items-center gap-1 rounded px-2.5 py-1 text-[11px] font-semibold transition-colors motion-reduce:transition-none focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-bolt-elements-item-contentAccent',
+                      askBusy || !askQuestion.trim()
+                        ? 'cursor-not-allowed bg-bolt-elements-background-depth-3 text-bolt-elements-textTertiary opacity-60'
+                        : 'cursor-pointer bg-[#00e5ff26] text-bolt-elements-item-contentAccent hover:bg-[#00e5ff40]',
+                    )}
+                  >
+                    <div className={askBusy ? 'i-ph:circle-notch animate-spin' : 'i-ph:arrow-right'} />
+                    <span className="min-w-[6ch] text-center">{askBusy ? 'Writing…' : 'Write SQL'}</span>
+                  </button>
+                </div>
+                <p className="text-[9px] italic text-bolt-elements-textSecondary">
+                  The AI reads your site&rsquo;s own tables + columns and drafts the SQL into the editor. You review it
+                  and press Run — nothing runs automatically, and writes ask before they change data.
+                </p>
+                {askError && (
+                  <div
+                    className="rounded border border-red-500/30 bg-red-500/10 px-2 py-1 text-[11px] text-red-400"
+                    role="alert"
+                    data-testid="database-sql-ask-error"
+                  >
+                    {askError}
+                  </div>
+                )}
               </div>
             )}
-          </div>
-        )}
 
-        {askNote && (
-          <div
-            className="flex items-center gap-2 rounded-md border border-[#00e5ff4c] bg-[#00e5ff12] px-2.5 py-1.5 text-[11px] text-bolt-elements-textSecondary motion-safe:animate-[fadeIn_160ms_ease-out]"
-            data-testid="database-sql-ask-note"
-            role="status"
-          >
-            <div className="i-ph:check-circle-duotone text-bolt-elements-item-contentAccent shrink-0" aria-hidden />
-            <span>{askNote}</span>
-          </div>
-        )}
+            {askNote && (
+              <div
+                className="flex items-center gap-2 rounded-md border border-[#00e5ff4c] bg-[#00e5ff12] px-2.5 py-1.5 text-[11px] text-bolt-elements-textSecondary motion-safe:animate-[fadeIn_160ms_ease-out]"
+                data-testid="database-sql-ask-note"
+                role="status"
+              >
+                <div className="i-ph:check-circle-duotone text-bolt-elements-item-contentAccent shrink-0" aria-hidden />
+                <span>{askNote}</span>
+              </div>
+            )}
           </div>
         }
       />

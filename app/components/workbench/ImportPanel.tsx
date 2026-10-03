@@ -469,340 +469,346 @@ export const ImportPanel = memo(() => {
       <div className="flex-1 overflow-auto modern-scrollbar p-4">
         <div className="max-w-[720px]">
           {/* Stage 1 — pick a file */}
-      {stage === 'pick' && (
-        <div className="space-y-3">
-          <div
-            onDragOver={(e) => e.preventDefault()}
-            onDrop={onDrop}
-            className="group/drop rounded-xl border-2 border-dashed border-bolt-elements-borderColor bg-bolt-elements-background-depth-2 p-8 text-center transition-all duration-150 motion-reduce:transition-none hover:border-bolt-elements-item-contentAccent/60 hover:bg-bolt-elements-item-contentAccent/[0.04] hover:shadow-[inset_0_0_40px_-20px_rgba(0,229,255,0.4)]"
-            data-testid="import-dropzone"
-          >
-            <div
-              className="i-ph:file-arrow-up-duotone text-4xl text-bolt-elements-item-contentAccent mx-auto mb-3 transition-transform duration-150 motion-safe:group-hover/drop:-translate-y-0.5"
-              aria-hidden
-            />
-            <p className="text-[13px] text-bolt-elements-textSecondary mb-1">Drag a CSV or JSON file here</p>
-            <p className="text-[11px] text-bolt-elements-textTertiary mb-4">or</p>
-            <button
-              type="button"
-              onClick={() => fileInputRef.current?.click()}
-              data-testid="import-choose-file"
-              className="min-h-[24px] text-[13px] font-semibold px-4 py-2 rounded-lg bg-bolt-elements-item-contentAccent text-[#061018] hover:opacity-90 transition-opacity focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-offset-bolt-elements-background-depth-1 focus-visible:ring-bolt-elements-item-contentAccent cursor-pointer"
-            >
-              Choose a file
-            </button>
-            <input
-              ref={fileInputRef}
-              type="file"
-              accept=".csv,.json,.tsv,text/csv,application/json"
-              onChange={onFileChange}
-              className="hidden"
-              data-testid="import-file-input"
-            />
-          </div>
-
-          <div className="text-center text-[11px] text-bolt-elements-textTertiary">or paste your data</div>
-          <textarea
-            value={rawText}
-            onChange={(e) => {
-              setRawText(e.target.value);
-              setFormat(
-                e.target.value.trim().startsWith('[') || e.target.value.trim().startsWith('{') ? 'json' : 'csv',
-              );
-            }}
-            onBlur={() => rawText.trim() && setStage('map')}
-            placeholder={'name,email\nAlice,alice@example.com\nBob,bob@example.com'}
-            rows={5}
-            data-testid="import-paste"
-            className="w-full rounded-lg border border-bolt-elements-borderColor bg-bolt-elements-background-depth-2 px-3 py-2 text-[12px] font-mono text-bolt-elements-textPrimary placeholder:text-bolt-elements-textTertiary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-bolt-elements-item-contentAccent resize-y"
-          />
-          {rawText.trim() && (
-            <button
-              type="button"
-              onClick={() => setStage('map')}
-              data-testid="import-paste-continue"
-              className="min-h-[24px] text-[13px] font-semibold px-4 py-2 rounded-lg bg-bolt-elements-item-contentAccent text-[#061018] hover:opacity-90 transition-opacity focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-bolt-elements-item-contentAccent cursor-pointer"
-            >
-              Continue
-            </button>
-          )}
-          {parseError && (
-            <div className="text-[11px] text-red-400 flex items-center gap-1.5" role="alert">
-              <div className="i-ph:warning-circle" aria-hidden /> {parseError}
-            </div>
-          )}
-        </div>
-      )}
-
-      {/* Stage 2 — map columns + preview + import */}
-      {stage === 'map' && (
-        <div className="space-y-4">
-          {parseError && (
-            <div className="text-[11px] text-red-400 flex items-center gap-1.5" role="alert">
-              <div className="i-ph:warning-circle" aria-hidden /> {parseError}
-            </div>
-          )}
-
-          {grid && grid.headers.length > 0 && (
-            <>
-              {/* Source summary + format toggle */}
-              <div className="flex flex-wrap items-center gap-3 text-[11px] text-bolt-elements-textTertiary">
-                <span className="flex items-center gap-1.5">
-                  <div className="i-ph:file-text" aria-hidden />
-                  {fileName || 'pasted data'}
-                </span>
-                <span className="font-mono tabular-nums">
-                  {grid.rows.length} row{grid.rows.length === 1 ? '' : 's'} · {grid.headers.length} columns
-                </span>
-                {format === 'csv' && (
-                  <label className="flex items-center gap-1.5 cursor-pointer select-none">
-                    <input
-                      type="checkbox"
-                      checked={hasHeader}
-                      onChange={(e) => setHasHeader(e.target.checked)}
-                      data-testid="import-has-header"
-                      className="accent-bolt-elements-item-contentAccent"
-                    />
-                    First row is a header
-                  </label>
-                )}
+          {stage === 'pick' && (
+            <div className="space-y-3">
+              <div
+                onDragOver={(e) => e.preventDefault()}
+                onDrop={onDrop}
+                className="group/drop rounded-xl border-2 border-dashed border-bolt-elements-borderColor bg-bolt-elements-background-depth-2 p-8 text-center transition-all duration-150 motion-reduce:transition-none hover:border-bolt-elements-item-contentAccent/60 hover:bg-bolt-elements-item-contentAccent/[0.04] hover:shadow-[inset_0_0_40px_-20px_rgba(0,229,255,0.4)]"
+                data-testid="import-dropzone"
+              >
+                <div
+                  className="i-ph:file-arrow-up-duotone text-4xl text-bolt-elements-item-contentAccent mx-auto mb-3 transition-transform duration-150 motion-safe:group-hover/drop:-translate-y-0.5"
+                  aria-hidden
+                />
+                <p className="text-[13px] text-bolt-elements-textSecondary mb-1">Drag a CSV or JSON file here</p>
+                <p className="text-[11px] text-bolt-elements-textTertiary mb-4">or</p>
+                <button
+                  type="button"
+                  onClick={() => fileInputRef.current?.click()}
+                  data-testid="import-choose-file"
+                  className="min-h-[24px] text-[13px] font-semibold px-4 py-2 rounded-lg bg-bolt-elements-item-contentAccent text-[#061018] hover:opacity-90 transition-opacity focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-offset-bolt-elements-background-depth-1 focus-visible:ring-bolt-elements-item-contentAccent cursor-pointer"
+                >
+                  Choose a file
+                </button>
+                <input
+                  ref={fileInputRef}
+                  type="file"
+                  accept=".csv,.json,.tsv,text/csv,application/json"
+                  onChange={onFileChange}
+                  className="hidden"
+                  data-testid="import-file-input"
+                />
               </div>
 
-              {/* Destination */}
-              <div className="rounded-lg border border-bolt-elements-borderColor bg-bolt-elements-background-depth-2 p-3 space-y-3">
-                <div className="text-[11px] font-semibold uppercase tracking-wider text-bolt-elements-textTertiary">
-                  Destination
+              <div className="text-center text-[11px] text-bolt-elements-textTertiary">or paste your data</div>
+              <textarea
+                value={rawText}
+                onChange={(e) => {
+                  setRawText(e.target.value);
+                  setFormat(
+                    e.target.value.trim().startsWith('[') || e.target.value.trim().startsWith('{') ? 'json' : 'csv',
+                  );
+                }}
+                onBlur={() => rawText.trim() && setStage('map')}
+                placeholder={'name,email\nAlice,alice@example.com\nBob,bob@example.com'}
+                rows={5}
+                data-testid="import-paste"
+                className="w-full rounded-lg border border-bolt-elements-borderColor bg-bolt-elements-background-depth-2 px-3 py-2 text-[12px] font-mono text-bolt-elements-textPrimary placeholder:text-bolt-elements-textTertiary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-bolt-elements-item-contentAccent resize-y"
+              />
+              {rawText.trim() && (
+                <button
+                  type="button"
+                  onClick={() => setStage('map')}
+                  data-testid="import-paste-continue"
+                  className="min-h-[24px] text-[13px] font-semibold px-4 py-2 rounded-lg bg-bolt-elements-item-contentAccent text-[#061018] hover:opacity-90 transition-opacity focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-bolt-elements-item-contentAccent cursor-pointer"
+                >
+                  Continue
+                </button>
+              )}
+              {parseError && (
+                <div className="text-[11px] text-red-400 flex items-center gap-1.5" role="alert">
+                  <div className="i-ph:warning-circle" aria-hidden /> {parseError}
                 </div>
-                <div className="flex gap-2">
-                  <TargetToggle
-                    active={targetMode === 'new'}
-                    onClick={() => setTargetMode('new')}
-                    icon="i-ph:plus-circle"
-                    label="New table"
-                    testId="import-target-new"
-                  />
-                  <TargetToggle
-                    active={targetMode === 'existing'}
-                    onClick={() => setTargetMode('existing')}
-                    icon="i-ph:table"
-                    label="Existing table"
-                    testId="import-target-existing"
-                    disabled={tables.length === 0}
-                  />
+              )}
+            </div>
+          )}
+
+          {/* Stage 2 — map columns + preview + import */}
+          {stage === 'map' && (
+            <div className="space-y-4">
+              {parseError && (
+                <div className="text-[11px] text-red-400 flex items-center gap-1.5" role="alert">
+                  <div className="i-ph:warning-circle" aria-hidden /> {parseError}
                 </div>
-                {targetMode === 'new' ? (
-                  <input
-                    type="text"
-                    value={newTableName}
-                    onChange={(e) => setNewTableName(e.target.value)}
-                    placeholder="new_table_name"
-                    data-testid="import-new-table-name"
-                    className={classNames(
-                      'w-full rounded-md border bg-bolt-elements-background-depth-1 px-3 py-1.5 text-[12px] font-mono text-bolt-elements-textPrimary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-bolt-elements-item-contentAccent',
-                      newTableName && !isSafeIdent(newTableName.trim())
-                        ? 'border-red-500/60'
-                        : 'border-bolt-elements-borderColor',
+              )}
+
+              {grid && grid.headers.length > 0 && (
+                <>
+                  {/* Source summary + format toggle */}
+                  <div className="flex flex-wrap items-center gap-3 text-[11px] text-bolt-elements-textTertiary">
+                    <span className="flex items-center gap-1.5">
+                      <div className="i-ph:file-text" aria-hidden />
+                      {fileName || 'pasted data'}
+                    </span>
+                    <span className="font-mono tabular-nums">
+                      {grid.rows.length} row{grid.rows.length === 1 ? '' : 's'} · {grid.headers.length} columns
+                    </span>
+                    {format === 'csv' && (
+                      <label className="flex items-center gap-1.5 cursor-pointer select-none">
+                        <input
+                          type="checkbox"
+                          checked={hasHeader}
+                          onChange={(e) => setHasHeader(e.target.checked)}
+                          data-testid="import-has-header"
+                          className="accent-bolt-elements-item-contentAccent"
+                        />
+                        First row is a header
+                      </label>
                     )}
-                  />
-                ) : (
-                  <select
-                    value={existingTable}
-                    onChange={(e) => setExistingTable(e.target.value)}
-                    data-testid="import-existing-table"
-                    className={SELECT_CLASS}
-                  >
-                    <option value="">Pick a table…</option>
-                    {tables.map((t) => (
-                      <option key={t} value={t}>
-                        {t}
-                      </option>
-                    ))}
-                  </select>
-                )}
-                {targetMode === 'new' && newTableName && !isSafeIdent(newTableName.trim()) && (
-                  <p className="text-[11px] text-red-400">
-                    Use letters, numbers and underscores only (must start with a letter).
-                  </p>
-                )}
-              </div>
+                  </div>
 
-              {/* Column mapping */}
-              <div className="rounded-lg border border-bolt-elements-borderColor bg-bolt-elements-background-depth-2 overflow-hidden">
-                <div className="grid grid-cols-[auto_1fr_1fr_auto] gap-2 px-3 py-2 border-b border-bolt-elements-borderColor text-[10px] uppercase tracking-wider text-bolt-elements-textTertiary">
-                  <span>Use</span>
-                  <span>From (source)</span>
-                  <span>To (column)</span>
-                  <span>Type</span>
-                </div>
-                <div className="max-h-[220px] overflow-auto">
-                  {mappings.map((m, i) => (
-                    <div
-                      key={i}
-                      className="grid grid-cols-[auto_1fr_1fr_auto] gap-2 items-center px-3 py-1.5 border-b border-bolt-elements-borderColor/40 last:border-0"
-                    >
-                      <input
-                        type="checkbox"
-                        checked={m.include}
-                        onChange={(e) => updateMapping(i, { include: e.target.checked })}
-                        aria-label={`Include ${m.sourceHeader}`}
-                        data-testid={`import-col-include-${i}`}
-                        className="accent-bolt-elements-item-contentAccent"
+                  {/* Destination */}
+                  <div className="rounded-lg border border-bolt-elements-borderColor bg-bolt-elements-background-depth-2 p-3 space-y-3">
+                    <div className="text-[11px] font-semibold uppercase tracking-wider text-bolt-elements-textTertiary">
+                      Destination
+                    </div>
+                    <div className="flex gap-2">
+                      <TargetToggle
+                        active={targetMode === 'new'}
+                        onClick={() => setTargetMode('new')}
+                        icon="i-ph:plus-circle"
+                        label="New table"
+                        testId="import-target-new"
                       />
-                      <span className="text-[12px] text-bolt-elements-textSecondary truncate" title={m.sourceHeader}>
-                        {m.sourceHeader}
-                      </span>
+                      <TargetToggle
+                        active={targetMode === 'existing'}
+                        onClick={() => setTargetMode('existing')}
+                        icon="i-ph:table"
+                        label="Existing table"
+                        testId="import-target-existing"
+                        disabled={tables.length === 0}
+                      />
+                    </div>
+                    {targetMode === 'new' ? (
                       <input
                         type="text"
-                        value={m.targetColumn}
-                        onChange={(e) => updateMapping(i, { targetColumn: e.target.value })}
-                        disabled={!m.include}
-                        data-testid={`import-col-name-${i}`}
+                        value={newTableName}
+                        onChange={(e) => setNewTableName(e.target.value)}
+                        placeholder="new_table_name"
+                        data-testid="import-new-table-name"
                         className={classNames(
-                          'rounded border bg-bolt-elements-background-depth-1 px-2 py-1 text-[11px] font-mono text-bolt-elements-textPrimary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-bolt-elements-item-contentAccent disabled:opacity-40',
-                          m.include && !isSafeIdent(m.targetColumn)
+                          'w-full rounded-md border bg-bolt-elements-background-depth-1 px-3 py-1.5 text-[12px] font-mono text-bolt-elements-textPrimary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-bolt-elements-item-contentAccent',
+                          newTableName && !isSafeIdent(newTableName.trim())
                             ? 'border-red-500/60'
                             : 'border-bolt-elements-borderColor',
                         )}
                       />
+                    ) : (
                       <select
-                        value={m.type}
-                        onChange={(e) => updateMapping(i, { type: e.target.value as DetectedType })}
-                        disabled={!m.include}
-                        aria-label={`Type for ${m.sourceHeader}`}
-                        data-testid={`import-col-type-${i}`}
-                        className={classNames(SELECT_CLASS, 'text-[11px] py-1 disabled:opacity-40')}
+                        value={existingTable}
+                        onChange={(e) => setExistingTable(e.target.value)}
+                        data-testid="import-existing-table"
+                        className={SELECT_CLASS}
                       >
-                        {TYPE_OPTIONS.map((o) => (
-                          <option key={o.value} value={o.value}>
-                            {o.label}
+                        <option value="">Pick a table…</option>
+                        {tables.map((t) => (
+                          <option key={t} value={t}>
+                            {t}
                           </option>
                         ))}
                       </select>
+                    )}
+                    {targetMode === 'new' && newTableName && !isSafeIdent(newTableName.trim()) && (
+                      <p className="text-[11px] text-red-400">
+                        Use letters, numbers and underscores only (must start with a letter).
+                      </p>
+                    )}
+                  </div>
+
+                  {/* Column mapping */}
+                  <div className="rounded-lg border border-bolt-elements-borderColor bg-bolt-elements-background-depth-2 overflow-hidden">
+                    <div className="grid grid-cols-[auto_1fr_1fr_auto] gap-2 px-3 py-2 border-b border-bolt-elements-borderColor text-[10px] uppercase tracking-wider text-bolt-elements-textTertiary">
+                      <span>Use</span>
+                      <span>From (source)</span>
+                      <span>To (column)</span>
+                      <span>Type</span>
                     </div>
-                  ))}
-                </div>
-              </div>
-
-              {/* Preview */}
-              <details className="rounded-lg border border-bolt-elements-borderColor bg-bolt-elements-background-depth-2">
-                <summary className="cursor-pointer px-3 py-2 text-[11px] font-medium text-bolt-elements-textSecondary select-none">
-                  Preview first {Math.min(PREVIEW_ROWS, grid.rows.length)} rows
-                </summary>
-                <div className="overflow-auto modern-scrollbar max-h-[200px] border-t border-bolt-elements-borderColor">
-                  <table className="w-full text-[11px] tabular-nums" data-testid="import-preview-table">
-                    <thead>
-                      <tr>
-                        {mappings
-                          .filter((m) => m.include)
-                          .map((m, i) => (
-                            <th
-                              key={i}
-                              className="sticky top-0 z-10 text-left px-2 py-1 font-mono text-bolt-elements-textTertiary bg-bolt-elements-background-depth-2 border-b border-bolt-elements-borderColor whitespace-nowrap after:absolute after:inset-x-0 after:bottom-0 after:h-px after:bg-bolt-elements-item-contentAccent/20"
-                            >
-                              {m.targetColumn}
-                            </th>
-                          ))}
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {grid.rows.slice(0, PREVIEW_ROWS).map((row, r) => (
-                        <tr
-                          key={r}
-                          className="odd:bg-transparent even:bg-bolt-elements-background-depth-1/40 hover:bg-bolt-elements-item-backgroundAccent/[0.07] transition-colors motion-reduce:transition-none"
+                    <div className="max-h-[220px] overflow-auto">
+                      {mappings.map((m, i) => (
+                        <div
+                          key={i}
+                          className="grid grid-cols-[auto_1fr_1fr_auto] gap-2 items-center px-3 py-1.5 border-b border-bolt-elements-borderColor/40 last:border-0"
                         >
-                          {mappings
-                            .filter((m) => m.include)
-                            .map((m, c) => (
-                              <td
-                                key={c}
-                                className="px-2 py-1 font-mono text-bolt-elements-textSecondary border-b border-bolt-elements-borderColor/40 whitespace-nowrap max-w-[160px] truncate"
-                              >
-                                {row[m.sourceIndex] ?? ''}
-                              </td>
+                          <input
+                            type="checkbox"
+                            checked={m.include}
+                            onChange={(e) => updateMapping(i, { include: e.target.checked })}
+                            aria-label={`Include ${m.sourceHeader}`}
+                            data-testid={`import-col-include-${i}`}
+                            className="accent-bolt-elements-item-contentAccent"
+                          />
+                          <span
+                            className="text-[12px] text-bolt-elements-textSecondary truncate"
+                            title={m.sourceHeader}
+                          >
+                            {m.sourceHeader}
+                          </span>
+                          <input
+                            type="text"
+                            value={m.targetColumn}
+                            onChange={(e) => updateMapping(i, { targetColumn: e.target.value })}
+                            disabled={!m.include}
+                            data-testid={`import-col-name-${i}`}
+                            className={classNames(
+                              'rounded border bg-bolt-elements-background-depth-1 px-2 py-1 text-[11px] font-mono text-bolt-elements-textPrimary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-bolt-elements-item-contentAccent disabled:opacity-40',
+                              m.include && !isSafeIdent(m.targetColumn)
+                                ? 'border-red-500/60'
+                                : 'border-bolt-elements-borderColor',
+                            )}
+                          />
+                          <select
+                            value={m.type}
+                            onChange={(e) => updateMapping(i, { type: e.target.value as DetectedType })}
+                            disabled={!m.include}
+                            aria-label={`Type for ${m.sourceHeader}`}
+                            data-testid={`import-col-type-${i}`}
+                            className={classNames(SELECT_CLASS, 'text-[11px] py-1 disabled:opacity-40')}
+                          >
+                            {TYPE_OPTIONS.map((o) => (
+                              <option key={o.value} value={o.value}>
+                                {o.label}
+                              </option>
                             ))}
-                        </tr>
+                          </select>
+                        </div>
                       ))}
-                    </tbody>
-                  </table>
-                </div>
-              </details>
-
-              {/* Import action + honest progress */}
-              <div className="flex items-center gap-3">
-                <button
-                  type="button"
-                  onClick={runImport}
-                  disabled={!canImport}
-                  data-testid="import-run"
-                  className={classNames(
-                    'min-h-[24px] text-[13px] font-semibold px-5 py-2 rounded-lg flex items-center gap-2 transition-all duration-150 motion-reduce:transition-none focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-bolt-elements-item-contentAccent',
-                    !canImport
-                      ? 'bg-bolt-elements-background-depth-3 text-bolt-elements-textTertiary border border-bolt-elements-borderColor opacity-60 cursor-not-allowed'
-                      : 'bg-bolt-elements-item-contentAccent text-[#061018] hover:shadow-[0_4px_18px_-4px_rgba(0,229,255,0.55)] hover:-translate-y-px motion-reduce:hover:translate-y-0 cursor-pointer',
-                  )}
-                >
-                  {importing ? (
-                    <>
-                      <div className="i-ph:spinner animate-spin motion-reduce:animate-none" aria-hidden /> Importing…
-                    </>
-                  ) : (
-                    <>
-                      <div className="i-ph:download-simple" aria-hidden />
-                      <span className="min-w-[10ch] text-center">Import {grid.rows.length} rows</span>
-                    </>
-                  )}
-                </button>
-                {includedCount === 0 && <span className="text-[11px] text-amber-400">Select at least one column.</span>}
-              </div>
-
-              {progress && (
-                <div
-                  className="rounded-lg border border-bolt-elements-borderColor bg-bolt-elements-background-depth-2 p-3 space-y-2"
-                  role="status"
-                >
-                  <div className="flex items-center justify-between text-[11px]">
-                    <span className="text-bolt-elements-textSecondary">
-                      {progress.done === progress.total
-                        ? 'Import complete'
-                        : `Importing batch ${progress.done} / ${progress.total}`}
-                    </span>
-                    <span className="font-mono tabular-nums text-bolt-elements-item-contentAccent">
-                      {progress.rowsWritten} rows added
-                    </span>
+                    </div>
                   </div>
-                  <div className="h-1.5 rounded-full bg-bolt-elements-background-depth-3 overflow-hidden">
+
+                  {/* Preview */}
+                  <details className="rounded-lg border border-bolt-elements-borderColor bg-bolt-elements-background-depth-2">
+                    <summary className="cursor-pointer px-3 py-2 text-[11px] font-medium text-bolt-elements-textSecondary select-none">
+                      Preview first {Math.min(PREVIEW_ROWS, grid.rows.length)} rows
+                    </summary>
+                    <div className="overflow-auto modern-scrollbar max-h-[200px] border-t border-bolt-elements-borderColor">
+                      <table className="w-full text-[11px] tabular-nums" data-testid="import-preview-table">
+                        <thead>
+                          <tr>
+                            {mappings
+                              .filter((m) => m.include)
+                              .map((m, i) => (
+                                <th
+                                  key={i}
+                                  className="sticky top-0 z-10 text-left px-2 py-1 font-mono text-bolt-elements-textTertiary bg-bolt-elements-background-depth-2 border-b border-bolt-elements-borderColor whitespace-nowrap after:absolute after:inset-x-0 after:bottom-0 after:h-px after:bg-bolt-elements-item-contentAccent/20"
+                                >
+                                  {m.targetColumn}
+                                </th>
+                              ))}
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {grid.rows.slice(0, PREVIEW_ROWS).map((row, r) => (
+                            <tr
+                              key={r}
+                              className="odd:bg-transparent even:bg-bolt-elements-background-depth-1/40 hover:bg-bolt-elements-item-backgroundAccent/[0.07] transition-colors motion-reduce:transition-none"
+                            >
+                              {mappings
+                                .filter((m) => m.include)
+                                .map((m, c) => (
+                                  <td
+                                    key={c}
+                                    className="px-2 py-1 font-mono text-bolt-elements-textSecondary border-b border-bolt-elements-borderColor/40 whitespace-nowrap max-w-[160px] truncate"
+                                  >
+                                    {row[m.sourceIndex] ?? ''}
+                                  </td>
+                                ))}
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  </details>
+
+                  {/* Import action + honest progress */}
+                  <div className="flex items-center gap-3">
+                    <button
+                      type="button"
+                      onClick={runImport}
+                      disabled={!canImport}
+                      data-testid="import-run"
+                      className={classNames(
+                        'min-h-[24px] text-[13px] font-semibold px-5 py-2 rounded-lg flex items-center gap-2 transition-all duration-150 motion-reduce:transition-none focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-bolt-elements-item-contentAccent',
+                        !canImport
+                          ? 'bg-bolt-elements-background-depth-3 text-bolt-elements-textTertiary border border-bolt-elements-borderColor opacity-60 cursor-not-allowed'
+                          : 'bg-bolt-elements-item-contentAccent text-[#061018] hover:shadow-[0_4px_18px_-4px_rgba(0,229,255,0.55)] hover:-translate-y-px motion-reduce:hover:translate-y-0 cursor-pointer',
+                      )}
+                    >
+                      {importing ? (
+                        <>
+                          <div className="i-ph:spinner animate-spin motion-reduce:animate-none" aria-hidden />{' '}
+                          Importing…
+                        </>
+                      ) : (
+                        <>
+                          <div className="i-ph:download-simple" aria-hidden />
+                          <span className="min-w-[10ch] text-center">Import {grid.rows.length} rows</span>
+                        </>
+                      )}
+                    </button>
+                    {includedCount === 0 && (
+                      <span className="text-[11px] text-amber-400">Select at least one column.</span>
+                    )}
+                  </div>
+
+                  {progress && (
                     <div
-                      className="h-full bg-bolt-elements-item-contentAccent transition-all duration-150"
-                      style={{ width: `${progress.total ? (progress.done / progress.total) * 100 : 0}%` }}
-                    />
-                  </div>
-                  {progress.errors.length > 0 && (
-                    <ul className="text-[11px] text-red-400 space-y-0.5 max-h-[80px] overflow-auto">
-                      {progress.errors.map((e, i) => (
-                        <li key={i} className="flex items-start gap-1.5">
-                          <div className="i-ph:warning-circle mt-0.5 shrink-0" aria-hidden /> {e}
-                        </li>
-                      ))}
-                    </ul>
+                      className="rounded-lg border border-bolt-elements-borderColor bg-bolt-elements-background-depth-2 p-3 space-y-2"
+                      role="status"
+                    >
+                      <div className="flex items-center justify-between text-[11px]">
+                        <span className="text-bolt-elements-textSecondary">
+                          {progress.done === progress.total
+                            ? 'Import complete'
+                            : `Importing batch ${progress.done} / ${progress.total}`}
+                        </span>
+                        <span className="font-mono tabular-nums text-bolt-elements-item-contentAccent">
+                          {progress.rowsWritten} rows added
+                        </span>
+                      </div>
+                      <div className="h-1.5 rounded-full bg-bolt-elements-background-depth-3 overflow-hidden">
+                        <div
+                          className="h-full bg-bolt-elements-item-contentAccent transition-all duration-150"
+                          style={{ width: `${progress.total ? (progress.done / progress.total) * 100 : 0}%` }}
+                        />
+                      </div>
+                      {progress.errors.length > 0 && (
+                        <ul className="text-[11px] text-red-400 space-y-0.5 max-h-[80px] overflow-auto">
+                          {progress.errors.map((e, i) => (
+                            <li key={i} className="flex items-start gap-1.5">
+                              <div className="i-ph:warning-circle mt-0.5 shrink-0" aria-hidden /> {e}
+                            </li>
+                          ))}
+                        </ul>
+                      )}
+                      {progress.done === progress.total && progress.errors.length === 0 && (
+                        <p className="text-[11px] text-emerald-400 flex items-center gap-1.5">
+                          <div className="i-ph:check-circle" aria-hidden /> All {progress.rowsWritten} rows imported
+                          into <span className="font-mono">{targetTable}</span>.
+                        </p>
+                      )}
+                    </div>
                   )}
-                  {progress.done === progress.total && progress.errors.length === 0 && (
-                    <p className="text-[11px] text-emerald-400 flex items-center gap-1.5">
-                      <div className="i-ph:check-circle" aria-hidden /> All {progress.rowsWritten} rows imported into{' '}
-                      <span className="font-mono">{targetTable}</span>.
-                    </p>
-                  )}
-                </div>
-              )}
 
-              {importError && (
-                <div className="text-[11px] text-red-400 flex items-center gap-1.5" role="alert">
-                  <div className="i-ph:warning-circle" aria-hidden /> {importError}
-                </div>
+                  {importError && (
+                    <div className="text-[11px] text-red-400 flex items-center gap-1.5" role="alert">
+                      <div className="i-ph:warning-circle" aria-hidden /> {importError}
+                    </div>
+                  )}
+                </>
               )}
-            </>
+            </div>
           )}
-        </div>
-      )}
         </div>
       </div>
     </PanelShell>

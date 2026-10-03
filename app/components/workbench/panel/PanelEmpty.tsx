@@ -56,10 +56,7 @@ export const PanelEmpty = memo(function PanelEmpty({
     >
       {/* Accent icon badge — the cinematic black+cyan tone, AA-safe on the dark panel bg. */}
       <div className="flex items-center justify-center h-16 w-16 rounded-2xl border border-bolt-elements-item-contentAccent/25 bg-bolt-elements-item-contentAccent/[0.06]">
-        <div
-          className={classNames(icon, 'text-3xl text-bolt-elements-item-contentAccent')}
-          aria-hidden="true"
-        />
+        <div className={classNames(icon, 'text-3xl text-bolt-elements-item-contentAccent')} aria-hidden="true" />
       </div>
 
       <div className="space-y-1">
