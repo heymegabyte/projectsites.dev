@@ -43,7 +43,7 @@ import {
 import { ResourceOverviewPanel } from './ResourceOverviewPanel';
 import { BucketsPanel } from './BucketsPanel';
 import { AutomationsPanel } from './AutomationsPanel';
-import { PanelLoading } from './panel';
+import { PanelLoading, PanelShell } from './panel';
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
@@ -589,7 +589,7 @@ export const ResourcesPanel = memo(() => {
   // The deeper CF-primitive console — kept reachable so no proven surface is orphaned.
   if (showConsole) {
     return (
-      <div className="h-full flex flex-col bg-bolt-elements-background-depth-1">
+      <PanelShell testId="resources-panel">
         <div className="flex items-center gap-2 px-3 py-2 border-b border-bolt-elements-borderColor shrink-0">
           <button
             type="button"
@@ -603,12 +603,12 @@ export const ResourcesPanel = memo(() => {
         <div className="flex-1 min-h-0">
           <ResourceOverviewPanel />
         </div>
-      </div>
+      </PanelShell>
     );
   }
 
   return (
-    <div className="h-full flex flex-col bg-bolt-elements-background-depth-1 text-bolt-elements-textPrimary">
+    <PanelShell testId="resources-panel">
       <Header
         environment={environment}
         onEnvironment={setEnvironment}
@@ -654,7 +654,7 @@ export const ResourcesPanel = memo(() => {
         onChange={onFileInputChange}
         data-testid="resources-file-input"
       />
-    </div>
+    </PanelShell>
   );
 });
 
