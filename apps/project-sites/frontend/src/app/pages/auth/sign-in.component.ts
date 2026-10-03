@@ -33,7 +33,11 @@ export function sanitizeReturnUrl(raw: string | null | undefined): string {
   standalone: true,
   imports: [FormsModule, RouterLink],
   template: `
-    <main
+    <!-- Layout wrapper is a <div>, NOT <main>: this page renders inside the app-shell's
+         <main id="main-content">, and ARIA forbids a nested/duplicate main landmark (axe
+         landmark-main-is-top-level / -no-duplicate-main / -unique). The inner <section
+         aria-labelledby> is the semantic content region. (fire-105) -->
+    <div
       class="min-h-screen grid place-items-center bg-dark px-4 py-10 text-white"
       data-testid="sign-in-page"
     >
@@ -258,7 +262,7 @@ export function sanitizeReturnUrl(raw: string | null | undefined): string {
           </a>
         </p>
       </section>
-    </main>
+    </div>
   `,
 })
 export class SignInComponent implements OnInit {
