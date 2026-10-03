@@ -361,6 +361,56 @@ describe('BoltEmbedService (bridge response-shape parity — editor is the contr
     expect(reply['prefix']).toBe('sites/acme/v1/');
     expect(reply['data']).toBeUndefined();
   });
+
+  it('PS_RES_MUTATE_REQUEST {kind:"d1"} reaches the worker mutate route — regression: the handler read `msg.resourceKind`, a field the editor NEVER sends (its `ResMutateRequestMessage` declares `kind`), so an inline Data-tab cell UPDATE short-circuited "Failed to perform action" before the UPDATE ever left the admin', async () => {
+    const calls: Array<{ path: string; body: unknown }> = [];
+    const { fire, posted } = paritySetup({
+      post: (path: string, body: unknown) => {
+        calls.push({ path, body });
+        return of({ data: { result: { ok: true, data: { rowsWritten: 1 } } } });
+      },
+    });
+    // The EXACT payload the editor's SiteTablesPanel cell-save sends (field name `kind`, not `resourceKind`).
+    fire(TRUSTED, {
+      type: 'PS_RES_MUTATE_REQUEST',
+      correlationId: 'm1',
+      kind: 'd1',
+      action: 'exec',
+      confirm: true,
+      input: { sql: 'UPDATE "posts" SET "title" = ?1 WHERE rowid = ?2', params: ['Hi', 1] },
+    });
+    await new Promise((r) => setTimeout(r, 0));
+    // The worker mutate route is hit with the resolved kind — NOT short-circuited to an error reply.
+    expect(calls.some((c) => c.path === '/sites/s1/resources/d1/mutate'))
+      .withContext('kind resolved from msg.kind → the d1 mutate route was called')
+      .toBeTrue();
+    const reply = last(posted, 'PS_RES_MUTATE_RESPONSE')!;
+    expect(reply).toBeDefined();
+    expect(reply['ok']).toBeTrue();
+    expect(reply['error'])
+      .withContext('must NOT be the "Failed to perform action" short-circuit')
+      .toBeUndefined();
+  });
+
+  it('PS_RES_DETAIL_REQUEST {kind:"d1"} reaches the worker detail route — same `resourceKind`→`kind` drift fix (detail drill-in short-circuited "Failed to load resource")', async () => {
+    const calls: Array<{ path: string }> = [];
+    const { fire, posted } = paritySetup({
+      get: (path: string) => {
+        calls.push({ path });
+        return of({ data: { result: { ok: true, data: { rows: [] } } } });
+      },
+    });
+    fire(TRUSTED, { type: 'PS_RES_DETAIL_REQUEST', correlationId: 'dt1', kind: 'd1', action: 'list' });
+    await new Promise((r) => setTimeout(r, 0));
+    expect(calls.some((c) => c.path === '/sites/s1/resources/d1/detail'))
+      .withContext('kind resolved from msg.kind → the d1 detail route was called')
+      .toBeTrue();
+    const reply = last(posted, 'PS_RES_DETAIL_RESPONSE')!;
+    expect(reply['ok']).toBeTrue();
+    expect(reply['error'])
+      .withContext('must NOT be the "Failed to load resource" short-circuit')
+      .toBeUndefined();
+  });
 });
 
 describe('BoltEmbedService (veil dismiss → editorReady)', () => {

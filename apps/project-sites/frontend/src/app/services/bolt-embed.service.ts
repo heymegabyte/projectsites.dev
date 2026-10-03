@@ -2381,7 +2381,15 @@ export class BoltEmbedService {
           const iframe = this.iframeEl;
           const site = this.currentSite;
           const cid = msg.correlationId;
-          const kind = typeof msg.resourceKind === 'string' && msg.resourceKind ? msg.resourceKind : undefined;
+          // The editor's bridge interface (`ResDetailRequestMessage`) names this field `kind`; accept
+          // `resourceKind` only as a legacy fallback. Reading `resourceKind` FIRST was a field-name drift
+          // that left `kind` undefined → every detail drill-in failed "Failed to load resource" (AL-fix).
+          const kind =
+            typeof msg.kind === 'string' && msg.kind
+              ? msg.kind
+              : typeof msg.resourceKind === 'string' && msg.resourceKind
+                ? msg.resourceKind
+                : undefined;
           const detailAction = msg.action === 'get' ? 'get' : 'list';
           const environment = typeof msg.environment === 'string' && msg.environment ? msg.environment : undefined;
           const reply = (payload: Record<string, unknown>): void => {
@@ -2449,7 +2457,16 @@ export class BoltEmbedService {
           const iframe = this.iframeEl;
           const site = this.currentSite;
           const cid = msg.correlationId;
-          const kind = typeof msg.resourceKind === 'string' && msg.resourceKind ? msg.resourceKind : undefined;
+          // The editor's bridge interface (`ResMutateRequestMessage`) names this field `kind`; accept
+          // `resourceKind` only as a legacy fallback. Reading `resourceKind` FIRST was a field-name drift
+          // that left `kind` undefined → an inline Data-tab cell edit (PS_RES_MUTATE {kind:'d1',action:'exec'})
+          // always short-circuited "Failed to perform action" before the UPDATE ever reached the worker (AL-fix).
+          const kind =
+            typeof msg.kind === 'string' && msg.kind
+              ? msg.kind
+              : typeof msg.resourceKind === 'string' && msg.resourceKind
+                ? msg.resourceKind
+                : undefined;
           const mutateAction = typeof msg.action === 'string' && msg.action ? msg.action : undefined;
           const environment = typeof msg.environment === 'string' && msg.environment ? msg.environment : undefined;
           const reply = (payload: Record<string, unknown>): void => {
