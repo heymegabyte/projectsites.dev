@@ -9,6 +9,13 @@
 > `_CF_NATIVE_CONVERGENCE.md`, `_ADMIN_VQA_LEDGER.md`, `_INTERCONNECTEDNESS_LEDGER.md`). This is the
 > INDEX, not a duplicate.
 
+## fire-101 — 2026-10-03 (converge; landed stranded editor↔worker bridge fix resourceKind→kind + 2 regression specs + backlog replenish)
+- Editor Data/Resources **detail drill-in + inline D1 cell-edit were short-circuited CLIENT-SIDE**: the bolt-embed bridge read `msg.resourceKind` but the editor sends `kind` (its `Res*RequestMessage` interfaces) → `kind` undefined → "Failed to load resource" / "Failed to perform action" before any worker call. Fix `5e44bbf57`: resolve `msg.kind` first, `resourceKind` legacy fallback; +2 regression specs firing the editor's EXACT payload (`kind:'d1'`) asserting the worker detail/mutate route is reached. tsc clean; karma 27/27.
+- Shipped: frontend R2 deploy (300 files, CDN purged) `5e44bbf57`; prod proof = apex 200 + `/admin` shell 200 live. Full live interactive D1-cell-edit journey QUEUED as the `editor-data` Deep-UI-Explorer backlog item (NOT claimed this fire — honest scope).
+- Security (Opus, read-only): `/api/sites/:siteId/resources/:kind/{detail,mutate}` IDOR-CLEAN — `ownsSiteData(DB,siteId,orgId)` (session-derived orgId) before any data-plane resolve, defense-in-depth at service layer, mutate `confirm:true` enforced server-side fail-closed.
+- Architecture (read-only): all gates PASS, 0 merge-blockers; advisory orphan backlog noted (`ses_client.ts` parallel SES rail, `turnstile.ts` test-only importer — drain candidates).
+- Loop-improvement: BACKLOG replenish (6 deduped Product Discovery items incl. the editor-bridge shared-Zod-contract = highest-leverage) + memory `[brdg]` (editor↔worker bridge field-name drift class). Lease fire-101-converge (reclaimed stale fire-100 lease); pruned 3 stray read-only agent worktrees.
+
 ## fire-100 — 2026-10-03 (converge; §0.5 Downloads intake + CBD-1 Requirement Recall first run + GAP-0 drift-repair + full-permission directive)
 
 - **§0.5 intake drained 2 Downloads prompts.** `cloudflare-artifacts-three-bucket-implementation.md` reappeared byte-IDENTICAL to the archived FILE 6 (already `draining`, Cycle-1 shipped) → deleted the re-drop. `claude-code-multi-provider-skills-bootstrap.md` (29K) → fresh classifier (TARGET=THIS-REPO); 6 wisdom items absorbed to BACKLOG CBD-skills-1/3/4/5/6 + the **MiniMax-first routing proposal logged as an Open Question** (CBD-skills-2 BLOCKED — contradicts settled DeepSeek-first doctrine, never auto-flipped) → file deleted. Two MORE prompts arrived mid-fire (FILE 14 50-rounds + FILE 15 shared-policy) → QUEUED for the next fire's §0.5 (bounded-fire discipline; tracked, not lost).

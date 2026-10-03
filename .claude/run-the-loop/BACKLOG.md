@@ -277,6 +277,20 @@
 
 ## feature
 
+<!-- fire-101 replenish (2026-10-03) — editor↔worker bridge + gen-quality gates, from Product Discovery -->
+- [ ] editor-bridge: shared Zod contract for every PS_* postMessage (admin relay ↔ bolt editor) — acceptance: packages/shared exports a `PsBridgeMessage` discriminated union (resource_detail/cell_edit carry canonical `kind`); both send+receive sites import it; a unit test fails if either side reads a field absent from the schema. Regression-locks the fire-101 resourceKind/kind drift. [HIGHEST-LEVERAGE next]
+  - cadence: next-fire · priority: high · category: feature · discovered_by: fire-101-product-discovery
+- [ ] editor-data: drive resource-detail drill-in + inline D1 cell-edit in a real authed embed as a Deep-UI-Explorer contract — acceptance: e2e/deep-ui-explorer opens a resource row → detail pane renders real fields (not empty), edits a D1 cell → re-reads the value from the per-site D1; PASS_CLOUDFLARE + 0 console errors. [live end-to-end prod-verify of the fire-101 bridge fix]
+  - cadence: next-fire · priority: high · category: golden-path · discovered_by: fire-101-product-discovery
+- [ ] editor-data: eager-provision the per-site D1 on create-from-search (not lazy on first Data-tab GET) — acceptance: a freshly created site has its site_database_allocations row + provisioned D1 before any Data-tab access; gp-02 blank-DB launchpad renders on first open, 0 extra round-trips.
+  - cadence: next-2-fires · priority: med · category: feature · discovered_by: fire-101-product-discovery
+- [ ] gen-quality: wordmark-legibility build validator (contrast + glyph-integrity) in build_validators.ts — acceptance: build fails when the generated wordmark renders <4.5:1 vs hero bg OR contains a garbled/letterspaced glyph row; re-heal lone-mountain-global, vision ≥8/10 on brand. (sub-defect of the LB-2 brand-quality cluster, line ~51)
+  - cadence: next-2-fires · priority: high · category: product · discovered_by: fire-101-product-discovery
+- [ ] gen-quality: pack-default-H1 + stock-relevance guard in the generation pipeline — acceptance: build fails/re-prompts when hero H1 == the industry-pack default string OR the hero image has no business-relevant tag; gp-01 regen shows a business-specific H1 + relevant hero, vision ≥8/10. (sub-defect of the LB-2 brand-quality cluster, line ~51)
+  - cadence: next-2-fires · priority: high · category: product · discovered_by: fire-101-product-discovery
+- [ ] gen-quality: assert console-error-free + zero asset-404 on the DELIVERED site as a post-publish gate — acceptance: post-publish prod-E2E fetches {slug}.projectsites.dev, asserts 0 console errors + 0 failed requests (logo-wordmark/apple-touch-icon/manifest all 200); fails delivery if red.
+  - cadence: next-2-fires · priority: med · category: golden-path · discovered_by: fire-101-product-discovery
+
 - [ ] WfP fast-follow (Functions convergence Stage 4+) — binding injection + runtime + versioning + observability
   - cadence: every-4-loops
   - priority: med
