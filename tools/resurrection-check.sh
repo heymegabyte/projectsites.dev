@@ -116,7 +116,7 @@ EXCLUDE_DIRS=(
   './build'
   './out'
   './coverage'
-  './.claude/worktrees'
+  './.claude'
   './.turbo'
   './.cache'
 )
