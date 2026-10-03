@@ -9,6 +9,17 @@
     "planned": "capability or coverage not yet built (tracked in BACKLOG)",
     "verify": "pre-reconnaissance seed — Golden Path Agent must observe and reclassify"
   },
+  "disposition_vocabulary": {
+    "_axis": "Requirement-FULFILLMENT (does reality satisfy the promise?) — distinct from status_vocabulary above (journey-MAPPING coverage). Adopted fire-99 per the Continuity & Beauty Directive (BACKLOG CBD epic); apply across BACKLOG items + LEDGER evidence, not only GP rows. Requirement status != task status.",
+    "verified": "promise satisfied AND current revision-bound evidence proves it in the real surface",
+    "partial": "promise partially satisfied; some acceptance criteria unmet or coverage incomplete",
+    "missing": "promised but not built — no implementation exists",
+    "unverified": "implementation exists but no current evidence it fulfills the promise (stale/never-run)",
+    "blocked": "cannot proceed — external dependency, credential, or upstream decision required (state it honestly)",
+    "deferred": "intentionally queued to a later fire with rationale (in BACKLOG, not lost)",
+    "superseded": "promise replaced by a newer decision/requirement (link the successor)",
+    "rejected": "promise deliberately declined (record why; do not silently drop)"
+  },
   "notes": "Seed register per MASTER-PROMPT §GP-1. Breadcrumbs in the contract are product intent, not observed labels; reconnaissance replaces every status:'verify'. Mapping coverage ≠ verified coverage — this file tracks the MAPPING; verified evidence lives per-fire in LEDGER.md + e2e artifacts. maps_to references the existing GOLDEN-PATHS.md registry (gp-01..gp-09).",
   "paths": [
     { "id": "GP-01", "title": "Create account, authenticate, recover access, sign out", "priority": "P0", "gated": false, "status": "partial", "maps_to": ["gp-01-owner-first-site"], "wlk": [], "note": "signin covered by money-path specs + live-signin component; recovery/session-revocation branches unmapped" },
