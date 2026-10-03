@@ -21,6 +21,7 @@
  */
 import React, { memo, useCallback, useEffect, useRef, useState } from 'react';
 import { classNames } from '~/utils/classNames';
+import { PanelShell, PanelHeader } from './panel';
 import { DEFAULT_MODEL, DEFAULT_PROVIDER } from '~/utils/constants';
 import {
   isEmbedded,
@@ -418,14 +419,12 @@ export const AiSeedPanel = memo(({ onCreateTable }: AiSeedPanelProps = {}) => {
 
   return (
     <Shell>
-      <div className="flex items-center gap-2 mb-4">
-        <div className="i-ph:sparkle-duotone text-lg text-bolt-elements-item-contentAccent" aria-hidden />
-        <div>
-          <h3 className="text-sm font-semibold text-bolt-elements-textPrimary tracking-tight">Seed with sample data</h3>
-          <p className="text-[11px] text-bolt-elements-textTertiary">
-            Let AI fill a table with realistic rows that match your columns — preview before it&rsquo;s added.
-          </p>
-        </div>
+      <div className="mb-4 -mx-4 -mt-4">
+        <PanelHeader
+          icon="i-ph:sparkle-duotone"
+          title="Seed with sample data"
+          subtitle="Let AI fill a table with realistic rows that match your columns — preview before it’s added."
+        />
       </div>
 
       <div className="space-y-4">
@@ -652,15 +651,15 @@ function mapSqliteType(type: string | undefined): SeedColumn['type'] {
 
 const Shell = memo(({ children }: { children: React.ReactNode }) => (
   /*
-   * `[color-scheme:dark]` forces the native <select> popup, <option> list, and number-input spinners
-   * to render dark — otherwise they show the browser's white default and break the black+cyan theme.
+   * PanelShell supplies `[color-scheme:dark]`, forcing the native <select> popup, <option> list, and
+   * number-input spinners to render dark — otherwise they show the browser's white default and break the
+   * black+cyan theme. The scroll container + max-width body are preserved as inner content.
    */
-  <div
-    className="h-full overflow-auto modern-scrollbar p-4 [color-scheme:dark] bg-bolt-elements-background-depth-1"
-    data-testid="ai-seed-panel"
-  >
-    <div className="max-w-[720px]">{children}</div>
-  </div>
+  <PanelShell testId="ai-seed-panel">
+    <div className="h-full overflow-auto modern-scrollbar p-4">
+      <div className="max-w-[720px]">{children}</div>
+    </div>
+  </PanelShell>
 ));
 Shell.displayName = 'AiSeedPanel.Shell';
 
