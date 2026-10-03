@@ -933,6 +933,22 @@ export const FLAG_DOCS: Record<string, FlagDocs> = {
       'Disable the flag → the route 404s',
     ],
   },
+  site_automations: {
+    checklist: [
+      "Owner-facing Automations panel — read-only list of a site's workflow runs",
+      'GET /api/sites/:siteId/automations → {data:[{id,type,status,created_at,finished_at}]}',
+      'Sourced from workflow_jobs (newest first, capped at 200); honest-empty [] when none',
+      'Gate order: flag (404) → auth (401) → assertSiteOwned (404 IDOR guard) → read',
+      'RES-AUTO slice 1 — discovery only (no writes); off → route 404s, panel self-hides',
+    ],
+    explanation:
+      "First backend slice of the Resources-screen Automations panel: a read-only discovery endpoint listing a site's workflow/automation instances from the workflow_jobs D1 table so the owner can see what ran, when, and whether it succeeded. Site-scoped and ownership-guarded (assertSiteOwned) so it never exposes another tenant's jobs; the flag gate runs first so an off flag is a hard 404 for everyone (existence never leaked). Display reconciles with the store — real rows map 1:1 to list items, an empty store returns an honest empty array. No mutations yet; the panel UI consumes this list.",
+    smoke_test: [
+      'GET /api/sites/:siteId/automations (flag on, owned) → 200 {data:[…]} from workflow_jobs',
+      'Flag off → 404; unauth → 401; another org\'s siteId → 404',
+      'A site with no jobs → 200 {data:[]} (honest-empty, not an error)',
+    ],
+  },
   site_doctor: {
     checklist: [
       'Owner-facing A–F site health report with a 0-100 score',

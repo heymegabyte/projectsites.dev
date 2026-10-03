@@ -722,6 +722,15 @@ export const FLAG_REGISTRY: Record<string, FlagDefinition> = {
     owner_email: 'brian@megabyte.space',
     stage: 'beta', // beta 2026-07-31: e2e verified — e2e/admin/analytics.spec.ts (green live),
   },
+  site_automations: {
+    default_enabled: false,
+    default_rollout_percent: 0,
+    description:
+      "Owner-facing Automations panel (RES-AUTO slice 1) — a read-only list of a site's workflow/automation instances so the owner can see what ran, when, and whether it succeeded.\n\n• Worker: libs/features/site_automations/handlers.ts mounts GET /api/sites/:siteId/automations returning {data:[{id,type,status,created_at,finished_at}]} sourced from the workflow_jobs D1 table (newest first, capped at 200).\n• Gate order: flag (404, never 403 — existence never leaked) → auth (401) → assertSiteOwned (404 cross-org IDOR guard) → read.\n• Display reconciles with the store: real workflow_jobs rows map 1:1; a site with none returns an honest-empty [].\n• First backend slice of the Resources-screen Automations panel; the UI list consumes this endpoint. No writes yet (discovery only).\n• Off (default, DARK): the endpoint 404s for everyone and the panel self-hides.",
+    key: 'site_automations',
+    owner_email: 'brian@megabyte.space',
+    stage: 'experimental',
+  },
   site_doctor: {
     default_enabled: false,
     default_rollout_percent: 0,
