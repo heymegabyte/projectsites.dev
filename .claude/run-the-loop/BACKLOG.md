@@ -1719,3 +1719,10 @@ Re-architect every workbench panel onto a shared gorgeous spine so chrome/tokens
 - [ ] wave C: the heavy tails — SiteTablesPanel (275K) + ResourceDetailPanel (87K). Read ONLY their root+header regions (never the whole file); same mechanical pattern; extra care (they own deep grids/subviews). Plus any remaining (Preview chrome, the Database container header, Workbench shell tabs if applicable).
 - [ ] then: `PanelLoading` (wrap NebulaLoader, contained + reduced-motion) → replace the 68+ inline spinners; `PanelEmpty` (launchpad) on every empty state; `PanelSegmentedNav` (generalize the Database pill nav).
 - [ ] capped visual-qa pass: one agent, DIRECT path per panel (budget-capped: if >12 tool calls without reaching a panel, screenshot + move on), AI-vision ≥8/10 @ the key breakpoints across all migrated panels + 0 console errors. The deep authed Data/Resources journeys are budget-heavy — cap to avoid burning an agent (fires 104/106 lesson).
+
+### editor-panel-ui-rearch — wave C DONE + LIVE-VERIFIED 9/10 (fire-109, `d26512688`)
+- [x] SiteTablesPanel (275K) + ResourceDetailPanel (87K) migrated onto the spine; PanelHeader gained a `leading` slot (ResourceDetailPanel back-button now conventional-left). vitest 3/3, build green, live bolt-diy. **13/~15 panels on the spine.**
+- [x] LIVE VISUAL CONFIRMED: Resources panel header AI-vision **9/10** on prod (cyan accent badge + black→cyan wash + single h2 + subtitle, 0 editor console errors). The deferred live check landed via a budget-capped visual-qa agent.
+- [ ] wave D (next): `PanelLoading` — wrap NebulaLoader as a contained, `prefers-reduced-motion`-safe in-panel loader → replace the 68+ inline `animate-spin`/`i-ph:circle-notch` spinners (nebula-waiting-experience). Add a leading-slot test to panel.spec.
+- [ ] wave D: `PanelEmpty` (launchpad empty — icon + headline + ONE primary CTA) → apply to every panel's empty state; `PanelSegmentedNav` (generalize the Database pill nav) → reuse in Resources/SQL.
+- [ ] dedup: DatabasePanel (the gold-standard it was generalized from) + any remaining (Preview chrome) onto the shared primitives so the spine is the ONLY panel chrome.
