@@ -42,6 +42,19 @@ export function EditorLoadingScreen() {
     }
 
     /*
+     * `/_preview` is the NON-authed panel-primitive gallery (a headless visual-QA
+     * harness) — NO editor boots there, so none of this overlay's dismiss signals
+     * (files-loaded, files-settled, empty-chat) ever fire and only the 30s safety
+     * cap would hide it, leaving the nebula veil lingering OVER the gallery for QA
+     * screenshots. Suppress it outright on that route so the gallery paints
+     * immediately. Narrowest guard — every real editor route is unaffected.
+     */
+    if (window.location.pathname === '/_preview') {
+      setHidden(true);
+      return undefined;
+    }
+
+    /*
      * Embedded in the projectsites admin: the admin's own veil (OUTSIDE this
      * iframe) is the loading indicator. Rendering this in-iframe overlay too
      * caused a reveal-flash when that veil faded, and it re-mounted (twitched)
