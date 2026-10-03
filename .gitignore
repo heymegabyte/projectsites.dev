@@ -116,3 +116,6 @@ editor-vqa/
 apps/project-sites/.recipient-allowlist.local.json
 .claude/run-the-loop/.fire-lease.json
 .claude/scheduled_tasks.json
+
+# Loop money-path journey screenshots (local verification evidence, not source)
+loop-money-path/

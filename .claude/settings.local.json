@@ -122,7 +122,13 @@
       "Bash(pkill -f \"claude -p /run-the-loop\")",
       "Bash(rm -f .claude/run-the-loop/.fire-lease.json)",
       "Bash(git worktree *)",
-      "Bash(git branch *)"
+      "Bash(git branch *)",
+      "Bash(echo \"exit=$?\")",
+      "Bash(git rev-list *)",
+      "Bash(echo \"divergence: $\\(git rev-list --left-right --count origin/main...HEAD\\)\")",
+      "Bash(sed -n '/status_vocabulary/,/}/p' .claude/run-the-loop/gp-register.json)",
+      "Bash(command rm -f ~/Downloads/claude-code-multi-provider-skills-bootstrap.md)",
+      "Read(//Users/Apple/Downloads/**)"
     ],
     "defaultMode": "bypassPermissions"
   },
