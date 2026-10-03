@@ -1145,14 +1145,54 @@ describe('GET /api/sites/search — short-query error state (query_too_short)', 
     expect(mockDbQuery).not.toHaveBeenCalled();
   });
 
-  it('a VALID (≥2-char) query runs the search and carries NO meta.reason (honest-empty stays honest)', async () => {
-    mockDbQuery.mockResolvedValueOnce({ data: [], error: null });
+  it('a VALID (≥2-char) query that FOUND results carries NO meta.reason', async () => {
+    mockDbQuery.mockResolvedValueOnce({
+      data: [
+        {
+          id: 's1',
+          slug: 'vitos',
+          business_name: "Vito's",
+          business_address: null,
+          google_place_id: null,
+          status: 'published',
+          current_build_version: 'v1',
+        },
+      ],
+      error: null,
+    });
     const res = await makeRequest('/api/sites/search?q=vito');
     expect(res.status).toBe(200);
     const body = await res.json();
-    expect(body.data).toEqual([]); // honest-empty — the search ran and found nothing
-    expect(body.meta?.reason).toBeUndefined();
+    expect(body.data.length).toBe(1);
+    expect(body.meta?.reason).toBeUndefined(); // results found → no empty-state signal
     expect(mockDbQuery).toHaveBeenCalledTimes(1);
+  });
+
+  // A valid query that genuinely found NOTHING must be distinguishable from the
+  // too-short case AND from a results-found case — so the homepage SPA can render a
+  // "No sites found for '<q>' — start a new one" launchpad (empty-state-as-launchpad,
+  // per `embarrassingly-easy-to-use`) instead of silently showing nothing.
+  it('a VALID (≥2-char) query that found NOTHING carries meta.reason:"no_results" + the echoed query', async () => {
+    mockDbQuery.mockResolvedValueOnce({ data: [], error: null });
+    const res = await makeRequest('/api/sites/search?q=' + encodeURIComponent('zzz no such biz'));
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.data).toEqual([]); // back-compat: data:[] always present
+    expect(body.meta?.reason).toBe('no_results');
+    expect(typeof body.meta?.message).toBe('string');
+    expect(body.meta.message.length).toBeGreaterThan(0);
+    // The (bounded, trimmed) query is echoed so the SPA can say "No sites found for 'X'".
+    expect(body.meta?.query).toBe('zzz no such biz');
+    expect(mockDbQuery).toHaveBeenCalledTimes(1);
+  });
+
+  it('no_results differs from query_too_short so the SPA renders distinct hints', async () => {
+    mockDbQuery.mockResolvedValueOnce({ data: [], error: null });
+    const noMatch = await (await makeRequest('/api/sites/search?q=nomatch')).json();
+    const tooShort = await (await makeRequest('/api/sites/search?q=a')).json();
+    expect(noMatch.meta?.reason).toBe('no_results');
+    expect(tooShort.meta?.reason).toBe('query_too_short');
+    expect(noMatch.meta?.reason).not.toBe(tooShort.meta?.reason);
   });
 });
 

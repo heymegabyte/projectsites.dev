@@ -65,17 +65,33 @@ search.get('/api/sites/search', async (c) => {
     [searchTerm],
   );
 
-  return c.json({
-    data: data.map((site) => ({
-      site_id: site.id,
-      slug: site.slug,
-      business_name: site.business_name,
-      business_address: site.business_address,
-      google_place_id: site.google_place_id,
-      status: site.status,
-      has_build: site.current_build_version !== null,
-    })),
-  });
+  const results = data.map((site) => ({
+    site_id: site.id,
+    slug: site.slug,
+    business_name: site.business_name,
+    business_address: site.business_address,
+    google_place_id: site.google_place_id,
+    status: site.status,
+    has_build: site.current_build_version !== null,
+  }));
+
+  // A valid (≥2-char) query that genuinely found NOTHING carries meta.reason:'no_results'
+  // (distinct from the too-short `query_too_short`) + the echoed query, so the homepage SPA
+  // can render a "No sites found for '<q>' — start a new one" launchpad instead of silently
+  // showing nothing (empty-state-as-launchpad, per `embarrassingly-easy-to-use`). A query
+  // that FOUND results carries no `meta` — back-compat shape preserved.
+  if (results.length === 0) {
+    return c.json({
+      data: [],
+      meta: {
+        reason: 'no_results',
+        message: `No sites found for "${bounded}". Start a new one.`,
+        query: bounded,
+      },
+    });
+  }
+
+  return c.json({ data: results });
 });
 
 // ─── Command-palette search (⌘K smart results) ──────────────
