@@ -129,7 +129,13 @@ describe('AutomationsPanel — real-time, no manual refresh', () => {
       type: 'PS_RES_AUTOMATIONS_RESULT',
       ok: true,
       automations: [
-        { id: 'job-1', type: 'site-generation', status: 'success', created_at: new Date().toISOString(), finished_at: null },
+        {
+          id: 'job-1',
+          type: 'site-generation',
+          status: 'success',
+          created_at: new Date().toISOString(),
+          finished_at: null,
+        },
       ],
     });
   }

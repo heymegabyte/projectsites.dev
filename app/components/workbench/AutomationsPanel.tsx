@@ -414,15 +414,17 @@ const AutomationsEmpty = memo(() => (
       <div
         aria-hidden
         className="absolute inset-0 rounded-2xl opacity-60"
-        style={{ background: `radial-gradient(60% 60% at 50% 30%, color-mix(in oklch, ${PURPLE} 22%, transparent), transparent)` }}
+        style={{
+          background: `radial-gradient(60% 60% at 50% 30%, color-mix(in oklch, ${PURPLE} 22%, transparent), transparent)`,
+        }}
       />
       <div className="relative i-ph:lightning-duotone text-3xl text-bolt-elements-item-contentAccent" aria-hidden />
     </div>
     <div className="space-y-1">
       <p className="text-sm font-semibold text-bolt-elements-textPrimary">No automations yet</p>
       <p className="text-[11px] text-bolt-elements-textTertiary max-w-[290px] leading-relaxed">
-        When your site runs an automation — a build, a deploy, an image generation — it shows up here with its
-        status and timing.
+        When your site runs an automation — a build, a deploy, an image generation — it shows up here with its status
+        and timing.
       </p>
     </div>
   </div>
