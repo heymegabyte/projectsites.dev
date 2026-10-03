@@ -40,6 +40,7 @@ import {
 import { ResourceDetailPanel, type ResourceDetailTarget } from './ResourceDetailPanel';
 import { NamespaceSummary, type OpenKindTarget } from './NamespaceSummary';
 import { PanelShell, PanelHeader } from './panel';
+import { PanelLoading } from './panel/PanelLoading';
 
 /**
  * Map a NamespaceSummary kind KEY to the canonical adapter `ResourceKind` the detail panel + worker
@@ -628,7 +629,7 @@ export const ResourceOverviewPanel = memo(() => {
         actions={<HeaderActions environment={environment} onEnvironment={setEnvironment} lastLoadedAt={lastLoadedAt} />}
       />
 
-      {overview.status === 'loading' && <Spinner label="Loading your resources…" />}
+      {overview.status === 'loading' && <PanelLoading label="Loading your resources…" />}
       {overview.status === 'disabled' && <DisabledCard />}
       {overview.status === 'error' && (
         <ErrorCard message={overview.message} onRetry={() => void loadOverview(environment)} />
@@ -774,21 +775,7 @@ const LiveFreshness = memo(({ lastLoadedAt }: { lastLoadedAt: number | null }) =
 
 LiveFreshness.displayName = 'ResourceOverviewPanel.LiveFreshness';
 
-// ── Shared: spinner + error + disabled ───────────────────────────────────────
-
-const Spinner = memo(({ label }: { label: string }) => (
-  <div
-    className="flex-1 flex flex-col items-center justify-center gap-2 p-8 text-center"
-    role="status"
-    aria-live="polite"
-    data-testid="resources-loading"
-  >
-    <div className="i-ph:circle-notch text-2xl text-bolt-elements-item-contentAccent animate-spin motion-reduce:animate-none" />
-    <p className="text-xs text-bolt-elements-textSecondary">{label}</p>
-  </div>
-));
-
-Spinner.displayName = 'ResourceOverviewPanel.Spinner';
+// ── Shared: error + disabled (loading now uses the shared in-panel Nebula via PanelLoading) ──
 
 const ErrorCard = memo(({ message, onRetry }: { message: string; onRetry: () => void }) => (
   <div className="flex-1 flex flex-col items-center justify-center gap-3 p-8 text-center" data-testid="resources-error">

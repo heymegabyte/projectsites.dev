@@ -32,6 +32,7 @@ import {
 } from '~/lib/embed/embedded-mode';
 import { formatKvExpiration, parseMaybeJson, decideKvExpiry } from './kv-browser-logic';
 import { PanelShell, PanelHeader } from './panel';
+import { PanelLoading } from './panel/PanelLoading';
 import { classNames } from '~/utils/classNames';
 
 // ── Constants ──────────────────────────────────────────────────────────────
@@ -540,39 +541,45 @@ export const KvBrowser = memo(() => {
             </div>
           )}
 
-          <ul className="max-h-full flex-1 overflow-auto modern-scrollbar rounded-md border border-bolt-elements-borderColor/40">
-            {keys.length === 0 && !keysLoading && (
-              <li
-                className="flex flex-col items-center gap-2 px-3 py-8 text-center text-[11px] text-bolt-elements-textTertiary"
-                data-testid="database-kv-empty"
-              >
-                <div className="i-ph:key text-2xl" />
-                <span>No keys yet. Add your first key to get started.</span>
-              </li>
-            )}
-            {keys.map((k) => (
-              <li key={k.name}>
-                <button
-                  type="button"
-                  data-testid="database-kv-key"
-                  onClick={() => void openKey(k.name)}
-                  className={classNames(
-                    'flex w-full items-center justify-between gap-2 border-b border-bolt-elements-borderColor/20 px-3 py-1.5 text-left text-[11px] font-mono transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-bolt-elements-item-contentAccent cursor-pointer',
-                    selectedKey === k.name
-                      ? 'bg-bolt-elements-item-contentAccent/15 text-bolt-elements-textPrimary'
-                      : 'text-bolt-elements-textSecondary hover:bg-bolt-elements-background-depth-2',
-                  )}
+          {/* First-page load (no keys yet) → the shared in-panel Nebula, never a bare empty list. */}
+          {keys.length === 0 && keysLoading ? (
+            <PanelLoading label="Loading keys…" />
+          ) : (
+            <ul className="max-h-full flex-1 overflow-auto modern-scrollbar rounded-md border border-bolt-elements-borderColor/40">
+              {keys.length === 0 && !keysLoading && (
+                <li
+                  className="flex flex-col items-center gap-2 px-3 py-8 text-center text-[11px] text-bolt-elements-textTertiary"
+                  data-testid="database-kv-empty"
                 >
-                  <span className="truncate">{k.name}</span>
-                  <span className="shrink-0 text-[9px] text-bolt-elements-textTertiary">
-                    {formatKvExpiration(k.expiration, nowSeconds)}
-                  </span>
-                </button>
-              </li>
-            ))}
-          </ul>
+                  <div className="i-ph:key text-2xl" />
+                  <span>No keys yet. Add your first key to get started.</span>
+                </li>
+              )}
+              {keys.map((k) => (
+                <li key={k.name}>
+                  <button
+                    type="button"
+                    data-testid="database-kv-key"
+                    onClick={() => void openKey(k.name)}
+                    className={classNames(
+                      'flex w-full items-center justify-between gap-2 border-b border-bolt-elements-borderColor/20 px-3 py-1.5 text-left text-[11px] font-mono transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-bolt-elements-item-contentAccent cursor-pointer',
+                      selectedKey === k.name
+                        ? 'bg-bolt-elements-item-contentAccent/15 text-bolt-elements-textPrimary'
+                        : 'text-bolt-elements-textSecondary hover:bg-bolt-elements-background-depth-2',
+                    )}
+                  >
+                    <span className="truncate">{k.name}</span>
+                    <span className="shrink-0 text-[9px] text-bolt-elements-textTertiary">
+                      {formatKvExpiration(k.expiration, nowSeconds)}
+                    </span>
+                  </button>
+                </li>
+              ))}
+            </ul>
+          )}
 
-          {keysLoading && (
+          {/* Append load (next cursor page) — a quiet inline note; the list stays visible above. */}
+          {keysLoading && keys.length > 0 && (
             <div className="px-3 py-2 text-[11px] text-bolt-elements-textTertiary" role="status">
               Loading keys…
             </div>
