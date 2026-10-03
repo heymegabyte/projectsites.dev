@@ -22,6 +22,7 @@
  */
 import React, { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { classNames } from '~/utils/classNames';
+import { PanelShell, PanelHeader } from './panel';
 import {
   isEmbedded,
   onParentMessage,
@@ -386,14 +387,11 @@ export const TimeTravelPanel = memo(() => {
   const canTimeTravel = info.ok !== false && info.available !== false && !!info.bookmark;
 
   return (
-    <div
-      /*
-       * `[color-scheme:dark]` renders the native <input type=datetime-local> calendar picker + its
-       * spin fields and the <input type=range> track dark, instead of the browser's white chrome.
-       */
-      className="h-full flex flex-col bg-bolt-elements-background-depth-1 text-bolt-elements-textPrimary [color-scheme:dark]"
-      data-testid="time-travel-panel"
-    >
+    /*
+     * PanelShell supplies `[color-scheme:dark]`, so the native <input type=datetime-local> calendar
+     * picker + its spin fields and the <input type=range> track render dark, not the browser's white chrome.
+     */
+    <PanelShell testId="time-travel-panel">
       <Header retentionDays={info.retentionDays ?? TIME_TRAVEL_RETENTION_DAYS} onRefresh={() => void loadInfo()} />
 
       {info.disabled ? (
@@ -655,7 +653,7 @@ export const TimeTravelPanel = memo(() => {
           onConfirm={() => void doRestore()}
         />
       )}
-    </div>
+    </PanelShell>
   );
 });
 
@@ -664,24 +662,22 @@ TimeTravelPanel.displayName = 'TimeTravelPanel';
 // ── Header ─────────────────────────────────────────────────────────────────
 
 const Header = memo(({ retentionDays, onRefresh }: { retentionDays: number; onRefresh: () => void }) => (
-  <div className="flex items-center gap-3 px-4 py-3 border-b border-bolt-elements-borderColor shrink-0">
-    <div className="i-ph:clock-counter-clockwise-duotone text-xl text-bolt-elements-textSecondary" />
-    <div className="min-w-0">
-      <h2 className="text-sm font-semibold text-bolt-elements-textPrimary">History &amp; restore</h2>
-      <p className="text-[10px] text-bolt-elements-textTertiary truncate">
-        Auto-protected continuously — restore to any minute in the last {retentionDays} days, or save a snapshot
-      </p>
-    </div>
-    <button
-      type="button"
-      onClick={onRefresh}
-      aria-label="Refresh"
-      title="Refresh"
-      className="ml-auto min-h-[24px] min-w-[24px] flex items-center justify-center rounded border border-bolt-elements-borderColor bg-bolt-elements-background-depth-2 text-bolt-elements-item-contentAccent hover:bg-bolt-elements-background-depth-3 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-bolt-elements-item-contentAccent cursor-pointer shrink-0"
-    >
-      <div className="i-ph:arrows-clockwise text-sm" />
-    </button>
-  </div>
+  <PanelHeader
+    icon="i-ph:clock-counter-clockwise-duotone"
+    title="History & restore"
+    subtitle={`Auto-protected continuously — restore to any minute in the last ${retentionDays} days, or save a snapshot`}
+    actions={
+      <button
+        type="button"
+        onClick={onRefresh}
+        aria-label="Refresh"
+        title="Refresh"
+        className="min-h-[24px] min-w-[24px] flex items-center justify-center rounded border border-bolt-elements-borderColor bg-bolt-elements-background-depth-2 text-bolt-elements-item-contentAccent hover:bg-bolt-elements-background-depth-3 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-bolt-elements-item-contentAccent cursor-pointer shrink-0"
+      >
+        <div className="i-ph:arrows-clockwise text-sm" />
+      </button>
+    }
+  />
 ));
 
 Header.displayName = 'TimeTravelPanel.Header';
