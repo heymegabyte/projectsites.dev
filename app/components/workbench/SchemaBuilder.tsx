@@ -22,6 +22,7 @@
  */
 import React, { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { classNames } from '~/utils/classNames';
+import { PanelShell, PanelHeader } from './panel';
 import {
   isEmbedded,
   onParentMessage,
@@ -432,10 +433,7 @@ export const SchemaBuilder = memo(({ initialOp = 'createTable', onApplied }: Sch
 
   // ── Render ──
   return (
-    <div
-      className="h-full flex flex-col bg-bolt-elements-background-depth-1 text-bolt-elements-textPrimary"
-      data-testid="schema-builder"
-    >
+    <PanelShell testId="schema-builder">
       <Header />
 
       {tablesState === 'disabled' ? (
@@ -700,7 +698,7 @@ export const SchemaBuilder = memo(({ initialOp = 'createTable', onApplied }: Sch
           </div>
         </div>
       )}
-    </div>
+    </PanelShell>
   );
 });
 
@@ -709,15 +707,11 @@ SchemaBuilder.displayName = 'SchemaBuilder';
 // ── Header ─────────────────────────────────────────────────────────────────
 
 const Header = memo(() => (
-  <div className="flex items-center gap-3 px-4 py-3 border-b border-bolt-elements-borderColor shrink-0">
-    <div className="i-ph:blueprint-duotone text-xl text-bolt-elements-textSecondary" />
-    <div className="min-w-0">
-      <h2 className="text-sm font-semibold text-bolt-elements-textPrimary">Schema builder</h2>
-      <p className="text-[10px] text-bolt-elements-textTertiary truncate">
-        Shape your database — no SQL required · your database
-      </p>
-    </div>
-  </div>
+  <PanelHeader
+    icon="i-ph:blueprint-duotone"
+    title="Schema builder"
+    subtitle="Shape your database — no SQL required · your database"
+  />
 ));
 
 Header.displayName = 'SchemaBuilder.Header';
