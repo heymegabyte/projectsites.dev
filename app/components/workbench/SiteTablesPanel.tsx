@@ -47,6 +47,7 @@
 import React, { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useVirtualizer } from '@tanstack/react-virtual';
 import { classNames } from '~/utils/classNames';
+import { PanelShell, PanelHeader } from './panel';
 import { DEFAULT_MODEL, DEFAULT_PROVIDER } from '~/utils/constants';
 import {
   isEmbedded,
@@ -2637,7 +2638,7 @@ export const SiteTablesPanel = memo(
     }).length;
 
     return (
-      <div className="h-full flex flex-col bg-bolt-elements-background-depth-1 text-bolt-elements-textPrimary [color-scheme:dark] accent-[color:var(--ps-accent,#00e5ff)]">
+      <PanelShell testId="sitedb-panel">
         <Header
           editable={selectedTable !== null && pkCols.length > 0}
           onNewTable={() => (onCreateTable ? onCreateTable() : setCreateTableOpen(true))}
@@ -2953,7 +2954,7 @@ export const SiteTablesPanel = memo(
             onCancel={() => setDropTarget(null)}
           />
         )}
-      </div>
+      </PanelShell>
     );
   },
 );
@@ -3012,57 +3013,57 @@ const Header = memo(
     ];
 
     return (
-      <div className="flex items-center gap-3 px-4 py-3 border-b border-bolt-elements-borderColor shrink-0">
-        <div className="i-ph:database-duotone text-xl text-bolt-elements-textSecondary" />
-        <div className="min-w-0">
-          <h2 className="text-sm font-semibold text-bolt-elements-textPrimary">Tables</h2>
-          <p className="text-[10px] text-bolt-elements-textTertiary truncate">{subtitle}</p>
-        </div>
-        <div className="ml-auto flex items-center gap-2 shrink-0">
-          {editable && (
-            <span className="text-[10px] uppercase tracking-wider px-2 py-0.5 rounded-full bg-bolt-elements-item-backgroundAccent text-bolt-elements-item-contentAccent">
-              editable
-            </span>
-          )}
-          <div className="relative" ref={menuRef}>
-            <button
-              type="button"
-              onClick={() => setOpen((o) => !o)}
-              aria-haspopup="menu"
-              aria-expanded={open}
-              data-testid="sitedb-actions"
-              title="Table actions"
-              className="min-h-[24px] text-[11px] font-semibold px-2.5 py-1 rounded-md border border-[#00e5ff80] bg-bolt-elements-item-backgroundAccent/10 text-bolt-elements-item-contentAccent hover:bg-bolt-elements-item-backgroundAccent/20 transition-colors motion-reduce:transition-none flex items-center gap-1.5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-bolt-elements-item-contentAccent cursor-pointer"
-            >
-              <div className="i-ph:lightning-duotone text-sm shrink-0" aria-hidden />
-              Actions
-              <div
-                className={classNames('i-ph:caret-down text-xs transition-transform', open && 'rotate-180')}
-                aria-hidden
-              />
-            </button>
-            {open && (
-              <div
-                role="menu"
-                className="absolute right-0 z-20 mt-1 w-40 overflow-hidden rounded-md border border-bolt-elements-borderColor bg-bolt-elements-background-depth-2 shadow-lg"
-              >
-                {items.map((it) => (
-                  <button
-                    key={it.label}
-                    type="button"
-                    role="menuitem"
-                    onClick={() => run(it.on)}
-                    data-testid={`sitedb-action-${it.label.toLowerCase().replace(/\s+/g, '-')}`}
-                    className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-xs text-bolt-elements-textSecondary hover:bg-bolt-elements-item-backgroundAccent/10 hover:text-bolt-elements-textPrimary cursor-pointer focus-visible:outline-none focus-visible:bg-bolt-elements-item-backgroundAccent/10"
-                  >
-                    <div className={classNames(it.icon, 'text-sm')} aria-hidden /> {it.label}
-                  </button>
-                ))}
-              </div>
+      <PanelHeader
+        icon="i-ph:database-duotone"
+        title="Tables"
+        subtitle={subtitle}
+        actions={
+          <>
+            {editable && (
+              <span className="text-[10px] uppercase tracking-wider px-2 py-0.5 rounded-full bg-bolt-elements-item-backgroundAccent text-bolt-elements-item-contentAccent">
+                editable
+              </span>
             )}
-          </div>
-        </div>
-      </div>
+            <div className="relative" ref={menuRef}>
+              <button
+                type="button"
+                onClick={() => setOpen((o) => !o)}
+                aria-haspopup="menu"
+                aria-expanded={open}
+                data-testid="sitedb-actions"
+                title="Table actions"
+                className="min-h-[24px] text-[11px] font-semibold px-2.5 py-1 rounded-md border border-[#00e5ff80] bg-bolt-elements-item-backgroundAccent/10 text-bolt-elements-item-contentAccent hover:bg-bolt-elements-item-backgroundAccent/20 transition-colors motion-reduce:transition-none flex items-center gap-1.5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-bolt-elements-item-contentAccent cursor-pointer"
+              >
+                <div className="i-ph:lightning-duotone text-sm shrink-0" aria-hidden />
+                Actions
+                <div
+                  className={classNames('i-ph:caret-down text-xs transition-transform', open && 'rotate-180')}
+                  aria-hidden
+                />
+              </button>
+              {open && (
+                <div
+                  role="menu"
+                  className="absolute right-0 z-20 mt-1 w-40 overflow-hidden rounded-md border border-bolt-elements-borderColor bg-bolt-elements-background-depth-2 shadow-lg"
+                >
+                  {items.map((it) => (
+                    <button
+                      key={it.label}
+                      type="button"
+                      role="menuitem"
+                      onClick={() => run(it.on)}
+                      data-testid={`sitedb-action-${it.label.toLowerCase().replace(/\s+/g, '-')}`}
+                      className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-xs text-bolt-elements-textSecondary hover:bg-bolt-elements-item-backgroundAccent/10 hover:text-bolt-elements-textPrimary cursor-pointer focus-visible:outline-none focus-visible:bg-bolt-elements-item-backgroundAccent/10"
+                    >
+                      <div className={classNames(it.icon, 'text-sm')} aria-hidden /> {it.label}
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+          </>
+        }
+      />
     );
   },
 );
