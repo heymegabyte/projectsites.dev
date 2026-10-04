@@ -3,26 +3,18 @@
  *  1. aside.deploy-aside is TRANSPARENT (computed bg rgba(0,0,0,0) + backdrop none)
  *  2. layout: carousel .shot height <= 380, no orphaned "PROVISIONING" label
  *  3. instances ⋮ menu OPENS at the button, shows 4 items, Escape closes
- * Real brian@megabyte.space account via Browserbase (CF-clean). One-shot, self-cleaning.
+ * Real brian@megabyte.space account via LOCAL headless (CF-clean). One-shot, self-cleaning.
  */
-import { chromium } from '@playwright/test';
 import { mkdirSync } from 'node:fs';
+import { launchLocalBrowser, getTestPassword, authSeedBrian } from './_local-browser.mjs';
 
-const BB = process.env.BROWSERBASE_API_KEY;
-const PROJ = process.env.BROWSERBASE_PROJECT_ID;
-const PW = process.env.E2E_TEST_PASSWORD;
-if (!BB || !PROJ || !PW) { console.log('MISSING BB/PROJ/PW env'); process.exit(2); }
+const PW = getTestPassword();
+if (!PW) { console.log('MISSING E2E_TEST_PASSWORD env'); process.exit(2); }
 
 const OUT = '/tmp/psvis';
 mkdirSync(OUT, { recursive: true });
 
-const r = await fetch('https://api.browserbase.com/v1/sessions', {
-  method: 'POST', headers: { 'X-BB-API-Key': BB, 'Content-Type': 'application/json' },
-  body: JSON.stringify({ projectId: PROJ, timeout: 600 }),
-});
-if (!r.ok) { console.log('session create failed', r.status); process.exit(3); }
-const { id } = await r.json();
-const browser = await chromium.connectOverCDP(`wss://connect.browserbase.com?apiKey=${encodeURIComponent(BB)}&sessionId=${encodeURIComponent(id)}`);
+const browser = await launchLocalBrowser();
 const out = { errors: [] };
 try {
   const ctx = browser.contexts()[0] ?? await browser.newContext();
@@ -31,16 +23,8 @@ try {
   page.on('console', (m) => { if (m.type() === 'error') out.errors.push('[console] ' + m.text().slice(0, 140)); });
   page.on('pageerror', (e) => out.errors.push('[pageerror] ' + (e.message || String(e)).slice(0, 140)));
 
-  await page.goto('https://projectsites.dev/', { waitUntil: 'domcontentloaded', timeout: 60000 });
-  await page.waitForTimeout(7000); // CF managed-challenge solve
-
-  out.login = await page.evaluate(async (pw) => {
-    const res = await fetch('/api/auth/test-login', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ email: 'brian@megabyte.space', password: pw }) });
-    const j = await res.json().catch(() => ({}));
-    const d = j?.data;
-    if (d?.token) { try { localStorage.setItem('ps_session', JSON.stringify({ token: d.token, identifier: d.email ?? 'brian@megabyte.space', issuedAt: Date.now() })); } catch { /**/ } }
-    return { status: res.status, ok: !!d?.token };
-  }, PW);
+  const { ok } = await authSeedBrian(page, PW);
+  out.login = { ok };
 
   // Kill SW + caches so we render the freshly-deployed bundle, not a stale SW cache.
   await page.evaluate(async () => {

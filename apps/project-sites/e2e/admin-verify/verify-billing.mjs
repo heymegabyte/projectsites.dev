@@ -4,25 +4,19 @@
  * regression from a rolling-counter mid-animation scan flake. TECHNICAL: authed
  * GET /billing/subscription + /billing/entitlements return the real paid plan + entitlements.
  * VISUAL: /admin/billing entitlement counters read their SETTLED values (long wait).
- * Creds (get-secret): BROWSERBASE_API_KEY, BROWSERBASE_PROJECT_ID, E2E_TEST_PASSWORD.
+ * Creds (get-secret): E2E_TEST_PASSWORD.
  */
-import { chromium } from '@playwright/test';
-import { resolveBrowserbaseCreds } from './_browserbase-creds.mjs';
-const { BB, PROJ, PW } = resolveBrowserbaseCreds();
-if (!BB || !PROJ || !PW) { console.log('::notice:: skipped — creds unset'); process.exit(0); }
-const r = await fetch('https://api.browserbase.com/v1/sessions', { method: 'POST', headers: { 'X-BB-API-Key': BB, 'Content-Type': 'application/json' }, body: JSON.stringify({ projectId: PROJ, timeout: 500 }) });
-if (!r.ok) { console.log('session create failed', r.status); process.exit(3); }
-const { id } = await r.json();
-const browser = await chromium.connectOverCDP(`wss://connect.browserbase.com?apiKey=${encodeURIComponent(BB)}&sessionId=${encodeURIComponent(id)}`);
+import { launchLocalBrowser, getTestPassword, authSeedBrian } from './_local-browser.mjs';
+const PW = getTestPassword();
+if (!PW) { console.log('::notice:: skipped — E2E_TEST_PASSWORD unset'); process.exit(0); }
+const browser = await launchLocalBrowser();
 const errs = [];
 try {
   const ctx = browser.contexts()[0] ?? await browser.newContext();
   const page = ctx.pages()[0] ?? await ctx.newPage();
   page.on('console', (m) => { const t = m.type(), x = m.text(); if (/Failed to load resource/i.test(x)) return; if (t === 'error' || (t === 'warning' && /ran into a problem|GlobalErrorHandler|Unhandled|NG0/i.test(x))) errs.push(`[${t}] ${x.slice(0, 120)}`); });
   page.on('pageerror', (e) => errs.push('[pageerror] ' + (e.message || String(e)).slice(0, 120)));
-  await page.goto('https://projectsites.dev/', { waitUntil: 'domcontentloaded', timeout: 60000 });
-  await page.waitForTimeout(6000);
-  await page.evaluate(async (pw) => { const res = await fetch('/api/auth/test-login', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ email: 'brian@megabyte.space', password: pw }) }); const j = await res.json().catch(() => ({})); if (j?.data?.token) localStorage.setItem('ps_session', JSON.stringify({ token: j.data.token, identifier: j.data.email ?? 'brian@megabyte.space', issuedAt: Date.now() })); }, PW);
+  await authSeedBrian(page, PW);
   // Defeat any stale service-worker cache so we verify the FRESH deployed bundle.
   await page.evaluate(async () => { try { const rs = await navigator.serviceWorker?.getRegistrations(); await Promise.all((rs ?? []).map((x) => x.unregister())); } catch {} try { const ks = await caches?.keys(); await Promise.all((ks ?? []).map((k) => caches.delete(k))); } catch {} });
 

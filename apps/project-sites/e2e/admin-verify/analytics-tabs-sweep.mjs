@@ -10,11 +10,11 @@
  * Confirms each tab WORKS (renders + 0 errors + 0 failed requests), not just that
  * the section loads. Exits 0 (skip) if creds unset.
  *
- * Creds (get-secret): BROWSERBASE_API_KEY, BROWSERBASE_PROJECT_ID, E2E_TEST_PASSWORD.
+ * Creds (get-secret): E2E_TEST_PASSWORD.
  */
-import { chromium } from '@playwright/test';
 import AxeBuilder from '@axe-core/playwright';
 import { mkdirSync } from 'node:fs';
+import { launchLocalBrowser, getTestPassword, authSeedBrian } from './_local-browser.mjs';
 
 // WCAG critical/serious per-tab gate. Analytics sub-tabs are NEVER axe-scanned by
 // admin-surf-audit (it only loads the default Overview), so their a11y went
@@ -23,11 +23,9 @@ import { mkdirSync } from 'node:fs';
 // (validator-precision-discipline); a persistent violation survives the recheck.
 const WCAG_TAGS = ['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa', 'wcag22aa'];
 
-const BB = process.env.BROWSERBASE_API_KEY;
-const PROJ = process.env.BROWSERBASE_PROJECT_ID;
-const PW = process.env.E2E_TEST_PASSWORD;
-if (!BB || !PROJ || !PW) {
-  console.log('::notice:: analytics-tabs-sweep skipped — creds unset');
+const PW = getTestPassword();
+if (!PW) {
+  console.log('::notice:: analytics-tabs-sweep skipped — E2E_TEST_PASSWORD unset');
   process.exit(0);
 }
 
@@ -37,19 +35,7 @@ const TABS = ['overview', 'live', 'funnel', 'sections', 'forms', 'visitor', 'hea
 const isNoise = (t) =>
   /google-analytics|\/g\/collect|posthog|Failed to load resource: net::ERR|analytics\.google/i.test(t);
 
-const r = await fetch('https://api.browserbase.com/v1/sessions', {
-  method: 'POST',
-  headers: { 'X-BB-API-Key': BB, 'Content-Type': 'application/json' },
-  body: JSON.stringify({ projectId: PROJ, timeout: 600 }),
-});
-if (!r.ok) {
-  console.log('session create failed', r.status);
-  process.exit(3);
-}
-const { id } = await r.json();
-const browser = await chromium.connectOverCDP(
-  `wss://connect.browserbase.com?apiKey=${encodeURIComponent(BB)}&sessionId=${encodeURIComponent(id)}`,
-);
+const browser = await launchLocalBrowser();
 const report = { _scope: null };
 let axeTotal = 0;
 try {
@@ -68,24 +54,8 @@ try {
     if (res.status() >= 400 && !isNoise(u)) (failed[current] ??= []).push(res.status() + ' ' + u.replace('https://projectsites.dev', '').slice(0, 90));
   });
 
-  await page.goto('https://projectsites.dev/', { waitUntil: 'domcontentloaded', timeout: 60000 });
-  await page.waitForTimeout(7000);
-  const login = await page.evaluate(async (pw) => {
-    const res = await fetch('/api/auth/test-login', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ email: 'brian@megabyte.space', password: pw }),
-    });
-    const j = await res.json().catch(() => ({}));
-    const d = j?.data;
-    if (d?.token) {
-      try {
-        localStorage.setItem('ps_session', JSON.stringify({ token: d.token, identifier: d.email ?? 'brian@megabyte.space', issuedAt: Date.now() }));
-      } catch { /* private */ }
-    }
-    return { status: res.status, email: d?.email ?? null };
-  }, PW);
-  report._login = login;
+  const { ok } = await authSeedBrian(page, PW);
+  report._login = { ok };
   await page.evaluate(async () => {
     try {
       if (navigator.serviceWorker) {
