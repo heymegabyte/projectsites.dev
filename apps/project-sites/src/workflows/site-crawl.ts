@@ -232,8 +232,7 @@ export function scorePageQuality(page: CrawlPage): number {
 
   const hasTitle = typeof page.title === 'string' && page.title.trim().length > 0;
   const metaH1 = meta['h1'];
-  const hasH1 =
-    /^#\s+\S/m.test(text) || (typeof metaH1 === 'string' && metaH1.trim().length > 0);
+  const hasH1 = /^#\s+\S/m.test(text) || (typeof metaH1 === 'string' && metaH1.trim().length > 0);
 
   let score = 0;
   if (statusOk) score += 30;
