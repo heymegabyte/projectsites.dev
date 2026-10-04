@@ -1973,7 +1973,7 @@ const MediaCard = memo(
         <div className="relative aspect-[4/3] bg-bolt-elements-background-depth-1 flex items-center justify-center overflow-hidden">
           {image ? (
             <img
-              src={asset.url}
+              src={asset.rawUrl ?? asset.url}
               alt={name}
               loading="lazy"
               decoding="async"

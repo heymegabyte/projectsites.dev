@@ -345,6 +345,8 @@ interface PsMessage {
 interface EditorMediaAsset {
   id: string;
   url: string;
+  /** Signed, ABSOLUTE, bearer-free raw URL for a cross-origin `<img>` in the editor iframe (worker-minted). */
+  rawUrl?: string;
   name?: string;
   contentType?: string;
   size?: number;
@@ -376,18 +378,23 @@ interface WorkerMediaAssetRow {
   kind?: string;
   source?: string;
   created_at?: number | string;
+  /** Signed absolute bearer-free raw URL attached by GET /api/media/assets (worker). */
+  rawUrl?: string;
 }
 
 /**
  * Map a worker `media_assets` row → the {@link EditorMediaAsset} shape the editor consumes.
- * `url` points at the authed raw-stream route (`/api/media/assets/:id/raw`) so the image tag +
- * open-in-new work; `contentType`/`size`/`uploaded` are renamed from the DB column names.
+ * `url` is the authed same-origin raw route (identity + admin-side open-in-new); `rawUrl` is the
+ * worker's SIGNED ABSOLUTE bearer-free URL the editor iframe's cross-origin `<img>` actually loads
+ * (a relative `url` 404s against the editor origin). `contentType`/`size`/`uploaded` are renamed
+ * from the DB column names.
  */
 function mapMediaAsset(row: WorkerMediaAssetRow): EditorMediaAsset {
   const id = String(row?.id ?? '');
   return {
     id,
     url: `/api/media/assets/${encodeURIComponent(id)}/raw`,
+    rawUrl: row?.rawUrl,
     name: row?.name,
     contentType: row?.mime,
     size: typeof row?.size_bytes === 'number' ? row.size_bytes : undefined,

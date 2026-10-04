@@ -1766,6 +1766,12 @@ export interface MediaAssetEntry {
   /** The asset's public/served URL (for the `<img>` preview + open-in-new). */
   url: string;
 
+  /**
+   * Signed, ABSOLUTE, bearer-free raw URL (worker-minted) the cross-origin `<img>` loads inside
+   * the editor iframe — `url` is relative/same-origin and 404s against the editor origin.
+   */
+  rawUrl?: string;
+
   /** A friendly file name for display. */
   name?: string;
 
