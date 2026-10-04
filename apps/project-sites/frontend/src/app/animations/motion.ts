@@ -20,18 +20,6 @@ const EASE_ACCEL = 'cubic-bezier(0.4, 0, 1, 1)';
 const EASE_SPRING_SOFT = 'cubic-bezier(0.16, 1, 0.3, 1)';
 
 /**
- * Cross-fade with a small upward rise. Default content entrance.
- * Use on the host element of a route component or top-level container.
- */
-export const fadeRise: AnimationTriggerMetadata = trigger('fadeRise', [
-  transition(':enter', [
-    style({ opacity: 0, transform: 'translate3d(0, 12px, 0)' }),
-    animate(`${DUR_LG} ${EASE_SPRING_SOFT}`, style({ opacity: 1, transform: 'translate3d(0, 0, 0)' })),
-  ]),
-  transition(':leave', [animate(`${DUR_SM} ${EASE_ACCEL}`, style({ opacity: 0 }))]),
-]);
-
-/**
  * Center-anchored scale + fade. Modals, command palettes, popovers.
  */
 export const scaleFade: AnimationTriggerMetadata = trigger('scaleFade', [
@@ -41,19 +29,6 @@ export const scaleFade: AnimationTriggerMetadata = trigger('scaleFade', [
   ]),
   transition(':leave', [
     animate(`${DUR_XS} ${EASE_ACCEL}`, style({ opacity: 0, transform: 'scale(0.96)' })),
-  ]),
-]);
-
-/**
- * Right-edge drawer. Used by side panels.
- */
-export const drawerSlide: AnimationTriggerMetadata = trigger('drawerSlide', [
-  transition(':enter', [
-    style({ opacity: 0, transform: 'translate3d(100%, 0, 0)' }),
-    animate(`${DUR_LG} ${EASE_SPRING_SOFT}`, style({ opacity: 1, transform: 'translate3d(0, 0, 0)' })),
-  ]),
-  transition(':leave', [
-    animate(`${DUR_MD} ${EASE_ACCEL}`, style({ opacity: 0, transform: 'translate3d(100%, 0, 0)' })),
   ]),
 ]);
 
@@ -72,25 +47,6 @@ export const toastSlide: AnimationTriggerMetadata = trigger('toastSlide', [
     animate(
       `${DUR_SM} ${EASE_ACCEL}`,
       style({ opacity: 0, transform: 'translate3d(0, 8px, 0) scale(0.98)' })
-    ),
-  ]),
-]);
-
-/**
- * Dialog/modal: scale + tiny rise; pairs with a backdrop fade.
- */
-export const dialogScaleFade: AnimationTriggerMetadata = trigger('dialogScaleFade', [
-  transition(':enter', [
-    style({ opacity: 0, transform: 'scale(0.94) translate3d(0, 8px, 0)' }),
-    animate(
-      `${DUR_MD} ${EASE_SPRING_SOFT}`,
-      style({ opacity: 1, transform: 'scale(1) translate3d(0, 0, 0)' })
-    ),
-  ]),
-  transition(':leave', [
-    animate(
-      `${DUR_XS} ${EASE_ACCEL}`,
-      style({ opacity: 0, transform: 'scale(0.96) translate3d(0, 4px, 0)' })
     ),
   ]),
 ]);
@@ -115,17 +71,6 @@ export const listStagger: AnimationTriggerMetadata = trigger('listStagger', [
       { optional: true }
     ),
   ]),
-]);
-
-/**
- * Tab/accordion content fade — no height animation (avoids layout thrash).
- */
-export const contentFade: AnimationTriggerMetadata = trigger('contentFade', [
-  transition(':enter', [
-    style({ opacity: 0 }),
-    animate(`${DUR_MD} ${EASE_DECEL}`, style({ opacity: 1 })),
-  ]),
-  transition(':leave', [animate(`${DUR_XS} ${EASE_ACCEL}`, style({ opacity: 0 }))]),
 ]);
 
 // NOTE: route/page transitions are handled by the router's native View Transitions

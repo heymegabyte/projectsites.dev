@@ -139,66 +139,6 @@ export function person(args: { id: string; name: string; jobTitle: string; sameA
 }
 
 /**
- * LocalBusiness — used on per-tenant generated business sites.
- *
- * @example
- * ```ts
- * localBusiness({
- *   name: 'Vito's Mens Salon',
- *   url: 'https://vito-mens-salon.projectsites.dev/',
- *   address: { streetAddress: '74 N Beverwyck Rd', addressLocality: 'Lake Hiawatha', addressRegion: 'NJ', postalCode: '07034', addressCountry: 'US' },
- *   telephone: '+1-973-555-0100',
- *   geo: { latitude: 40.881, longitude: -74.366 },
- *   priceRange: '$$',
- * })
- * ```
- */
-export interface LocalBusinessInput {
-  readonly name: string;
-  readonly url: string;
-  readonly image?: string;
-  readonly description?: string;
-  readonly address?: {
-    readonly streetAddress?: string;
-    readonly addressLocality?: string;
-    readonly addressRegion?: string;
-    readonly postalCode?: string;
-    readonly addressCountry?: string;
-  };
-  readonly telephone?: string;
-  readonly geo?: { readonly latitude: number; readonly longitude: number };
-  readonly priceRange?: string;
-  readonly openingHours?: readonly string[];
-  readonly sameAs?: readonly string[];
-}
-
-export function localBusiness(input: LocalBusinessInput) {
-  const node: Record<string, unknown> = {
-    '@type': 'LocalBusiness',
-    '@id': `${input.url}#business`,
-    name: input.name,
-    url: input.url,
-  };
-  if (input.image) node['image'] = input.image;
-  if (input.description) node['description'] = input.description;
-  if (input.address) {
-    node['address'] = { '@type': 'PostalAddress', ...input.address };
-  }
-  if (input.telephone) node['telephone'] = input.telephone;
-  if (input.geo) {
-    node['geo'] = {
-      '@type': 'GeoCoordinates',
-      latitude: input.geo.latitude,
-      longitude: input.geo.longitude,
-    };
-  }
-  if (input.priceRange) node['priceRange'] = input.priceRange;
-  if (input.openingHours?.length) node['openingHoursSpecification'] = input.openingHours;
-  if (input.sameAs?.length) node['sameAs'] = input.sameAs;
-  return node;
-}
-
-/**
  * Wrap a list of nodes into a Schema.org `@graph`. Always set `@context`
  * exactly once at the root so validators accept the document.
  */
