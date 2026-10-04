@@ -54,9 +54,13 @@ jest.mock('../provider.js', () => ({
 }));
 
 // Mock persistence so `persist` is observable + never touches R2/D1.
-const persistMock = jest.fn();
+// Define the fn INSIDE the factory (not an outer const): @swc/jest hoists `jest.mock(...)` above the
+// const declarations AND the import block, and site-crawl.ts imports persistence at MODULE-LOAD — so a
+// factory that reads an outer `const persistMock` hits the TDZ ("Cannot access 'persistMock' before
+// initialization"). Retrieve the ref via the mocked import below instead. (The provider mock above is
+// safe because its `.mockImplementation(() => ...)` closure is only invoked lazily, inside a test.)
 jest.mock('../persistence.js', () => ({
-  persistCrawl: persistMock,
+  persistCrawl: jest.fn(),
 }));
 
 import {
@@ -65,8 +69,12 @@ import {
   scorePageQuality,
   dedupeAndScorePages,
 } from '../../../../src/workflows/site-crawl.js';
+import { persistCrawl } from '../persistence.js';
 import type { Env } from '../../../../src/types/env.js';
 import type { CrawlJob, CrawlPage } from '../schemas.js';
+
+/** The mocked `persistCrawl`, retrieved after the import so the factory never reads it eagerly. */
+const persistMock = persistCrawl as unknown as jest.Mock;
 
 const JOB_ID = 'c7f8s2d9-a8e7-4b6e-8e4d-3d4a1b2c3f4e';
 const PAGE_ID = 'a1b2c3d4-e5f6-4a7b-8c9d-0e1f2a3b4c5d';
