@@ -243,6 +243,58 @@ export function hasMoreMedia(shown: number, total: number | undefined): boolean 
   return typeof total === 'number' && total > shown;
 }
 
+/** Result of an optimistic remove: the shortened list + what was removed + where it sat (for undo). */
+export interface MediaRemoveResult {
+  /** The list with the id dropped (a fresh array — the input is never mutated). */
+  assets: MediaAssetEntry[];
+  /** The asset that was removed, so undo can re-insert it; `undefined` when the id wasn't present. */
+  removed?: MediaAssetEntry;
+  /** The original index of the removed asset (for exact-position undo); `-1` when not present. */
+  index: number;
+}
+
+/**
+ * Optimistically remove one asset by id — the OPTIMISTIC half of DELETE + UNDO (FILES-DELETE-UNDO).
+ * Returns a fresh list with the card gone PLUS the removed asset + its original index, so the undo
+ * path can re-insert it EXACTLY where it was ({@link restoreMediaAsset}) with zero server round-trip.
+ * Pure + exported so the component and its test share one source of truth (mirrors {@link mergeMediaAssets}).
+ * An absent id is a no-op (`removed: undefined, index: -1`) — undo then has nothing to restore.
+ */
+export function removeMediaAsset(assets: MediaAssetEntry[], id: string): MediaRemoveResult {
+  const index = assets.findIndex((a) => a.id === id);
+
+  if (index < 0) {
+    return { assets: assets.slice(), removed: undefined, index: -1 };
+  }
+
+  const removed = assets[index];
+  const next = assets.slice(0, index).concat(assets.slice(index + 1));
+
+  return { assets: next, removed, index };
+}
+
+/**
+ * Re-insert a removed asset at its original index — the UNDO half of DELETE + UNDO. Called when the
+ * user hits Undo before the grace window closes; since the destructive DELETE is DEFERRED until the
+ * window expires, undo is pure client state with NO server compensation. Mirrors {@link mergeMediaAssets}.
+ * Safe by construction: a `removed` of `undefined` (the delete already committed) is a no-op; an
+ * out-of-range index appends (never drops the card); a duplicate id is skipped (idempotent double-undo).
+ */
+export function restoreMediaAsset(
+  assets: MediaAssetEntry[],
+  removed: MediaAssetEntry | undefined,
+  index: number,
+): MediaAssetEntry[] {
+  // Nothing to restore (already committed), or it's somehow already present → idempotent no-op.
+  if (!removed || assets.some((a) => a.id === removed.id)) {
+    return assets;
+  }
+
+  const at = Math.max(0, Math.min(index, assets.length));
+
+  return assets.slice(0, at).concat(removed, assets.slice(at));
+}
+
 /**
  * Append the next build-files page onto the current list, deduping by `key` (prev wins, order stable).
  * The "Load more" path APPENDS — never replaces — so earlier pages stay on screen as the user pages
@@ -736,6 +788,19 @@ export const ResourcesPanel = memo(() => {
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
+  /*
+   * Deferred-delete bookkeeping (FILES-DELETE-UNDO). The card is removed optimistically the instant
+   * the user clicks; the DESTRUCTIVE server DELETE is held for a grace window so Undo is just a timer
+   * cancel + restore (zero server compensation). `pendingDelete` drives the in-panel undo bar; the ref
+   * mirror lets the commit/undo closures + the flush-on-unmount read the latest without stale deps.
+   */
+  const [pendingDelete, setPendingDelete] = useState<{ asset: MediaAssetEntry; index: number } | null>(null);
+  const pendingDeleteRef = useRef(pendingDelete);
+  pendingDeleteRef.current = pendingDelete;
+  const deleteTimerRef = useRef<ReturnType<typeof setTimeout>>();
+  /** How long the undo bar stays before the real DELETE commits (ms). */
+  const UNDO_WINDOW_MS = 6000;
+
   // True while a "Load more" page is in flight (disables the control + shows "Loading…").
   const [loadingMore, setLoadingMore] = useState(false);
 
@@ -1005,13 +1070,16 @@ export const ResourcesPanel = memo(() => {
     [uploading, environment, loadMedia],
   );
 
-  /** Delete one asset by id → remove locally + toast. */
-  const onDeleteAsset = useCallback(
-    async (asset: MediaAssetEntry) => {
-      if (deletingId) {
-        return;
-      }
-
+  /**
+   * Commit the REAL server-side DELETE for a pending (optimistically-removed) asset. Called when the
+   * undo window expires OR when a delete must be flushed early (unmount / env switch / a second delete).
+   * The card is already gone from `state.assets`, so a success just clears the pending bar + reconciles
+   * the usage rollup; a failure RESTORES the card (undo-by-error) so the user never silently loses it.
+   */
+  const commitDelete = useCallback(
+    async (asset: MediaAssetEntry, index: number) => {
+      clearTimeout(deleteTimerRef.current);
+      setPendingDelete(null);
       setDeletingId(asset.id);
 
       try {
@@ -1023,22 +1091,100 @@ export const ResourcesPanel = memo(() => {
             return;
           }
 
+          // The destructive call failed — put the card back where it was so nothing is silently lost.
+          setMedia((cur) =>
+            cur.status === 'ready'
+              ? { ...cur, assets: restoreMediaAsset(cur.assets, asset, index) }
+              : cur,
+          );
           postToastToParent('error', reply.error || 'Could not delete the file.');
 
           return;
         }
 
-        postToastToParent('success', `Deleted ${asset.name || 'the file'}.`);
-        setMedia((cur) =>
-          cur.status === 'ready' ? { ...cur, assets: cur.assets.filter((a) => a.id !== asset.id) } : cur,
-        );
+        // Confirmed gone. Reconcile the usage rollup (count/size) with a fresh list in the background.
+        void loadMedia();
       } catch (err) {
+        setMedia((cur) =>
+          cur.status === 'ready' ? { ...cur, assets: restoreMediaAsset(cur.assets, asset, index) } : cur,
+        );
         postToastToParent('error', err instanceof Error ? err.message : 'Could not delete the file.');
       } finally {
         setDeletingId(null);
       }
     },
-    [deletingId, environment],
+    [environment, loadMedia],
+  );
+
+  /**
+   * Delete one asset — OPTIMISTIC + DEFERRED (FILES-DELETE-UNDO). Removes the card from `state.assets`
+   * IMMEDIATELY (instant feedback), opens an in-panel "Deleted · Undo" bar, and DEFERS the destructive
+   * server DELETE until the grace window closes — so Undo is a pure timer-cancel + restore with no
+   * server compensation. A second delete first commits the previous pending one (never loses a delete).
+   */
+  const onDeleteAsset = useCallback(
+    (asset: MediaAssetEntry) => {
+      // A new delete while one is pending → commit the previous immediately, then start this one.
+      const prev = pendingDeleteRef.current;
+
+      if (prev) {
+        void commitDelete(prev.asset, prev.index);
+      }
+
+      // Optimistically drop the card + remember where it sat so Undo can re-insert it exactly.
+      let removedIndex = -1;
+      setMedia((cur) => {
+        if (cur.status !== 'ready') {
+          return cur;
+        }
+
+        const { assets, index } = removeMediaAsset(cur.assets, asset.id);
+        removedIndex = index;
+
+        return { ...cur, assets };
+      });
+
+      // Nothing was actually in the list (defensive) → don't arm an empty undo window.
+      if (removedIndex < 0) {
+        return;
+      }
+
+      setPendingDelete({ asset, index: removedIndex });
+      clearTimeout(deleteTimerRef.current);
+      deleteTimerRef.current = setTimeout(() => void commitDelete(asset, removedIndex), UNDO_WINDOW_MS);
+    },
+    [commitDelete],
+  );
+
+  /** Undo a pending delete — cancel the deferred DELETE + re-insert the card at its original index. */
+  const onUndoDelete = useCallback(() => {
+    const prev = pendingDeleteRef.current;
+
+    if (!prev) {
+      return;
+    }
+
+    clearTimeout(deleteTimerRef.current);
+    setPendingDelete(null);
+    setMedia((cur) =>
+      cur.status === 'ready' ? { ...cur, assets: restoreMediaAsset(cur.assets, prev.asset, prev.index) } : cur,
+    );
+  }, []);
+
+  /*
+   * Flush any pending delete on unmount — a deferred destructive op must still commit if the user
+   * navigates away before the window closes (never silently drop a delete they initiated).
+   */
+  useEffect(
+    () => () => {
+      const prev = pendingDeleteRef.current;
+
+      if (prev) {
+        clearTimeout(deleteTimerRef.current);
+        void requestResMedia({ action: 'delete', id: prev.asset.id, environment });
+      }
+    },
+    [environment],
   );
 
   const onPickFile = useCallback(() => fileInputRef.current?.click(), []);
@@ -1148,12 +1294,14 @@ export const ResourcesPanel = memo(() => {
             uploading={uploading}
             uploadName={uploadName}
             deletingId={deletingId}
+            pendingDelete={pendingDelete}
             loadingMore={loadingMore}
             onKind={setKind}
             onSearch={setSearch}
             onPickFile={onPickFile}
             onUploadFile={onUploadFile}
             onDelete={onDeleteAsset}
+            onUndoDelete={onUndoDelete}
             onLoadMore={() => void loadMoreMedia()}
             onRetry={() => void loadMedia()}
           />
@@ -1455,12 +1603,14 @@ const MediaLibrary = memo(
     uploading,
     uploadName,
     deletingId,
+    pendingDelete,
     loadingMore,
     onKind,
     onSearch,
     onPickFile,
     onUploadFile,
     onDelete,
+    onUndoDelete,
     onLoadMore,
     onRetry,
   }: {
@@ -1470,12 +1620,14 @@ const MediaLibrary = memo(
     uploading: boolean;
     uploadName: string | null;
     deletingId: string | null;
+    pendingDelete: { asset: MediaAssetEntry; index: number } | null;
     loadingMore: boolean;
     onKind: (k: string) => void;
     onSearch: (s: string) => void;
     onPickFile: () => void;
     onUploadFile: (file: File) => void;
     onDelete: (asset: MediaAssetEntry) => void;
+    onUndoDelete: () => void;
     onLoadMore: () => void;
     onRetry: () => void;
   }) => {
@@ -1650,12 +1802,58 @@ const MediaLibrary = memo(
             </p>
           </div>
         )}
+
+        {/* Undo bar — a deleted asset is removed instantly but the destructive DELETE is deferred;
+            this floating bar lets the owner take it back within the grace window (undo-everywhere). */}
+        {pendingDelete && <MediaUndoBar asset={pendingDelete.asset} onUndo={onUndoDelete} />}
       </div>
     );
   },
 );
 
 MediaLibrary.displayName = 'ResourcesPanel.MediaLibrary';
+
+/**
+ * Floating "Deleted · Undo" bar — the undo affordance for the optimistic-deferred media delete
+ * (FILES-DELETE-UNDO). The card is already gone from the grid and the real DELETE is deferred, so
+ * the Undo button is a pure client restore within the grace window. A hairline cyan progress line
+ * animates down over the window so the owner can SEE how long undo stays (no bare, silent timeout).
+ */
+const MediaUndoBar = memo(({ asset, onUndo }: { asset: MediaAssetEntry; onUndo: () => void }) => {
+  const name = asset.name || asset.url?.split('/').pop() || 'file';
+
+  return (
+    <div
+      className="absolute bottom-3 left-1/2 -translate-x-1/2 z-20 flex items-center gap-3 rounded-xl border border-bolt-elements-item-contentAccent/35 bg-bolt-elements-background-depth-1/95 backdrop-blur px-3 py-2 shadow-lg shadow-bolt-elements-item-contentAccent/10 max-w-[92%]"
+      role="status"
+      aria-live="polite"
+      data-testid="resources-media-undo-bar"
+    >
+      <div className="i-ph:trash-duotone text-base text-bolt-elements-textTertiary shrink-0" aria-hidden />
+      <p className="text-[12px] text-bolt-elements-textSecondary min-w-0 truncate">
+        Deleted <span className="font-medium text-bolt-elements-textPrimary" title={name}>{name}</span>
+      </p>
+      <button
+        type="button"
+        onClick={onUndo}
+        data-testid="resources-media-undo"
+        aria-label={`Undo deleting ${name}`}
+        className={classNames(BTN_SECONDARY, 'min-h-[26px] shrink-0 px-3 py-1 text-[11px]')}
+      >
+        <div className="i-ph:arrow-counter-clockwise-bold text-sm shrink-0" aria-hidden />
+        <span className="min-w-[4ch] text-center">Undo</span>
+      </button>
+      {/* Grace-window countdown — a cyan line that shrinks to 0 over ~6s. Decorative; motion-reduce-safe. */}
+      <span
+        aria-hidden
+        className="pointer-events-none absolute bottom-0 left-0 h-0.5 rounded-b-xl bg-bolt-elements-item-contentAccent/70 motion-safe:animate-[ps-undo-countdown_6s_linear_forwards] motion-reduce:hidden"
+        style={{ width: '100%' }}
+      />
+    </div>
+  );
+});
+
+MediaUndoBar.displayName = 'ResourcesPanel.MediaUndoBar';
 
 const MediaSkeleton = memo(() => (
   <div className="flex-1 overflow-hidden p-3" aria-busy="true" data-testid="resources-media-skeleton">

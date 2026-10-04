@@ -1508,6 +1508,16 @@ button:not(:disabled):not([class*='ResizeHandle']):not([data-panel-resize-handle
   }
 }
 
+/* Media delete undo bar — the grace-window countdown line shrinks to 0 over the window (FILES-DELETE-UNDO). */
+@keyframes ps-undo-countdown {
+  from {
+    width: 100%;
+  }
+  to {
+    width: 0%;
+  }
+}
+
 /* Reduced-motion safety for the items above */
 @media (prefers-reduced-motion: reduce) {
   .z-prompt::before,
