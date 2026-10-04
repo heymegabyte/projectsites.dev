@@ -249,3 +249,43 @@ describe('ResourceOverviewPanel — real-time, no manual refresh (R1)', () => {
     await waitFor(() => expect(overviewRequestCount()).toBeGreaterThan(before));
   });
 });
+
+describe('ResourceOverviewPanel — empty launchpad create-FIRST action (RES-OVERVIEW-EMPTY-CTA)', () => {
+  it('renders a real "add your first resource" CTA (a launchpad, not a dead end — and not a Reconcile button)', async () => {
+    render(<ResourceOverviewPanel />);
+    await waitFor(() => expect(postToParent).toHaveBeenCalled());
+    await replyReady([]); // empty inventory → EmptyLaunchpad
+
+    const cta = screen.getByTestId('resources-empty-add');
+    expect(cta).toBeTruthy();
+    expect(cta.textContent).toMatch(/add your first resource/i);
+    // It must NOT be a manual Reconcile/Refresh button (the surface self-updates).
+    expect(screen.queryByTestId('resources-empty-reconcile')).toBeNull();
+    expect(screen.queryByRole('button', { name: /reconcile|refresh/i })).toBeNull();
+  });
+
+  it('clicking the CTA hands an add-a-resource prompt to the editor AI chat via PS_SUBMIT_PROMPT', async () => {
+    const postSpy = vi.spyOn(window.parent, 'postMessage');
+
+    try {
+      render(<ResourceOverviewPanel />);
+      await waitFor(() => expect(postToParent).toHaveBeenCalled());
+      await replyReady([]);
+
+      await act(async () => {
+        screen.getByTestId('resources-empty-add').click();
+      });
+
+      const submit = postSpy.mock.calls
+        .map((c) => c[0] as { type?: string; prompt?: string; correlationId?: string })
+        .find((m) => m?.type === 'PS_SUBMIT_PROMPT');
+
+      expect(submit).toBeTruthy();
+      expect(submit?.prompt?.toLowerCase()).toContain('first resource');
+      expect(typeof submit?.correlationId).toBe('string');
+      expect((submit?.correlationId ?? '').length).toBeGreaterThan(0);
+    } finally {
+      postSpy.mockRestore();
+    }
+  });
+});

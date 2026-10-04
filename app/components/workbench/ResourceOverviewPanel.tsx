@@ -6,8 +6,9 @@
  * namespaces, R2 buckets, queues, Workers-for-Platforms functions, …) for a chosen environment
  * (preview | production), GROUPED by resource kind × environment. Each card carries the kind icon,
  * the Worker binding it's exposed under, its lifecycle state, its tenancy, a DRIFT badge when the
- * server flagged it out of desired state, and the last successful sync. A one-click "Reconcile"
- * button asks the server to bring the resources back to desired state, then refreshes.
+ * server flagged it out of desired state, and the last successful sync. Drift is reconciled
+ * AUTOMATICALLY + silently on the real-time cycle (per `real-time-data-no-manual-refresh`) — there
+ * is no manual Reconcile button.
  *
  * The embedded editor has no cross-origin session, so it CANNOT fetch the worker directly — it talks
  * to the parent admin (which holds the bearer + `selectedSite`) over `postMessage`. Two bridge pairs:
@@ -20,7 +21,9 @@
  * READ + reconcile only: this is a status surface, not a provisioning form. Resources the site
  * COULD add (server-known, not yet connected) render as muted "available to add" cards with a
  * coming-soon note rather than a dead click; anything the platform can't manage shows an
- * "unsupported" chip. Empty registry → an empty-state launchpad whose one obvious action is Reconcile.
+ * "unsupported" chip. Empty registry → an empty-state launchpad whose one obvious action asks the
+ * editor AI to add the owner's first resource (reuses the chat via `PS_SUBMIT_PROMPT` — NOT a
+ * manual Reconcile button; the inventory self-updates).
  *
  * Style mirrors the sibling `./SiteTablesPanel` + `./Preview` EXACTLY (UnoCSS `bolt-elements-*`
  * tokens, phosphor `i-ph:*` icons, black + cyan, ≥24px targets, aria-labels, focus-visible rings,
@@ -41,6 +44,7 @@ import { ResourceDetailPanel, type ResourceDetailTarget } from './ResourceDetail
 import { NamespaceSummary, type OpenKindTarget } from './NamespaceSummary';
 import { PanelShell, PanelHeader } from './panel';
 import { PanelLoading } from './panel/PanelLoading';
+import { buildAddResourceDispatch } from './resource-launchpad-logic';
 
 /**
  * Map a NamespaceSummary kind KEY to the canonical adapter `ResourceKind` the detail panel + worker
@@ -382,6 +386,25 @@ export const ResourceOverviewPanel = memo(() => {
     });
   }, []);
 
+  /**
+   * EmptyLaunchpad create-FIRST action: hand an "add my first resource" prompt to the EXISTING editor
+   * AI chat (reuses `PS_SUBMIT_PROMPT` — no new endpoint). Fire-and-forget: the chat consumes it and
+   * takes over, so there's no matched reply to await. NOT a reconcile/refresh — the inventory
+   * self-updates and will surface whatever the assistant provisions on the next real-time cycle.
+   *
+   * Raw-posted via `window.parent.postMessage` (like SqlNavigator's "Explain this"): `PS_SUBMIT_PROMPT`
+   * is a parent-RELAYED message, not a member of `ChildToParentMessage`, so it bypasses the typed
+   * `postToParent` helper. The admin's BoltEmbedService validates `event.origin`, so `'*'` is safe.
+   * Standalone editor (no parent) → no-op.
+   */
+  const onAddFirstResource = useCallback(() => {
+    try {
+      window.parent?.postMessage({ ...buildAddResourceDispatch(), correlationId: nextCorrelationId() }, '*');
+    } catch {
+      /* no admin parent — nothing to relay */
+    }
+  }, []);
+
   // Register exactly ONE parent-message listener; resolve by correlationId via the live ref.
   useEffect(() => {
     const unsubscribe = onParentMessage((msg) => {
@@ -637,7 +660,7 @@ export const ResourceOverviewPanel = memo(() => {
 
       {overview.status === 'ready' &&
         (groups.length === 0 ? (
-          <EmptyLaunchpad />
+          <EmptyLaunchpad onAddFirstResource={onAddFirstResource} />
         ) : (
           <div className="flex-1 overflow-auto modern-scrollbar px-4 py-4 space-y-6" data-testid="resources-groups">
             {/* Per-site WfP-namespace SUMMARY — a prominent rollup of every resource in the namespace,
@@ -811,17 +834,29 @@ DisabledCard.displayName = 'ResourceOverviewPanel.DisabledCard';
 
 // ── Empty launchpad ──────────────────────────────────────────────────────────
 
-const EmptyLaunchpad = memo(() => (
+const EmptyLaunchpad = memo(({ onAddFirstResource }: { onAddFirstResource: () => void }) => (
   <div className="flex-1 flex flex-col items-center justify-center gap-4 p-8 text-center" data-testid="resources-empty">
     <div className="i-ph:stack text-4xl text-bolt-elements-textTertiary" />
     <div className="space-y-1">
       <p className="text-sm font-semibold text-bolt-elements-textPrimary">No resources yet</p>
       <p className="text-[11px] text-bolt-elements-textTertiary max-w-[300px]">
-        When your site uses a database, storage bucket, queue, or function, it appears here automatically — this view
-        keeps itself up to date, nothing to run.
+        A database for saving records, storage for files, an email sender, a contact form — add your first one and it
+        shows up here. Not sure which? Let the assistant set it up for you.
       </p>
     </div>
-    {/* A quiet "watching" pulse — the surface self-detects; there is no button to press. */}
+    {/* One obvious create-FIRST action — the AI does the work (per embarrassingly-easy-to-use:
+        empty states are launchpads). NOT a manual Reconcile/Refresh button; the inventory
+        self-updates. Reuses the editor AI chat via a PS_SUBMIT_PROMPT bridge message. */}
+    <button
+      type="button"
+      onClick={onAddFirstResource}
+      data-testid="resources-empty-add"
+      className="min-h-[36px] inline-flex items-center gap-2 px-4 py-2 rounded-lg border border-bolt-elements-item-contentAccent/40 bg-bolt-elements-item-contentAccent/[0.08] text-[12px] font-semibold text-bolt-elements-item-contentAccent hover:bg-bolt-elements-item-contentAccent/[0.16] transition-colors motion-reduce:transition-none focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-bolt-elements-item-contentAccent cursor-pointer"
+    >
+      <div className="i-ph:sparkle-duotone text-base" aria-hidden />
+      Add your first resource
+    </button>
+    {/* A quiet "watching" pulse — reassures that the surface ALSO self-detects, no refresh needed. */}
     <span
       className="inline-flex items-center gap-1.5 text-[10px] text-bolt-elements-textTertiary select-none"
       role="status"
