@@ -1855,105 +1855,111 @@ export const BuildFiles = memo(
     loadingMore: boolean;
     onLoadMore: () => void;
   }) => {
-  if (state.status === 'idle' || state.status === 'loading') {
-    return <PanelLoading label="Loading your build files…" />;
-  }
+    if (state.status === 'idle' || state.status === 'loading') {
+      return <PanelLoading label="Loading your build files…" />;
+    }
 
-  if (state.status === 'disabled') {
-    return <DisabledCard what="Build files" />;
-  }
+    if (state.status === 'disabled') {
+      return <DisabledCard what="Build files" />;
+    }
 
-  if (state.status === 'error') {
-    return <ErrorCard message={state.message} onRetry={onRetry} />;
-  }
+    if (state.status === 'error') {
+      return <ErrorCard message={state.message} onRetry={onRetry} />;
+    }
 
-  if (state.files.length === 0) {
-    return (
-      <div
-        className="flex-1 flex flex-col items-center justify-center gap-3 p-8 text-center"
-        data-testid="resources-files-empty"
-      >
-        <div className="flex items-center justify-center h-14 w-14 rounded-2xl border border-bolt-elements-borderColor bg-bolt-elements-background-depth-2">
-          <div className="i-ph:folder-dashed-duotone text-3xl text-bolt-elements-textTertiary" aria-hidden />
-        </div>
-        <p className="text-sm font-semibold text-bolt-elements-textSecondary">No build files yet</p>
-        <p className="text-[11px] text-bolt-elements-textTertiary max-w-[260px] leading-relaxed">
-          When your site is published, the files that make up its build appear here.
-        </p>
-      </div>
-    );
-  }
-
-  const totalBytes = state.files.reduce((sum, f) => sum + (f.size ?? 0), 0);
-
-  return (
-    <div className="flex-1 overflow-auto modern-scrollbar" data-testid="resources-files-list">
-      {/* Prefix + count/size summary bar. */}
-      <div className="flex items-center gap-2 px-4 py-2 border-b border-bolt-elements-borderColor/40 sticky top-0 z-[1] bg-bolt-elements-background-depth-1/90 backdrop-blur">
-        <div className="i-ph:folder-open-duotone text-sm text-bolt-elements-item-contentAccent shrink-0" aria-hidden />
-        {state.prefix ? (
-          <span className="text-[10px] text-bolt-elements-textTertiary font-mono truncate flex-1" title={state.prefix}>
-            {state.prefix}
-          </span>
-        ) : (
-          <span className="text-[10px] text-bolt-elements-textTertiary flex-1">Published build files</span>
-        )}
-        <FilesCountSummary
-          shown={state.files.length}
-          totalBytes={totalBytes}
-          truncated={state.truncated}
-          cap={state.cap}
-        />
-      </div>
-
-      {state.files.map((file) => (
+    if (state.files.length === 0) {
+      return (
         <div
-          key={file.key}
-          className="group flex items-center gap-2.5 px-4 py-2 border-b border-bolt-elements-borderColor/25 hover:bg-bolt-elements-item-backgroundActive transition-colors motion-reduce:transition-none"
-          data-testid="resources-file-row"
+          className="flex-1 flex flex-col items-center justify-center gap-3 p-8 text-center"
+          data-testid="resources-files-empty"
         >
+          <div className="flex items-center justify-center h-14 w-14 rounded-2xl border border-bolt-elements-borderColor bg-bolt-elements-background-depth-2">
+            <div className="i-ph:folder-dashed-duotone text-3xl text-bolt-elements-textTertiary" aria-hidden />
+          </div>
+          <p className="text-sm font-semibold text-bolt-elements-textSecondary">No build files yet</p>
+          <p className="text-[11px] text-bolt-elements-textTertiary max-w-[260px] leading-relaxed">
+            When your site is published, the files that make up its build appear here.
+          </p>
+        </div>
+      );
+    }
+
+    const totalBytes = state.files.reduce((sum, f) => sum + (f.size ?? 0), 0);
+
+    return (
+      <div className="flex-1 overflow-auto modern-scrollbar" data-testid="resources-files-list">
+        {/* Prefix + count/size summary bar. */}
+        <div className="flex items-center gap-2 px-4 py-2 border-b border-bolt-elements-borderColor/40 sticky top-0 z-[1] bg-bolt-elements-background-depth-1/90 backdrop-blur">
           <div
-            className={classNames(
-              iconForBuildFile(file),
-              'text-base text-bolt-elements-textTertiary group-hover:text-bolt-elements-item-contentAccent transition-colors shrink-0',
-            )}
+            className="i-ph:folder-open-duotone text-sm text-bolt-elements-item-contentAccent shrink-0"
             aria-hidden
           />
-          <span className="text-[12px] font-mono text-bolt-elements-textPrimary truncate flex-1" title={file.name}>
-            {file.name}
-          </span>
-          <span className="text-[10px] text-bolt-elements-textTertiary tabular-nums shrink-0">
-            {formatBytes(file.size)}
-          </span>
-          {/* Row actions — reveal on hover/focus. Copy-path is ALWAYS available (no backend needed), so
-              every row has a working control even when the backend didn't mint a URL (never a dead row). */}
-          <div className="flex items-center gap-1 shrink-0 opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 transition-opacity motion-reduce:transition-none">
-            <CopyFilePathButton path={file.name} />
-            {file.url && (
-              <a
-                href={file.url}
-                target="_blank"
-                rel="noreferrer noopener"
-                aria-label={`Open ${file.name} in a new tab`}
-                title="Open in new tab"
-                className={classNames(BTN_GHOST, 'min-h-[24px] min-w-[24px] p-1')}
-              >
-                <div className="i-ph:arrow-square-out text-xs" aria-hidden />
-              </a>
-            )}
-          </div>
+          {state.prefix ? (
+            <span
+              className="text-[10px] text-bolt-elements-textTertiary font-mono truncate flex-1"
+              title={state.prefix}
+            >
+              {state.prefix}
+            </span>
+          ) : (
+            <span className="text-[10px] text-bolt-elements-textTertiary flex-1">Published build files</span>
+          )}
+          <FilesCountSummary
+            shown={state.files.length}
+            totalBytes={totalBytes}
+            truncated={state.truncated}
+            cap={state.cap}
+          />
         </div>
-      ))}
 
-      {/* Page past the windowed first 1000 (FILES-PAGING) — appends the next R2 page, hides at the end. */}
-      <FilesPageStats
-        shown={state.files.length}
-        hasMore={hasMoreFiles(state.truncated, state.cursor)}
-        loadingMore={loadingMore}
-        onLoadMore={onLoadMore}
-      />
-    </div>
-  );
+        {state.files.map((file) => (
+          <div
+            key={file.key}
+            className="group flex items-center gap-2.5 px-4 py-2 border-b border-bolt-elements-borderColor/25 hover:bg-bolt-elements-item-backgroundActive transition-colors motion-reduce:transition-none"
+            data-testid="resources-file-row"
+          >
+            <div
+              className={classNames(
+                iconForBuildFile(file),
+                'text-base text-bolt-elements-textTertiary group-hover:text-bolt-elements-item-contentAccent transition-colors shrink-0',
+              )}
+              aria-hidden
+            />
+            <span className="text-[12px] font-mono text-bolt-elements-textPrimary truncate flex-1" title={file.name}>
+              {file.name}
+            </span>
+            <span className="text-[10px] text-bolt-elements-textTertiary tabular-nums shrink-0">
+              {formatBytes(file.size)}
+            </span>
+            {/* Row actions — reveal on hover/focus. Copy-path is ALWAYS available (no backend needed), so
+              every row has a working control even when the backend didn't mint a URL (never a dead row). */}
+            <div className="flex items-center gap-1 shrink-0 opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 transition-opacity motion-reduce:transition-none">
+              <CopyFilePathButton path={file.name} />
+              {file.url && (
+                <a
+                  href={file.url}
+                  target="_blank"
+                  rel="noreferrer noopener"
+                  aria-label={`Open ${file.name} in a new tab`}
+                  title="Open in new tab"
+                  className={classNames(BTN_GHOST, 'min-h-[24px] min-w-[24px] p-1')}
+                >
+                  <div className="i-ph:arrow-square-out text-xs" aria-hidden />
+                </a>
+              )}
+            </div>
+          </div>
+        ))}
+
+        {/* Page past the windowed first 1000 (FILES-PAGING) — appends the next R2 page, hides at the end. */}
+        <FilesPageStats
+          shown={state.files.length}
+          hasMore={hasMoreFiles(state.truncated, state.cursor)}
+          loadingMore={loadingMore}
+          onLoadMore={onLoadMore}
+        />
+      </div>
+    );
   },
 );
 

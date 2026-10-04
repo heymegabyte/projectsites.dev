@@ -86,9 +86,7 @@ describe('<FilesPageStats> (the Load-more control)', () => {
 
   it('fires onLoadMore on click, and disables while loadingMore', () => {
     const onLoadMore = vi.fn();
-    const { rerender } = render(
-      <FilesPageStats shown={1000} hasMore loadingMore={false} onLoadMore={onLoadMore} />,
-    );
+    const { rerender } = render(<FilesPageStats shown={1000} hasMore loadingMore={false} onLoadMore={onLoadMore} />);
     fireEvent.click(screen.getByTestId('resources-files-load-more'));
     expect(onLoadMore).toHaveBeenCalledTimes(1);
 
@@ -98,13 +96,12 @@ describe('<FilesPageStats> (the Load-more control)', () => {
 });
 
 describe('<BuildFiles> footer (windowed → Load more; last page → hidden + honest count)', () => {
-  const ready = (over: Partial<Extract<Parameters<typeof BuildFiles>[0]['state'], { status: 'ready' }>>) =>
-    ({
-      status: 'ready' as const,
-      files: [file('a.html'), file('b.css')],
-      prefix: 'sites/acme/v1/',
-      ...over,
-    });
+  const ready = (over: Partial<Extract<Parameters<typeof BuildFiles>[0]['state'], { status: 'ready' }>>) => ({
+    status: 'ready' as const,
+    files: [file('a.html'), file('b.css')],
+    prefix: 'sites/acme/v1/',
+    ...over,
+  });
 
   it('shows the Load more footer when the listing is windowed WITH a cursor', () => {
     render(
