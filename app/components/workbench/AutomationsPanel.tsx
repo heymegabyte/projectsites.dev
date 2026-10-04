@@ -111,6 +111,54 @@ function statusMeta(status: string): { label: string; icon: string; color: strin
   return { label: status || 'unknown', icon: 'i-ph:dot-outline-duotone', color: TEAL };
 }
 
+/**
+ * Coarse status buckets the filter pills group by — maps every raw
+ * `workflow_jobs.status` string onto one of four tabs. Keeping this pure (no
+ * React, no DOM) makes the triage logic falsifiable in a unit test without
+ * mounting the panel, mirroring `MediaPageStats` in `./ResourcesPanel`.
+ */
+export type AutomationFilter = 'all' | 'running' | 'success' | 'failed';
+
+/** Bucket a raw status into the filter group it belongs to (never throws). */
+export function statusBucket(status: string): Exclude<AutomationFilter, 'all'> {
+  const s = (status || '').toLowerCase();
+
+  if (s === 'failed' || s === 'error' || s === 'errored' || s === 'cancelled' || s === 'canceled') {
+    return 'failed';
+  }
+
+  if (s === 'success' || s === 'succeeded' || s === 'complete' || s === 'completed' || s === 'published') {
+    return 'success';
+  }
+
+  // Everything still in flight (running / queued / pending / processing / …) is "running".
+  return 'running';
+}
+
+/**
+ * Count each status bucket across a list of automations + return the subset that
+ * matches the active filter. Pure — the single source of truth for both the
+ * filter-pill counts AND the rows the panel renders, so the two can never drift.
+ *
+ * @param automations - the full, backend-capped list (newest first).
+ * @param filter - the active tab.
+ * @returns `{ counts, visible }` — per-bucket totals + the filtered rows.
+ */
+export function summarizeAutomations(
+  automations: AutomationEntry[],
+  filter: AutomationFilter,
+): { counts: { all: number; running: number; success: number; failed: number }; visible: AutomationEntry[] } {
+  const counts = { all: automations.length, running: 0, success: 0, failed: 0 };
+
+  for (const a of automations) {
+    counts[statusBucket(a.status)] += 1;
+  }
+
+  const visible = filter === 'all' ? automations : automations.filter((a) => statusBucket(a.status) === filter);
+
+  return { counts, visible };
+}
+
 /** A phosphor glyph for an automation kind. */
 function iconForType(type: string): string {
   const t = (type || '').toLowerCase();
@@ -150,6 +198,7 @@ type AutomationsState =
 
 export const AutomationsPanel = memo(() => {
   const [state, setState] = useState<AutomationsState>({ status: 'loading' });
+  const [filter, setFilter] = useState<AutomationFilter>('all');
 
   /** Load (or reload) the site's automations. */
   const loadAutomations = useCallback(async () => {
@@ -253,19 +302,31 @@ export const AutomationsPanel = memo(() => {
     );
   }
 
+  const summary = state.status === 'ready' ? summarizeAutomations(state.automations, filter) : undefined;
+
   return (
     <PanelShell testId="automations-panel">
       <AutomationsHeader count={state.status === 'ready' ? state.automations.length : undefined} />
+
+      {/* Triage filter — only shown once there's more than one job to sift through. */}
+      {summary && summary.counts.all > 1 && (
+        <AutomationsFilterBar counts={summary.counts} active={filter} onChange={setFilter} />
+      )}
 
       <div className="flex-1 overflow-auto modern-scrollbar min-h-0">
         {state.status === 'loading' && <AutomationsSkeleton />}
         {state.status === 'error' && <ErrorCard message={state.message} onRetry={() => void loadAutomations()} />}
         {state.status === 'ready' &&
+          summary &&
           (state.automations.length === 0 ? (
             <AutomationsEmpty />
+          ) : summary.visible.length === 0 ? (
+            // The store has jobs, but none match the active filter — honest, not a dead end:
+            // offer the one obvious action (clear the filter) rather than a bare "no results".
+            <AutomationsFilterEmpty filter={filter} onClear={() => setFilter('all')} />
           ) : (
             <ul className="divide-y divide-bolt-elements-borderColor/25" data-testid="automations-list">
-              {state.automations.map((a) => (
+              {summary.visible.map((a) => (
                 <AutomationRow key={a.id} automation={a} />
               ))}
             </ul>
@@ -313,6 +374,74 @@ const AutomationsHeader = memo(({ count }: { count?: number }) => (
 ));
 
 AutomationsHeader.displayName = 'AutomationsPanel.Header';
+
+// ── Filter bar ─────────────────────────────────────────────────────────────────
+
+/** The four triage tabs, in display order, with their labels. */
+const FILTER_TABS: ReadonlyArray<{ key: AutomationFilter; label: string }> = [
+  { key: 'all', label: 'All' },
+  { key: 'running', label: 'Running' },
+  { key: 'success', label: 'Succeeded' },
+  { key: 'failed', label: 'Failed' },
+];
+
+/**
+ * Status-filter pills — lets the owner triage a long job history (focus on what
+ * failed or is still running) instead of scanning a flat 200-row dump. Each pill
+ * shows its bucket count; a zero-count bucket (other than All) is disabled so the
+ * owner is never offered a filter that yields nothing (per `embarrassingly-easy`).
+ */
+const AutomationsFilterBar = memo(
+  ({
+    counts,
+    active,
+    onChange,
+  }: {
+    counts: { all: number; running: number; success: number; failed: number };
+    active: AutomationFilter;
+    onChange: (f: AutomationFilter) => void;
+  }) => (
+    <div
+      role="tablist"
+      aria-label="Filter automations by status"
+      className="flex items-center gap-1.5 px-4 py-2 border-b border-bolt-elements-borderColor/25 overflow-x-auto modern-scrollbar"
+      data-testid="automations-filter"
+    >
+      {FILTER_TABS.map(({ key, label }) => {
+        const count = counts[key];
+        const isActive = active === key;
+        const isEmptyBucket = key !== 'all' && count === 0;
+
+        return (
+          <button
+            key={key}
+            type="button"
+            role="tab"
+            aria-selected={isActive}
+            disabled={isEmptyBucket}
+            data-testid={`automations-filter-${key}`}
+            onClick={() => onChange(key)}
+            className={classNames(
+              'inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-[11px] font-medium shrink-0 transition-colors duration-150 motion-reduce:transition-none select-none',
+              'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-1 focus-visible:ring-offset-bolt-elements-background-depth-1 focus-visible:ring-bolt-elements-item-contentAccent',
+              'min-h-[26px] border',
+              isActive
+                ? 'border-bolt-elements-item-contentAccent/60 bg-bolt-elements-item-contentAccent/[0.12] text-bolt-elements-item-contentAccent'
+                : isEmptyBucket
+                  ? 'border-bolt-elements-borderColor/30 text-bolt-elements-textTertiary/50 cursor-not-allowed'
+                  : 'border-bolt-elements-borderColor/40 text-bolt-elements-textSecondary hover:border-bolt-elements-borderColor hover:text-bolt-elements-textPrimary cursor-pointer',
+            )}
+          >
+            {label}
+            <span className="tabular-nums text-[10px] opacity-80">{count}</span>
+          </button>
+        );
+      })}
+    </div>
+  ),
+);
+
+AutomationsFilterBar.displayName = 'AutomationsPanel.FilterBar';
 
 // ── Row ──────────────────────────────────────────────────────────────────────
 
@@ -411,6 +540,41 @@ const AutomationsEmpty = memo(() => (
 ));
 
 AutomationsEmpty.displayName = 'AutomationsPanel.Empty';
+
+/** Filter matched nothing — a launchpad back to the full list, never a dead "no results". */
+const AutomationsFilterEmpty = memo(({ filter, onClear }: { filter: AutomationFilter; onClear: () => void }) => {
+  const label = FILTER_TABS.find((t) => t.key === filter)?.label.toLowerCase() ?? filter;
+
+  return (
+    <div
+      className="flex-1 flex flex-col items-center justify-center gap-3 p-8 text-center"
+      data-testid="automations-filter-empty"
+    >
+      <div className="flex items-center justify-center h-12 w-12 rounded-2xl border border-bolt-elements-borderColor bg-bolt-elements-background-depth-2">
+        <div className="i-ph:funnel-duotone text-2xl text-bolt-elements-textTertiary" aria-hidden />
+      </div>
+      <p className="text-xs text-bolt-elements-textSecondary max-w-[260px] leading-relaxed">
+        No <span className="font-medium text-bolt-elements-textPrimary">{label}</span> automations right now.
+      </p>
+      <button
+        type="button"
+        onClick={onClear}
+        data-testid="automations-filter-clear"
+        className={classNames(
+          'inline-flex items-center justify-center gap-1.5 rounded-lg font-medium transition-all duration-150 motion-reduce:transition-none cursor-pointer select-none',
+          'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-1 focus-visible:ring-offset-bolt-elements-background-depth-1 focus-visible:ring-bolt-elements-item-contentAccent',
+          'min-h-[28px] px-3 py-1.5 text-[11px]',
+          'border border-bolt-elements-item-contentAccent/35 bg-bolt-elements-item-contentAccent/[0.06] text-bolt-elements-item-contentAccent',
+          'hover:bg-bolt-elements-item-contentAccent/[0.14] hover:border-bolt-elements-item-contentAccent/60',
+        )}
+      >
+        <div className="i-ph:list-bullets text-sm" aria-hidden /> Show all
+      </button>
+    </div>
+  );
+});
+
+AutomationsFilterEmpty.displayName = 'AutomationsPanel.FilterEmpty';
 
 const ErrorCard = memo(({ message, onRetry }: { message: string; onRetry: () => void }) => (
   <div
