@@ -26,6 +26,7 @@
  */
 import type { MetaFunction } from '@remix-run/cloudflare';
 import { PanelShell, PanelHeader, PanelLoading, PanelEmpty } from '~/components/workbench/panel';
+import { BucketsTwoPane } from '~/components/workbench/BucketsTwoPane';
 
 export const meta: MetaFunction = () => [
   { title: 'Panel Primitive Gallery · ProjectSites editor' },
@@ -44,6 +45,70 @@ function Frame({ caption, children }: { caption: string; children: React.ReactNo
         {caption}
       </figcaption>
     </figure>
+  );
+}
+
+/** Left pane sample — a realistic bucket list with one selected row (mirrors the real Buckets tab). */
+function BucketListSample() {
+  const buckets = [
+    { name: 'site-assets', objects: '1,284', selected: true },
+    { name: 'user-uploads', objects: '312', selected: false },
+    { name: 'backups', objects: '48', selected: false },
+  ];
+
+  return (
+    <ul className="m-0 list-none p-2 flex flex-col gap-1">
+      {buckets.map((b) => (
+        <li
+          key={b.name}
+          className={`flex items-center gap-2 rounded-lg px-2.5 py-2 ${
+            b.selected
+              ? 'bg-bolt-elements-item-backgroundAccent text-bolt-elements-item-contentAccent'
+              : 'text-bolt-elements-textSecondary'
+          }`}
+        >
+          <span className="i-ph:hard-drives-duotone text-base shrink-0" aria-hidden="true" />
+          <span className="truncate text-sm font-medium">{b.name}</span>
+          <span className="ml-auto text-[10px] tabular-nums text-bolt-elements-textTertiary">{b.objects}</span>
+        </li>
+      ))}
+    </ul>
+  );
+}
+
+/** Right pane sample — a prefix breadcrumb + an object table whose long keys prove the min-w-0 shrink. */
+function ObjectBrowserSample() {
+  const objects = [
+    { key: 'images/2026/hero-background-full-bleed-1920x1080.webp', size: '284 KB' },
+    { key: 'images/2026/team/founder-portrait-retouched-final-v3.jpg', size: '198 KB' },
+    { key: 'documents/annual-report-2026-accessible-tagged.pdf', size: '1.2 MB' },
+  ];
+
+  return (
+    <div className="flex flex-col min-h-0">
+      <div className="flex items-center gap-1.5 border-b border-bolt-elements-borderColor/60 px-3 py-2 text-xs text-bolt-elements-textSecondary">
+        <span className="text-bolt-elements-item-contentAccent">site-assets</span>
+        <span className="i-ph:caret-right text-[10px]" aria-hidden="true" />
+        <span>images</span>
+        <span className="i-ph:caret-right text-[10px]" aria-hidden="true" />
+        <span className="text-bolt-elements-textPrimary">2026</span>
+        <button className="ml-auto flex items-center gap-1 rounded-md bg-bolt-elements-item-backgroundAccent px-2 py-1 text-[11px] text-bolt-elements-item-contentAccent">
+          <span className="i-ph:upload-simple text-xs" aria-hidden="true" />
+          Upload
+        </button>
+      </div>
+      <ul className="m-0 list-none overflow-auto p-1 modern-scrollbar">
+        {objects.map((o) => (
+          <li key={o.key} className="flex items-center gap-2 rounded-md px-2 py-1.5 text-bolt-elements-textSecondary">
+            <span className="i-ph:file-duotone text-base shrink-0" aria-hidden="true" />
+            {/* min-w-0 + truncate: the long key shrinks to the pane and ellipsizes instead of
+                overflowing the parent — the exact clip the BucketsTwoPane min-w-0 right pane prevents. */}
+            <span className="min-w-0 flex-1 truncate font-mono text-xs">{o.key}</span>
+            <span className="shrink-0 text-[10px] tabular-nums text-bolt-elements-textTertiary">{o.size}</span>
+          </li>
+        ))}
+      </ul>
+    </div>
   );
 }
 
@@ -124,6 +189,23 @@ export default function PanelPrimitiveGallery() {
           </PanelShell>
         </Frame>
       </div>
+
+      {/* 5 — BucketsTwoPane: the data-bound two-pane Resources layout, rendered WIDE so the
+          lg:flex-row path shows the bucket list (left, fixed 288px) beside the object browser
+          (right, min-w-0 flex-fill). This is the headless pixel-proof of the two-pane layout that
+          previously needed the authed editor — the min-w-0 right pane keeps long object keys inside
+          the panel (truncate) rather than overflowing the overflow-hidden parent (fire-153/160/162). */}
+      <figure className="m-0 mt-8 flex max-w-[940px] flex-col gap-2">
+        <div className="h-[420px] w-full overflow-hidden rounded-2xl border border-bolt-elements-borderColor shadow-xl shadow-black/40">
+          <PanelShell>
+            <PanelHeader icon="i-ph:hard-drives-duotone" title="Buckets" subtitle="site-assets · 1,284 objects" />
+            <BucketsTwoPane left={<BucketListSample />} right={<ObjectBrowserSample />} />
+          </PanelShell>
+        </div>
+        <figcaption className="text-[11px] font-mono uppercase tracking-wider text-bolt-elements-textTertiary">
+          BucketsTwoPane (data-bound two-pane · min-w-0 object pane)
+        </figcaption>
+      </figure>
     </div>
   );
 }

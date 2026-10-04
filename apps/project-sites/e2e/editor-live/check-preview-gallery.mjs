@@ -21,12 +21,28 @@ try {
   await page.waitForTimeout(3500);
   const title = await page.title();
   const bodyLen = await page.evaluate(() => document.body.innerText.length);
+  // Assert the BucketsTwoPane frame (fire-162) actually rendered — the gate must prove the data-bound
+  // two-pane layout + its min-w-0 object pane paint headlessly, not merely that the page title loaded.
+  const twoPane = await page.evaluate(() => {
+    const pane = document.querySelector('[data-testid="buckets-two-pane"]');
+    const obj = document.querySelector('[data-testid="buckets-object-pane"]');
+    return { present: !!pane && !!obj, objMinW0: obj ? obj.className.includes('min-w-0') : false };
+  });
   const shot = `${OUT}/preview-gallery.png`;
   await page.screenshot({ path: shot, fullPage: true });
   const realErrors = errors.filter((e) => !/getContext|WebGL|canvas/i.test(e));
   console.log(`[preview] GET /_preview → ${res?.status()} · title: "${title}" · body chars: ${bodyLen} · console errors: ${realErrors.length}`);
+  console.log(`[preview] BucketsTwoPane present: ${twoPane.present} · object pane min-w-0: ${twoPane.objMinW0}`);
   console.log(`[preview] screenshot: ${shot}`);
-  console.log(res?.status() === 200 && /Gallery/i.test(title) ? 'VERDICT: ✅ /_preview gallery reachable headlessly + rendered — panel primitives screenshotted.' : `VERDICT: ⚠ status ${res?.status()} / title "${title}".`);
+  const ok = res?.status() === 200 && /Gallery/i.test(title) && twoPane.present && twoPane.objMinW0 && realErrors.length === 0;
+  console.log(
+    ok
+      ? 'VERDICT: ✅ /_preview gallery reachable headlessly — panel primitives + BucketsTwoPane (min-w-0 object pane) rendered + screenshotted.'
+      : `VERDICT: ⚠ status ${res?.status()} / title "${title}" / twoPane ${twoPane.present} / minW0 ${twoPane.objMinW0} / errors ${realErrors.length}.`,
+  );
+  if (!ok) {
+    process.exitCode = 1;
+  }
 } finally {
   await browser.close();
 }

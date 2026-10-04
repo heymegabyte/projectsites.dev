@@ -24,6 +24,7 @@ import React, { memo, useCallback, useEffect, useMemo, useRef, useState } from '
 import { classNames } from '~/utils/classNames';
 import { PanelShell, PanelHeader } from './panel';
 import { PanelEmpty } from './panel/PanelEmpty';
+import { BucketsTwoPane } from './BucketsTwoPane';
 import {
   isEmbedded,
   postToastToParent,
@@ -252,30 +253,11 @@ type ObjectsState =
 
 type SortKey = 'name' | 'size' | 'time';
 
-// ── Two-pane layout (extracted so the min-w-0 clip fix is a reusable, testable primitive) ─────
-
-/**
- * The Buckets two-pane layout — bucket LIST (left, fixed-width on wide screens) + object BROWSER
- * (right, flex-fill). Extracted (fire-160) so the exact flex structure — including the `min-w-0`
- * right pane that stops the object browser clipping at the narrow ~600px editor panel — is ONE
- * reusable primitive, independently render-testable + visible in the /_preview gallery.
- */
-export function BucketsTwoPane({ left, right }: { left: React.ReactNode; right: React.ReactNode }) {
-  return (
-    <div className="relative flex-1 overflow-hidden flex flex-col lg:flex-row min-h-0" data-testid="buckets-two-pane">
-      {/* Left: bucket list (fixed width on wide screens). */}
-      <div className="lg:w-72 shrink-0 border-b lg:border-b-0 lg:border-r border-bolt-elements-borderColor/60 overflow-auto modern-scrollbar">
-        {left}
-      </div>
-      {/* Right: object browser. `min-w-0` lets the pane shrink to its flex share inside the narrow
-          (~600px) editor panel so the browser scrolls internally instead of overflowing the
-          `overflow-hidden` parent (was clipped at the panel edge — fire-153). */}
-      <div className="flex-1 min-h-0 min-w-0 flex flex-col" data-testid="buckets-object-pane">
-        {right}
-      </div>
-    </div>
-  );
-}
+// ── Two-pane layout ───────────────────────────────────────────────────────────
+// The `min-w-0` clip fix lives in its own reusable, render-testable primitive (fire-162 moved it to
+// `./BucketsTwoPane` so the `/_preview` gallery can mount it without this bridge-coupled module).
+// Re-exported here so `import { BucketsTwoPane } from '../BucketsPanel'` (existing tests) still resolves.
+export { BucketsTwoPane };
 
 // ── Component ────────────────────────────────────────────────────────────────
 
