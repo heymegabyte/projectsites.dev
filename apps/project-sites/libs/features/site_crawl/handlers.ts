@@ -41,8 +41,9 @@ import { unauthorized, notFound, badRequest } from '../../../src/lib/feature_gua
 import { isFlagOn } from '../../../src/modules/feature_flags/services.js';
 import { isSafeCrawlUrl } from '../../../src/services/outbound_webhooks.js';
 
-import { CrawlRequestSchema, type CrawlPage, type CrawlLink } from './schemas.js';
+import { CrawlRequestSchema, type CrawlJob, type CrawlPage, type CrawlLink } from './schemas.js';
 import { type CrawlProvider, CloudflareCrawlProvider } from './provider.js';
+import { persistCrawl, buildFullSiteMarkdown, type CrawlPersistenceEnv } from './persistence.js';
 
 type AppContext = { Bindings: Env; Variables: Variables };
 
@@ -116,6 +117,13 @@ export function assertCrawlUrlSafe(rawUrl: string): void {
  * no reachable surface) an in-memory binding is sufficient to prove the authz contract + tests.
  */
 const jobOrg = new Map<string, string>();
+
+/**
+ * In-process jobId → originating {@link CrawlRequest}, so persistence can snapshot the crawl's
+ * mode/config + compute a stable fingerprint. Same TODO(CRAWL-3) lifetime as {@link jobOrg} — once
+ * the `site_crawls` row is the source of truth, the request is read back from D1 instead.
+ */
+const jobRequest = new Map<string, import('./schemas.js').CrawlRequest>();
 
 /** Lazily build the crawl provider (CF Browser-Run). Swap here when another engine is added. */
 function getProvider(c: Context<AppContext>): CrawlProvider {
@@ -195,6 +203,56 @@ async function collectResults(
 }
 
 /**
+ * Collect the full results AND persist the crawl corpus/metadata (CRAWL-3) — the single chokepoint
+ * the pages/links/export routes call so the normalized corpus is captured exactly once per request.
+ *
+ * Fetches the job state once (for the manifest + D1 row) then fires {@link persistCrawl} on
+ * `executionCtx.waitUntil` so persistence never blocks the HTTP response (sync UI, async backing).
+ * Persistence is fully fail-soft — any R2/D1 error is swallowed inside `persistCrawl`, so a persist
+ * problem can never turn a successful results read into an error. The route still returns the live
+ * `{ pages, links }` even if persistence is skipped.
+ */
+async function collectAndPersist(
+  c: Context<AppContext>,
+  provider: CrawlProvider,
+  owned: { id: string; orgId: string },
+): Promise<{ pages: CrawlPage[]; links: CrawlLink[] }> {
+  const { pages, links } = await collectResults(provider, owned.id);
+  // Best-effort: derive the job (for status/url/createdAt) without failing the read if status errors.
+  let job: CrawlJob | undefined;
+  try {
+    job = await provider.status(owned.id);
+  } catch {
+    job = undefined;
+  }
+  if (job) {
+    const run = () =>
+      persistCrawl(c.env as unknown as CrawlPersistenceEnv, {
+        job: job as CrawlJob,
+        pages,
+        links,
+        orgId: owned.orgId,
+        request: jobRequest.get(owned.id),
+      }).catch(() => undefined); // double-guard: persistCrawl is already fail-soft
+    // Prefer waitUntil so persistence runs after the response flushes; fall back to inline
+    // fire-and-forget. `c.executionCtx` is a getter that THROWS when no execution context is bound
+    // (e.g. a unit test's `app.request()` with no ctx) — guard the access so it degrades to inline.
+    let waited = false;
+    try {
+      const ctx = c.executionCtx;
+      if (ctx && typeof ctx.waitUntil === 'function') {
+        ctx.waitUntil(run());
+        waited = true;
+      }
+    } catch {
+      waited = false;
+    }
+    if (!waited) void run();
+  }
+  return { pages, links };
+}
+
+/**
  * POST /api/crawl — SSRF-guard the seed, start the crawl, return the CrawlJob immediately.
  *
  * Does NOT block on completion (202). Zod-validates the body; the SSRF guard THROWS before any
@@ -217,6 +275,7 @@ siteCrawl.post('/api/crawl', async (c) => {
   try {
     const job = await getProvider(c).start(parsed.data);
     jobOrg.set(job.id, g); // bind ownership (TODO(CRAWL-3): persist to D1)
+    jobRequest.set(job.id, parsed.data); // remember config for the manifest/fingerprint on persist
     log(c, 'started', { crawl_id: job.id });
     // 202 Accepted — the crawl runs async; poll GET /api/crawl/:id for progress.
     return c.json({ ok: true, job }, 202);
@@ -242,7 +301,7 @@ siteCrawl.get('/api/crawl/:id/pages', async (c) => {
   const owned = await ownedJob(c);
   if (owned instanceof Response) return owned;
   try {
-    const { pages } = await collectResults(getProvider(c), owned.id);
+    const { pages } = await collectAndPersist(c, getProvider(c), owned);
     return c.json({ ok: true, count: pages.length, pages });
   } catch (err) {
     return providerError(c, err);
@@ -269,7 +328,7 @@ siteCrawl.get('/api/crawl/:id/links', async (c) => {
   const owned = await ownedJob(c);
   if (owned instanceof Response) return owned;
   try {
-    const { links } = await collectResults(getProvider(c), owned.id);
+    const { links } = await collectAndPersist(c, getProvider(c), owned);
     return c.json({ ok: true, count: links.length, links });
   } catch (err) {
     return providerError(c, err);
@@ -286,8 +345,9 @@ siteCrawl.get('/api/crawl/:id/export.md', async (c) => {
   const owned = await ownedJob(c);
   if (owned instanceof Response) return owned;
   try {
-    const { pages } = await collectResults(getProvider(c), owned.id);
-    const doc = pages.map((p) => `## ${p.finalUrl}\n\n${p.markdown.trim()}`).join('\n\n---\n\n');
+    const { pages } = await collectAndPersist(c, getProvider(c), owned);
+    // Shared builder (persistence.ts) — the SAME doc shape written to the R2 corpus `full-site.md`.
+    const doc = buildFullSiteMarkdown(pages);
     return c.body(doc, 200, {
       'content-type': 'text/markdown; charset=utf-8',
       'content-disposition': `inline; filename="crawl-${owned.id}.md"`,
