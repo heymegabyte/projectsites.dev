@@ -199,10 +199,14 @@ async function verifyResourcesSubTabs(page, frame, consoleErrors) {
       const tabBtn = frame.locator(`[data-testid="${probe.tabTestId}"]`).first();
       await tabBtn.waitFor({ timeout: 5000, state: 'visible' });
       try {
-        await tabBtn.click({ force: true, timeout: 8000 });
-      } catch {
+        // dispatchEvent targets the element DIRECTLY (precise) — a coordinate-based force-click in
+        // the cross-origin WebContainer iframe can land on the wrong element (it hit the Preview
+        // top-nav tab in fire-156, switching the whole view). Force-click only as a fallback.
         await tabBtn.dispatchEvent('click');
+      } catch {
+        await tabBtn.click({ force: true, timeout: 8000 });
       }
+      await page.waitForTimeout(1500); // let the switched sub-tab's content mount before probing
       console.log(`  [${probe.name}] Tab clicked`);
     } catch (err) {
       console.warn(`  [${probe.name}] Could not click tab: ${err.message}`);
@@ -375,8 +379,26 @@ async function pathA_adminEmbed(pw) {
         await frame.locator(sel).waitFor({ timeout: 5000, state: 'visible' });
         console.log(`[A] Resources tab found via: ${sel}`);
         resourcesTabVisible = true;
-        await frame.locator(sel).first().click();
-        await page.waitForTimeout(3000);
+        // The cross-origin WebContainer iframe hangs normal actionability, so a plain .click()
+        // on the top-level Resources nav silently no-ops (the view stayed on Code — fire-154).
+        // Force-click (+ dispatchEvent fallback), then CONFIRM the Resources panel actually opened
+        // (a sub-tab becomes visible); retry once before giving up.
+        const openResources = async () => {
+          try {
+            await frame.locator(sel).first().click({ force: true, timeout: 8000 });
+          } catch {
+            await frame.locator(sel).first().dispatchEvent('click');
+          }
+          await page.waitForTimeout(2500);
+        };
+        await openResources();
+        const panelOpen = async () =>
+          frame.locator('[data-testid="resources-section-media"]').first().isVisible().catch(() => false);
+        if (!(await panelOpen())) {
+          console.log('[A] Resources panel not open after first click — retrying …');
+          await openResources();
+        }
+        console.log(`[A] Resources panel open after click: ${await panelOpen()}`);
         screenshots.push(await shot(page, '07a-resources-tab-clicked'));
         break;
       } catch {
