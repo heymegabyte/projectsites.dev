@@ -499,6 +499,23 @@ worktree isolation + main-only shipping (§ Git & shipping), category budgets
 (§ Convergence discipline), § Wedged-agent protocol, § Parallel-migration numbering,
 § Prod D1 migrations apply, and § Deep UI Explorer invariants.
 
+## § Editor-panel render verification — prefer a DOM-render test over the live WebContainer nav (fire-137)
+
+Verifying an EDITOR-panel render (a surface INSIDE the bolt.diy iframe — Resources / Data / Code tabs)
+via a full live browser pass is FRAGILE: the WebContainer cold-boots ~30-60s, THEN the cross-origin
+iframe nav must reach the panel. It BLOCKED two browser agents on MEDIA-UI-VERIFY-LIVE (fires 136 + 137
+both authed + loaded the editor LIVE but cut off before reaching the media panel). Use these tiers,
+cheapest-first — a green 1-3 CLOSES an editor-panel render-verification item:
+
+1. **Logic test** (vitest) — the pure helper (`hasMoreMedia`, `mergeMediaAssets`) computes correctly.
+2. **DOM-render test** (vitest + `@testing-library/react` + jsdom — ALL present in `app/`) — EXTRACT the
+   count/control into an exported PURE presentational component (e.g. `MediaPageStats`) and assert the
+   DOM paints the honest state (`resources-media-count` shows "50 of 109"; guards hide at `total<=shown`).
+   This is the RELIABLE render proof — NOT a "mock journey", it's the standard React component render test.
+3. **Deployed-artifact grep** — `grep <data-testid> build/client/assets/*.js` proves the change shipped.
+4. **Live WebContainer pass** — the gold-standard pixel, but reserve it for a PURPOSE-BUILT e2e helper
+   (WebContainer boot-wait + cross-origin frame access); NEVER an ad-hoc per-fire retry (it just re-blocks).
+
 ## § Verify/Ship addendum — push ≠ deploy (fire-92, 2026-10-02)
 
 A SINGLE red worker unit test silently SKIPS the deploy jobs in `project-sites.yaml`

@@ -73,7 +73,7 @@ beautiful AND more effortless, both, always. Full mandate: global rule `embarras
 | AI | Cloudflare Workers AI (Llama 3.3 70B + 3.1 8B, FP8) via AI Gateway |
 | Payments | Stripe (checkout, subscriptions, webhooks) |
 | Email | Amazon SES (primary) + SendGrid (break-glass only); ADR-0019, Resend removed 2026-09-09 + Listmonk (newsletters); bounce handling |
-| Analytics | PostHog (server-side) |
+| Analytics | Admin `/admin/analytics` = Cloudflare RUM + D1 `visitor_events` (per-subdomain, beacon); PostHog = server-side PRODUCT events only (not the analytics data plane) |
 | Errors | Sentry (HTTP API) |
 
 Status machine: `draft → collecting → imaging → generating → published | error | archived`.

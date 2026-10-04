@@ -238,6 +238,15 @@
 
 ## money-path (Brian #1 — HIGH)
 
+<!-- fire-137 replenish (2026-10-04) — view-live / publish / AI-build (fires 135-137 all worked "edit"; rotate the step), from fire-137 Product Discovery -->
+- [ ] VIEWLIVE-1: post-publish delivered-site health gate — acceptance: `scripts/verify-delivered-site.mjs` fetches `{slug}.projectsites.dev`, asserts 200 + `x-ps-serve: wfp` + 0 console errors + 0 failed requests (logo-wordmark/apple-touch-icon/favicon/manifest 200) for 2 live sites; RED if any red. (merges feature§asset-404 gate + WfP-serve into one runnable probe)
+  - cadence: next-fire · priority: high · category: golden-path · discovered_by: fire-137-product-discovery
+- [ ] PUBLISH-1: "View Live" propagation guard in the promote flow — acceptance: after `deploySiteToWfp`, the promote control polls `{slug}.projectsites.dev` (≤5 checks/60s) and only flips to "View Live" on a 200; a unit covers the poll-then-reveal state machine. (executable slice of the carried DNS-propagation item)
+  - cadence: next-fire · priority: high · category: money-path · discovered_by: fire-137-product-discovery
+- [ ] AIBUILD-1: owner build-complete psnotify send from the generation WORKFLOW — acceptance: `site-generation.ts` final step calls `notifyUser(ownerId,'build.complete'|'build.failed',{siteId,slug,errorReason?})`; a unit asserts the canonical `{name,subscriberId,payload}` shape + that failure fires `build.failed`. (distinct from the bolt-publish `notify_site_built.ts` rail)
+  - cadence: next-fire · priority: high · category: money-path · discovered_by: fire-137-product-discovery
+- [ ] AIBUILD-2: public waiting→error screen in the generation state machine — acceptance: `public/index.html` gains a 5th state (`waiting → error|success`) surfacing the build error + idempotency-safe retry-by-site_id; a probe drives a forced-fail build and asserts the error screen renders (not an infinite `waiting`).
+  - cadence: next-2-fires · priority: med · category: money-path · discovered_by: fire-137-product-discovery
 - [~] Backfill WfP slots for all existing sites (batched, idempotent) — fire-51: script `scripts/backfill-wfp-slots.mjs` shipped (`5676c8329`), proven on search-verify (both slots `ok:true`); cross-org sweep needs the internal super-admin endpoint (see § fire-51 replenish)
   - cadence: once
   - priority: high
@@ -310,11 +319,11 @@
 <!-- fire-135 replenish (2026-10-04) — honest-count / silent-cap class (sibling of the shipped MEDIA-UI-1), from fire-135 Product Discovery + Architecture -->
 - [x] MEDIA-UI-1b: editor Resources media panel load-more — DONE fire-136 (`7ac73f942`): `mergeMediaAssets` (append + dedupe-by-id) + `hasMoreMedia` pure helpers, `loadMoreMedia` offset-paged APPEND (never replace), `[data-testid=resources-media-load-more]` gated on hasMore + hidden at shown===total. TDD RED→GREEN (4 tests), tsc 0, vitest 6/6. Deployed editor Pages.
   - cadence: DONE · priority: med · category: feature · discovered_by: fire-135-product-discovery
-- [ ] MEDIA-UI-VERIFY-LIVE: browser-confirm the "N of total" + load-more RENDER in the live editor (org-brian-001, 109 assets) — acceptance: a real-browser pass auths as brian → opens the editor Resources→Media panel → observes + screenshots `[data-testid=resources-media-count]` showing "N of 109" (M>N) + a load-more that appends. fire-136 BLOCKED: the browser agent authed + loaded the editor (screenshots 01-05) but cut off before driving the WebContainer iframe into the media panel; render LOGIC is unit-proven (fire-135 vitest 15/15 + fire-136 4 tests). Needs a robust editor-iframe nav helper (WebContainer ~30-60s boot) in e2e/.
+- [x] MEDIA-UI-VERIFY-LIVE — RENDER-PROOF DONE fire-137 (`6525a5bae`): closed via the RELIABLE tier-2 path (per OPERATING-PRINCIPLES § Editor-panel render verification), NOT the twice-blocked live-WebContainer nav. Extracted `MediaPageStats` pure component + a `@testing-library/react` DOM-render test (7 assertions: "50 of 109" shows, hides at total≤shown, usage fallback, load-more present/absent) — vitest 7/7; deployed editor Pages (`7162a814`), artifact carries the testid. Tier-4 live-pixel = an OPTIONAL purpose-built e2e helper (NOT required to close this). Original acceptance (superseded by the tiers principle): browser-confirm "N of total" + load-more in the live editor (org-brian-001, 109 assets) — acceptance: a real-browser pass auths as brian → opens the editor Resources→Media panel → observes + screenshots `[data-testid=resources-media-count]` showing "N of 109" (M>N) + a load-more that appends. fire-136 BLOCKED: the browser agent authed + loaded the editor (screenshots 01-05) but cut off before driving the WebContainer iframe into the media panel; render LOGIC is unit-proven (fire-135 vitest 15/15 + fire-136 4 tests). Needs a robust editor-iframe nav helper (WebContainer ~30-60s boot) in e2e/.
   - cadence: next-fire · priority: high · category: golden-path · discovered_by: fire-136-browser-verify
 - [ ] FILES-COUNT-1: editor Resources Files tab honest total — acceptance: `ResourcesPanel.tsx` Files header ("N files") reads "N of TOTAL" when the file list is windowed/capped; if provably unbounded, a unit asserts that (no silent cap). (same honest-count class as MEDIA-UI-1)
   - cadence: next-2-fires · priority: med · category: feature · discovered_by: fire-135-architecture
-- [ ] LEADS-TOTAL-1: leads list true total + load-more — acceptance: `leads.component.ts` header shows "N of TOTAL" from the server's true filtered count (not a page-length count) + a load-more pages the remainder; reconcile display-vs-store against the D1 ground-truth count. (silent-cap class, outreach surface)
+- [x] LEADS-TOTAL-1 — DONE fire-137 (`dafb6fa0e`, worker+frontend deployed): CAPPED confirmed (`listLeads` LIMIT default 50 → route returned page-length as the count). Added `countLeads` + shared `buildLeadFilter` (mirrors media `countAssets`), route returns `total`, `leads.component.ts` shows "N of TOTAL". 43 jest + leads Karma 15 pass; worker deployed (`5e6feb23`). (silent-cap class, outreach surface — now honest)
   - cadence: next-2-fires · priority: med · category: feature · discovered_by: fire-135-architecture
 
 <!-- fire-101 replenish (2026-10-03) — editor↔worker bridge + gen-quality gates, from Product Discovery -->
@@ -769,7 +778,7 @@
 ## dead-code / hygiene
 
 <!-- fire-136 replenish — code-simplifier knip/ts-prune sweep (Cleanup category; VERIFY callsites before removing per knip-unused-not-always-dead) -->
-- [ ] dead-code-136: verify-then-remove the top sweep candidates (0 new orphans; 134 advisory SERVICE_MODULE baseline holds) — acceptance: each confirmed-dead export/dep removed in a batch with tsc+build green; false-positives (entrypoints/dynamic-imports/manifest-refs) left with a one-line why.
+- [~] dead-code-136: verify-then-remove the top sweep candidates — fire-137 (`e2b2190ca`) removed the `safe`-tagged: 5 unused `motion.ts` anims (fadeRise/drawerSlide/dialogScaleFade/contentFade/buttonState) + `json-ld.ts` `localBusiness`+`LocalBusinessInput` (0 callers verified; tsc 0, 2458 Karma pass). REMAINING (`verify`-tagged, next cleanup fire): ui/card directives, ui/index utils, frontend deps (monaco/partysocket/yjs/qrcode/tw-animate-css), Storybook devDeps — grep callsites before removing.
   - `frontend/src/app/animations/motion.ts` (fadeRise, drawerSlide, dialogScaleFade, contentFade, buttonState) — **safe** (unused animation exports, no internal refs)
   - `frontend/src/app/lib/json-ld.ts` `localBusiness` builder — **safe** (no route calls it)
   - `frontend/src/app/ui/card.ts` (HlmCard/CardTitle/CardDescription directives) — **verify** (Spartan re-exports; grep index consumption first)
