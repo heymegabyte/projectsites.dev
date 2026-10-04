@@ -90,7 +90,10 @@ const OWNED: SiteRow = { id: 's1', slug: 'acme', org_id: 'owner-org' };
 describe('POST /api/sites/:id/deploy — the ZIP-deploy causal chain (publish + cache-bust)', () => {
   it('401 when unauthenticated', async () => {
     const { env } = makeEnv(OWNED);
-    const res = await makeApp(env, {})('/api/sites/s1/deploy', await zipForm({ 'dist/index.html': '<h1>x</h1>' }));
+    const res = await makeApp(env, {})(
+      '/api/sites/s1/deploy',
+      await zipForm({ 'dist/index.html': '<h1>x</h1>' }),
+    );
     expect(res.status).toBe(401);
   });
 
@@ -106,7 +109,10 @@ describe('POST /api/sites/:id/deploy — the ZIP-deploy causal chain (publish + 
 
   it('400 when no ZIP is provided', async () => {
     const { env } = makeEnv(OWNED);
-    const res = await makeApp(env, { orgId: 'owner-org', userId: 'u' })('/api/sites/s1/deploy', new FormData());
+    const res = await makeApp(env, { orgId: 'owner-org', userId: 'u' })(
+      '/api/sites/s1/deploy',
+      new FormData(),
+    );
     expect(res.status).toBe(400);
   });
 
