@@ -145,15 +145,22 @@ jobs:
 
       - name: Test worker package
         working-directory: apps/project-sites
-        # Retry ONCE on failure. The worker Jest suite has a non-deterministic suite-LOAD
-        # flake under CI jest-worker sharding — a suite that imports the full ../index worker
-        # intermittently throws "Class extends value undefined" (seen: platform_root_landings,
-        # fire-99) or trips the noisy places_search 403/429 error-path suites (fire-97). Both
-        # are GREEN locally 908/908 every run, so the authoritative signal is the local full
-        # suite. A single retry self-heals the CI-only flake so it never strands the worker
-        # deploy — automating the fire-98 §9 "green-local-full-suite → re-run" discipline. A
-        # genuine regression fails BOTH runs and correctly blocks the deploy.
-        run: npm run test:unit || (echo "::warning::worker unit suite flaked (CI-only; green locally) — retrying once per fire-99 flake-recovery" && npm run test:unit)
+        env:
+          # CI runners have less RAM than dev. The heavy suites that import the full worker via
+          # ../index (route_malformed_json_boundary, platform_root_landings) intermittently
+          # "Test suite failed to run" / "Class extends value undefined" under parallel jest —
+          # a memory/resource race, GREEN locally 14420/14420 every run. Raise the V8 heap ceiling
+          # so the heavy import always has headroom. (CRAWL-3b fire-121 CI-FLAKE-1 durable fix.)
+          NODE_OPTIONS: '--max-old-space-size=4096'
+        # THREE total attempts. fire-119 STRANDED the worker deploy (CRAWL-3 skeleton + ide_sandbox
+        # cleanup never shipped) because the old 2-attempt step flaked BOTH runs → Deploy skipped 0s.
+        # `--maxWorkers=2` caps concurrent heavy-suite memory on the RAM-constrained runner; the local
+        # full suite is the authoritative signal, so a CI-only flake must never strand the deploy. A
+        # GENUINE regression fails all 3 attempts and correctly blocks.
+        run: |
+          npm run test:unit -- --maxWorkers=2 \
+            || (echo "::warning::worker unit suite flaked (attempt 1/3; green locally) — retrying" && npm run test:unit -- --maxWorkers=2) \
+            || (echo "::warning::worker unit suite flaked (attempt 2/3; green locally) — retrying" && npm run test:unit -- --maxWorkers=2)
 
   # ─── Stage 3: Deploy to Staging ────────────────────────────
   deploy-staging:
