@@ -59,7 +59,97 @@ siteCreation.post('/api/sites/create-from-search', async (c) => {
     throw unauthorized('Must be authenticated');
   }
 
-  // Check build limits (1 free, then $50/mo per site).
+  // Zod-validate the boundary (AL-724): this is the core funnel entry — a wrong-typed field
+  // (e.g. `business_type: 12345`) must fail-soft as a 400, never crash 500 via `(12345).trim()`
+  // nor lying-success persist a number into a TEXT column that throws downstream. safeParse →
+  // 400 (matches the contact_newsletter sibling idiom), never throws.
+  const parsed = createFromSearchSchema.safeParse(await c.req.json().catch(() => ({})));
+  if (!parsed.success) {
+    throw badRequest(
+      `Invalid request body: ${parsed.error.issues
+        .map((i) => `${i.path.join('.') || 'body'} — ${i.message}`)
+        .slice(0, 5)
+        .join('; ')}`,
+    );
+  }
+  const body = parsed.data;
+
+  // Normalize both v1 (flat) and v2 (nested business object) payload formats.
+  const mode = body.mode ?? null;
+  const businessName =
+    body.business?.name || body.business_name || (mode === 'custom' ? 'Custom Website' : null);
+  const businessAddress = body.business?.address || body.business_address;
+  let businessHours = body.business?.hours || body.business_hours;
+  const googlePlaceId = body.business?.place_id || body.google_place_id;
+  let businessPhone = body.business?.phone || body.business_phone || null;
+  const businessEmail = body.business?.email || body.business_email || null;
+
+  // ── SEARCH-DEDUP-GUARD (money-path leg 1) ──────────────────────────────────
+  // A 2nd search/create for a business this org ALREADY built must OPEN the existing
+  // site — never mint a new id + start a 2nd (billable) build. `ensureUniqueSlug` would
+  // otherwise silently fork the slug to `${slug}-2`, stranding the owner on a duplicate
+  // (golden-journey dedup memory). Runs BEFORE the build-limit check so a free owner
+  // (1/1) re-searching their OWN site gets "open your site", not a BUILD_LIMIT_REACHED
+  // dead-end (embarrassingly-easy-to-use). Match the strongest identity signal first:
+  // google_place_id (exact business), else exact case-insensitive business_name, else a
+  // caller-pinned preferred_slug. Skip the name clause for `mode==='custom'` — its name is
+  // the generic "Custom Website" fallback and would wrongly collapse distinct custom sites.
+  {
+    const dedupName = (businessName ?? '').trim();
+    const dedupClauses: string[] = [];
+    const dedupParams: unknown[] = [orgId];
+    if (googlePlaceId) {
+      dedupClauses.push('google_place_id = ?');
+      dedupParams.push(googlePlaceId);
+    }
+    if (dedupName && mode !== 'custom') {
+      dedupClauses.push('LOWER(business_name) = LOWER(?)');
+      dedupParams.push(dedupName);
+    }
+    if (body.preferred_slug) {
+      dedupClauses.push('slug = ?');
+      dedupParams.push(body.preferred_slug);
+    }
+    if (dedupClauses.length > 0) {
+      const owned = await dbQueryOne<{ id: string; slug: string; status: string }>(
+        c.env.DB,
+        `SELECT id, slug, status FROM sites
+         WHERE org_id = ? AND deleted_at IS NULL AND (${dedupClauses.join(' OR ')})
+         ORDER BY created_at DESC LIMIT 1`,
+        dedupParams,
+      );
+      if (owned) {
+        await writeAuditLog(c.env.DB, {
+          org_id: orgId,
+          actor_id: c.get('userId') ?? null,
+          action: 'site.reopened_from_search',
+          message: `Search matched existing site '${owned.slug}' for org '${orgId}' — opened it instead of starting a 2nd build`,
+          target_type: 'site',
+          target_id: owned.id,
+          metadata_json: {
+            slug: owned.slug,
+            matched_on: googlePlaceId ? 'place_id' : dedupName ? 'business_name' : 'preferred_slug',
+          },
+          request_id: c.get('requestId'),
+        }).catch(() => {});
+        return c.json(
+          {
+            data: {
+              site_id: owned.id,
+              slug: owned.slug,
+              status: owned.status,
+              existing: true,
+              message: `You already have a site for ${dedupName ? `'${dedupName}'` : `'${owned.slug}'`} — opening it.`,
+            },
+          },
+          200,
+        );
+      }
+    }
+  }
+
+  // Build limits (1 free, then $50/mo per site) — only for a genuinely NEW build. A dedup
+  // hit above already returned, so reopening an owned site is never blocked by the limit.
   const { checkBuildLimit, resolveActiveOrgPlan } = await import('../../../src/services/build_limits.js');
   const plan = await resolveActiveOrgPlan(c.env.DB, orgId);
   const limitCheck = await checkBuildLimit(c.env.DB, orgId, plan);
@@ -90,31 +180,6 @@ siteCreation.post('/api/sites/create-from-search', async (c) => {
       403,
     );
   }
-
-  // Zod-validate the boundary (AL-724): this is the core funnel entry — a wrong-typed field
-  // (e.g. `business_type: 12345`) must fail-soft as a 400, never crash 500 via `(12345).trim()`
-  // nor lying-success persist a number into a TEXT column that throws downstream. safeParse →
-  // 400 (matches the contact_newsletter sibling idiom), never throws.
-  const parsed = createFromSearchSchema.safeParse(await c.req.json().catch(() => ({})));
-  if (!parsed.success) {
-    throw badRequest(
-      `Invalid request body: ${parsed.error.issues
-        .map((i) => `${i.path.join('.') || 'body'} — ${i.message}`)
-        .slice(0, 5)
-        .join('; ')}`,
-    );
-  }
-  const body = parsed.data;
-
-  // Normalize both v1 (flat) and v2 (nested business object) payload formats.
-  const mode = body.mode ?? null;
-  const businessName =
-    body.business?.name || body.business_name || (mode === 'custom' ? 'Custom Website' : null);
-  const businessAddress = body.business?.address || body.business_address;
-  let businessHours = body.business?.hours || body.business_hours;
-  const googlePlaceId = body.business?.place_id || body.google_place_id;
-  let businessPhone = body.business?.phone || body.business_phone || null;
-  const businessEmail = body.business?.email || body.business_email || null;
 
   // Enrich NAP from Google Places when the caller selected a real business but the
   // homepage SPA didn't forward hours/phone (the common case — the search result

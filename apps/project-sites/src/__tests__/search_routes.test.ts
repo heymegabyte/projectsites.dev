@@ -811,6 +811,115 @@ describe('POST /api/sites/create-from-search', () => {
     expect(writeAuditLog).toHaveBeenCalled();
   });
 
+  // ── SEARCH-DEDUP-GUARD (money-path leg 1) ──────────────────────────────────
+  // A 2nd search/create for a business the org ALREADY built must OPEN the existing
+  // site, never mint a new id + start a 2nd (billable) build that ensureUniqueSlug
+  // would silently fork to `${slug}-2`. Match on the strongest identity signal first
+  // (google_place_id), else an exact business_name. Org-scoped + non-deleted.
+
+  it('SEARCH-DEDUP-GUARD: an owned-business re-search OPENS the existing site (200 existing:true), never a 2nd build', async () => {
+    mockDbQueryOne.mockResolvedValueOnce({
+      id: 'existing-site-abc',
+      slug: 'joes-pizza-palace',
+      status: 'published',
+    });
+
+    const authedApp = makeAuthenticatedApp({
+      orgId: '00000000-0000-4000-8000-000000000001',
+      userId: '00000000-0000-4000-8000-000000000002',
+      requestId: 'req-dedup-placeid',
+    });
+
+    const res = await authedApp.request(
+      '/api/sites/create-from-search',
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          business_name: "Joe's Pizza Palace",
+          google_place_id: 'ChIJ_joes_pizza',
+        }),
+      },
+      mockEnv,
+    );
+
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.data.existing).toBe(true);
+    expect(body.data.site_id).toBe('existing-site-abc');
+    expect(body.data.slug).toBe('joes-pizza-palace');
+    // The guard short-circuits BEFORE any build work:
+    expect(mockDbInsert).not.toHaveBeenCalled();
+    expect(mockQueueSend).not.toHaveBeenCalled();
+    // The dedup query is org-scoped + non-deleted + matches the place_id.
+    const [, sql, params] = mockDbQueryOne.mock.calls[0] as [unknown, string, unknown[]];
+    expect(sql).toMatch(/org_id = \?/);
+    expect(sql).toMatch(/deleted_at IS NULL/);
+    expect(sql).toMatch(/google_place_id = \?/);
+    expect(params).toContain('ChIJ_joes_pizza');
+    expect(params).toContain('00000000-0000-4000-8000-000000000001');
+  });
+
+  it('SEARCH-DEDUP-GUARD: matches an owned site by business_name when no place_id is sent', async () => {
+    mockDbQueryOne.mockResolvedValueOnce({
+      id: 'existing-site-def',
+      slug: 'napoli-pizza',
+      status: 'building',
+    });
+
+    const authedApp = makeAuthenticatedApp({
+      orgId: '00000000-0000-4000-8000-000000000001',
+      userId: '00000000-0000-4000-8000-000000000002',
+      requestId: 'req-dedup-name',
+    });
+
+    const res = await authedApp.request(
+      '/api/sites/create-from-search',
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ business_name: 'Napoli Pizza' }),
+      },
+      mockEnv,
+    );
+
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.data.existing).toBe(true);
+    expect(body.data.site_id).toBe('existing-site-def');
+    expect(mockDbInsert).not.toHaveBeenCalled();
+    expect(mockQueueSend).not.toHaveBeenCalled();
+    const [, sql] = mockDbQueryOne.mock.calls[0] as [unknown, string, unknown[]];
+    expect(sql).toMatch(/LOWER\(business_name\) = LOWER\(\?\)/);
+  });
+
+  it('SEARCH-DEDUP-GUARD: a different (unowned) business still starts a fresh build (201)', async () => {
+    // Control: no owned match (dbQueryOne → null default) → normal create path.
+    mockDbInsert.mockResolvedValueOnce({ error: null });
+
+    const authedApp = makeAuthenticatedApp({
+      orgId: '00000000-0000-4000-8000-000000000001',
+      userId: '00000000-0000-4000-8000-000000000002',
+      requestId: 'req-dedup-miss',
+    });
+
+    const res = await authedApp.request(
+      '/api/sites/create-from-search',
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ business_name: 'Brand New Bakery', google_place_id: 'ChIJ_new_bakery' }),
+      },
+      mockEnv,
+    );
+
+    expect(res.status).toBe(201);
+    const body = await res.json();
+    expect(body.data.existing).toBeUndefined();
+    expect(body.data.status).toBe('building');
+    expect(mockDbInsert).toHaveBeenCalledTimes(1);
+  });
+
   it('enqueues the AUTHORITATIVE slug + address + phone so the queue fallback build matches the D1 site record', async () => {
     // The queue consumer (default.queue in index.ts) uploads the generated bundle
     // to `sites/${slug}/${version}/…` and feeds address+phone into V2 research.
