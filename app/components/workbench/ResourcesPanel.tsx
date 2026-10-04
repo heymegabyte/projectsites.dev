@@ -54,6 +54,12 @@ const ENVIRONMENTS: { value: ResourceEnvironment; label: string }[] = [
   { value: 'preview', label: 'Preview' },
 ];
 
+/** Render order of the env radios — the single source of truth for roving-tabindex navigation. */
+const ENV_ORDER: readonly ResourceEnvironment[] = ['production', 'preview'];
+
+/** Stable DOM id for an env radio (so roving-focus can move focus between them). */
+const envRadioId = (e: ResourceEnvironment) => `resources-env-radio-${e}`;
+
 /**
  * localStorage key for the persisted Resources env selection (RES-ENV-STICKY). Persisting the choice
  * means it survives a section change, a tab remount, and a fresh editor boot — an owner who's working
@@ -103,6 +109,77 @@ export function persistResEnv(env: ResourceEnvironment): void {
 
 /** The asset sections this panel surfaces. */
 type Section = 'media' | 'files' | 'buckets' | 'automations';
+
+/** Render order of the section tabs — the single source of truth for roving + ARIA wiring. */
+const SECTION_ORDER: readonly Section[] = ['media', 'files', 'buckets', 'automations'];
+
+/** Stable DOM id for a section tab (so `aria-controls` ↔ the panel's `id`/`aria-labelledby` agree). */
+const sectionTabId = (s: Section) => `resources-tab-${s}`;
+/** Stable DOM id for the single content region (the tabpanel every tab controls). */
+const RESOURCES_TABPANEL_ID = 'resources-tabpanel';
+
+/**
+ * Roving-tabindex keyboard handler for a horizontal tab/radio strip (WCAG APG Tabs/Radiogroup).
+ * ArrowRight/ArrowLeft move + WRAP; Home/End jump to the ends. On a move it selects the new item
+ * (automatic-activation tabs) AND focuses its element (roving focus), so arrow-keying a focused tab
+ * both switches the panel and lands focus on the newly-selected tab. Enter/Space are already handled
+ * natively by the `<button>` (click → onSelect), so they're intentionally not intercepted here.
+ *
+ * @param e - the keydown event on the active item.
+ * @param order - the ordered list of item values.
+ * @param current - the currently-selected value.
+ * @param onSelect - selects a value (same callback the click path uses — zero behavior drift).
+ * @param idFor - maps a value to the DOM id of its control, so the handler can move focus.
+ */
+function handleRovingKeydown<T>(
+  e: React.KeyboardEvent,
+  order: readonly T[],
+  current: T,
+  onSelect: (value: T) => void,
+  idFor: (value: T) => string,
+): void {
+  const i = order.indexOf(current);
+
+  if (i < 0) {
+    return;
+  }
+
+  let next = i;
+
+  switch (e.key) {
+    case 'ArrowRight':
+    case 'ArrowDown':
+      next = (i + 1) % order.length;
+      break;
+    case 'ArrowLeft':
+    case 'ArrowUp':
+      next = (i - 1 + order.length) % order.length;
+      break;
+    case 'Home':
+      next = 0;
+      break;
+    case 'End':
+      next = order.length - 1;
+      break;
+    default:
+      return;
+  }
+
+  e.preventDefault();
+
+  const value = order[next];
+
+  if (value !== current) {
+    onSelect(value);
+  }
+
+  // Move focus to the newly-selected control (roving focus follows selection).
+  const el = document.getElementById(idFor(value));
+
+  if (el) {
+    el.focus();
+  }
+}
 
 type MediaState =
   | { status: 'loading' }
@@ -1057,7 +1134,12 @@ export const ResourcesPanel = memo(() => {
         onOpenConsole={() => setShowConsole(true)}
       />
 
-      <div className="relative flex-1 overflow-hidden">
+      <div
+        className="relative flex-1 overflow-hidden"
+        role="tabpanel"
+        id={RESOURCES_TABPANEL_ID}
+        aria-labelledby={sectionTabId(section)}
+      >
         {section === 'media' ? (
           <MediaLibrary
             state={media}
@@ -1150,10 +1232,11 @@ const Header = memo(
           </div>
 
           <div className="ml-auto flex items-center gap-2 shrink-0">
-            {/* Environment selector */}
+            {/* Environment selector — APG radiogroup (single choice: Preview | Production).
+                Roving tabindex + arrow keys; only the checked env is tabbable. */}
             <div
               className="flex items-center rounded-lg border border-bolt-elements-borderColor bg-bolt-elements-background-depth-2 p-0.5"
-              role="group"
+              role="radiogroup"
               aria-label="Environment"
             >
               {ENVIRONMENTS.map((env) => {
@@ -1162,8 +1245,20 @@ const Header = memo(
                   <button
                     key={env.value}
                     type="button"
+                    id={envRadioId(env.value)}
+                    role="radio"
+                    aria-checked={active}
+                    tabIndex={active ? 0 : -1}
                     onClick={() => onEnvironment(env.value)}
-                    aria-pressed={active}
+                    onKeyDown={(e) =>
+                      handleRovingKeydown(
+                        e,
+                        ENV_ORDER,
+                        environment,
+                        onEnvironment,
+                        envRadioId,
+                      )
+                    }
                     data-testid={`resources-env-${env.value}`}
                     className={classNames(
                       'min-h-[24px] px-2.5 py-1 text-[11px] font-medium rounded-md transition-colors motion-reduce:transition-none focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-bolt-elements-item-contentAccent cursor-pointer',
@@ -1215,9 +1310,15 @@ const Header = memo(
               key={tab.value}
               type="button"
               role="tab"
+              id={sectionTabId(tab.value)}
               data-filled-pill=""
               aria-selected={active}
+              aria-controls={RESOURCES_TABPANEL_ID}
+              // Roving tabindex (APG Tabs) — only the active tab is in the tab order; the rest are
+              // reached via Arrow keys, which move selection + focus together.
+              tabIndex={active ? 0 : -1}
               onClick={() => onSection(tab.value)}
+              onKeyDown={(e) => handleRovingKeydown(e, SECTION_ORDER, section, onSection, sectionTabId)}
               data-testid={`resources-section-${tab.value}`}
               className={classNames(
                 'group relative min-h-[26px] flex items-center gap-1.5 px-3 py-1 text-xs font-medium rounded-md transition-colors motion-reduce:transition-none focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-bolt-elements-item-contentAccent cursor-pointer',
