@@ -25,6 +25,8 @@ jest.mock('../../../../src/services/site_data_db.js', () => {
     buildAddColumnSql: actual.buildAddColumnSql,
     buildCreateTableSql: jest.fn(),
     buildDropColumnSql: actual.buildDropColumnSql,
+    buildInsertRowSql: actual.buildInsertRowSql,
+    buildRenameColumnSql: actual.buildRenameColumnSql,
     buildUpdateRowSql: actual.buildUpdateRowSql,
     createSampleData: jest.fn(),
     insertSeedRows: jest.fn(),
@@ -964,5 +966,150 @@ describe('POST /api/sites/:siteId/db/search (cross-table search — LIKE-injecti
     const b = (await res.json()) as { data: { contentMatches: unknown[]; truncated: boolean } };
     expect(b.data.contentMatches).toHaveLength(1);
     expect(b.data.truncated).toBe(true);
+  });
+});
+
+// ── The last 3 per-site-DB MUTATION routes (create-table / insert-row / rename-column) ──
+// With these, EVERY per-site-DB route has a route-layer safety test (fires 165-168).
+
+const postJson = (b: unknown) => ({
+  method: 'POST',
+  headers: { 'content-type': 'application/json' },
+  body: JSON.stringify(b),
+});
+const patchJson = (b: unknown) => ({
+  method: 'PATCH',
+  headers: { 'content-type': 'application/json' },
+  body: JSON.stringify(b),
+});
+
+describe('POST /api/sites/:siteId/db/tables (create table)', () => {
+  it('404 (DARK) when the flag is off — resolve never runs', async () => {
+    mockFlag.mockResolvedValue(false);
+    const res = await authed().request('/api/sites/s1/db/tables', postJson({ table: 't', columns: [{ name: 'c' }] }), mockEnv());
+    expect(res.status).toBe(404);
+    expect(mockResolve).not.toHaveBeenCalled();
+  });
+
+  it('400 for an invalid body (empty columns array)', async () => {
+    mockFlag.mockResolvedValue(true);
+    mockResolve.mockResolvedValue(dbStub(jest.fn()));
+    const res = await authed().request('/api/sites/s1/db/tables', postJson({ table: 't', columns: [] }), mockEnv());
+    expect(res.status).toBe(400);
+  });
+
+  it('400 when the builder rejects the definition (hostile name → null) — never touches the DB', async () => {
+    mockFlag.mockResolvedValue(true);
+    const q = jest.fn();
+    mockResolve.mockResolvedValue(dbStub(q));
+    mockBuildCreate.mockReturnValue(null);
+    const res = await authed().request('/api/sites/s1/db/tables', postJson({ table: 'ok', columns: [{ name: 'c' }] }), mockEnv());
+    expect(res.status).toBe(400);
+    expect(q).not.toHaveBeenCalled();
+  });
+
+  it('409 when a table with that name already exists (never clobbers)', async () => {
+    mockFlag.mockResolvedValue(true);
+    const q = jest.fn();
+    mockResolve.mockResolvedValue(dbStub(q));
+    mockBuildCreate.mockReturnValue({ sql: 'CREATE TABLE IF NOT EXISTS "customers" (…)', table: 'customers' });
+    mockListTables.mockResolvedValue(['customers']);
+    const res = await authed().request('/api/sites/s1/db/tables', postJson({ table: 'customers', columns: [{ name: 'c' }] }), mockEnv());
+    expect(res.status).toBe(409);
+    expect(q).not.toHaveBeenCalled();
+  });
+
+  it('201 creates a new table — executes the built SQL + returns its columns', async () => {
+    mockFlag.mockResolvedValue(true);
+    const q = jest.fn(async () => ({ results: [], meta: {} }));
+    mockResolve.mockResolvedValue(dbStub(q));
+    mockBuildCreate.mockReturnValue({ sql: 'CREATE TABLE IF NOT EXISTS "newt" (id INTEGER PRIMARY KEY)', table: 'newt' });
+    mockListTables.mockResolvedValue([]);
+    mockIntrospect.mockResolvedValue([{ name: 'id' }, { name: 'c' }]);
+    const res = await authed().request('/api/sites/s1/db/tables', postJson({ table: 'newt', columns: [{ name: 'c' }] }), mockEnv());
+    expect(res.status).toBe(201);
+    expect(q).toHaveBeenCalledWith('CREATE TABLE IF NOT EXISTS "newt" (id INTEGER PRIMARY KEY)');
+    expect(((await res.json()) as { data: { table: string } }).data.table).toBe('newt');
+  });
+});
+
+describe('POST /api/sites/:siteId/db/tables/:table/rows (insert row)', () => {
+  function readyGate(q: jest.Mock, columns: Array<{ name: string; pk?: number }>) {
+    mockFlag.mockResolvedValue(true);
+    mockResolve.mockResolvedValue(dbStub(q));
+    mockListTables.mockResolvedValue(['customers']);
+    mockIntrospect.mockResolvedValue(columns);
+  }
+
+  it('400 for an invalid body (no values map)', async () => {
+    readyGate(jest.fn(), [{ name: 'id', pk: 1 }, { name: 'email' }]);
+    const res = await authed().request('/api/sites/s1/db/tables/customers/rows', postJson({}), mockEnv());
+    expect(res.status).toBe(400);
+  });
+
+  it('400 when no writable column is present (never emits INSERT () VALUES ())', async () => {
+    const q = jest.fn();
+    readyGate(q, [{ name: 'id', pk: 1 }, { name: 'email' }]);
+    const res = await authed().request('/api/sites/s1/db/tables/customers/rows', postJson({ values: { ghost: 'x' } }), mockEnv());
+    expect(res.status).toBe(400);
+    expect(q).not.toHaveBeenCalled();
+  });
+
+  it('201 inserts ONLY real non-PK columns, bound — a PK / hostile / extra key can never inject a column', async () => {
+    const q = jest.fn(async () => ({ results: [], meta: { rows_written: 1 } }));
+    readyGate(q, [{ name: 'id', pk: 1 }, { name: 'email' }]);
+    const res = await authed().request(
+      '/api/sites/s1/db/tables/customers/rows',
+      postJson({ values: { email: 'a@b.c', ghost: 'x', id: 999 } }),
+      mockEnv(),
+    );
+    expect(res.status).toBe(201);
+    // id (PK) + ghost (not a real column) are DROPPED; only "email" is written, parameter-bound.
+    expect(q).toHaveBeenCalledWith('INSERT INTO "customers" ("email") VALUES (?)', ['a@b.c']);
+  });
+});
+
+describe('PATCH /api/sites/:siteId/db/tables/:table/columns/:column (rename column)', () => {
+  function readyGate(q: jest.Mock) {
+    mockFlag.mockResolvedValue(true);
+    mockResolve.mockResolvedValue(dbStub(q));
+    mockListTables.mockResolvedValue(['customers']);
+    mockIntrospect.mockResolvedValue([{ name: 'id' }, { name: 'email' }]);
+  }
+
+  it('400 for a hostile OLD column name — rejected BEFORE the gate', async () => {
+    const q = jest.fn();
+    readyGate(q);
+    const res = await authed().request('/api/sites/s1/db/tables/customers/columns/evil%3Bx', patchJson({ name: 'ok' }), mockEnv());
+    expect(res.status).toBe(400);
+    expect(mockResolve).not.toHaveBeenCalled();
+  });
+
+  it('404 when the column to rename does not exist', async () => {
+    const q = jest.fn();
+    readyGate(q);
+    const res = await authed().request('/api/sites/s1/db/tables/customers/columns/ghost', patchJson({ name: 'ok' }), mockEnv());
+    expect(res.status).toBe(404);
+    expect(q).not.toHaveBeenCalled();
+  });
+
+  it('409 when the NEW name already exists on the table (no silent overwrite)', async () => {
+    const q = jest.fn();
+    readyGate(q);
+    const res = await authed().request('/api/sites/s1/db/tables/customers/columns/email', patchJson({ name: 'id' }), mockEnv());
+    expect(res.status).toBe(409);
+    expect(q).not.toHaveBeenCalled();
+  });
+
+  it('200 renames with the real quoted ALTER … RENAME COLUMN SQL', async () => {
+    const q = jest.fn(async () => ({ results: [], meta: {} }));
+    readyGate(q);
+    const res = await authed().request(
+      '/api/sites/s1/db/tables/customers/columns/email',
+      patchJson({ name: 'contact_email' }),
+      mockEnv(),
+    );
+    expect(res.status).toBe(200);
+    expect(q).toHaveBeenCalledWith('ALTER TABLE "customers" RENAME COLUMN "email" TO "contact_email"');
   });
 });
