@@ -19,9 +19,14 @@
   box-shadow: -24px 0 64px rgba(0, 0, 0, 0.5);
 }
 
-.ps-create-canvas-title {
+// `:host h1.ps-create-canvas-title` (0,0,2,1) OUT-specifies the generic `:host h1`
+// heading rule below (0,0,1,1) so the headline renders at its intended max weight —
+// otherwise the generic `font-weight:600` clobbers the template's `font-[800]` utility
+// (the utility is only 0,0,1,0) and "Create autonomous website" ships semibold, not bold.
+:host h1.ps-create-canvas-title {
   // Sora display face to match the brand's heading font, maximum weight.
   font-family: 'Sora', 'Inter', system-ui, sans-serif;
+  font-weight: 800;
   letter-spacing: -0.02em;
 }
 
