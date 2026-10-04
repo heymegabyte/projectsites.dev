@@ -75,7 +75,15 @@ type FilesState =
   | { status: 'loading' }
   | { status: 'disabled' }
   | { status: 'error'; message: string }
-  | { status: 'ready'; files: SiteBuildFileEntry[]; prefix?: string };
+  | {
+      status: 'ready';
+      files: SiteBuildFileEntry[];
+      prefix?: string;
+      /** True when the R2 listing was WINDOWED (more objects than `cap`) → the count is a partial "first N". */
+      truncated?: boolean;
+      /** The server per-page object cap (set only when `truncated`) — for the honest "first N of many" label. */
+      cap?: number;
+    };
 
 /**
  * Append the next media page onto the current list, deduping by `id` (prev wins, order stable).
@@ -171,6 +179,56 @@ export function MediaPageStats({
         </button>
       )}
     </div>
+  );
+}
+
+/**
+ * The honest build-files count label. When the R2 listing was WINDOWED (`truncated`), the shown count
+ * is a PARTIAL "first N" — so we say "first N of many" (or "first N of cap+") instead of presenting it
+ * as the complete total, mirroring {@link MediaPageStats}'s "N of total" honesty. When NOT truncated,
+ * `shown` IS the complete file set, so a bare "N files" count is honest and locked. Exported pure so the
+ * render is unit-falsifiable WITHOUT booting the WebContainer editor (closes FILES-COUNT-1, fire-140).
+ */
+export function buildFilesCountLabel(shown: number, truncated: boolean | undefined, cap?: number): string {
+  const unit = shown === 1 ? 'file' : 'files';
+  if (truncated) {
+    // Partial window — never claim this is the total. "first N of many" is the honest framing;
+    // when the cap is known, "first cap+ files" conveys there are at least `cap` + more.
+    return cap && cap > 0 ? `first ${cap}+ ${unit}` : `first ${shown} of many`;
+  }
+  return `${shown} ${unit}`;
+}
+
+/**
+ * Count/size summary for the build-files list — the HONEST file count (`buildFilesCountLabel`) + total
+ * size, together in the sticky header. PURE + presentational so it's unit-testable without the
+ * WebContainer. When `truncated`, the count reads "first N of many" (the R2 window was capped), never a
+ * silently-under-counted total; otherwise it's the complete "N files". Mirrors {@link MediaPageStats}.
+ */
+export function FilesCountSummary({
+  shown,
+  totalBytes,
+  truncated,
+  cap,
+}: {
+  shown: number;
+  totalBytes: number;
+  truncated?: boolean;
+  cap?: number;
+}) {
+  const countLabel = buildFilesCountLabel(shown, truncated, cap);
+  return (
+    <span
+      className="text-[10px] text-bolt-elements-textSecondary tabular-nums shrink-0"
+      data-testid="resources-files-count"
+      title={
+        truncated
+          ? `Showing the first ${cap ?? shown} build files — this build has more. ${formatBytes(totalBytes)} shown.`
+          : `${shown} build file${shown === 1 ? '' : 's'} · ${formatBytes(totalBytes)}`
+      }
+    >
+      {countLabel} · {formatBytes(totalBytes)}
+    </span>
   );
 }
 
@@ -597,7 +655,13 @@ export const ResourcesPanel = memo(() => {
         return;
       }
 
-      setFiles({ status: 'ready', files: reply.files ?? [], prefix: reply.prefix });
+      setFiles({
+        status: 'ready',
+        files: reply.files ?? [],
+        prefix: reply.prefix,
+        truncated: reply.truncated,
+        cap: reply.cap,
+      });
     } catch (err) {
       setFiles({ status: 'error', message: err instanceof Error ? err.message : 'Could not load your build files.' });
     }
@@ -1532,6 +1596,51 @@ MediaCard.displayName = 'ResourcesPanel.MediaCard';
 
 // ── Build files ────────────────────────────────────────────────────────────
 
+/**
+ * Copy a build file's path to the clipboard. Always-available row action (no backend), so every file row
+ * has a working control even when the backend minted no open-URL. Icon swaps to a cyan check for ~1.4s on
+ * success — the button is icon-only + fixed-size so it never resizes between states
+ * (buttons-accommodate-largest-text).
+ */
+const CopyFilePathButton = memo(({ path }: { path: string }) => {
+  const [copied, setCopied] = useState(false);
+  const timer = useRef<ReturnType<typeof setTimeout>>();
+
+  useEffect(() => () => clearTimeout(timer.current), []);
+
+  const onCopy = useCallback(async () => {
+    try {
+      await navigator.clipboard.writeText(path);
+      setCopied(true);
+      clearTimeout(timer.current);
+      timer.current = setTimeout(() => setCopied(false), 1400);
+    } catch {
+      postToastToParent('error', 'Could not copy the file path.');
+    }
+  }, [path]);
+
+  return (
+    <button
+      type="button"
+      onClick={() => void onCopy()}
+      aria-label={copied ? `Copied ${path}` : `Copy path ${path}`}
+      title={copied ? 'Copied!' : 'Copy file path'}
+      data-testid="resources-file-copy"
+      className={classNames(BTN_GHOST, 'min-h-[24px] min-w-[24px] p-1')}
+    >
+      <div
+        className={classNames(
+          copied ? 'i-ph:check-bold text-bolt-elements-item-contentAccent' : 'i-ph:copy',
+          'text-xs',
+        )}
+        aria-hidden
+      />
+    </button>
+  );
+});
+
+CopyFilePathButton.displayName = 'ResourcesPanel.CopyFilePathButton';
+
 const BuildFiles = memo(({ state, onRetry }: { state: FilesState; onRetry: () => void }) => {
   if (state.status === 'idle' || state.status === 'loading') {
     return <PanelLoading label="Loading your build files…" />;
@@ -1576,9 +1685,12 @@ const BuildFiles = memo(({ state, onRetry }: { state: FilesState; onRetry: () =>
         ) : (
           <span className="text-[10px] text-bolt-elements-textTertiary flex-1">Published build files</span>
         )}
-        <span className="text-[10px] text-bolt-elements-textSecondary tabular-nums shrink-0">
-          {state.files.length} file{state.files.length === 1 ? '' : 's'} · {formatBytes(totalBytes)}
-        </span>
+        <FilesCountSummary
+          shown={state.files.length}
+          totalBytes={totalBytes}
+          truncated={state.truncated}
+          cap={state.cap}
+        />
       </div>
 
       {state.files.map((file) => (
@@ -1600,21 +1712,23 @@ const BuildFiles = memo(({ state, onRetry }: { state: FilesState; onRetry: () =>
           <span className="text-[10px] text-bolt-elements-textTertiary tabular-nums shrink-0">
             {formatBytes(file.size)}
           </span>
-          {file.url && (
-            <a
-              href={file.url}
-              target="_blank"
-              rel="noreferrer noopener"
-              aria-label={`Open ${file.name} in a new tab`}
-              title="Open in new tab"
-              className={classNames(
-                BTN_GHOST,
-                'min-h-[24px] min-w-[24px] p-1 shrink-0 opacity-0 group-hover:opacity-100 group-focus-within:opacity-100',
-              )}
-            >
-              <div className="i-ph:arrow-square-out text-xs" />
-            </a>
-          )}
+          {/* Row actions — reveal on hover/focus. Copy-path is ALWAYS available (no backend needed), so
+              every row has a working control even when the backend didn't mint a URL (never a dead row). */}
+          <div className="flex items-center gap-1 shrink-0 opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 transition-opacity motion-reduce:transition-none">
+            <CopyFilePathButton path={file.name} />
+            {file.url && (
+              <a
+                href={file.url}
+                target="_blank"
+                rel="noreferrer noopener"
+                aria-label={`Open ${file.name} in a new tab`}
+                title="Open in new tab"
+                className={classNames(BTN_GHOST, 'min-h-[24px] min-w-[24px] p-1')}
+              >
+                <div className="i-ph:arrow-square-out text-xs" aria-hidden />
+              </a>
+            )}
+          </div>
         </div>
       ))}
     </div>

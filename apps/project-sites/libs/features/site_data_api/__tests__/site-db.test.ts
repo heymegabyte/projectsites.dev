@@ -581,4 +581,43 @@ describe('GET /api/sites/:siteId/build-files', () => {
     expect(body.data.files).toEqual([]);
     expect(body.data.version).toBeNull();
   });
+
+  it('surfaces truncated + cap when R2 windows the listing (honest-count, FILES-COUNT-1)', async () => {
+    // R2 `.list` reports `truncated:true` when the build has MORE objects than the page cap — the
+    // handler must forward it so the editor shows "first N of many", never a silently under-counted total.
+    mockFlag.mockResolvedValue(true);
+    mockDbQueryOne.mockResolvedValue({ current_build_version: '2026-01-01', slug: 'acme' });
+    const listMock = jest.fn(async () => ({
+      truncated: true,
+      objects: [{ key: 'sites/acme/2026-01-01/index.html', size: 100, uploaded: new Date('2026-01-01') }],
+    }));
+    const res = await authed().request(
+      '/api/sites/s1/build-files',
+      {},
+      mockEnv({ bucket: { list: listMock } }),
+    );
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { data: { truncated?: boolean; cap?: number } };
+    expect(body.data.truncated).toBe(true);
+    expect(body.data.cap).toBe(1000);
+    // The R2 page cap is the configured 1000, never left unbounded.
+    expect(listMock).toHaveBeenCalledWith(expect.objectContaining({ limit: 1000 }));
+  });
+
+  it('omits cap and reports truncated:false on a complete (non-windowed) listing', async () => {
+    mockFlag.mockResolvedValue(true);
+    mockDbQueryOne.mockResolvedValue({ current_build_version: '2026-01-01', slug: 'acme' });
+    const listMock = jest.fn(async () => ({
+      truncated: false,
+      objects: [{ key: 'sites/acme/2026-01-01/index.html', size: 100, uploaded: new Date('2026-01-01') }],
+    }));
+    const res = await authed().request(
+      '/api/sites/s1/build-files',
+      {},
+      mockEnv({ bucket: { list: listMock } }),
+    );
+    const body = (await res.json()) as { data: { truncated?: boolean; cap?: number } };
+    expect(body.data.truncated).toBe(false);
+    expect(body.data.cap).toBeUndefined();
+  });
 });

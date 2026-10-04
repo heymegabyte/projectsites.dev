@@ -3051,6 +3051,8 @@ export class BoltEmbedService {
                 files?: Array<{ key: string; name: string; size: number; uploaded: string; url: string }>;
                 totalSize?: number;
                 version?: string | null;
+                truncated?: boolean;
+                cap?: number;
               };
             }>(`/sites/${site.id}/build-files`, filesQuery, { silent: true })
             .subscribe({
@@ -3061,6 +3063,10 @@ export class BoltEmbedService {
                   files: res?.data?.files ?? [],
                   version,
                   prefix: version ? `sites/${site.slug}/${version}/` : undefined,
+                  // Pass R2's windowing signal through so the editor can say "first N of many"
+                  // instead of a silently under-counted total.
+                  truncated: res?.data?.truncated === true,
+                  cap: res?.data?.cap,
                 });
               },
               // Distinguish the dark-flag 404 (feature off → editor hides) from any other failure.

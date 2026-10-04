@@ -1972,6 +1972,16 @@ export interface ResSiteFilesResponseMessage {
   /** The build version the list was read from (null → the live top-level prefix). */
   version?: string | null;
 
+  /**
+   * `true` when the R2 listing was WINDOWED (the build has more objects than {@link cap}) — so the shown
+   * count is a partial "first N", not the real total. The editor labels it honestly ("first N of many")
+   * instead of an under-reported total. Absent/false → the count is the complete file set.
+   */
+  truncated?: boolean;
+
+  /** The server's per-page object cap (only set when {@link truncated}) — for an honest "first N" label. */
+  cap?: number;
+
   /** `false` when the surface's flag is off (the dark-flag 404) → the surface stays hidden. */
   enabled?: boolean;
   error?: string;

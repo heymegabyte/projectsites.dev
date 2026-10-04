@@ -84,6 +84,13 @@ export const siteDbApi = new Hono<AppContext>();
 /** The flag gating the entire per-site data platform (default-off / DARK). */
 const FLAG = 'per_site_data';
 
+/**
+ * Max R2 objects the `/build-files` listing returns in one page. R2's `.list()` is windowed, so a build
+ * with more objects than this is reported `truncated:true` + `cap` (an honest "first N of many" in the
+ * editor) rather than a silently under-counted total. 1000 is R2's own max page size.
+ */
+const R2_FILE_LIST_CAP = 1000;
+
 /** Workers AI model used to generate seed rows / table plans (Cloudflare-first, zero per-token bill). */
 const AI_SEED_MODEL = '@cf/meta/llama-3.1-8b-instruct-fp8';
 
@@ -968,7 +975,11 @@ siteDbApi.get('/api/sites/:siteId/build-files', async (c) => {
     return c.json({ data: { files: [], totalSize: 0, version: null }, ok: true });
 
   const prefix = `sites/${site.slug}/${version}/`;
-  const listed = await c.env.SITES_BUCKET.list({ limit: 1000, prefix });
+  // R2 list is windowed at R2_FILE_LIST_CAP objects. The editor shows a bare `{N} files` count, so a
+  // site whose build has MORE objects than the cap would silently UNDER-report (a lying-undercount —
+  // honest-count class). We surface `truncated` + `cap` so the editor can say "first N of many"
+  // instead of an inaccurate total. (FILES-COUNT-1: WINDOWED, not unbounded — fire-140.)
+  const listed = await c.env.SITES_BUCKET.list({ limit: R2_FILE_LIST_CAP, prefix });
   const files = listed.objects
     .filter((obj) => !obj.key.includes('/_meta/'))
     .map((obj) => {
@@ -982,6 +993,12 @@ siteDbApi.get('/api/sites/:siteId/build-files', async (c) => {
       };
     });
   const totalSize = files.reduce((sum, f) => sum + f.size, 0);
+  // `listed.truncated` is R2's own "there are more objects than this page" signal — the authoritative
+  // cap flag (the `/_meta/` filter only ever REMOVES rows, never hides the cap).
+  const truncated = listed.truncated === true;
 
-  return c.json({ data: { files, totalSize, version }, ok: true });
+  return c.json({
+    data: { files, totalSize, version, truncated, cap: truncated ? R2_FILE_LIST_CAP : undefined },
+    ok: true,
+  });
 });
