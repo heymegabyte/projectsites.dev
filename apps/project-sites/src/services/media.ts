@@ -104,14 +104,6 @@ export interface SearchStockOpts {
 // ─── List / read ────────────────────────────────────────────
 
 /**
- * List media assets for an org with optional filters.
- *
- * @example
- * ```ts
- * const images = await listAssets(env, orgId, { kind: 'image', limit: 50 });
- * ```
- */
-/**
  * Shared WHERE clause + params for the asset list/count (kind/source/search filters, org-scoped,
  * non-deleted). Both {@link listAssets} and {@link countAssets} build from this so a filter added
  * to one can never drift from the other — the page and its total always agree.
@@ -142,6 +134,15 @@ function buildAssetFilter(
   return { wheres, params };
 }
 
+/**
+ * List media assets for an org with optional filters (paginated — pair with {@link countAssets}
+ * for the true total so the UI never implies a capped page is everything).
+ *
+ * @example
+ * ```ts
+ * const images = await listAssets(env, orgId, { kind: 'image', limit: 50 });
+ * ```
+ */
 export async function listAssets(
   env: Env,
   orgId: string,
