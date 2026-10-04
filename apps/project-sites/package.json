@@ -15,6 +15,7 @@
     "test:e2e:prod": "playwright test --config playwright.prod.config.ts",
     "e2e:seed": "node scripts/e2e-seed.mjs",
     "verify:editor-live": "node e2e/editor-live/editor-nav.mjs",
+    "verify:automations-live": "node e2e/editor-live/check-automations-live.mjs",
     "test:e2e:ui": "playwright test --ui",
     "test:container:image": "node --test scripts/__tests__/container_image.test.mjs",
     "test:container:freshness": "node --test scripts/__tests__/skills_freshness.test.mjs",
