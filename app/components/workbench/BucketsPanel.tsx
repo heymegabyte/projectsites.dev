@@ -479,8 +479,10 @@ export const BucketsPanel = memo(() => {
             ))}
         </div>
 
-        {/* Right: object browser for the selected bucket. */}
-        <div className="flex-1 min-h-0 flex flex-col">
+        {/* Right: object browser for the selected bucket. `min-w-0` lets the pane shrink to its
+            flex share inside the narrow (~600px) editor panel so ObjectBrowser scrolls internally
+            instead of overflowing the `overflow-hidden` parent (was clipped at the panel edge). */}
+        <div className="flex-1 min-h-0 min-w-0 flex flex-col">
           {selectedBucket && buckets.status === 'ready' ? (
             <ObjectBrowser
               bucket={buckets.buckets.find((b) => b.name === selectedBucket) ?? { name: selectedBucket }}
@@ -648,7 +650,7 @@ const BucketList = memo(
               // POLISH 5: glass card — cyan ring + lift on hover/active, smooth transition.
               'group relative rounded-xl border p-2.5 transition-all duration-200 motion-reduce:transition-none cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-bolt-elements-item-contentAccent',
               active
-                ? 'border-bolt-elements-item-contentAccent/60 bg-bolt-elements-item-contentAccent/[0.08] shadow-lg shadow-bolt-elements-item-contentAccent/10'
+                ? 'border-bolt-elements-item-contentAccent/70 bg-bolt-elements-item-contentAccent/[0.08] shadow-sm shadow-bolt-elements-item-contentAccent/10'
                 : 'border-bolt-elements-borderColor bg-bolt-elements-background-depth-2 hover:border-bolt-elements-item-contentAccent/40 hover:bg-bolt-elements-background-depth-3 motion-safe:hover:-translate-y-px',
             )}
           >
