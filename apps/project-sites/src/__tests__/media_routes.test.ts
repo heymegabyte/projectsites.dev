@@ -6,6 +6,7 @@
  * R2 bucket mocked at their boundaries):
  *
  *   GET    /assets            401 · 200 (filter passthrough)
+ *   GET    /usage             401 · 200 (org-scoped usage stats)
  *   GET    /assets/:id        404 · 200
  *   GET    /assets/:id/raw    asset-404 · r2-object-404 · 200 stream
  *   POST   /upload            401 · non-multipart 400
@@ -21,6 +22,7 @@
 jest.mock('../services/media.js', () => ({
   listAssets: jest.fn(),
   countAssets: jest.fn(),
+  mediaUsage: jest.fn(),
   getAsset: jest.fn(),
   uploadAsset: jest.fn(),
   softDeleteAsset: jest.fn(),
@@ -67,6 +69,24 @@ describe('GET /api/media/assets', () => {
       'org1',
       expect.objectContaining({ kind: 'image', search: 'logo', limit: 10 }),
     );
+  });
+});
+
+describe('GET /api/media/usage', () => {
+  it('401 when unauthenticated — never reaches the usage service', async () => {
+    expect((await anon().request('/api/media/usage', {}, env())).status).toBe(401);
+    expect(m.mediaUsage).not.toHaveBeenCalled();
+  });
+
+  it('200 returns usage scoped to the CALLER org (never a foreign orgId)', async () => {
+    m.mediaUsage.mockResolvedValue({ countByKind: { image: 3 }, totalBytes: 42 } as never);
+    const res = await authed().request('/api/media/usage', {}, env());
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { ok: boolean; data: { totalBytes: number } };
+    expect(body.ok).toBe(true);
+    expect(body.data.totalBytes).toBe(42);
+    // The usage query is bound to the authed caller's org — a regression passing any other id leaks.
+    expect(m.mediaUsage).toHaveBeenCalledWith(expect.anything(), 'org1');
   });
 });
 
