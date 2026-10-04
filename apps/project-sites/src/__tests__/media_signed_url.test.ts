@@ -7,7 +7,9 @@
 import type { Env } from '../types/env.js';
 import { signedRawMediaUrl, verifyMediaToken } from '../services/media.js';
 
-const ENV = { MANIFEST_SIGNING_SECRET: 'unit-test-signing-secret-0123456789abcdef' } as unknown as Env;
+const ENV = {
+  MANIFEST_SIGNING_SECRET: 'unit-test-signing-secret-0123456789abcdef',
+} as unknown as Env;
 const NOSECRET = {} as unknown as Env;
 
 function tokenFrom(url: string): string {
