@@ -251,7 +251,16 @@ export async function persistCrawl(
 ): Promise<PersistCrawlResult> {
   const { job, pages, links, orgId } = input;
   const provider = input.provider ?? DEFAULT_PROVIDER;
-  const rootUrl = job.url;
+  // Normalize the seed URL's HOST to lowercase (hosts are case-insensitive — the WHATWG URL
+  // parser lowercases `hostname` on parse, preserving scheme/path/query case) so the stored
+  // `root_url` agrees with `normalized_domain`; fail-soft to the raw string if unparseable.
+  const rootUrl = (() => {
+    try {
+      return new URL(job.url).href;
+    } catch {
+      return job.url;
+    }
+  })();
   const normalizedDomain = normalizeDomain(rootUrl);
   const prefix = crawlR2Prefix(normalizedDomain, job.id);
 
