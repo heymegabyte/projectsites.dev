@@ -16,7 +16,7 @@
  * The bridge is mocked (no real iframe); the detail drill-in is stubbed so this stays about the overview.
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { render, screen, cleanup, act, waitFor } from '@testing-library/react';
+import { render, screen, cleanup, act, waitFor, fireEvent, within } from '@testing-library/react';
 import React from 'react';
 
 // ─── Hoisted bridge spies + a controllable message bus ──────────────────────────
@@ -54,7 +54,10 @@ vi.mock('~/lib/embed/embedded-mode', () => ({
 }));
 
 // The detail drill-in has its own spec; stub it so this spec stays about the OVERVIEW render.
-vi.mock('./ResourceDetailPanel', () => ({
+// NOTE: the path is `../ResourceDetailPanel` (this spec lives in __tests__/, the component is one
+// level up) — `./ResourceDetailPanel` would resolve to a nonexistent __tests__/ file and silently
+// NOT mock, so the REAL panel (with its loading NebulaLoader) would render on drill-in.
+vi.mock('../ResourceDetailPanel', () => ({
   ResourceDetailPanel: () => <div data-testid="stub-detail" />,
 }));
 
@@ -106,6 +109,17 @@ const KV_ROW = {
   tenancy: 'dedicated',
   lifecycle_state: 'active',
   binding_name: 'CACHE_KV',
+};
+// A connected but NON-drillable owner-wire kind (hostname ∉ DETAIL_KINDS) — must never be a
+// doomed click into a 400; its ids live behind the in-card Advanced disclosure instead.
+const HOSTNAME_ROW = {
+  id: 'r3',
+  resource_kind: 'hostname',
+  resource_concept: 'yoursite.com',
+  environment: 'production',
+  tenancy: 'dedicated',
+  lifecycle_state: 'active',
+  binding_name: '',
 };
 
 describe('ResourceOverviewPanel — render proof (RES-OVERVIEW-RENDER)', () => {
@@ -168,5 +182,60 @@ describe('ResourceOverviewPanel — render proof (RES-OVERVIEW-RENDER)', () => {
     expect(empty.textContent).toMatch(/no resources yet/i);
     // The empty state is a launchpad, not a dead end — but there is NO button to press (self-detecting).
     expect(screen.queryByRole('button', { name: /reconcile/i })).toBeNull();
+  });
+
+  // ─── Drill-in: clicking a connected, drillable card opens the detail (fire-158) ──────────────
+  // The fire-153 visual walkthrough questioned whether a card click opens the detail; it does —
+  // for a CONNECTED card of a DETAIL_KIND, as a keyboard-accessible button that replaces the
+  // overview with ResourceDetailPanel. Non-drillable wire kinds are correctly NOT a doomed click.
+
+  it('renders a connected, drillable card as an accessible button and opens the detail on click', async () => {
+    render(<ResourceOverviewPanel />);
+    await waitFor(() => expect(postToParent).toHaveBeenCalled());
+    await replyReady([D1_ROW]);
+
+    // Scope to the GROUP card (its onClick is openDetail); the namespace rollup tiles above use a
+    // separate openKind path and would muddy the assertion.
+    const group = await screen.findByTestId('resources-group');
+    const openable = within(group).getByTestId('resources-card');
+    // The connected d1 card (a DETAIL_KIND) is an accessible button, not a dead tile.
+    expect(openable.getAttribute('data-availability')).toBe('connected');
+    expect(openable.getAttribute('role')).toBe('button');
+    expect(openable.getAttribute('aria-label')).toMatch(/^Open /);
+    expect(openable.getAttribute('tabindex')).toBe('0');
+    expect(screen.queryByTestId('stub-detail')).toBeNull(); // overview first, not the detail
+
+    await act(async () => {
+      fireEvent.click(openable);
+    });
+    // Clicking replaces the overview with the (stubbed) ResourceDetailPanel — the drill-in opens.
+    expect(await screen.findByTestId('stub-detail')).toBeTruthy();
+  });
+
+  it('opens the detail via keyboard (Enter) on the drillable card too', async () => {
+    render(<ResourceOverviewPanel />);
+    await waitFor(() => expect(postToParent).toHaveBeenCalled());
+    await replyReady([D1_ROW]);
+
+    const group = await screen.findByTestId('resources-group');
+    const openable = within(group).getByTestId('resources-card');
+    await act(async () => {
+      fireEvent.keyDown(openable, { key: 'Enter' });
+    });
+    expect(await screen.findByTestId('stub-detail')).toBeTruthy();
+  });
+
+  it('does NOT make a non-drillable wire-kind card a doomed click (no button role, no detail)', async () => {
+    render(<ResourceOverviewPanel />);
+    await waitFor(() => expect(postToParent).toHaveBeenCalled());
+    await replyReady([HOSTNAME_ROW]);
+
+    const hostnameCard = (await screen.findAllByTestId('resources-card'))[0];
+    // hostname ∉ DETAIL_KINDS → never an accessible button, never opens a detail.
+    expect(hostnameCard.getAttribute('role')).not.toBe('button');
+    await act(async () => {
+      fireEvent.click(hostnameCard);
+    });
+    expect(screen.queryByTestId('stub-detail')).toBeNull();
   });
 });
