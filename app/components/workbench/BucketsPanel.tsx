@@ -1933,7 +1933,12 @@ ObjectsNeedsCreds.displayName = 'BucketsPanel.ObjectsNeedsCreds';
 
 // ── Empty states (launchpads) ────────────────────────────────────────────────
 
-const BucketsEmpty = memo(({ onCreate }: { onCreate: () => void }) => (
+/**
+ * The bucket-list launchpad empty state — exported (like Media's `MediaPageStats`) so it is
+ * DOM-render-testable without mounting the full postMessage-bridged panel. The caller passes
+ * its own already-wired `onCreate`; this component holds no business logic.
+ */
+export const BucketsEmpty = memo(({ onCreate }: { onCreate: () => void }) => (
   <PanelEmpty
     testId="buckets-empty"
     icon="i-ph:hard-drives-duotone"
@@ -1954,7 +1959,14 @@ const BucketsEmpty = memo(({ onCreate }: { onCreate: () => void }) => (
 
 BucketsEmpty.displayName = 'BucketsPanel.BucketsEmpty';
 
-const ObjectsEmpty = memo(
+/**
+ * The object-list launchpad empty state — exported for the same testability reason as
+ * {@link BucketsEmpty}. The upload action is gated on `objectOpsAvailable` + `hasFilter`
+ * (per `action-button-must-gate-on-server-precondition`): when R2 S3 creds are missing or
+ * the view is filtered to zero, the upload button is HIDDEN rather than shown as a doomed
+ * control. Purely presentational — the caller passes the already-wired `onUpload`.
+ */
+export const ObjectsEmpty = memo(
   ({
     hasFilter,
     uploading,
