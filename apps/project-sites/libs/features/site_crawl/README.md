@@ -34,4 +34,4 @@ intentionally out of this foundation. Swapping crawl engines later is a new
 ## Files
 
 - `schemas.ts` — Zod domain. `provider.ts` — port + CF stub. `feature.manifest.ts` — the manifest.
-- `__tests__/schemas.spec.ts` — unit coverage (request validity, enums, stub throws CRAWL-1).
+- `__tests__/schemas.test.ts` — unit coverage (request validity, enums, stub throws CRAWL-1).

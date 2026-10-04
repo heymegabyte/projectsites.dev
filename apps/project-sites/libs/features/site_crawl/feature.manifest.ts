@@ -23,7 +23,7 @@ export default defineFeatureManifest({
   permissions: [],
   dependencies: [],
   e2eTests: [],
-  unitTests: ['../libs/features/site_crawl/__tests__/schemas.spec.ts'],
+  unitTests: ['../libs/features/site_crawl/__tests__/schemas.test.ts'],
   integrationTests: [],
   testStatus: 'partial',
   zodSchemas: ['schemas.ts'],
