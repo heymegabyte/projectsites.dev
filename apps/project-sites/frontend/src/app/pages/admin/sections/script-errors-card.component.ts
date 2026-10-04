@@ -32,19 +32,19 @@ export interface JsErrorsBlock {
     .se { border: 1px solid var(--ps-edge, rgba(255,255,255,0.08)); border-radius: var(--ps-radius-xl, 16px); background: rgba(255,255,255,0.02); padding: 0.9rem 1rem; }
     .se-head { display: flex; align-items: baseline; justify-content: space-between; gap: 0.5rem; margin-bottom: 0.5rem; }
     .se-title { font-size: 0.8rem; font-weight: 700; color: var(--ps-ink, #f4f4ff); display: flex; align-items: center; gap: 0.4rem; }
-    .se-win { font-size: 0.62rem; color: color-mix(in oklch, var(--ps-ink, #f4f4ff) 45%, transparent); }
+    .se-win { font-size: 0.62rem; color: color-mix(in oklch, var(--ps-ink, #f4f4ff) 78%, var(--ps-bg, #060610)); }
     .se-total { font-variant-numeric: tabular-nums; font-weight: 700; }
     .se-total[data-clean='true'] { color: #4dffb5; }
     .se-total[data-clean='false'] { color: #ff9f43; }
-    .se-clean { font-size: 0.74rem; color: color-mix(in oklch, var(--ps-ink, #f4f4ff) 60%, transparent); display: flex; align-items: center; gap: 0.4rem; }
+    .se-clean { font-size: 0.74rem; color: color-mix(in oklch, var(--ps-ink, #f4f4ff) 82%, var(--ps-bg, #060610)); display: flex; align-items: center; gap: 0.4rem; }
     .se-clean .dot { color: #4dffb5; }
     .se-list { display: grid; gap: 0.4rem; margin: 0; padding: 0; list-style: none; }
     .se-row { display: grid; grid-template-columns: 1fr auto; gap: 0.3rem 0.6rem; align-items: baseline; padding: 0.35rem 0; border-bottom: 1px solid var(--ps-edge, rgba(255,255,255,0.06)); }
     .se-row:last-child { border-bottom: none; }
     .se-msg { font-family: var(--ps-mono, ui-monospace, monospace); font-size: 0.72rem; color: #ffd8c2; overflow-wrap: anywhere; }
     .se-count { font-variant-numeric: tabular-nums; font-size: 0.72rem; color: #ff9f43; font-weight: 700; white-space: nowrap; }
-    .se-path { grid-column: 1 / -1; font-size: 0.62rem; color: color-mix(in oklch, var(--ps-ink, #f4f4ff) 45%, transparent); overflow-wrap: anywhere; }
-    .se-note { margin: 0.55rem 0 0; font-size: 0.62rem; line-height: 1.4; color: color-mix(in oklch, var(--ps-ink, #f4f4ff) 45%, transparent); }
+    .se-path { grid-column: 1 / -1; font-size: 0.62rem; color: color-mix(in oklch, var(--ps-ink, #f4f4ff) 78%, var(--ps-bg, #060610)); overflow-wrap: anywhere; }
+    .se-note { margin: 0.55rem 0 0; font-size: 0.62rem; line-height: 1.4; color: color-mix(in oklch, var(--ps-ink, #f4f4ff) 78%, var(--ps-bg, #060610)); }
     `,
   ],
   template: `
