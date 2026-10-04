@@ -20,6 +20,7 @@
 
 jest.mock('../services/media.js', () => ({
   listAssets: jest.fn(),
+  countAssets: jest.fn(),
   getAsset: jest.fn(),
   uploadAsset: jest.fn(),
   softDeleteAsset: jest.fn(),

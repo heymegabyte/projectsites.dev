@@ -88,7 +88,10 @@ if (!store) {
 // Each surface: the store count + how to read the SAME count off the display API.
 const SURFACES = [
   { key: 'sites', path: '/api/sites', pick: (j) => j.total ?? (Array.isArray(j.data) ? j.data.length : NaN) },
-  { key: 'media', path: '/api/media/assets', pick: (j) => (Array.isArray(j.assets) ? j.assets.length : NaN) },
+  // Prefer the endpoint's honest `total` (fire-124: the list silent-capped at a 50-row page while the
+  // store held 109 — `/api/media/assets` now also returns the true filtered `total`). Fall back to the
+  // page length only for an older build that doesn't expose it.
+  { key: 'media', path: '/api/media/assets', pick: (j) => (typeof j.total === 'number' ? j.total : Array.isArray(j.assets) ? j.assets.length : NaN) },
   { key: 'env_vars', path: '/api/env-vars', pick: (j) => (Array.isArray(j.vars) ? j.vars.length : NaN) },
   { key: 'api_tokens', path: '/api/v1-tokens', pick: (j) => (Array.isArray(j.data) ? j.data.length : NaN) },
   { key: 'audit_logs', path: '/api/audit-logs', pick: (j) => j.meta?.total ?? NaN },

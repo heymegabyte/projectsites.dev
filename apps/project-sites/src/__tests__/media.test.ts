@@ -8,6 +8,7 @@
 
 import type { Env } from '../types/env.js';
 import {
+  countAssets,
   listAssets,
   saveStockToLibrary,
   searchStock,
@@ -32,6 +33,15 @@ function createDbStub(): D1Database {
     return {
       bind: (...params: unknown[]) => ({
         all: async () => {
+          // COUNT(*) total — dbQueryOne reads via dbQuery().all() → data[0], so the count row
+          // must come back from all(), not first().
+          if (/SELECT COUNT\(\*\) AS n FROM media_assets/i.test(sql)) {
+            const orgId = params[0];
+            const n = rows.filter(
+              (r) => r.org_id === orgId && (r.deleted_at === null || r.deleted_at === undefined),
+            ).length;
+            return { results: [{ n }], success: true, meta: { changes: 0 } } as unknown;
+          }
           if (/SELECT \* FROM media_assets/i.test(sql)) {
             // Filter by org_id (params[0]) and deleted_at IS NULL.
             const orgId = params[0];
@@ -177,6 +187,35 @@ describe('services/media', () => {
       expect(r2.delete).toHaveBeenCalledTimes(1);
       expect(r2.delete.mock.calls[0][0]).toBe(r2.put.mock.calls[0][0]);
       expect(r2.objects.size).toBe(0);
+    });
+  });
+
+  describe('countAssets — the pagination total (fire-124 silent-cap fix)', () => {
+    it('returns the full non-deleted total, independent of any page limit, and drops on soft-delete', async () => {
+      const env = {
+        DB: createDbStub(),
+        SITES_BUCKET: createR2Stub() as unknown as R2Bucket,
+        AI: {} as Ai,
+      } as unknown as Env;
+
+      for (const name of ['a.png', 'b.png', 'c.png']) {
+        await uploadAsset(env, {
+          orgId: 'org-c',
+          name,
+          mime: 'image/png',
+          bytes: new TextEncoder().encode(name).buffer,
+        });
+      }
+
+      // The TRUE total is 3 even when the page window is smaller — this is the silent-cap fix:
+      // a list capped at limit:1 must NOT make the total read as 1.
+      await listAssets(env, 'org-c', { limit: 1 });
+      expect(await countAssets(env, 'org-c')).toBe(3);
+
+      // Soft-delete one → the total reflects the store, never a stale page count.
+      const all = await listAssets(env, 'org-c');
+      await softDeleteAsset(env, 'org-c', all[0]!.id);
+      expect(await countAssets(env, 'org-c')).toBe(2);
     });
   });
 

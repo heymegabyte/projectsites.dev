@@ -111,12 +111,13 @@ export interface SearchStockOpts {
  * const images = await listAssets(env, orgId, { kind: 'image', limit: 50 });
  * ```
  */
-export async function listAssets(
-  env: Env,
-  orgId: string,
-  opts: ListAssetOpts = {},
-): Promise<MediaAsset[]> {
-  const { kind, source, search, limit = 50, offset = 0 } = opts;
+/**
+ * Shared WHERE clause + params for the asset list/count (kind/source/search filters, org-scoped,
+ * non-deleted). Both {@link listAssets} and {@link countAssets} build from this so a filter added
+ * to one can never drift from the other — the page and its total always agree.
+ */
+function buildAssetFilter(orgId: string, opts: ListAssetOpts): { wheres: string[]; params: unknown[] } {
+  const { kind, source, search } = opts;
   const wheres: string[] = ['org_id = ?', 'deleted_at IS NULL'];
   const params: unknown[] = [orgId];
 
@@ -135,6 +136,16 @@ export async function listAssets(
     const wildcard = `%${sanitizeLikeTerm(search)}%`;
     params.push(wildcard, wildcard);
   }
+  return { wheres, params };
+}
+
+export async function listAssets(
+  env: Env,
+  orgId: string,
+  opts: ListAssetOpts = {},
+): Promise<MediaAsset[]> {
+  const { limit = 50, offset = 0 } = opts;
+  const { wheres, params } = buildAssetFilter(orgId, opts);
 
   const sql = `SELECT * FROM media_assets
      WHERE ${wheres.join(' AND ')}
@@ -148,6 +159,22 @@ export async function listAssets(
     return [];
   }
   return data;
+}
+
+/**
+ * Count ALL media assets matching the filters, IGNORING limit/offset — the true total for the UI's
+ * pagination. Without this the list endpoint silent-caps at its page size (default 50) and the UI
+ * implies "this is all" when the store holds more (fire-124: display=50 vs store=109). Fail-soft: 0
+ * on query error (callers treat a count as advisory, never a hard gate).
+ */
+export async function countAssets(env: Env, orgId: string, opts: ListAssetOpts = {}): Promise<number> {
+  const { wheres, params } = buildAssetFilter(orgId, opts);
+  const row = await dbQueryOne<{ n: number }>(
+    env.DB,
+    `SELECT COUNT(*) AS n FROM media_assets WHERE ${wheres.join(' AND ')}`,
+    params,
+  );
+  return row?.n ?? 0;
 }
 
 /** Fetch a single asset by id (org-scoped). Returns `null` when not found. */

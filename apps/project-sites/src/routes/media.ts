@@ -33,6 +33,7 @@ import type { Env, Variables } from '../types/env.js';
 import { isSafeCrawlUrl } from '../services/outbound_webhooks.js';
 import {
   generateImage,
+  countAssets,
   generatePodcast,
   generateVideo,
   getAsset,
@@ -143,17 +144,26 @@ mediaRoutes.get('/api/media/assets', async (c) => {
   const kind = url.searchParams.get('kind') as MediaAsset['kind'] | null;
   const source = url.searchParams.get('source') as MediaAsset['source'] | null;
   const q = url.searchParams.get('q');
-  const limit = Number(url.searchParams.get('limit') ?? '50');
-  const offset = Number(url.searchParams.get('offset') ?? '0');
-
-  const assets = await listAssets(c.env, scope.orgId, {
+  const limit = Number.isFinite(Number(url.searchParams.get('limit') ?? '50'))
+    ? Number(url.searchParams.get('limit') ?? '50')
+    : 50;
+  const offset = Number.isFinite(Number(url.searchParams.get('offset') ?? '0'))
+    ? Number(url.searchParams.get('offset') ?? '0')
+    : 0;
+  const filter = {
     kind: kind ?? undefined,
     source: source ?? undefined,
     search: q ?? undefined,
-    limit: Number.isFinite(limit) ? limit : 50,
-    offset: Number.isFinite(offset) ? offset : 0,
-  });
-  return c.json({ ok: true, assets });
+  };
+
+  // Return the page AND the true total so the UI never silent-caps (fire-124: the store held 109
+  // media assets while the list showed 50 with no "N of total" signal — the lying-empty/silent-cap
+  // class). `total` is the full filtered count; `limit`/`offset` echo the page window.
+  const [assets, total] = await Promise.all([
+    listAssets(c.env, scope.orgId, { ...filter, limit, offset }),
+    countAssets(c.env, scope.orgId, filter),
+  ]);
+  return c.json({ ok: true, assets, total, limit, offset });
 });
 
 // ─── GET /api/media/usage ──────────────────────────────────
