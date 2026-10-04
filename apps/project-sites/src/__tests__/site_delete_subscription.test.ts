@@ -223,6 +223,24 @@ describe('DELETE /api/sites/:id', () => {
     );
   });
 
+  it('purges the KV host cache so the deleted site STOPS SERVING (not merely marked archived)', async () => {
+    const mockDb = createMockD1();
+    mockDbQueryOne.mockResolvedValueOnce({ id: siteId, slug: 'test-biz', plan: 'free' });
+
+    const { app, env } = createAuthenticatedApp(
+      { userId, orgId, requestId: 'req-kv' },
+      { DB: mockDb as unknown as D1Database },
+    );
+
+    const res = await makeDelete(app, env, siteId, { cancel_subscription: false });
+    expect(res.status).toBe(200);
+
+    // Forward-causal effect (the publish-bolt cache-bust class): archiving the row is NOT enough —
+    // the host→site KV entry (60s TTL) must be PURGED, or the "deleted" site keeps serving from
+    // cache for up to a minute (user-visible: "I deleted my site but it's still live").
+    expect(env.CACHE_KV.delete).toHaveBeenCalledWith('host:test-biz.projectsites.dev');
+  });
+
   it('deletes a paid site with cancel_subscription=true — triggers Stripe API call', async () => {
     const mockDb = createMockD1();
 
