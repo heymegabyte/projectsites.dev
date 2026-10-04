@@ -43,6 +43,7 @@ describe('NavIconComponent', () => {
       billing: 1,
       settings: 1,
       'super-admin': 1,
+      create: 1,
     } satisfies Record<NavIconName, 1>;
     const names = Object.keys(ICON_KEYS) as NavIconName[];
     for (const n of names) {
