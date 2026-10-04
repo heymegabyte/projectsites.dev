@@ -197,6 +197,7 @@ import { previewShareCard } from '../libs/features/preview_share_card/handlers.j
 import { promptStudio } from '../libs/features/prompt_studio/handlers.js'; // prompt versioning surface (flag: prompt_studio)
 import { promptSchedule } from '../libs/features/prompt_schedule/handlers.js'; // time-windowed prompt-variant activation (flag: prompt_schedule)
 import { contentImport } from '../libs/features/content_import/handlers.js'; // parse platform exports → normalized items (flag: content_import)
+import { siteCrawl } from '../libs/features/site_crawl/handlers.js'; // whole-site crawl: SSRF-guarded /api/crawl/* (flag: site_crawl, DARK)
 import { sitePublishSchedule } from '../libs/features/site_publish_schedule/handlers.js'; // scheduled site go-live (flag: scheduled_publish)
 import { psnotifyInbox } from '../libs/features/psnotify/handlers.js'; // psnotify DO inbox: GET /api/notifications + POST /api/notifications/:id/read (flag: psnotify)
 import { durablePreview } from '../libs/features/durable_preview/handlers.js'; // Preview working-tree + release records (flag: durable_preview)
@@ -1142,6 +1143,7 @@ app.route('/', previewShareCard); // /api/sites/:siteId/share-card (flag: previe
 app.route('/', promptStudio); // /api/prompt-studio/* (flag: prompt_studio)
 app.route('/', promptSchedule); // /api/prompt-schedules/* (flag: prompt_schedule) — time-windowed prompt-variant activation
 app.route('/', contentImport); // /api/content-import/parse (flag: content_import) — parse platform exports → normalized items
+app.route('/', siteCrawl); // /api/crawl/* (flag: site_crawl, DARK) — SSRF-guarded whole-site crawl: start/status/pages/links/export.md/cancel
 app.route('/', sitePublishSchedule); // /api/sites/:id/publish-schedule (flag: scheduled_publish) — scheduled site go-live
 app.route('/', psnotifyInbox); // /api/notifications ({data,unread_count}) + /api/notifications/:id/read + /api/notifications/read-all (flag: psnotify) — per-user psnotify DO inbox
 app.route('/', durablePreview); // /api/sites/:id/preview-state + /releases (flag: durable_preview) — Preview working-tree + release records
