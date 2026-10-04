@@ -1093,9 +1093,7 @@ export const ResourcesPanel = memo(() => {
 
           // The destructive call failed — put the card back where it was so nothing is silently lost.
           setMedia((cur) =>
-            cur.status === 'ready'
-              ? { ...cur, assets: restoreMediaAsset(cur.assets, asset, index) }
-              : cur,
+            cur.status === 'ready' ? { ...cur, assets: restoreMediaAsset(cur.assets, asset, index) } : cur,
           );
           postToastToParent('error', reply.error || 'Could not delete the file.');
 
@@ -1831,7 +1829,10 @@ const MediaUndoBar = memo(({ asset, onUndo }: { asset: MediaAssetEntry; onUndo: 
     >
       <div className="i-ph:trash-duotone text-base text-bolt-elements-textTertiary shrink-0" aria-hidden />
       <p className="text-[12px] text-bolt-elements-textSecondary min-w-0 truncate">
-        Deleted <span className="font-medium text-bolt-elements-textPrimary" title={name}>{name}</span>
+        Deleted{' '}
+        <span className="font-medium text-bolt-elements-textPrimary" title={name}>
+          {name}
+        </span>
       </p>
       <button
         type="button"
