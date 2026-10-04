@@ -55,9 +55,7 @@ describe('BucketsEmpty — bucket-list launchpad', () => {
 
 describe('ObjectsEmpty — object-list launchpad (creds available)', () => {
   it('renders the buckets-objects-empty launchpad', () => {
-    render(
-      <ObjectsEmpty hasFilter={false} uploading={false} onUpload={() => {}} objectOpsAvailable={true} />,
-    );
+    render(<ObjectsEmpty hasFilter={false} uploading={false} onUpload={() => {}} objectOpsAvailable={true} />);
 
     const empty = screen.getByTestId('buckets-objects-empty');
     expect(empty).toBeTruthy();
@@ -66,9 +64,7 @@ describe('ObjectsEmpty — object-list launchpad (creds available)', () => {
 
   it('wires the upload action to a real handler (not a no-op)', () => {
     const onUpload = vi.fn();
-    render(
-      <ObjectsEmpty hasFilter={false} uploading={false} onUpload={onUpload} objectOpsAvailable={true} />,
-    );
+    render(<ObjectsEmpty hasFilter={false} uploading={false} onUpload={onUpload} objectOpsAvailable={true} />);
 
     const btn = screen.getByTestId('buckets-objects-empty-upload');
     expect(btn).toBeTruthy();
@@ -81,9 +77,7 @@ describe('ObjectsEmpty — object-list launchpad (creds available)', () => {
 
 describe('ObjectsEmpty — object-list launchpad (creds missing)', () => {
   it('hides the upload action when object ops are unavailable (no doomed control)', () => {
-    render(
-      <ObjectsEmpty hasFilter={false} uploading={false} onUpload={() => {}} objectOpsAvailable={false} />,
-    );
+    render(<ObjectsEmpty hasFilter={false} uploading={false} onUpload={() => {}} objectOpsAvailable={false} />);
 
     // The empty state still renders...
     expect(screen.getByTestId('buckets-objects-empty')).toBeTruthy();
@@ -96,9 +90,7 @@ describe('ObjectsEmpty — object-list launchpad (creds missing)', () => {
 
 describe('ObjectsEmpty — filtered to zero results', () => {
   it('shows the "no matching objects" copy and no upload action', () => {
-    render(
-      <ObjectsEmpty hasFilter={true} uploading={false} onUpload={() => {}} objectOpsAvailable={true} />,
-    );
+    render(<ObjectsEmpty hasFilter={true} uploading={false} onUpload={() => {}} objectOpsAvailable={true} />);
 
     const empty = screen.getByTestId('buckets-objects-empty');
     expect(empty.textContent).toContain('No matching objects');
