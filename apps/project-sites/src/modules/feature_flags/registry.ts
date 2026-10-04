@@ -527,6 +527,15 @@ export const FLAG_REGISTRY: Record<string, FlagDefinition> = {
     owner_email: 'brian@megabyte.space',
     stage: 'experimental',
   },
+  site_crawl: {
+    default_enabled: false,
+    default_rollout_percent: 0,
+    description:
+      'Whole-Site Crawl (CRAWL-0 foundation): the provider-independent seam for crawling an entire site into normalized pages + a link graph + a reconcilable coverage report.\n\n• DARK — no route exists yet, so nothing is reachable; when CRAWL-1 adds routes the server guard 404s (never 403) until promoted.\n• This slice ships ONLY the domain: Zod types (CrawlRequest/Job/Page/Link/Coverage/Manifest) + a CrawlProvider port + a Cloudflare Browser-Run STUB whose methods throw "CRAWL-1: not yet implemented". No Cloudflare shape leaks into the domain types.\n• The real Browser-Run /crawl wiring (async job, cursor pagination exhausted, source:all, crawlPurposes:["search"], contentUse:"reference", render:false fast path) is CRAWL-1; routes/workflow/persistence are CRAWL-1..4. Off → no surface, no state.',
+    key: 'site_crawl',
+    owner_email: 'brian@megabyte.space',
+    stage: 'experimental',
+  },
   scheduled_publish: {
     default_enabled: false,
     default_rollout_percent: 0,
