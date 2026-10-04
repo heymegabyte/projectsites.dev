@@ -908,7 +908,10 @@ describe('POST /api/sites/create-from-search', () => {
       {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ business_name: 'Brand New Bakery', google_place_id: 'ChIJ_new_bakery' }),
+        body: JSON.stringify({
+          business_name: 'Brand New Bakery',
+          google_place_id: 'ChIJ_new_bakery',
+        }),
       },
       mockEnv,
     );

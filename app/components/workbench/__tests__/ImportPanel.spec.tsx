@@ -50,8 +50,7 @@ vi.mock('~/utils/classNames', () => ({
 vi.mock('../panel', () => ({
   PanelShell: ({ children, testId }: { children: React.ReactNode; testId?: string }) =>
     React.createElement('div', { 'data-testid': testId ?? 'panel-shell' }, children),
-  PanelHeader: ({ title }: { title: string }) =>
-    React.createElement('div', { 'data-testid': 'panel-header' }, title),
+  PanelHeader: ({ title }: { title: string }) => React.createElement('div', { 'data-testid': 'panel-header' }, title),
   PanelLoading: () => React.createElement('div', { 'data-testid': 'panel-loading' }),
   PanelEmpty: ({ title, action }: { title: string; action?: React.ReactNode }) =>
     React.createElement('div', { 'data-testid': 'panel-empty' }, title, action),

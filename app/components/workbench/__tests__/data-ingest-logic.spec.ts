@@ -39,9 +39,7 @@ import {
 // ── helpers ─────────────────────────────────────────────────────────────────
 
 /** Build a minimal ColumnMapping array for buildInsertPlan tests. */
-function mappings(
-  defs: Array<{ col: string; type: 'INTEGER' | 'REAL' | 'TEXT'; include?: boolean }>,
-): ColumnMapping[] {
+function mappings(defs: Array<{ col: string; type: 'INTEGER' | 'REAL' | 'TEXT'; include?: boolean }>): ColumnMapping[] {
   return defs.map((d, i) => ({
     sourceIndex: i,
     sourceHeader: d.col,
@@ -130,10 +128,7 @@ describe('slugifyColumnName — header → safe identifier', () => {
   it('always produces a safe identifier for diverse inputs (excluding $ edge-case)', () => {
     // Note: '!@#$' → '$' (only $ survives the char-strip) → NOT safe (starts with $, not letter/_)
     // That specific input is a known limitation; all others must produce safe idents.
-    const inputs = [
-      'First Name', '2024 Total', '', '💥', 'DROP; --', 'a.b.c', 'null',
-      '\t\n ', 'x'.repeat(200),
-    ];
+    const inputs = ['First Name', '2024 Total', '', '💥', 'DROP; --', 'a.b.c', 'null', '\t\n ', 'x'.repeat(200)];
     for (const h of inputs) {
       expect(isSafeIdent(slugifyColumnName(h))).toBe(true);
     }
@@ -221,7 +216,10 @@ describe('parseCsv — RFC-4180 state-machine parser', () => {
 
   it('handles CRLF line endings', () => {
     const g = parseCsv('a,b\r\n1,2\r\n3,4\r\n');
-    expect(g.rows).toEqual([['1', '2'], ['3', '4']]);
+    expect(g.rows).toEqual([
+      ['1', '2'],
+      ['3', '4'],
+    ]);
   });
 
   it('drops a single trailing newline without a phantom row', () => {
@@ -319,21 +317,33 @@ describe('parseJsonRows — JSON array of objects → grid', () => {
 
   it('throws IngestError with code invalid_json for non-JSON input', () => {
     let caught: IngestError | null = null;
-    try { parseJsonRows('{bad'); } catch (e) { caught = e as IngestError; }
+    try {
+      parseJsonRows('{bad');
+    } catch (e) {
+      caught = e as IngestError;
+    }
     expect(caught).toBeInstanceOf(IngestError);
     expect(caught?.code).toBe('invalid_json');
   });
 
   it('throws IngestError with code not_a_record_array for a primitive array', () => {
     let caught: IngestError | null = null;
-    try { parseJsonRows('[1,2,3]'); } catch (e) { caught = e as IngestError; }
+    try {
+      parseJsonRows('[1,2,3]');
+    } catch (e) {
+      caught = e as IngestError;
+    }
     expect(caught).toBeInstanceOf(IngestError);
     expect(caught?.code).toBe('not_a_record_array');
   });
 
   it('throws IngestError for an array of arrays', () => {
     let caught: IngestError | null = null;
-    try { parseJsonRows('[[1],[2]]'); } catch (e) { caught = e as IngestError; }
+    try {
+      parseJsonRows('[[1],[2]]');
+    } catch (e) {
+      caught = e as IngestError;
+    }
     expect(caught).toBeInstanceOf(IngestError);
   });
 
@@ -476,13 +486,17 @@ describe('buildInsertPlan — chunked parameterized INSERT', () => {
   it('produces a single INSERT batch for a small grid', () => {
     const plan = buildInsertPlan(
       'users',
-      mappings([{ col: 'name', type: 'TEXT' }, { col: 'age', type: 'INTEGER' }]),
-      [['Alice', '30'], ['Bob', '25']],
+      mappings([
+        { col: 'name', type: 'TEXT' },
+        { col: 'age', type: 'INTEGER' },
+      ]),
+      [
+        ['Alice', '30'],
+        ['Bob', '25'],
+      ],
     );
     expect(plan.batches).toHaveLength(1);
-    expect(plan.batches[0].sql).toBe(
-      'INSERT INTO "users" ("name", "age") VALUES (?, ?), (?, ?)',
-    );
+    expect(plan.batches[0].sql).toBe('INSERT INTO "users" ("name", "age") VALUES (?, ?), (?, ?)');
     expect(plan.batches[0].params).toEqual(['Alice', 30, 'Bob', 25]);
     expect(plan.totalRows).toBe(2);
   });
@@ -490,7 +504,10 @@ describe('buildInsertPlan — chunked parameterized INSERT', () => {
   it('binds empty cells as null', () => {
     const plan = buildInsertPlan(
       't',
-      mappings([{ col: 'a', type: 'TEXT' }, { col: 'b', type: 'INTEGER' }]),
+      mappings([
+        { col: 'a', type: 'TEXT' },
+        { col: 'b', type: 'INTEGER' },
+      ]),
       [['', '']],
     );
     expect(plan.batches[0].params).toEqual([null, null]);
@@ -551,11 +568,7 @@ describe('buildInsertPlan — chunked parameterized INSERT', () => {
   });
 
   it('handles unicode values in cells', () => {
-    const plan = buildInsertPlan(
-      't',
-      mappings([{ col: 'name', type: 'TEXT' }]),
-      [['你好 👋']],
-    );
+    const plan = buildInsertPlan('t', mappings([{ col: 'name', type: 'TEXT' }]), [['你好 👋']]);
     expect(plan.batches[0].params).toEqual(['你好 👋']);
   });
 
@@ -563,7 +576,9 @@ describe('buildInsertPlan — chunked parameterized INSERT', () => {
     let caught: IngestError | null = null;
     try {
       buildInsertPlan('bad name', mappings([{ col: 'a', type: 'TEXT' }]), [['x']]);
-    } catch (e) { caught = e as IngestError; }
+    } catch (e) {
+      caught = e as IngestError;
+    }
     expect(caught).toBeInstanceOf(IngestError);
     expect(caught?.code).toBe('invalid_table');
   });
@@ -572,7 +587,9 @@ describe('buildInsertPlan — chunked parameterized INSERT', () => {
     let caught: IngestError | null = null;
     try {
       buildInsertPlan('t', mappings([{ col: 'a', type: 'TEXT', include: false }]), [['x']]);
-    } catch (e) { caught = e as IngestError; }
+    } catch (e) {
+      caught = e as IngestError;
+    }
     expect(caught?.code).toBe('no_columns');
   });
 
@@ -580,18 +597,22 @@ describe('buildInsertPlan — chunked parameterized INSERT', () => {
     let caught: IngestError | null = null;
     try {
       buildInsertPlan('t', mappings([{ col: 'a', type: 'TEXT' }]), []);
-    } catch (e) { caught = e as IngestError; }
+    } catch (e) {
+      caught = e as IngestError;
+    }
     expect(caught?.code).toBe('no_rows');
   });
 
   it('throws IngestError invalid_column when a mapping has an unsafe column name', () => {
-    const badMap: ColumnMapping[] = [{
-      sourceIndex: 0,
-      sourceHeader: 'bad col',
-      targetColumn: 'bad col',
-      type: 'TEXT',
-      include: true,
-    }];
+    const badMap: ColumnMapping[] = [
+      {
+        sourceIndex: 0,
+        sourceHeader: 'bad col',
+        targetColumn: 'bad col',
+        type: 'TEXT',
+        include: true,
+      },
+    ];
     expect(() => buildInsertPlan('t', badMap, [['x']])).toThrow(IngestError);
   });
 
@@ -654,14 +675,14 @@ describe('buildCreateTableForImport — CREATE TABLE generation', () => {
     let caught: IngestError | null = null;
     try {
       buildCreateTableForImport('t', mappings([{ col: 'a', type: 'TEXT', include: false }]));
-    } catch (e) { caught = e as IngestError; }
+    } catch (e) {
+      caught = e as IngestError;
+    }
     expect(caught?.code).toBe('no_columns');
   });
 
   it('throws IngestError for a bad table name', () => {
-    expect(() =>
-      buildCreateTableForImport('bad name', mappings([{ col: 'a', type: 'TEXT' }])),
-    ).toThrow(IngestError);
+    expect(() => buildCreateTableForImport('bad name', mappings([{ col: 'a', type: 'TEXT' }]))).toThrow(IngestError);
   });
 });
 
@@ -741,7 +762,10 @@ describe('extractSeedRows — model-reply parsing', () => {
 
   it('extracts rows from a bare JSON array', () => {
     const rows = extractSeedRows('[{"name":"A","qty":1},{"name":"B","qty":2}]', cols);
-    expect(rows).toEqual([['A', '1'], ['B', '2']]);
+    expect(rows).toEqual([
+      ['A', '1'],
+      ['B', '2'],
+    ]);
   });
 
   it('extracts rows from a ```json fenced block', () => {
@@ -846,9 +870,7 @@ describe('buildFormPlan — form definition + backing table', () => {
   });
 
   it('stores the full definition with version, title, table, fields', () => {
-    const plan = buildFormPlan('F', 'f', [
-      { label: 'L', column: 'l', kind: 'text', required: false },
-    ]);
+    const plan = buildFormPlan('F', 'f', [{ label: 'L', column: 'l', kind: 'text', required: false }]);
     expect(plan.definition).toMatchObject({
       version: 1,
       title: 'F',
@@ -868,14 +890,20 @@ describe('buildFormPlan — form definition + backing table', () => {
     let caught: IngestError | null = null;
     try {
       buildFormPlan('F', 'bad name', [{ label: 'A', column: 'a', kind: 'text', required: false }]);
-    } catch (e) { caught = e as IngestError; }
+    } catch (e) {
+      caught = e as IngestError;
+    }
     expect(caught).toBeInstanceOf(IngestError);
     expect(caught?.code).toBe('invalid_table');
   });
 
   it('throws IngestError no_fields for an empty field list', () => {
     let caught: IngestError | null = null;
-    try { buildFormPlan('F', 'f', []); } catch (e) { caught = e as IngestError; }
+    try {
+      buildFormPlan('F', 'f', []);
+    } catch (e) {
+      caught = e as IngestError;
+    }
     expect(caught?.code).toBe('no_fields');
   });
 });

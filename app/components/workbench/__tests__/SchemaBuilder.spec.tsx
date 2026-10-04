@@ -59,8 +59,7 @@ vi.mock('~/utils/classNames', () => ({
 vi.mock('../panel', () => ({
   PanelShell: ({ children }: { children: React.ReactNode }) =>
     React.createElement('div', { 'data-testid': 'panel-shell' }, children),
-  PanelHeader: ({ title }: { title: string }) =>
-    React.createElement('div', { 'data-testid': 'panel-header' }, title),
+  PanelHeader: ({ title }: { title: string }) => React.createElement('div', { 'data-testid': 'panel-header' }, title),
 }));
 
 // ─── Pure logic imports (no React needed) ────────────────────────────────────
@@ -212,9 +211,7 @@ describe('SchemaBuilder — disabled state (dark flag)', () => {
     render(<SchemaBuilder />);
 
     await waitFor(() =>
-      expect(postToParent).toHaveBeenCalledWith(
-        expect.objectContaining({ type: 'PS_SITEDB_TABLES_REQUEST' }),
-      ),
+      expect(postToParent).toHaveBeenCalledWith(expect.objectContaining({ type: 'PS_SITEDB_TABLES_REQUEST' })),
     );
 
     replyTablesDisabled();
@@ -231,9 +228,7 @@ describe('SchemaBuilder — ready state', () => {
     render(<SchemaBuilder />);
 
     await waitFor(() =>
-      expect(postToParent).toHaveBeenCalledWith(
-        expect.objectContaining({ type: 'PS_SITEDB_TABLES_REQUEST' }),
-      ),
+      expect(postToParent).toHaveBeenCalledWith(expect.objectContaining({ type: 'PS_SITEDB_TABLES_REQUEST' })),
     );
 
     replyTablesReady(['products']);
@@ -253,9 +248,7 @@ describe('SchemaBuilder — addColumn operation', () => {
     render(<SchemaBuilder />);
 
     await waitFor(() =>
-      expect(postToParent).toHaveBeenCalledWith(
-        expect.objectContaining({ type: 'PS_SITEDB_TABLES_REQUEST' }),
-      ),
+      expect(postToParent).toHaveBeenCalledWith(expect.objectContaining({ type: 'PS_SITEDB_TABLES_REQUEST' })),
     );
 
     replyTablesReady(['products']);
@@ -280,9 +273,7 @@ describe('SchemaBuilder — dropColumn destructive gate', () => {
     render(<SchemaBuilder initialOp="dropColumn" />);
 
     await waitFor(() =>
-      expect(postToParent).toHaveBeenCalledWith(
-        expect.objectContaining({ type: 'PS_SITEDB_TABLES_REQUEST' }),
-      ),
+      expect(postToParent).toHaveBeenCalledWith(expect.objectContaining({ type: 'PS_SITEDB_TABLES_REQUEST' })),
     );
 
     replyTablesReady(['users']);
@@ -310,9 +301,7 @@ describe('SchemaBuilder — SQL preview', () => {
     render(<SchemaBuilder />);
 
     await waitFor(() =>
-      expect(postToParent).toHaveBeenCalledWith(
-        expect.objectContaining({ type: 'PS_SITEDB_TABLES_REQUEST' }),
-      ),
+      expect(postToParent).toHaveBeenCalledWith(expect.objectContaining({ type: 'PS_SITEDB_TABLES_REQUEST' })),
     );
 
     replyTablesReady();
@@ -334,9 +323,7 @@ describe('SchemaBuilder — Apply success', () => {
     render(<SchemaBuilder />);
 
     await waitFor(() =>
-      expect(postToParent).toHaveBeenCalledWith(
-        expect.objectContaining({ type: 'PS_SITEDB_TABLES_REQUEST' }),
-      ),
+      expect(postToParent).toHaveBeenCalledWith(expect.objectContaining({ type: 'PS_SITEDB_TABLES_REQUEST' })),
     );
 
     replyTablesReady();
@@ -353,9 +340,7 @@ describe('SchemaBuilder — Apply success', () => {
     fireEvent.click(screen.getByTestId('schema-apply'));
 
     await waitFor(() =>
-      expect(postToParent).toHaveBeenCalledWith(
-        expect.objectContaining({ type: 'PS_RES_MUTATE_REQUEST' }),
-      ),
+      expect(postToParent).toHaveBeenCalledWith(expect.objectContaining({ type: 'PS_RES_MUTATE_REQUEST' })),
     );
 
     replyExecOk();
@@ -371,9 +356,7 @@ describe('SchemaBuilder — Apply error', () => {
     render(<SchemaBuilder />);
 
     await waitFor(() =>
-      expect(postToParent).toHaveBeenCalledWith(
-        expect.objectContaining({ type: 'PS_SITEDB_TABLES_REQUEST' }),
-      ),
+      expect(postToParent).toHaveBeenCalledWith(expect.objectContaining({ type: 'PS_SITEDB_TABLES_REQUEST' })),
     );
 
     replyTablesReady();
@@ -390,9 +373,7 @@ describe('SchemaBuilder — Apply error', () => {
     fireEvent.click(screen.getByTestId('schema-apply'));
 
     await waitFor(() =>
-      expect(postToParent).toHaveBeenCalledWith(
-        expect.objectContaining({ type: 'PS_RES_MUTATE_REQUEST' }),
-      ),
+      expect(postToParent).toHaveBeenCalledWith(expect.objectContaining({ type: 'PS_RES_MUTATE_REQUEST' })),
     );
 
     replyExecError('table "events" already exists');

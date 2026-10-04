@@ -54,11 +54,8 @@ vi.mock('~/lib/webcontainer', () => ({
   webcontainer: Promise.resolve({
     workdir: '/home/project',
     internal: {
-      textSearch: async (
-        query: string,
-        opts: unknown,
-        cb: (fp: string, m: unknown[]) => void,
-      ) => textSearchImpl(query, opts, cb),
+      textSearch: async (query: string, opts: unknown, cb: (fp: string, m: unknown[]) => void) =>
+        textSearchImpl(query, opts, cb),
     },
     fs: {
       mkdir: vi.fn(async () => {}),
@@ -168,9 +165,7 @@ describe('Search — no-results state', () => {
     const input = screen.getByPlaceholderText('Search');
     fireEvent.change(input, { target: { value: 'somethingnotinfiles' } });
 
-    await waitFor(() =>
-      expect(screen.getByText(/No results found\./i)).toBeInTheDocument(),
-    );
+    await waitFor(() => expect(screen.getByText(/No results found\./i)).toBeInTheDocument());
   });
 });
 

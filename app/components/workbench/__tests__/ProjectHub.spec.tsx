@@ -102,13 +102,8 @@ vi.mock('@radix-ui/react-popover', () => {
   const Portal = ({ children }: { children: React.ReactNode }) =>
     React.createElement('div', { 'data-testid': 'popover-portal' }, children);
 
-  const Content = ({
-    children,
-    className,
-  }: {
-    children: React.ReactNode;
-    className?: string;
-  }) => React.createElement('div', { 'data-testid': 'popover-content', className }, children);
+  const Content = ({ children, className }: { children: React.ReactNode; className?: string }) =>
+    React.createElement('div', { 'data-testid': 'popover-content', className }, children);
 
   const Close = ({ children }: { children: React.ReactNode }) =>
     React.createElement('button', { 'data-testid': 'popover-close' }, children);
