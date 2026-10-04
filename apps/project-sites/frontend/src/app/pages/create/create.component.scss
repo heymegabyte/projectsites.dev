@@ -3,8 +3,21 @@
 // ── Full-screen create overlay ────────────────────────────────────
 // Left = all-white canvas with the bold phrase; right = ≤500px dark brand
 // panel carrying the form. Overlay sits above the admin dashboard behind it.
+//
+// STACKING FIX (CREATE-POLISH-1, fire-122): `/create` renders CreateComponent in
+// AdminComponent's <router-outlet>, so this overlay lives inside `main#main-content`
+// — a `position:relative` flex item whose paint layer loses to the sibling
+// `.admin-topbar` flex item (`sticky z-50`). NO z-index on the overlay (even 2^31−1)
+// escapes that flex paint-order trap — verified: with the close button at z 2147483647
+// the admin `.avatar-btn` was STILL `document.elementFromPoint` topmost at the X's
+// center, so a real click opened the user menu instead of closing the overlay. The
+// real fix is the JS portal in `ngAfterViewInit` (overlay → <body>, out of `main`'s
+// layer). Once in <body> the overlay is in the root stacking context; this takeover
+// z-index then keeps it above other body-level fixed layers (toasts etc.).
 .ps-create-overlay {
   background: #ffffff; // white shows through on md+ where the canvas lives
+  z-index: var(--ps-z-overlay-takeover, 2147483647);
+  isolation: isolate;
 }
 
 // On small screens the white canvas is hidden (md:) and the dark panel takes the

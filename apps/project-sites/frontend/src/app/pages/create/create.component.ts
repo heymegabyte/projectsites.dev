@@ -2,10 +2,12 @@ import {
   Component,
   type OnInit,
   type OnDestroy,
+  type AfterViewInit,
   inject,
   signal,
   HostListener,
   ChangeDetectorRef,
+  ElementRef,
 } from '@angular/core';
 import { Location } from '@angular/common';
 import { Router, ActivatedRoute, RouterLink } from '@angular/router';
@@ -153,7 +155,7 @@ interface BusinessSuggestion {
   templateUrl: './create.component.html',
   styleUrl: './create.component.scss',
 })
-export class CreateComponent implements OnInit, OnDestroy {
+export class CreateComponent implements OnInit, AfterViewInit, OnDestroy {
   private api = inject(ApiService);
   auth = inject(AuthService);
   private geo = inject(GeolocationService);
@@ -163,6 +165,20 @@ export class CreateComponent implements OnInit, OnDestroy {
   private location = inject(Location);
   private cdr = inject(ChangeDetectorRef);
   private telemetry = inject(TelemetryService);
+  private host = inject(ElementRef<HTMLElement>);
+
+  /**
+   * The overlay node we hoist to <body> (CREATE-POLISH-1). `/create` renders this
+   * component in AdminComponent's <router-outlet>, so the overlay lives inside
+   * `main#main-content` — a `position:relative` flex item whose paint layer loses to
+   * the sibling `.admin-topbar` flex item (`sticky z-50`). No z-index on the overlay
+   * (even 2^31−1) escapes that flex paint-order trap, so the admin avatar button paints
+   * OVER the top-right close button and a real click never reaches `overlayClose()`
+   * (verified: `document.elementFromPoint` at the X's center returned `.avatar-btn`).
+   * Hoisting the overlay to <body> moves it out of `main`'s stacking layer so it paints
+   * above the admin chrome and the close button genuinely receives the click.
+   */
+  private portaledOverlay: HTMLElement | null = null;
 
   businessName = '';
   businessAddress = '';
@@ -598,7 +614,33 @@ export class CreateComponent implements OnInit, OnDestroy {
       });
   }
 
+  /**
+   * CREATE-POLISH-1: hoist the full-screen overlay out of `main#main-content`'s flex
+   * paint layer and append it to <body>, so the admin topbar's avatar no longer paints
+   * over the top-right close button. The node stays Angular-managed (bindings + change
+   * detection + the Esc `@HostListener` keep working) — only its DOM parent changes.
+   */
+  ngAfterViewInit(): void {
+    try {
+      const overlay = (this.host.nativeElement as HTMLElement).querySelector<HTMLElement>(
+        '.ps-create-overlay',
+      );
+      if (overlay && overlay.parentElement !== document.body) {
+        document.body.appendChild(overlay);
+        this.portaledOverlay = overlay;
+      }
+    } catch {
+      /* non-browser / SSR — the overlay renders in place, no portal */
+    }
+  }
+
   ngOnDestroy(): void {
+    // Remove the hoisted overlay so no orphan node lingers in <body> after we navigate
+    // back to the dashboard (Angular only tears down nodes still under its host).
+    if (this.portaledOverlay?.parentElement === document.body) {
+      this.portaledOverlay.remove();
+    }
+    this.portaledOverlay = null;
     this.destroy$.next();
     this.destroy$.complete();
   }
