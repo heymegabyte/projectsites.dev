@@ -153,8 +153,13 @@ Each brief is self-contained, 150–300 words: its slice · the ONE canonical do
 (`BACKLOG.md` frontier + at most one section) · reuse-not-reimplement pointers · verify gates ·
 "commit ONLY your paths, NEVER `git add -A`, rebase if push rejected" · "tick your `BACKLOG.md` line +
 append `LEDGER.md`/`DISCOVERIES.md`". Write the primary deliverable FIRST (`agent-resilience-discipline`
-Pattern A). Briefs stay tiny with near-zero exploratory reads — project `CLAUDE.md` is large; an agent
-told to "go read the app" dies at `subagent_tokens: 0`.
+Pattern A). **COMMIT + PUSH the primary artifact the INSTANT it is green — BEFORE composing the ≤200-word
+return; the report is the LAST thing.** Agents repeatedly cut off in the verify→commit→report TAIL
+(fire-119, fire-129): the work is done + passing but uncommitted, stranding verified work (salvageable,
+but it costs a recovery). The commit is never gated behind the report. Briefs stay tiny with near-zero
+exploratory reads — project `CLAUDE.md` is large; an agent told to "go read the app" dies at
+`subagent_tokens: 0`. On a cut-off, SALVAGE: check the agent's worktree AND the main checkout for the
+untracked/uncommitted artifact (per `OPERATING-PRINCIPLES` § Salvage), re-verify, commit, keep running.
 
 ## 2 — Category budget (prevent starvation, NOT rigid quotas)
 Across a fire's spawned roles (and across recent fires), keep the mix roughly within these bands.
