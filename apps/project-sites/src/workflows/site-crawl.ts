@@ -46,7 +46,10 @@ import {
   type CrawlLink,
   type CrawlRequest,
 } from '../../libs/features/site_crawl/schemas.js';
-import { CloudflareCrawlProvider, type CrawlProvider } from '../../libs/features/site_crawl/provider.js';
+import {
+  CloudflareCrawlProvider,
+  type CrawlProvider,
+} from '../../libs/features/site_crawl/provider.js';
 import {
   persistCrawl,
   type CrawlPersistenceEnv,
