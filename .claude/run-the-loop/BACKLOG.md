@@ -307,6 +307,14 @@
 
 ## feature
 
+<!-- fire-135 replenish (2026-10-04) — honest-count / silent-cap class (sibling of the shipped MEDIA-UI-1), from fire-135 Product Discovery + Architecture -->
+- [ ] MEDIA-UI-1b: editor Resources media panel load-more via the `cursor` already on the wire — acceptance: with >1 page of media, a "Load more" appends the next page (PS_RES_MEDIA offset/cursor) and the "N of total" count converges to total as pages load; unit asserts the cursor round-trips. (follow-on to MEDIA-UI-1, fire-135)
+  - cadence: next-fire · priority: med · category: feature · discovered_by: fire-135-product-discovery
+- [ ] FILES-COUNT-1: editor Resources Files tab honest total — acceptance: `ResourcesPanel.tsx` Files header ("N files") reads "N of TOTAL" when the file list is windowed/capped; if provably unbounded, a unit asserts that (no silent cap). (same honest-count class as MEDIA-UI-1)
+  - cadence: next-2-fires · priority: med · category: feature · discovered_by: fire-135-architecture
+- [ ] LEADS-TOTAL-1: leads list true total + load-more — acceptance: `leads.component.ts` header shows "N of TOTAL" from the server's true filtered count (not a page-length count) + a load-more pages the remainder; reconcile display-vs-store against the D1 ground-truth count. (silent-cap class, outreach surface)
+  - cadence: next-2-fires · priority: med · category: feature · discovered_by: fire-135-architecture
+
 <!-- fire-101 replenish (2026-10-03) — editor↔worker bridge + gen-quality gates, from Product Discovery -->
 - [ ] editor-bridge: shared Zod contract for every PS_* postMessage (admin relay ↔ bolt editor) — acceptance: packages/shared exports a `PsBridgeMessage` discriminated union (resource_detail/cell_edit carry canonical `kind`); both send+receive sites import it; a unit test fails if either side reads a field absent from the schema. Regression-locks the fire-101 resourceKind/kind drift. [HIGHEST-LEVERAGE next]
   - cadence: next-fire · priority: high · category: feature · discovered_by: fire-101-product-discovery

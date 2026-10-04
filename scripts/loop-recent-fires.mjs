@@ -1,14 +1,20 @@
 #!/usr/bin/env node
-// loop-recent-fires.mjs — deterministic recency helper for the run-the-loop operator.
+// loop-recent-fires.mjs — deterministic recency + category-mix helper for the run-the-loop operator.
 //
 // WHY: the LEDGER's recent-fire section is NOT reliably sorted — fire headers appear
 // out of chronological order, so eyeballing it gives a STALE recency read (fire-88
 // orientation reported "last 5 = 73-77" when git showed work through fire-87). This
 // mis-calls category starvation + journey variation. Run this instead of eyeballing.
 //
-// Prints, newest-first, the last N (default 8) `fire-NN` headers from LEDGER.md with
-// their one-line summaries, AND the distinct `fire-NN` tokens seen in `git log` so a
-// LEDGER-vs-git recency mismatch is visible at a glance.
+// It ALSO classifies the last N fires into the §3 category budget from their git commit
+// subjects and prints the mix + flags any category below its §3 floor — so the "which
+// category starved, over-weight it this fire" call (run-the-loop §3) is DATA-DRIVEN, not
+// eyeballed. fire-135 added the category mix after the lead had to infer "Product starved"
+// by hand from the raw fire tokens.
+//
+// Prints, newest-first: the last N (default 8) `fire-NN` headers from LEDGER.md with their
+// one-line summaries; the distinct `fire-NN` tokens from `git log` (so a LEDGER-vs-git
+// mismatch is visible); and the recent CATEGORY MIX with starvation flags.
 //
 // Usage:  node scripts/loop-recent-fires.mjs [--n <N>] [--json]
 
@@ -21,6 +27,33 @@ const HERE = dirname(fileURLToPath(import.meta.url));
 const REPO = join(HERE, '..');
 const LEDGER = join(REPO, '.claude', 'run-the-loop', 'LEDGER.md');
 const FIRE_HEADER = /^#{1,3}\s*fire-(\d+)\b(.*)$/;
+
+// §3 category budget (run-the-loop.md). floor/ceil are fractions of the recent-fire window.
+// A fire is tagged to ONE primary category; shares below `floor` flag STARVED → over-weight next fire.
+const CATEGORY_BUDGET = [
+  { key: 'product', label: 'Product / bug fixes', floor: 0.3, ceil: 0.45 },
+  { key: 'testing', label: 'Testing / golden paths', floor: 0.15, ceil: 0.25 },
+  { key: 'architecture', label: 'Architecture', floor: 0.1, ceil: 0.2 },
+  { key: 'ux', label: 'UX / a11y', floor: 0.05, ceil: 0.15 },
+  { key: 'cleanup', label: 'Cleanup / perf', floor: 0.05, ceil: 0.15 },
+  { key: 'docs', label: 'Docs', floor: 0.05, ceil: 0.1 },
+  { key: 'discovery', label: 'Discovery', floor: 0.05, ceil: 0.1 },
+  { key: 'loop', label: 'Loop-improvement', floor: 0.05, ceil: 1 },
+];
+
+// Ordered first-match keyword rules. SUBSTANCE-specific categories are matched BEFORE the
+// generic `product`/`docs` buckets so `fix(a11y)` → ux and a `docs(loop)` ledger wrapper
+// never forces `docs` (the wrapper prefix is stripped before classifying).
+const CATEGORY_RULES = [
+  ['ux', /\b(a11y|contrast|wcag|\baxe\b|aria|visual|polish|ux\b|reduced-motion|focus-|landmark|tap target)/i],
+  ['testing', /\b(e2e|golden|journey|reconcile|probe|spec\b|coverage|\btdd\b|playwright|long-trail|causal|smoke)/i],
+  ['architecture', /\b(drift|orphan|\badr\b|rearch|re-arch|architect|consolidat|interconnect|module|one-way|spine)/i],
+  ['cleanup', /\b(dead[- ]code|knip|ts-prune|compress|\bperf\b|bundle|cleanup|hygiene|simplif|thin |lean )/i],
+  ['discovery', /\b(scout|discovery|cf-release|replenish|tech-scout|next-wave)/i],
+  ['loop', /\b(loop-improve|loop improvement|§7|wrapper|harden|operating-principle|role brief|category budget|starvation)/i],
+  ['product', /\b(feat\(|fix\(|media-ui|money[- ]path|create|editor|publish|domain|billing|data-platform|feature|wfp|checkout|onboard)/i],
+  ['docs', /\b(docs?\(|readme|changelog|\bdoc\b)/i],
+];
 
 function parseArgs(argv) {
   let n = 8;
@@ -52,9 +85,7 @@ function ledgerFires(n) {
     const m = line.match(FIRE_HEADER);
     if (!m) continue;
     const id = Number.parseInt(m[1], 10);
-    // One-line summary: strip leading separators/parens noise, trim to a sane width.
     const summary = m[2].replace(/^\s*[—–\-:(]\s*/, '').replace(/\s+/g, ' ').trim().slice(0, 160);
-    // Keep the first (usually richest) occurrence per id.
     if (!seen.has(id)) seen.set(id, summary);
   }
   return [...seen.entries()]
@@ -63,33 +94,70 @@ function ledgerFires(n) {
     .map(([id, summary]) => ({ id: `fire-${id}`, summary }));
 }
 
-/** Distinct fire-NN tokens from recent git history, newest-first. */
-function gitFires(limit = 40) {
+/**
+ * Distinct fire-NN tokens from recent git history, newest-first, each with the ACCUMULATED
+ * commit subjects that mention it (authoritative + chronological — the category signal lives
+ * in the substantive commit subjects, not the possibly-stale LEDGER).
+ */
+function gitFires(limit = 60) {
   try {
-    const out = execFileSync('git', ['log', '--oneline', `-${limit}`], {
-      cwd: REPO,
-      encoding: 'utf8',
-    });
+    const out = execFileSync('git', ['log', '--oneline', `-${limit}`], { cwd: REPO, encoding: 'utf8' });
     const order = [];
-    const seen = new Set();
-    for (const tok of out.match(/fire-\d+/g) ?? []) {
-      if (!seen.has(tok)) {
-        seen.add(tok);
-        order.push(tok);
+    const subjects = new Map(); // token -> accumulated subject text
+    for (const line of out.split('\n')) {
+      const toks = line.match(/fire-\d+/g);
+      if (!toks) continue;
+      for (const tok of toks) {
+        if (!subjects.has(tok)) {
+          subjects.set(tok, '');
+          order.push(tok);
+        }
+        subjects.set(tok, `${subjects.get(tok)} ${line}`);
       }
     }
-    return order;
+    return { order, subjects };
   } catch {
-    return [];
+    return { order: [], subjects: new Map() };
   }
+}
+
+/** Strip the `docs(loop): 📘 fire-NN —` ledger-wrapper prefix so classification reads the substance. */
+function stripWrapper(text) {
+  return text.replace(/docs\(loop\):/gi, ' ').replace(/📘|📥|🔁|🎨|📘/g, ' ').replace(/fire-\d+\s*[—–-]?/gi, ' ');
+}
+
+/** Classify one fire's accumulated subject text into a §3 category (first-match, substance-first). */
+function classifyFire(subjectText) {
+  const t = stripWrapper(subjectText);
+  for (const [key, re] of CATEGORY_RULES) if (re.test(t)) return key;
+  return 'other';
+}
+
+/** Build the category mix (count + share) over the last N fires + flag below-floor categories. */
+function categoryMix(tokens, subjects, n) {
+  const recent = tokens.slice(0, n);
+  const counts = new Map();
+  const perFire = [];
+  for (const tok of recent) {
+    const cat = classifyFire(subjects.get(tok) ?? tok);
+    counts.set(cat, (counts.get(cat) ?? 0) + 1);
+    perFire.push({ fire: tok, category: cat });
+  }
+  const total = recent.length || 1;
+  const rows = CATEGORY_BUDGET.map((b) => {
+    const count = counts.get(b.key) ?? 0;
+    const share = count / total;
+    return { ...b, count, share, starved: share < b.floor };
+  });
+  const other = counts.get('other') ?? 0;
+  if (other) rows.push({ key: 'other', label: 'Other / uncategorized', floor: 0, ceil: 1, count: other, share: other / total, starved: false });
+  const starved = rows.filter((r) => r.starved && r.key !== 'loop').map((r) => r.label);
+  return { total, perFire, rows, starved };
 }
 
 function gitSha() {
   try {
-    return execFileSync('git', ['rev-parse', '--short', 'HEAD'], {
-      cwd: REPO,
-      encoding: 'utf8',
-    }).trim();
+    return execFileSync('git', ['rev-parse', '--short', 'HEAD'], { cwd: REPO, encoding: 'utf8' }).trim();
   } catch {
     return 'unknown';
   }
@@ -97,7 +165,8 @@ function gitSha() {
 
 const { n, json } = parseArgs(process.argv.slice(2));
 const fires = ledgerFires(n);
-const git = gitFires(40);
+const { order: git, subjects } = gitFires(60);
+const mix = categoryMix(git, subjects, n);
 
 if (json) {
   process.stdout.write(
@@ -106,6 +175,9 @@ if (json) {
         meta: { repo: 'projectsites.dev', generated_at: new Date().toISOString(), git_sha: gitSha() },
         fires,
         git_recent_fires: git.slice(0, n),
+        category_mix: mix.rows.map((r) => ({ category: r.key, label: r.label, count: r.count, share: Number(r.share.toFixed(3)), floor: r.floor, starved: r.starved })),
+        per_fire_category: mix.perFire,
+        starved: mix.starved,
       },
       null,
       2,
@@ -119,5 +191,19 @@ if (json) {
   const gitTop = git[0] ?? '(none)';
   if (ledgerTop !== gitTop) {
     process.stdout.write(`\n⚠ RECENCY MISMATCH: LEDGER top=${ledgerTop} but git top=${gitTop} — trust git.\n`);
+  }
+  process.stdout.write(`\nCategory mix — last ${mix.total} fires (§3 budget; data-driven starvation call):\n`);
+  for (const r of mix.rows) {
+    const pct = `${Math.round(r.share * 100)}%`.padStart(4);
+    const band = r.ceil < 1 ? `${Math.round(r.floor * 100)}-${Math.round(r.ceil * 100)}%` : `${Math.round(r.floor * 100)}%+`;
+    const flag = r.starved && r.key !== 'loop' ? '  ⚠ STARVED (below §3 floor)' : '';
+    process.stdout.write(`  ${r.label.padEnd(24)} ${String(r.count).padStart(2)}  ${pct}  (band ${band})${flag}\n`);
+  }
+  // Starved list is ranked by §3 floor descending — the highest-floor gap (Product, then
+  // Testing/Architecture) is the PRIMARY over-weight target; the 5%-floor tails trend in over 3-5 fires.
+  if (mix.starved.length) {
+    process.stdout.write(`\n⚠ STARVED → over-weight THIS fire (§3), primary first: ${mix.starved.join(', ')}\n`);
+  } else {
+    process.stdout.write(`\n✓ Category mix is within §3 bands (no starvation).\n`);
   }
 }
