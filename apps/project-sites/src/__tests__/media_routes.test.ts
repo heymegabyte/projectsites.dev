@@ -30,6 +30,8 @@ jest.mock('../services/media.js', () => ({
   generateVideo: jest.fn(),
   generatePodcast: jest.fn(),
   sendToBolt: jest.fn(),
+  signedRawMediaUrl: jest.fn(),
+  verifyMediaToken: jest.fn(),
 }));
 
 import { mediaRoutes } from '../routes/media.js';

@@ -172,7 +172,17 @@ mediaRoutes.get('/api/media/assets', async (c) => {
   // IDOR-safe). Minted server-side here so the admin bridge just forwards it — one list call,
   // N signed URLs, zero extra round-trips. (Fixes Resources → Media blank-404 thumbnails.)
   const withUrls = await Promise.all(
-    assets.map(async (a) => ({ ...a, rawUrl: await signedRawMediaUrl(c.env, a.id, scope.orgId) })),
+    assets.map(async (a) => {
+      // A per-asset thumbnail URL must NEVER 500 the whole list — degrade to no rawUrl on any
+      // signing error (the editor falls back to its bearer-only relative url / glyph fallback).
+      let rawUrl: string | undefined;
+      try {
+        rawUrl = await signedRawMediaUrl(c.env, a.id, scope.orgId);
+      } catch {
+        rawUrl = undefined;
+      }
+      return { ...a, rawUrl };
+    }),
   );
   return c.json({ ok: true, assets: withUrls, total, limit, offset });
 });
