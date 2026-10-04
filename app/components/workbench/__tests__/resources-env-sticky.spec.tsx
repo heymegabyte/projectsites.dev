@@ -10,7 +10,7 @@
  *   1. Pure round-trip — `persistResEnv` writes, `readPersistedResEnv` reads it back; a corrupt/absent
  *      value falls back to the default (never strands the panel on an invalid env).
  *   2. Render + remount survival — select Preview, UNMOUNT the panel, re-render a FRESH instance; the
- *      new mount's lazy initializer restores Preview (`aria-pressed=true`), not the default Production.
+ *      new mount's lazy initializer restores Preview (`aria-checked=true`), not the default Production.
  *
  * The bridge + heavy child panels are mocked so this stays about the env switcher's persistence.
  */
@@ -64,11 +64,11 @@ describe('RES-ENV-STICKY — selection survives a remount', () => {
     // First mount: defaults to Production (nothing persisted).
     const first = render(<ResourcesPanel />);
     const productionBtn = screen.getByTestId('resources-env-production');
-    expect(productionBtn.getAttribute('aria-pressed')).toBe('true');
+    expect(productionBtn.getAttribute('aria-checked')).toBe('true');
 
     // The owner switches to Preview.
     fireEvent.click(screen.getByTestId('resources-env-preview'));
-    expect(screen.getByTestId('resources-env-preview').getAttribute('aria-pressed')).toBe('true');
+    expect(screen.getByTestId('resources-env-preview').getAttribute('aria-checked')).toBe('true');
 
     // Persisted immediately (the lazy initializer of the NEXT mount reads this).
     expect(readPersistedResEnv()).toBe('preview');
@@ -78,7 +78,7 @@ describe('RES-ENV-STICKY — selection survives a remount', () => {
 
     // … and re-render a FRESH instance — it must come up on Preview, not snap back to Production.
     render(<ResourcesPanel />);
-    expect(screen.getByTestId('resources-env-preview').getAttribute('aria-pressed')).toBe('true');
-    expect(screen.getByTestId('resources-env-production').getAttribute('aria-pressed')).toBe('false');
+    expect(screen.getByTestId('resources-env-preview').getAttribute('aria-checked')).toBe('true');
+    expect(screen.getByTestId('resources-env-production').getAttribute('aria-checked')).toBe('false');
   });
 });

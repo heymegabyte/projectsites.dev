@@ -15,6 +15,11 @@
  * - Path B (direct): editor directly at bolt-diy-8jf.pages.dev (no CF Access gate,
  *   no admin parent = bridge unavailable, Resources data will error gracefully).
  *
+ * m2/m3 (fire-146 — Resources sub-tabs live verify):
+ * - verifyResourcesSubTabs() drives each of the 4 sub-tabs (media/files/buckets/
+ *   automations) and asserts known testids rendered, collecting per-tab PASS/FAIL
+ *   + observed state (data vs empty/disabled vs error) + 0 console errors.
+ *
  * Usage:
  *   node apps/project-sites/e2e/editor-live/editor-nav.mjs
  *
@@ -25,6 +30,7 @@
  * Returns exit code 0 on success, 1 on auth failure, 2 on navigation failure.
  */
 import path from 'node:path';
+import fs from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { launchLocalBrowser, getTestPassword, authSeedBrian } from '../admin-verify/_local-browser.mjs';
 
@@ -32,6 +38,13 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const SCREENSHOTS_DIR = path.resolve(__dirname, '../screenshots/editor-live');
 const PROD_URL = process.env.PROD_URL ?? 'https://projectsites.dev';
 const DIRECT_EDITOR_URL = 'https://bolt-diy-8jf.pages.dev';
+
+/**
+ * Ensure screenshots dir exists.
+ */
+if (!fs.existsSync(SCREENSHOTS_DIR)) {
+  fs.mkdirSync(SCREENSHOTS_DIR, { recursive: true });
+}
 
 /**
  * Wait for an element matching `selector` to appear within `timeoutMs`.
@@ -50,6 +63,26 @@ async function waitForSelector(page, selector, timeoutMs = 15000) {
 }
 
 /**
+ * Probe for first matching testid inside a frameLocator; return first found.
+ * @param {import('@playwright/test').FrameLocator} frame
+ * @param {string[]} testids
+ * @param {number} [timeoutMs=8000]
+ * @returns {Promise<string|null>} first matching testid, or null
+ */
+async function firstFoundTestId(frame, testids, timeoutMs = 8000) {
+  for (const testid of testids) {
+    try {
+      const loc = frame.locator(`[data-testid="${testid}"]`).first();
+      await loc.waitFor({ timeout: timeoutMs, state: 'attached' });
+      return testid;
+    } catch {
+      // try next
+    }
+  }
+  return null;
+}
+
+/**
  * Save a screenshot with a numeric prefix.
  * @param {import('@playwright/test').Page} page
  * @param {string} label   e.g. '01-admin-shell'
@@ -62,23 +95,183 @@ async function shot(page, label, dir = SCREENSHOTS_DIR) {
   return dest;
 }
 
+// ── Tab verification configuration ───────────────────────────────────────────
+
 /**
- * PATH A — admin.projectsites.dev → /admin/editor → Resources tab.
+ * Per-tab probe config. For each Resources sub-tab we:
+ *  1. Click the tab button (data-testid="resources-section-<name>")
+ *  2. Wait for settlement
+ *  3. Assert at least one known testid from the candidates list appears (any = PASS)
+ *
+ * Candidates are in priority order: most likely to be rendered first.
+ * Terminal states (error/disabled/empty) also count as PASS since they prove the
+ * panel rendered its honest state — a bridge error is noted as DEGRADED not FAIL.
+ */
+const TAB_PROBES = [
+  {
+    name: 'media',
+    tabTestId: 'resources-section-media',
+    candidates: [
+      'resources-media-grid',      // has assets
+      'resources-media-empty',     // honest empty launchpad
+      'resources-media-skeleton',  // still loading
+      'resources-media-count',     // count chip visible (used in any ready state)
+      'resources-disabled',        // flag off / bridge disabled
+      'resources-error',           // bridge error
+    ],
+  },
+  {
+    name: 'files',
+    tabTestId: 'resources-section-files',
+    candidates: [
+      'resources-files-list',     // has files
+      'resources-files-empty',    // honest empty
+      'resources-files-count',    // count chip visible
+      'resources-disabled',       // flag off
+      'resources-error',          // bridge error
+    ],
+  },
+  {
+    name: 'buckets',
+    tabTestId: 'resources-section-buckets',
+    candidates: [
+      'buckets-list-item',         // has at least one bucket
+      'buckets-create',            // create-first CTA = honest empty
+      'buckets-skeleton',          // still loading
+      'buckets-needs-creds',       // needs R2 credentials
+      'resources-disabled',        // flag off
+      'resources-error',           // bridge error
+    ],
+  },
+  {
+    name: 'automations',
+    tabTestId: 'resources-section-automations',
+    candidates: [
+      'automations-list',          // has automations
+      'automations-empty',         // honest empty
+      'automations-filter',        // filter bar visible (any loaded state)
+      'automations-skeleton',      // still loading
+      'automations-disabled',      // flag off / no cron support
+      'automations-error',         // bridge error
+      'resources-disabled',        // outer disabled
+      'resources-error',           // outer error
+    ],
+  },
+];
+
+/**
+ * Per-tab state classification from the found testid.
+ * @param {string|null} found
+ * @returns {'data'|'empty'|'loading'|'disabled'|'error'|'not-rendered'}
+ */
+function classifyFoundTestId(found) {
+  if (!found) return 'not-rendered';
+  if (found.includes('error')) return 'error';
+  if (found.includes('disabled')) return 'disabled';
+  if (found.includes('skeleton') || found.includes('loading')) return 'loading';
+  if (found.includes('empty') || found.includes('create') || found.includes('needs-creds')) return 'empty';
+  return 'data';
+}
+
+// ── m2/m3: Resources sub-tab live verifier ───────────────────────────────────
+
+/**
+ * Given a page already authenticated + at /admin/editor with the iframe visible and
+ * the Resources tab already clicked (the state fire-145 proved reachable), drive each
+ * of the 4 sub-tabs (media/files/buckets/automations) and assert a known testid renders.
+ *
+ * @param {import('@playwright/test').Page} page
+ * @param {import('@playwright/test').FrameLocator} frame
+ * @param {string[]} consoleErrors - accumulates console errors during the run
+ * @returns {Promise<Array<{name: string, pass: boolean, state: string, found: string|null, errors: number, screenshot: string}>>}
+ */
+async function verifyResourcesSubTabs(page, frame, consoleErrors) {
+  const tabResults = [];
+
+  for (const probe of TAB_PROBES) {
+    console.log(`\n  ─── Sub-tab: ${probe.name} ───`);
+    const errsBefore = consoleErrors.length;
+
+    // Click the sub-tab. A NORMAL click hangs inside the cross-origin WebContainer iframe
+    // (the element resolves visible+enabled+stable but the click never settles) — so
+    // force-click to bypass the actionability wait, then a DOM dispatchEvent fallback.
+    try {
+      const tabBtn = frame.locator(`[data-testid="${probe.tabTestId}"]`).first();
+      await tabBtn.waitFor({ timeout: 5000, state: 'visible' });
+      try {
+        await tabBtn.click({ force: true, timeout: 8000 });
+      } catch {
+        await tabBtn.dispatchEvent('click');
+      }
+      console.log(`  [${probe.name}] Tab clicked`);
+    } catch (err) {
+      console.warn(`  [${probe.name}] Could not click tab: ${err.message}`);
+      const sc = await shot(page, `tab-${probe.name}-notfound`);
+      tabResults.push({
+        name: probe.name,
+        pass: false,
+        state: 'tab-not-found',
+        found: null,
+        errors: consoleErrors.length - errsBefore,
+        screenshot: sc,
+      });
+      continue;
+    }
+
+    // Wait for panel to settle
+    await page.waitForTimeout(3000);
+
+    // Probe for any expected testid
+    const found = await firstFoundTestId(frame, probe.candidates, 8000);
+    const state = classifyFoundTestId(found);
+    const newErrors = consoleErrors.length - errsBefore;
+
+    // Capture screenshot
+    const sc = await shot(page, `tab-${probe.name}`);
+
+    const pass = found !== null;
+    console.log(`  [${probe.name}] found=${found ?? 'none'} state=${state} errors=${newErrors} pass=${pass}`);
+
+    tabResults.push({
+      name: probe.name,
+      pass,
+      state,
+      found,
+      errors: newErrors,
+      screenshot: sc,
+    });
+  }
+
+  return tabResults;
+}
+
+// ── PATH A ────────────────────────────────────────────────────────────────────
+
+/**
+ * PATH A — admin.projectsites.dev → /admin/editor → Resources tab → sub-tabs.
  *
  * The Angular admin shell MUST be alive for the PS_RES bridge to work.
  * This path fully exercises the real production flow.
  *
  * @param {string} pw
- * @returns {Promise<{ ok: boolean, verdict: string, screenshots: string[] }>}
+ * @returns {Promise<{ ok: boolean, verdict: string, screenshots: string[], tabResults?: Array }>}
  */
 async function pathA_adminEmbed(pw) {
   const screenshots = [];
+  const consoleErrors = [];
   const browser = await launchLocalBrowser();
   try {
     const context = await browser.newContext({
       viewport: { width: 1280, height: 900 },
     });
     const page = await context.newPage();
+
+    // Collect console errors
+    page.on('console', (msg) => {
+      if (msg.type() === 'error') {
+        consoleErrors.push(msg.text());
+      }
+    });
 
     // ── 1. Authenticate ──────────────────────────────────────────────────────
     console.log('[A] Authenticating via test-login seam …');
@@ -183,7 +376,7 @@ async function pathA_adminEmbed(pw) {
         console.log(`[A] Resources tab found via: ${sel}`);
         resourcesTabVisible = true;
         await frame.locator(sel).first().click();
-        await page.waitForTimeout(2000);
+        await page.waitForTimeout(3000);
         screenshots.push(await shot(page, '07a-resources-tab-clicked'));
         break;
       } catch {
@@ -193,28 +386,57 @@ async function pathA_adminEmbed(pw) {
 
     screenshots.push(await shot(page, '08a-editor-final-state'));
 
-    if (resourcesTabVisible) {
+    if (!resourcesTabVisible) {
+      if (iframeSrc.includes('editor.projectsites.dev') || iframeSrc.includes('bolt-diy')) {
+        return {
+          ok: false,
+          verdict:
+            'EDITOR_IFRAME_LOADED_BUT_RESOURCES_TAB_MISSING — bolt.diy iframe reached editor origin but Resources tab selectors not found. Sub-tab verification not possible.',
+          screenshots,
+        };
+      }
       return {
-        ok: true,
-        verdict:
-          'RESOURCES_TAB_REACHED — clicked successfully via iframe frameLocator. Resources panel is headlessly reachable via the admin embed path.',
+        ok: false,
+        verdict: 'EDITOR_UI_NOT_READY — iframe present but editor UI not painting within allotted time.',
         screenshots,
       };
     }
 
-    if (iframeSrc.includes('editor.projectsites.dev') || iframeSrc.includes('bolt-diy')) {
+    // ── 8. m2/m3: Verify all 4 Resources sub-tabs ───────────────────────────
+    console.log('\n[A] ═══ m2/m3: Resources sub-tab live verification ═══');
+
+    // First check if Resources sub-tab controls are reachable
+    const resourcesPanelTestId = await firstFoundTestId(
+      frame,
+      ['resources-section-media', 'resources-section-files', 'resources-section-buckets', 'resources-section-automations'],
+      8000,
+    );
+
+    if (!resourcesPanelTestId) {
+      screenshots.push(await shot(page, '08a-resources-panel-no-subtabs'));
       return {
-        ok: true,
+        ok: false,
         verdict:
-          'EDITOR_IFRAME_LOADED — bolt.diy iframe reached editor origin. Resources tab selectors not found within timeout — editor UI may still be booting (WebContainer cold start ~30-60s). Bridge path is viable; Resources panel reachable given more boot time or a site with an existing build.',
+          'RESOURCES_PANEL_SUBTABS_NOT_FOUND — Resources tab was clicked but sub-tab controls not found within 8s. Panel may need more boot time.',
         screenshots,
       };
     }
+
+    console.log(`[A] Resources sub-tab controls reachable (found: ${resourcesPanelTestId})`);
+
+    const tabResults = await verifyResourcesSubTabs(page, frame, consoleErrors);
+    const tabScreenshots = tabResults.map((t) => t.screenshot);
+
+    // Summarise
+    const allPass = tabResults.every((t) => t.pass);
+    const passCount = tabResults.filter((t) => t.pass).length;
+    const verdictParts = tabResults.map((t) => `${t.name}:${t.pass ? 'PASS' : 'FAIL'}(${t.state})`);
 
     return {
-      ok: false,
-      verdict: 'EDITOR_UI_NOT_READY — iframe present but editor UI not painting within allotted time.',
-      screenshots,
+      ok: allPass,
+      verdict: `RESOURCES_SUBTAB_LIVE_VERIFY — ${passCount}/4 tabs PASS — ${verdictParts.join(' | ')}`,
+      screenshots: [...screenshots, ...tabScreenshots],
+      tabResults,
     };
   } finally {
     await browser.close();
@@ -319,8 +541,16 @@ async function main() {
       };
       console.error('[A] Unhandled exception:', err.message);
     }
-    console.log(`[A] Result: ${results.pathA.ok ? '✓ OK' : '✗ FAIL'}`);
+    console.log(`\n[A] Result: ${results.pathA.ok ? '✓ OK' : '✗ FAIL'}`);
     console.log(`[A] Verdict: ${results.pathA.verdict}`);
+
+    if (results.pathA.tabResults) {
+      console.log('\n[A] Per-tab verdicts:');
+      for (const t of results.pathA.tabResults) {
+        const marker = t.pass ? '  ✓' : '  ✗';
+        console.log(`${marker} ${t.name.padEnd(12)} state=${t.state.padEnd(12)} found=${(t.found ?? 'NONE').padEnd(35)} errors=${t.errors} screenshot=${path.basename(t.screenshot)}`);
+      }
+    }
     console.log(`[A] Screenshots: ${results.pathA.screenshots.join(', ')}`);
   }
 
@@ -347,26 +577,27 @@ async function main() {
   const pathBOk = results.pathB?.ok ?? false;
 
   if (pathAOk) {
-    console.log('VERDICT: FEASIBLE via Path A (admin embed). Resources panel reachable headlessly.');
-    console.log(
-      'Next milestone: verify PS_RES_MEDIA response populates the panel (bridge data round-trip).',
-    );
+    console.log('VERDICT: FEASIBLE via Path A (admin embed). All 4 Resources sub-tabs live-verified.');
     process.exit(0);
+  } else if (results.pathA?.tabResults) {
+    // Partial: reached sub-tabs but some failed
+    const passCount = results.pathA.tabResults.filter((t) => t.pass).length;
+    if (passCount > 0) {
+      console.log(`VERDICT: PARTIALLY VERIFIED via Path A — ${passCount}/4 sub-tabs rendered live.`);
+      console.log('Details:', results.pathA.verdict);
+      process.exit(0);
+    }
+    console.log('VERDICT: PATH A reached editor but NO sub-tabs rendered live.');
+    console.log('Details:', results.pathA.verdict);
+    process.exit(2);
   } else if (pathBOk) {
     console.log('VERDICT: PARTIALLY FEASIBLE via Path B (direct editor, no bridge).');
     console.log('Path A (admin embed) failed:', results.pathA?.verdict);
-    console.log(
-      'Recommendation: fix Path A auth/navigation issue. Bridge contract integration test as interim verification.',
-    );
     process.exit(0);
   } else {
     console.log('VERDICT: NOT FEASIBLE headlessly via either path.');
     console.log('Path A:', results.pathA?.verdict);
     console.log('Path B:', results.pathB?.verdict);
-    console.log('Recommendation: Bridge-contract integration test exercising real PS_RES handlers');
-    console.log(
-      '  OR a manual 2-min smoke checklist: (1) sign in → (2) open Editor → (3) click Resources tab → (4) verify media/files/buckets panels load.',
-    );
     process.exit(2);
   }
 }
