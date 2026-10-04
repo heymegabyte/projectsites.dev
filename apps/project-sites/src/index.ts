@@ -381,7 +381,11 @@ app.use('*', async (c, next) => {
   // gate must NOT block it (it's not a WebContainer/AI-credit abuse vector). Every other path
   // on the editor origin stays gated to the admin iframe.
   const isPreviewGallery = url.pathname === '/_preview';
-  if (!isPreviewGallery && sfDest === 'document' && (sfSite === 'none' || sfSite === 'cross-site')) {
+  if (
+    !isPreviewGallery &&
+    sfDest === 'document' &&
+    (sfSite === 'none' || sfSite === 'cross-site')
+  ) {
     return c.html(
       '<!doctype html><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>ProjectSites Editor</title><body style="margin:0;font:16px/1.5 system-ui,sans-serif;background:#0a0a1a;color:#e6e6e6;display:grid;place-items:center;min-height:100vh"><main style="text-align:center;max-width:34rem;padding:2rem"><h1 style="color:#64ffda;font-size:1.6rem;margin:0 0 .5rem">Open the editor from your dashboard</h1><p style="opacity:.8;margin:0 0 1.5rem">The ProjectSites editor runs inside the admin dashboard, not as a standalone page.</p><a href="https://projectsites.dev/admin" style="display:inline-block;padding:.7rem 1.4rem;border-radius:10px;background:#64ffda;color:#0a0a1a;font-weight:600;text-decoration:none">Open the dashboard →</a></main>',
       403,
