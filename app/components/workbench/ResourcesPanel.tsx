@@ -1250,15 +1250,7 @@ const Header = memo(
                     aria-checked={active}
                     tabIndex={active ? 0 : -1}
                     onClick={() => onEnvironment(env.value)}
-                    onKeyDown={(e) =>
-                      handleRovingKeydown(
-                        e,
-                        ENV_ORDER,
-                        environment,
-                        onEnvironment,
-                        envRadioId,
-                      )
-                    }
+                    onKeyDown={(e) => handleRovingKeydown(e, ENV_ORDER, environment, onEnvironment, envRadioId)}
                     data-testid={`resources-env-${env.value}`}
                     className={classNames(
                       'min-h-[24px] px-2.5 py-1 text-[11px] font-medium rounded-md transition-colors motion-reduce:transition-none focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-bolt-elements-item-contentAccent cursor-pointer',
