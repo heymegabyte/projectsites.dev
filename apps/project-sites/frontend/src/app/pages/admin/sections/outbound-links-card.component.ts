@@ -59,9 +59,9 @@ export function outboundLinkLabel(href: string): string {
     .ol { border: 1px solid var(--ps-edge, rgba(255,255,255,0.08)); border-radius: var(--ps-radius-xl, 16px); background: rgba(255,255,255,0.02); padding: 0.9rem 1rem; }
     .ol-head { display: flex; align-items: baseline; justify-content: space-between; gap: 0.5rem; margin-bottom: 0.5rem; }
     .ol-title { font-size: 0.8rem; font-weight: 700; color: var(--ps-ink, #f4f4ff); display: flex; align-items: center; gap: 0.4rem; }
-    .ol-win { font-size: 0.62rem; color: color-mix(in oklch, var(--ps-ink, #f4f4ff) 45%, transparent); }
-    .ol-total { font-size: 0.62rem; color: color-mix(in oklch, var(--ps-ink, #f4f4ff) 45%, transparent); margin-bottom: 0.3rem; }
-    .ol-measuring { font-size: 0.76rem; color: color-mix(in oklch, var(--ps-ink, #f4f4ff) 60%, transparent); }
+    .ol-win { font-size: 0.62rem; color: color-mix(in oklch, var(--ps-ink, #f4f4ff) 78%, var(--ps-bg, #060610)); }
+    .ol-total { font-size: 0.62rem; color: color-mix(in oklch, var(--ps-ink, #f4f4ff) 78%, var(--ps-bg, #060610)); margin-bottom: 0.3rem; }
+    .ol-measuring { font-size: 0.76rem; color: color-mix(in oklch, var(--ps-ink, #f4f4ff) 82%, var(--ps-bg, #060610)); }
     .ol-rows { margin: 0.4rem 0 0; padding: 0; list-style: none; display: grid; gap: 0.35rem; }
     .ol-row { display: grid; grid-template-columns: auto 1fr auto auto; gap: 0.55rem; align-items: center; font-size: 0.74rem; padding: 0.2rem 0; border-bottom: 1px solid var(--ps-edge, rgba(255,255,255,0.06)); }
     .ol-row:last-child { border-bottom: none; }
@@ -70,7 +70,7 @@ export function outboundLinkLabel(href: string): string {
     .ol-bar { width: 3rem; height: 0.4rem; border-radius: 999px; background: rgba(255,255,255,0.07); overflow: hidden; }
     .ol-bar-fill { height: 100%; border-radius: 999px; background: var(--ps-accent, #00e5ff); }
     .ol-n { color: var(--ps-accent, #00e5ff); font-variant-numeric: tabular-nums; white-space: nowrap; }
-    .ol-note { margin: 0.55rem 0 0; font-size: 0.62rem; line-height: 1.4; color: color-mix(in oklch, var(--ps-ink, #f4f4ff) 45%, transparent); }
+    .ol-note { margin: 0.55rem 0 0; font-size: 0.62rem; line-height: 1.4; color: color-mix(in oklch, var(--ps-ink, #f4f4ff) 78%, var(--ps-bg, #060610)); }
     `,
   ],
   template: `
