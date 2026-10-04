@@ -103,6 +103,8 @@ interface StartedJob {
 interface CollectResult {
   pages: CrawlPage[];
   links: CrawlLink[];
+  /** Pages dropped as duplicates by {@link dedupeAndScorePages} (surfaced in the coverage roll-up). */
+  duplicatesDropped: number;
 }
 
 /**
@@ -115,6 +117,8 @@ export interface SiteCrawlWorkflowResult {
   status: CrawlJob['status'] | 'unknown';
   pagesCompleted: number;
   linksDiscovered: number;
+  /** Pages dropped as duplicates during collect dedupe (CRAWL-3b coverage stat). */
+  duplicatesDropped: number;
   /** `true` when the persist step wrote BOTH the R2 corpus AND the D1 row without error. */
   persisted: boolean;
 }
@@ -139,6 +143,148 @@ const TERMINAL_STATUSES: ReadonlySet<CrawlJob['status']> = new Set([
   'failed',
   'cancelled',
 ]);
+
+/** Minimum body word-count for a page to earn the "has substantive text" quality signal. */
+const QUALITY_MIN_WORDS = 50;
+
+/**
+ * Tracking query params stripped during URL normalization so two URLs that differ ONLY by a
+ * marketing/analytics param dedupe to the same page. Case-insensitive; `utm_*` matched by prefix.
+ */
+const TRACKING_PARAM_PREFIXES = ['utm_'] as const;
+const TRACKING_PARAM_EXACT: ReadonlySet<string> = new Set([
+  'fbclid',
+  'gclid',
+  'gclsrc',
+  'dclid',
+  'msclkid',
+  'mc_cid',
+  'mc_eid',
+  'igshid',
+]);
+
+/** True when a query-param key is a known tracking param (prefix OR exact match), case-insensitive. */
+function isTrackingParam(key: string): boolean {
+  const lower = key.toLowerCase();
+  if (TRACKING_PARAM_EXACT.has(lower)) return true;
+  return TRACKING_PARAM_PREFIXES.some((p) => lower.startsWith(p));
+}
+
+/**
+ * Normalize a URL for dedupe/cache-key purposes (CRAWL-3b):
+ *  - lowercase the host (scheme + host are case-insensitive)
+ *  - drop the fragment (`#…` — same document)
+ *  - strip known tracking query params (`utm_*`, `fbclid`, `gclid`, …), keep the rest (sorted)
+ *  - strip a trailing slash on a non-root path (`/a/` ≡ `/a`; root stays `/`)
+ *
+ * PURE + fail-soft: an unparseable URL returns a trimmed, lowercased best-effort string rather than
+ * throwing (crawl results are external data — never fail-hard on a malformed URL per
+ * `fail-fast-build-fail-soft-prod`).
+ *
+ * @example normalizeCrawlUrl('https://Example.com/A/?utm_source=x&b=1#frag') // 'https://example.com/A?b=1'
+ */
+export function normalizeCrawlUrl(raw: string): string {
+  let url: URL;
+  try {
+    url = new URL(raw);
+  } catch {
+    return raw.trim().toLowerCase();
+  }
+  url.hash = '';
+  url.hostname = url.hostname.toLowerCase();
+  url.protocol = url.protocol.toLowerCase();
+  // Rebuild the query without tracking params, keeping remaining params in a stable (sorted) order.
+  const kept = [...url.searchParams.entries()].filter(([k]) => !isTrackingParam(k));
+  kept.sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0));
+  url.search = '';
+  for (const [k, v] of kept) url.searchParams.append(k, v);
+  // Strip a trailing slash on a non-root path; leave the root path as '/'.
+  if (url.pathname.length > 1 && url.pathname.endsWith('/')) {
+    url.pathname = url.pathname.replace(/\/+$/, '');
+  }
+  return url.toString();
+}
+
+/**
+ * Score one crawled page's content quality 0-100 (CRAWL-3b) from signals ALREADY on the page object
+ * — no network, no re-fetch. PURE + unit-testable. Each signal contributes a fixed weight; the sum
+ * is clamped to 0-100. A rich page (title + h1 + substantive body + 200 + non-empty text) scores 100.
+ *
+ * Signals + weights:
+ *  - status 200 .................. 30  (reachable — `page.metadata.status`, absent ⇒ assumed ok)
+ *  - non-empty text .............. 25  (markdown has any non-whitespace content)
+ *  - body word-count ≥ threshold . 20  ({@link QUALITY_MIN_WORDS} words of markdown)
+ *  - has title ................... 15  (`page.title` non-empty)
+ *  - has h1 ...................... 10  (an `# ` ATX h1 in the markdown, OR `page.metadata.h1`)
+ *
+ * @param page the crawled page (reads `title`, `markdown`, and optional `metadata.status`/`metadata.h1`)
+ * @returns integer 0-100
+ */
+export function scorePageQuality(page: CrawlPage): number {
+  const text = (page.markdown ?? '').trim();
+  const wordCount = text ? text.split(/\s+/).filter(Boolean).length : 0;
+  const meta = (page.metadata ?? {}) as Record<string, unknown>;
+
+  // status: default to "ok" when the provider didn't surface one (absence ≠ failure).
+  const rawStatus = meta['status'] ?? meta['statusCode'];
+  const statusNum = typeof rawStatus === 'number' ? rawStatus : Number(rawStatus);
+  const statusOk = Number.isNaN(statusNum) ? true : statusNum >= 200 && statusNum < 300;
+
+  const hasTitle = typeof page.title === 'string' && page.title.trim().length > 0;
+  const metaH1 = meta['h1'];
+  const hasH1 =
+    /^#\s+\S/m.test(text) || (typeof metaH1 === 'string' && metaH1.trim().length > 0);
+
+  let score = 0;
+  if (statusOk) score += 30;
+  if (text.length > 0) score += 25;
+  if (wordCount >= QUALITY_MIN_WORDS) score += 20;
+  if (hasTitle) score += 15;
+  if (hasH1) score += 10;
+
+  return Math.max(0, Math.min(100, score));
+}
+
+/** The dedupe/score roll-up returned alongside the deduped pages (feeds coverage stats). */
+export interface DedupeScoreResult {
+  /** The kept pages, each stamped with a `qualityScore`, first-occurrence order preserved. */
+  pages: CrawlPage[];
+  /** How many pages were dropped as duplicates (coverage `duplicate` bucket). */
+  duplicatesDropped: number;
+}
+
+/**
+ * Dedupe + cache-check + quality-score the collected corpus (CRAWL-3b), PURELY in-run:
+ *  - **dedupe** by {@link normalizeCrawlUrl}(finalUrl) — keep the FIRST occurrence of each normalized URL.
+ *  - **cache-check** — an in-memory `normalizedUrl → contentHash` map; a later page whose normalized URL
+ *    is already present AND whose `contentHash` is identical is skipped as a duplicate (no re-persist).
+ *    A same-URL page with a DIFFERENT hash is still collapsed to the first (the normalized URL is the
+ *    identity for this run) but counted — we never persist two rows for one normalized URL in one run.
+ *  - **quality-score** — stamp `qualityScore` on every kept page via {@link scorePageQuality}.
+ *
+ * No external cache store this slice — the map lives for the duration of one collect.
+ *
+ * @param pages the raw collected pages (cursor-exhausted), in discovery order
+ * @returns the kept+scored pages and the duplicate count
+ */
+export function dedupeAndScorePages(pages: readonly CrawlPage[]): DedupeScoreResult {
+  const seen = new Map<string, string>(); // normalizedUrl → contentHash of the kept page
+  const kept: CrawlPage[] = [];
+  let duplicatesDropped = 0;
+
+  for (const page of pages) {
+    const normalized = normalizeCrawlUrl(page.finalUrl);
+    if (seen.has(normalized)) {
+      // Already have a page for this normalized URL this run → skip re-persist (cache-check), count it.
+      duplicatesDropped += 1;
+      continue;
+    }
+    seen.set(normalized, page.contentHash);
+    kept.push({ ...page, qualityScore: scorePageQuality(page) });
+  }
+
+  return { pages: kept, duplicatesDropped };
+}
 
 /**
  * Workflows v2 entrypoint for one whole-site crawl.
@@ -173,11 +319,17 @@ export class SiteCrawlWorkflow extends WorkflowEntrypoint<Env, SiteCrawlWorkflow
     // independent — swapping engines is a new `implements CrawlProvider`, nothing here changes.
     const provider: CrawlProvider = new CloudflareCrawlProvider(env, orgId);
 
-    // ── TODO(CRAWL-3b): cache-check / dedupe ────────────────────────────────
-    // Before starting a fresh crawl, look up the most-recent `site_crawls` row for this
+    // ── cache-check / dedupe (CRAWL-3b) ──────────────────────────────────────
+    // In-run dedupe + content-hash cache-skip + per-page quality-scoring run inside the `collect`
+    // step below via `dedupeAndScorePages` (pure, unit-tested): pages are deduped by normalized URL
+    // (lowercase host, no fragment, tracking-params stripped, trailing slash trimmed), an in-memory
+    // normalizedUrl→contentHash map skips re-persisting identical content, and each kept page is
+    // stamped with a 0-100 `qualityScore`. The duplicate count rolls up into the workflow result.
+    //
+    // TODO(CRAWL-3c): the CROSS-RUN cache — look up the most-recent `site_crawls` row for this
     // (orgId, normalizedDomain); if its fingerprint matches + it is newer than `request.freshness`
-    // AND `request.force` is not set, SHORT-CIRCUIT by re-persisting/returning the cached crawl
-    // instead of re-running. (Left a stub to keep the CRAWL-3 slice bounded.)
+    // AND `request.force` is not set, SHORT-CIRCUIT the whole crawl by returning the cached result.
+    // (That needs the persistence read-side; kept out of this in-run slice.)
 
     // ── Step 1: start ───────────────────────────────────────────────────────
     // `provider.start` POSTs the seed + returns the CF job (typically `running`). The SSRF guard
@@ -220,22 +372,25 @@ export class SiteCrawlWorkflow extends WorkflowEntrypoint<Env, SiteCrawlWorkflow
       fn: () => Promise<CollectResult>,
     ) => Promise<CollectResult>;
     const collected: CollectResult = await collectStep('collect', RETRY_30S, async () => {
-      const pages: CrawlPage[] = [];
+      const rawPages: CrawlPage[] = [];
       const links: CrawlLink[] = [];
       let cursor: string | undefined;
       for (let i = 0; i < MAX_RESULT_WINDOWS; i++) {
         const res = await provider.results(started.id, cursor);
-        pages.push(...res.pages);
+        rawPages.push(...res.pages);
         links.push(...res.links);
         if (!res.cursor) break;
         cursor = res.cursor;
       }
-      return { pages, links };
+      // dedupe by normalized URL + in-run content-hash cache-skip + per-page quality-score (CRAWL-3b).
+      const { pages, duplicatesDropped } = dedupeAndScorePages(rawPages);
+      return { pages, links, duplicatesDropped };
     });
 
-    // ── TODO(CRAWL-3b): quality scoring ──────────────────────────────────────
-    // Score the collected corpus (coverage %, duplicate ratio, thin-page count) and stamp it on
-    // the manifest so a downstream seed-into-build can gate on crawl quality. (Stub — CRAWL-3b.)
+    // ── quality scoring (CRAWL-3b) ───────────────────────────────────────────
+    // Every kept page now carries a 0-100 `qualityScore` stamped by `dedupeAndScorePages` above (a
+    // downstream seed-into-build can gate on crawl quality). Corpus-level roll-ups (coverage %,
+    // thin-page count) layer on top of these per-page scores in a later slice.
 
     // ── Step 4: persist ───────────────────────────────────────────────────────
     // Write the normalized corpus to R2 + upsert the `site_crawls` D1 row. `persistCrawl` is fully
@@ -270,6 +425,7 @@ export class SiteCrawlWorkflow extends WorkflowEntrypoint<Env, SiteCrawlWorkflow
         status: lastStatus,
         pagesCompleted: collected.pages.length,
         linksDiscovered: collected.links.length,
+        duplicatesDropped: collected.duplicatesDropped,
         persisted: persisted.ok,
       } satisfies SiteCrawlWorkflowResult;
     });

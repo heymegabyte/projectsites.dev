@@ -145,6 +145,13 @@ export const CrawlPageSchema = z
     metadata: z.record(z.string(), z.unknown()).default({}),
     /** Content hash for dedupe + change detection (freshness). */
     contentHash: z.string(),
+    /**
+     * Heuristic 0-100 content-quality score (CRAWL-3b), stamped by the workflow's quality-scoring
+     * step from signals already on the page (title, h1, body word-count, status, non-empty text).
+     * OPTIONAL + additive — a page without a score is valid; a downstream seed-into-build can gate
+     * on it. Computed by {@link scorePageQuality} in `src/workflows/site-crawl.ts`.
+     */
+    qualityScore: z.number().min(0).max(100).optional(),
   })
   .strict();
 export type CrawlPage = z.infer<typeof CrawlPageSchema>;

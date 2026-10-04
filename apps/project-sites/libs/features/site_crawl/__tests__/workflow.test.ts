@@ -59,7 +59,12 @@ jest.mock('../persistence.js', () => ({
   persistCrawl: persistMock,
 }));
 
-import { SiteCrawlWorkflow } from '../../../../src/workflows/site-crawl.js';
+import {
+  SiteCrawlWorkflow,
+  normalizeCrawlUrl,
+  scorePageQuality,
+  dedupeAndScorePages,
+} from '../../../../src/workflows/site-crawl.js';
 import type { Env } from '../../../../src/types/env.js';
 import type { CrawlJob, CrawlPage } from '../schemas.js';
 
@@ -275,6 +280,158 @@ describe('SiteCrawlWorkflow — step lifecycle', () => {
       ),
     ).rejects.toThrow();
     expect(startMock).not.toHaveBeenCalled();
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// CRAWL-3b — dedupe + cache-skip + quality-score (pure helpers + workflow wiring)
+// ─────────────────────────────────────────────────────────────────────────────
+
+/** A page builder that lets each case control url / finalUrl / contentHash / content signals. */
+function mkPage(opts: {
+  url?: string;
+  finalUrl?: string;
+  contentHash?: string;
+  title?: string;
+  markdown?: string;
+  metadata?: Record<string, unknown>;
+}): CrawlPage {
+  const url = opts.url ?? `${SEED}/p`;
+  return {
+    id: PAGE_ID,
+    discoveredUrl: url,
+    requestedUrl: url,
+    finalUrl: opts.finalUrl ?? url,
+    title: opts.title,
+    markdown: opts.markdown ?? '# Title\n\nbody',
+    metadata: opts.metadata ?? {},
+    contentHash: opts.contentHash ?? 'hash',
+  };
+}
+
+describe('normalizeCrawlUrl', () => {
+  it('lowercases the host but preserves path case', () => {
+    expect(normalizeCrawlUrl('https://Example.COM/A/B')).toBe('https://example.com/A/B');
+  });
+  it('drops the fragment', () => {
+    expect(normalizeCrawlUrl('https://example.com/a#section-2')).toBe('https://example.com/a');
+  });
+  it('strips a trailing slash on a non-root path but keeps the root slash', () => {
+    expect(normalizeCrawlUrl('https://example.com/a/')).toBe('https://example.com/a');
+    expect(normalizeCrawlUrl('https://example.com/')).toBe('https://example.com/');
+  });
+  it('strips utm_* / fbclid / gclid tracking params, keeps real params sorted', () => {
+    expect(
+      normalizeCrawlUrl('https://example.com/a?utm_source=nl&b=2&fbclid=xyz&a=1&gclid=q'),
+    ).toBe('https://example.com/a?a=1&b=2');
+  });
+  it('collapses two URLs differing only by tracking params + fragment + trailing slash to one', () => {
+    const a = normalizeCrawlUrl('https://Example.com/Pricing/?utm_campaign=x#top');
+    const b = normalizeCrawlUrl('https://example.com/Pricing?fbclid=y');
+    expect(a).toBe(b);
+  });
+  it('fails soft on an unparseable URL (returns trimmed lowercase, never throws)', () => {
+    expect(() => normalizeCrawlUrl('not a url')).not.toThrow();
+    expect(normalizeCrawlUrl('  NOT A URL  ')).toBe('not a url');
+  });
+});
+
+describe('scorePageQuality', () => {
+  it('scores a rich page (title + h1 + long body + 200 + text) at 100', () => {
+    const body = `# Heading\n\n${'word '.repeat(60)}`;
+    const score = scorePageQuality(
+      mkPage({ title: 'A Title', markdown: body, metadata: { status: 200 } }),
+    );
+    expect(score).toBe(100);
+  });
+  it('stays within 0-100 for a bare page', () => {
+    const score = scorePageQuality(mkPage({ title: undefined, markdown: '', metadata: {} }));
+    expect(score).toBeGreaterThanOrEqual(0);
+    expect(score).toBeLessThanOrEqual(100);
+  });
+  it('an empty page (no text, no title, no h1, with a 404 status) scores 0', () => {
+    const score = scorePageQuality(mkPage({ title: '', markdown: '', metadata: { status: 404 } }));
+    expect(score).toBe(0);
+  });
+  it('ranks a richer page strictly above a thinner one', () => {
+    const rich = scorePageQuality(
+      mkPage({ title: 'T', markdown: `# H\n\n${'w '.repeat(60)}`, metadata: { status: 200 } }),
+    );
+    const thin = scorePageQuality(mkPage({ title: undefined, markdown: 'hi', metadata: {} }));
+    expect(rich).toBeGreaterThan(thin);
+  });
+  it('treats an absent status as reachable (absence is not a failure)', () => {
+    const withStatus = scorePageQuality(mkPage({ markdown: 'x', metadata: { status: 200 } }));
+    const noStatus = scorePageQuality(mkPage({ markdown: 'x', metadata: {} }));
+    expect(noStatus).toBe(withStatus);
+  });
+});
+
+describe('dedupeAndScorePages', () => {
+  it('drops a duplicate normalized-URL page, keeping the first occurrence + counting the drop', () => {
+    const first = mkPage({ url: `${SEED}/a`, finalUrl: `${SEED}/a`, title: 'first' });
+    const dupe = mkPage({ url: `${SEED}/a?utm_source=x`, finalUrl: `${SEED}/a/#frag`, title: 'dupe' });
+    const { pages, duplicatesDropped } = dedupeAndScorePages([first, dupe]);
+    expect(pages).toHaveLength(1);
+    expect(pages[0].title).toBe('first'); // first occurrence kept
+    expect(duplicatesDropped).toBe(1);
+  });
+  it('cache-skips a later page with an identical content hash for the same normalized URL', () => {
+    const p1 = mkPage({ url: `${SEED}/x`, finalUrl: `${SEED}/x`, contentHash: 'same' });
+    const p2 = mkPage({ url: `${SEED}/x`, finalUrl: `${SEED}/x`, contentHash: 'same' });
+    const { pages, duplicatesDropped } = dedupeAndScorePages([p1, p2]);
+    expect(pages).toHaveLength(1);
+    expect(duplicatesDropped).toBe(1);
+  });
+  it('keeps genuinely distinct URLs and stamps a qualityScore on every kept page', () => {
+    const a = mkPage({ url: `${SEED}/a`, finalUrl: `${SEED}/a` });
+    const b = mkPage({ url: `${SEED}/b`, finalUrl: `${SEED}/b` });
+    const { pages, duplicatesDropped } = dedupeAndScorePages([a, b]);
+    expect(pages).toHaveLength(2);
+    expect(duplicatesDropped).toBe(0);
+    for (const p of pages) {
+      expect(typeof p.qualityScore).toBe('number');
+      expect(p.qualityScore).toBeGreaterThanOrEqual(0);
+      expect(p.qualityScore).toBeLessThanOrEqual(100);
+    }
+  });
+  it('returns an empty result (0 dropped) for no pages', () => {
+    expect(dedupeAndScorePages([])).toEqual({ pages: [], duplicatesDropped: 0 });
+  });
+});
+
+describe('SiteCrawlWorkflow — CRAWL-3b collect dedupe + scoring', () => {
+  it('dedupes duplicate pages across cursor windows and surfaces duplicatesDropped', async () => {
+    startMock.mockResolvedValueOnce(startedJob('completed'));
+    resultsMock
+      .mockResolvedValueOnce({ pages: [mkPage({ url: `${SEED}/a`, finalUrl: `${SEED}/a` })], links: [], cursor: 'n1' })
+      .mockResolvedValueOnce({
+        // same normalized URL as /a (trailing slash + utm) → dropped as a duplicate
+        pages: [mkPage({ url: `${SEED}/a/?utm_source=x`, finalUrl: `${SEED}/a/?utm_source=x` })],
+        links: [],
+        cursor: undefined,
+      });
+
+    const { result } = await runWorkflow({});
+    expect(result.pagesCompleted).toBe(1); // deduped
+    expect(result.duplicatesDropped).toBe(1);
+  });
+
+  it('persists the deduped+scored pages (each kept page carries a qualityScore)', async () => {
+    startMock.mockResolvedValueOnce(startedJob('completed'));
+    resultsMock.mockResolvedValueOnce({
+      pages: [
+        mkPage({ url: `${SEED}/a`, finalUrl: `${SEED}/a`, title: 'A', markdown: `# A\n\n${'w '.repeat(60)}`, metadata: { status: 200 } }),
+      ],
+      links: [],
+      cursor: undefined,
+    });
+
+    await runWorkflow({});
+    const arg = persistMock.mock.calls[0][1] as { pages: CrawlPage[] };
+    expect(arg.pages).toHaveLength(1);
+    expect(typeof arg.pages[0].qualityScore).toBe('number');
+    expect(arg.pages[0].qualityScore).toBe(100);
   });
 });
 
