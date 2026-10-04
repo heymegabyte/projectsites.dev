@@ -14,7 +14,9 @@
  *      data-testid="schema-disabled" (DisabledState), hides the op picker.
  *   3. ready state     — PS_SITEDB_TABLES_RESPONSE ok:true → op pill buttons visible.
  *   4. addColumn op    — switching to addColumn renders the column form.
- *   5. dropColumn gate — Apply button starts disabled without "DROP" text; enabled after.
+ *   5. dropColumn gate — select-table→fetch-columns→select-column renders the gate; Apply starts
+ *      disabled without "DROP", ungates after, then Apply posts a confirm:true destructive exec
+ *      (DROP COLUMN) → success affirmation + the confirm field re-arms (Apply disabled again).
  *   6. SQL preview     — createTable with a valid name + default column renders sql preview.
  *   7. Apply success   — PS_RES_MUTATE_RESPONSE ok/result → schema-apply-ok visible.
  *   8. Apply error     — PS_RES_MUTATE_RESPONSE with error → schema-apply-error visible.
@@ -280,8 +282,10 @@ describe('SchemaBuilder — addColumn operation', () => {
 describe('SchemaBuilder — dropColumn destructive gate', () => {
   // The destructive gate (schema-destructive-gate + schema-drop-confirm) renders only after the
   // full select-table → fetch-columns (bridge reply) → select-column chain makes compiled.plan a
-  // destructive DROP COLUMN. This drives that real sequence via the columns-reply bridge mock.
-  it('schema-drop-confirm input is present when dropColumn is active', async () => {
+  // destructive DROP COLUMN. This drives that real sequence via the columns-reply bridge mock, then
+  // CONTINUES the journey through Apply to prove the gate actually translates into a guarded
+  // (confirm:true) destructive exec — not merely that the button un-disables.
+  it('gates the drop, then applies it as a confirm:true destructive exec and affirms success', async () => {
     render(<SchemaBuilder initialOp="dropColumn" />);
 
     await waitFor(() =>
@@ -329,6 +333,31 @@ describe('SchemaBuilder — dropColumn destructive gate', () => {
     expect(confirmInput).toHaveValue('DROP');
 
     await waitFor(() => expect(screen.getByTestId('schema-apply')).not.toBeDisabled());
+
+    // CONTINUE the journey to completion: clicking Apply must post the DESTRUCTIVE drop as a
+    // confirm:true exec. This is the security-critical leg — a regression that forwarded the drop
+    // with confirm:false (bypassing the per-site exec rail's destructive guard) would un-disable the
+    // button identically, so only asserting confirm:true on the actual mutate request catches it.
+    fireEvent.click(screen.getByTestId('schema-apply'));
+
+    await waitFor(() =>
+      expect(postToParent).toHaveBeenCalledWith(
+        expect.objectContaining({
+          type: 'PS_RES_MUTATE_REQUEST',
+          action: 'exec',
+          confirm: true,
+          input: expect.objectContaining({ sql: expect.stringContaining('DROP COLUMN') }),
+        }),
+      ),
+    );
+
+    // A successful exec reply affirms the change and resets the confirm field so the gate re-arms for
+    // the next drop (owner must re-type DROP — a cleared field must leave Apply disabled again).
+    replyExecOk();
+
+    await waitFor(() => expect(screen.getByTestId('schema-apply-ok')).toBeInTheDocument());
+    expect(screen.getByTestId('schema-drop-confirm')).toHaveValue('');
+    expect(screen.getByTestId('schema-apply')).toBeDisabled();
   });
 });
 
