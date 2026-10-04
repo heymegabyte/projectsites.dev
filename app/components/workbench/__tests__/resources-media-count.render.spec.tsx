@@ -29,7 +29,16 @@ afterEach(cleanup);
 
 describe('MediaPageStats — partial page (shown < total)', () => {
   it('renders the honest "N of total" count badge', () => {
-    render(<MediaPageStats shown={50} filteredTotal={109} usage={undefined} hasMore={true} loadingMore={false} onLoadMore={() => {}} />);
+    render(
+      <MediaPageStats
+        shown={50}
+        filteredTotal={109}
+        usage={undefined}
+        hasMore={true}
+        loadingMore={false}
+        onLoadMore={() => {}}
+      />,
+    );
 
     const badge = screen.getByTestId('resources-media-count');
     expect(badge).toBeTruthy();
@@ -38,7 +47,16 @@ describe('MediaPageStats — partial page (shown < total)', () => {
   });
 
   it('renders the load-more button', () => {
-    render(<MediaPageStats shown={50} filteredTotal={109} usage={undefined} hasMore={true} loadingMore={false} onLoadMore={() => {}} />);
+    render(
+      <MediaPageStats
+        shown={50}
+        filteredTotal={109}
+        usage={undefined}
+        hasMore={true}
+        loadingMore={false}
+        onLoadMore={() => {}}
+      />,
+    );
 
     const btn = screen.getByTestId('resources-media-load-more');
     expect(btn).toBeTruthy();
@@ -51,14 +69,32 @@ describe('MediaPageStats — partial page (shown < total)', () => {
 
 describe('MediaPageStats — full page (shown === total)', () => {
   it('hides the count badge when shown equals total', () => {
-    render(<MediaPageStats shown={10} filteredTotal={10} usage={undefined} hasMore={false} loadingMore={false} onLoadMore={() => {}} />);
+    render(
+      <MediaPageStats
+        shown={10}
+        filteredTotal={10}
+        usage={undefined}
+        hasMore={false}
+        loadingMore={false}
+        onLoadMore={() => {}}
+      />,
+    );
 
     const badge = screen.queryByTestId('resources-media-count');
     expect(badge).toBeNull();
   });
 
   it('hides the load-more button when shown equals total', () => {
-    render(<MediaPageStats shown={10} filteredTotal={10} usage={undefined} hasMore={false} loadingMore={false} onLoadMore={() => {}} />);
+    render(
+      <MediaPageStats
+        shown={10}
+        filteredTotal={10}
+        usage={undefined}
+        hasMore={false}
+        loadingMore={false}
+        onLoadMore={() => {}}
+      />,
+    );
 
     const btn = screen.queryByTestId('resources-media-load-more');
     expect(btn).toBeNull();
@@ -91,13 +127,31 @@ describe('MediaPageStats — usage fallback (no filteredTotal)', () => {
 
 describe('MediaPageStats — no total known', () => {
   it('hides the count badge when total is undefined', () => {
-    render(<MediaPageStats shown={5} filteredTotal={undefined} usage={undefined} hasMore={false} loadingMore={false} onLoadMore={() => {}} />);
+    render(
+      <MediaPageStats
+        shown={5}
+        filteredTotal={undefined}
+        usage={undefined}
+        hasMore={false}
+        loadingMore={false}
+        onLoadMore={() => {}}
+      />,
+    );
 
     expect(screen.queryByTestId('resources-media-count')).toBeNull();
   });
 
   it('hides the load-more button when total is undefined', () => {
-    render(<MediaPageStats shown={5} filteredTotal={undefined} usage={undefined} hasMore={false} loadingMore={false} onLoadMore={() => {}} />);
+    render(
+      <MediaPageStats
+        shown={5}
+        filteredTotal={undefined}
+        usage={undefined}
+        hasMore={false}
+        loadingMore={false}
+        onLoadMore={() => {}}
+      />,
+    );
 
     expect(screen.queryByTestId('resources-media-load-more')).toBeNull();
   });
