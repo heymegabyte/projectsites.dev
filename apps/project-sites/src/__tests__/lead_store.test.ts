@@ -1,5 +1,11 @@
 import { dbQueryOne, dbInsert, dbQuery, dbExecute } from '../services/db.js';
-import { createLead, getLead, listLeads, countLeads, updateLeadContact } from '../services/lead_store';
+import {
+  createLead,
+  getLead,
+  listLeads,
+  countLeads,
+  updateLeadContact,
+} from '../services/lead_store';
 
 /**
  * #9/#1 shared dependency — the leads store. The scanner (#9) persists a
