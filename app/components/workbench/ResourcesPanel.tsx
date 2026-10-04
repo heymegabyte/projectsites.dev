@@ -759,7 +759,7 @@ const Header = memo(
           [
             { value: 'media', label: 'Media library', icon: 'i-ph:images-square' },
             { value: 'files', label: 'Site files', icon: 'i-ph:folder-open' },
-            { value: 'buckets', label: 'Buckets', icon: 'i-ph:bucket' },
+            { value: 'buckets', label: 'Buckets', icon: 'i-ph:hard-drives' },
             { value: 'automations', label: 'Automations', icon: 'i-ph:lightning' },
           ] as const
         ).map((tab) => {

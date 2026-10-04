@@ -71,14 +71,14 @@ describe('workbench panel primitives', () => {
     const html = renderToStaticMarkup(
       <PanelEmpty
         testId="buckets-empty"
-        icon="i-ph:bucket-duotone"
+        icon="i-ph:hard-drives-duotone"
         title="No buckets yet"
         description="Create your first bucket to store files."
         action={<button type="button">Create your first bucket</button>}
       />,
     );
     expect(html).toContain('data-testid="buckets-empty"');
-    expect(html).toContain('i-ph:bucket-duotone');
+    expect(html).toContain('i-ph:hard-drives-duotone');
     expect(html).toContain('text-bolt-elements-item-contentAccent');
     expect(html).toContain('No buckets yet');
     expect(html).toContain('Create your first bucket to store files.');

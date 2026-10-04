@@ -536,7 +536,7 @@ const BucketsHeader = memo(
     const count = buckets.length;
     return (
       <PanelHeader
-        icon="i-ph:bucket-duotone"
+        icon="i-ph:hard-drives-duotone"
         title="Buckets"
         subtitle={
           count > 0 ? (
@@ -655,7 +655,7 @@ const BucketList = memo(
             <div className="flex items-center gap-2 min-w-0">
               <div
                 className={classNames(
-                  'i-ph:bucket-duotone text-base shrink-0',
+                  'i-ph:hard-drives-duotone text-base shrink-0',
                   active
                     ? 'text-bolt-elements-item-contentAccent'
                     : 'text-bolt-elements-textTertiary group-hover:text-bolt-elements-item-contentAccent',
@@ -1083,7 +1083,7 @@ const ObjectBrowser = memo(
               className="inline-flex items-center gap-1 text-bolt-elements-item-contentAccent hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-bolt-elements-item-contentAccent rounded px-0.5"
               title={bucket.name}
             >
-              <div className="i-ph:bucket text-xs" aria-hidden /> {bucket.name}
+              <div className="i-ph:hard-drives text-xs" aria-hidden /> {bucket.name}
             </button>
             {segments.map((seg, i) => {
               const to = segments.slice(0, i + 1).join('/') + '/';
@@ -1483,7 +1483,7 @@ const CreateBucketModal = memo(
     }, [valid, creating, name, isPublic, onCreated]);
 
     return (
-      <ModalShell title="Create a bucket" icon="i-ph:bucket-duotone" onClose={onClose} testId="buckets-create-modal">
+      <ModalShell title="Create a bucket" icon="i-ph:hard-drives-duotone" onClose={onClose} testId="buckets-create-modal">
         <label className="block">
           <span className="text-[11px] font-medium text-bolt-elements-textSecondary">Bucket name</span>
           <input
@@ -1931,7 +1931,7 @@ ObjectsNeedsCreds.displayName = 'BucketsPanel.ObjectsNeedsCreds';
 const BucketsEmpty = memo(({ onCreate }: { onCreate: () => void }) => (
   <PanelEmpty
     testId="buckets-empty"
-    icon="i-ph:bucket-duotone"
+    icon="i-ph:hard-drives-duotone"
     title="No buckets yet"
     description="Create a bucket to store files for your site — uploads, media, exports, anything."
     action={

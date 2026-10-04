@@ -87,9 +87,9 @@ export default function PanelPrimitiveGallery() {
         {/* 3 — PanelEmpty: launchpad empty state (icon + headline + helper + one primary action). */}
         <Frame caption="PanelEmpty (launchpad)">
           <PanelShell>
-            <PanelHeader icon="i-ph:bucket-duotone" title="Buckets" subtitle="R2 storage" />
+            <PanelHeader icon="i-ph:hard-drives-duotone" title="Buckets" subtitle="R2 storage" />
             <PanelEmpty
-              icon="i-ph:bucket-duotone"
+              icon="i-ph:hard-drives-duotone"
               title="No buckets yet"
               description="Create your first bucket to store files."
               action={

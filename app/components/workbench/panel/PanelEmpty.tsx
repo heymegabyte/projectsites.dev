@@ -20,7 +20,7 @@ import { memo, type ReactNode } from 'react';
 import { classNames } from '~/utils/classNames';
 
 export interface PanelEmptyProps {
-  /** Phosphor icon class, e.g. `'i-ph:bucket-duotone'` — rendered inside the accent badge. */
+  /** Phosphor icon class, e.g. `'i-ph:hard-drives-duotone'` — rendered inside the accent badge. */
   icon: string;
   /** One-line headline naming what's empty (e.g. "No buckets yet"). */
   title: string;
