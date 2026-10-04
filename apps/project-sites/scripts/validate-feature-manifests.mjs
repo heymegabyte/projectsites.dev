@@ -110,6 +110,17 @@ function validateManifest(m, file) {
       const abs = path.resolve(ROOT, normalized);
       if (!existsSync(abs)) {
         errors.push(`${file}: '${field}' entry "${rel}" does not exist on disk (looked at ${normalized})`);
+        continue;
+      }
+      // A unitTests entry that EXISTS but doesn't match the worker jest testMatch
+      // (`**/*.test.ts`) is NEVER RUN — a `.spec.ts` worker unit test silently passes
+      // the existence check above while jest reports "0 matches" (fire-114: site_crawl
+      // shipped schemas.spec.ts → 0 tests ran + tsc errored on missing jest globals).
+      // `.spec.ts` is the frontend/Playwright convention; worker units MUST be `.test.ts`.
+      if (field === 'unitTests' && !/\.test\.(ts|tsx|js|jsx)$/.test(rel)) {
+        errors.push(
+          `${file}: '${field}' entry "${rel}" is not a '*.test.ts' file — the worker jest testMatch is '**/*.test.ts', so this unit test would NEVER run (rename '.spec.ts' → '.test.ts').`,
+        );
       }
     }
   }
