@@ -18,6 +18,7 @@
     "verify:automations-live": "node e2e/editor-live/check-automations-live.mjs",
     "verify:delivered-site": "node scripts/verify-delivered-site.mjs",
     "verify:media-rawurl": "node e2e/editor-live/check-media-rawurl.mjs",
+    "verify:media-realasset": "node e2e/editor-live/check-media-realasset.mjs",
     "test:e2e:ui": "playwright test --ui",
     "test:container:image": "node --test scripts/__tests__/container_image.test.mjs",
     "test:container:freshness": "node --test scripts/__tests__/skills_freshness.test.mjs",
