@@ -52,6 +52,7 @@ import {
   introspectColumns,
   listSiteTables,
   resolveSiteDataDb,
+  SiteDataD1Error,
 } from '../../../../src/services/site_data_db.js';
 
 const mockFlag = isFlagOn as unknown as jest.Mock;
@@ -672,5 +673,101 @@ describe('GET /api/sites/:siteId/build-files', () => {
     );
     expect(res.status).toBe(400);
     expect(listMock).not.toHaveBeenCalled();
+  });
+});
+
+/**
+ * The RAW SQL console (`POST /api/sites/:siteId/db/query`) is the highest-risk Data-tab surface —
+ * arbitrary single-statement SQL against the site's OWN isolated D1. Before fire-165 it had ZERO
+ * route-layer coverage. These lock its full safety chain: the same gate order as every other per-site
+ * endpoint (DARK flag → auth → IDOR, resolve/execute never run until the caller is proven to own the
+ * site), BOUND params (the user's SQL + params reach the per-site executor verbatim, never string-
+ * built), the 500-row payload cap with an HONEST `truncated` flag (the console can't stream unbounded
+ * rows), and an honest `SQL_ERROR` on a bad query (never a fabricated empty result).
+ */
+describe('POST /api/sites/:siteId/db/query (raw per-site SQL console — safety chain)', () => {
+  const body = (sql: string, params?: unknown[]) => ({
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify(params === undefined ? { sql } : { sql, params }),
+  });
+
+  it('404 (DARK) when the per_site_data flag is off — resolve never runs', async () => {
+    mockFlag.mockResolvedValue(false);
+    const res = await authed().request('/api/sites/s1/db/query', body('SELECT 1'), mockEnv());
+    expect(res.status).toBe(404);
+    expect(mockResolve).not.toHaveBeenCalled();
+  });
+
+  it('401 when unauthenticated — never resolves or executes', async () => {
+    mockFlag.mockResolvedValue(true);
+    const res = await app().request('/api/sites/s1/db/query', body('SELECT 1'), mockEnv());
+    expect(res.status).toBe(401);
+    expect(mockResolve).not.toHaveBeenCalled();
+  });
+
+  it('404 for a foreign / unowned site (IDOR) — resolve never runs, no SQL executes', async () => {
+    mockFlag.mockResolvedValue(true);
+    const res = await authed().request('/api/sites/foreign/db/query', body('SELECT 1'), mockEnv({ owned: false }));
+    expect(res.status).toBe(404);
+    expect(mockResolve).not.toHaveBeenCalled();
+  });
+
+  it('400 for an invalid body (no sql) — never reaches the executor', async () => {
+    mockFlag.mockResolvedValue(true);
+    const q = jest.fn();
+    mockResolve.mockResolvedValue(dbStub(q));
+    const res = await authed().request(
+      '/api/sites/s1/db/query',
+      { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ params: [1] }) },
+      mockEnv(),
+    );
+    expect(res.status).toBe(400);
+    expect(q).not.toHaveBeenCalled();
+  });
+
+  it('200 forwards the console SQL + params to the per-site executor BOUND (never interpolated)', async () => {
+    mockFlag.mockResolvedValue(true);
+    const q = jest.fn(async () => ({ results: [{ id: 1, name: 'a' }], meta: { rows_read: 1 } }));
+    mockResolve.mockResolvedValue(dbStub(q));
+    const res = await authed().request(
+      '/api/sites/site-9/db/query',
+      body('SELECT * FROM customers WHERE id = ?', [7]),
+      mockEnv(),
+    );
+    expect(res.status).toBe(200);
+    const b = (await res.json()) as { data: { rows: unknown[]; rowCount: number; truncated: boolean } };
+    expect(b.data.rows).toEqual([{ id: 1, name: 'a' }]);
+    expect(b.data.rowCount).toBe(1);
+    expect(b.data.truncated).toBe(false);
+    // The caller's SQL + params reach the per-site D1 VERBATIM + BOUND — never string-built.
+    expect(q).toHaveBeenCalledWith('SELECT * FROM customers WHERE id = ?', [7]);
+  });
+
+  it('caps the returned rows at 500 with an HONEST truncated flag (never streams unbounded rows)', async () => {
+    mockFlag.mockResolvedValue(true);
+    const big = Array.from({ length: 501 }, (_, i) => ({ i }));
+    const q = jest.fn(async () => ({ results: big, meta: {} }));
+    mockResolve.mockResolvedValue(dbStub(q));
+    const res = await authed().request('/api/sites/s1/db/query', body('SELECT * FROM big'), mockEnv());
+    expect(res.status).toBe(200);
+    const b = (await res.json()) as { data: { rows: unknown[]; rowCount: number; truncated: boolean } };
+    expect(b.data.rows).toHaveLength(500); // payload capped at MAX_CONSOLE_ROWS
+    expect(b.data.rowCount).toBe(501); // honest full count, not the capped length
+    expect(b.data.truncated).toBe(true);
+  });
+
+  it('400 SQL_ERROR on a per-site D1 error — an honest failure, never a fabricated empty result', async () => {
+    mockFlag.mockResolvedValue(true);
+    const q = jest.fn(async () => {
+      throw new SiteDataD1Error('no such column: bogus');
+    });
+    mockResolve.mockResolvedValue(dbStub(q));
+    const res = await authed().request('/api/sites/s1/db/query', body('SELECT bogus FROM t'), mockEnv());
+    expect(res.status).toBe(400);
+    const b = (await res.json()) as { error: { code: string; message: string }; ok: boolean };
+    expect(b.ok).toBe(false);
+    expect(b.error.code).toBe('SQL_ERROR');
+    expect(b.error.message).toContain('bogus');
   });
 });
