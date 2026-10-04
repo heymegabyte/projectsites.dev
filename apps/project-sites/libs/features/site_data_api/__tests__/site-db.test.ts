@@ -24,6 +24,7 @@ jest.mock('../../../../src/services/site_data_db.js', () => {
   return {
     buildAddColumnSql: actual.buildAddColumnSql,
     buildCreateTableSql: jest.fn(),
+    buildDropColumnSql: actual.buildDropColumnSql,
     buildUpdateRowSql: actual.buildUpdateRowSql,
     createSampleData: jest.fn(),
     insertSeedRows: jest.fn(),
@@ -769,5 +770,111 @@ describe('POST /api/sites/:siteId/db/query (raw per-site SQL console — safety 
     expect(b.ok).toBe(false);
     expect(b.error.code).toBe('SQL_ERROR');
     expect(b.error.message).toContain('bogus');
+  });
+});
+
+/**
+ * The DESTRUCTIVE per-site DDL routes (DROP TABLE / DROP COLUMN) had ZERO route-layer tests before
+ * fire-166 (only the SQL BUILDERS in site_data_db.test.ts were covered). These are the riskiest Data-
+ * tab mutations — they irreversibly delete customer data — so the route gate + the un-bindable
+ * identifier validation (an identifier is quoteIdent'd into the SQL, never bound, so it MUST be
+ * isSafeIdent-validated first) are the load-bearing guards. Lock the full chain: hostile identifier →
+ * 400 before any DB touch · DARK flag → 404 · foreign site → 404 (IDOR) · missing table/column → 404 ·
+ * owned+existing → the exact DROP executes.
+ */
+describe('DELETE /api/sites/:siteId/db/tables/:table (DROP TABLE — destructive)', () => {
+  /** A fully-ready gate: flag on, owned, resolved db, table exists with columns. */
+  function readyGate(q: jest.Mock) {
+    mockFlag.mockResolvedValue(true);
+    mockResolve.mockResolvedValue(dbStub(q));
+    mockListTables.mockResolvedValue(['customers']);
+    mockIntrospect.mockResolvedValue([{ name: 'id' }, { name: 'email' }]);
+  }
+  const del = { method: 'DELETE' };
+
+  it('400 for a hostile table name — rejected before any DB touch (identifier is quoted, not bound)', async () => {
+    const q = jest.fn();
+    readyGate(q);
+    // %3B → ";" → fails isSafeIdent; the name would otherwise be quoteIdent'd straight into DROP TABLE.
+    const res = await authed().request('/api/sites/s1/db/tables/evil%3BDROP', del, mockEnv());
+    expect(res.status).toBe(400);
+    expect(q).not.toHaveBeenCalled();
+  });
+
+  it('404 (DARK) when the per_site_data flag is off — resolve never runs', async () => {
+    mockFlag.mockResolvedValue(false);
+    const res = await authed().request('/api/sites/s1/db/tables/customers', del, mockEnv());
+    expect(res.status).toBe(404);
+    expect(mockResolve).not.toHaveBeenCalled();
+  });
+
+  it('404 for a foreign / unowned site (IDOR)', async () => {
+    mockFlag.mockResolvedValue(true);
+    const res = await authed().request('/api/sites/foreign/db/tables/customers', del, mockEnv({ owned: false }));
+    expect(res.status).toBe(404);
+    expect(mockResolve).not.toHaveBeenCalled();
+  });
+
+  it('404 when the table does not exist in the site DB (never DROPs a phantom)', async () => {
+    const q = jest.fn();
+    readyGate(q);
+    mockListTables.mockResolvedValue(['orders']); // 'customers' is absent
+    const res = await authed().request('/api/sites/s1/db/tables/customers', del, mockEnv());
+    expect(res.status).toBe(404);
+    expect(q).not.toHaveBeenCalled();
+  });
+
+  it('200 drops an owned, existing table with a quoted identifier', async () => {
+    const q = jest.fn(async () => ({ results: [], meta: {} }));
+    readyGate(q);
+    const res = await authed().request('/api/sites/site-9/db/tables/customers', del, mockEnv());
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({ data: { dropped: true, table: 'customers' }, ok: true });
+    expect(q).toHaveBeenCalledWith('DROP TABLE IF EXISTS "customers"');
+  });
+});
+
+describe('DELETE /api/sites/:siteId/db/tables/:table/columns/:column (DROP COLUMN — destructive)', () => {
+  function readyGate(q: jest.Mock) {
+    mockFlag.mockResolvedValue(true);
+    mockResolve.mockResolvedValue(dbStub(q));
+    mockListTables.mockResolvedValue(['customers']);
+    mockIntrospect.mockResolvedValue([{ name: 'id' }, { name: 'email' }]);
+  }
+  const del = { method: 'DELETE' };
+
+  it('400 for a hostile column name — rejected BEFORE the gate (never reaches the DB)', async () => {
+    const q = jest.fn();
+    readyGate(q);
+    const res = await authed().request('/api/sites/s1/db/tables/customers/columns/evil%3Bx', del, mockEnv());
+    expect(res.status).toBe(400);
+    expect(q).not.toHaveBeenCalled();
+    expect(mockResolve).not.toHaveBeenCalled(); // isSafeIdent(column) guards before gateResolveAndRequireTable
+  });
+
+  it('404 when the column does not exist on the table (no phantom DROP)', async () => {
+    const q = jest.fn();
+    readyGate(q); // table has id + email only
+    const res = await authed().request('/api/sites/s1/db/tables/customers/columns/ghost', del, mockEnv());
+    expect(res.status).toBe(404);
+    expect(q).not.toHaveBeenCalled();
+  });
+
+  it('404 (DARK) when the flag is off', async () => {
+    mockFlag.mockResolvedValue(false);
+    const res = await authed().request('/api/sites/s1/db/tables/customers/columns/email', del, mockEnv());
+    expect(res.status).toBe(404);
+  });
+
+  it('200 drops an existing column with the real parameter-free ALTER … DROP COLUMN SQL', async () => {
+    const q = jest.fn(async () => ({ results: [], meta: {} }));
+    readyGate(q);
+    const res = await authed().request('/api/sites/s1/db/tables/customers/columns/email', del, mockEnv());
+    expect(res.status).toBe(200);
+    // buildDropColumnSql (real) quotes both identifiers — never interpolates a raw name.
+    expect(q).toHaveBeenCalledWith('ALTER TABLE "customers" DROP COLUMN "email"');
+    const b = (await res.json()) as { data: { table: string; columns: unknown[] }; ok: boolean };
+    expect(b.ok).toBe(true);
+    expect(b.data.table).toBe('customers');
   });
 });
