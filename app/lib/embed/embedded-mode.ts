@@ -1856,6 +1856,13 @@ export interface ResMediaResponseMessage {
   /** `list`: whole-library usage rollup for the storage-usage header. */
   usage?: MediaUsageSummary;
 
+  /**
+   * `list`: the FILTERED total match count for the active kind/source/search (respects the filter),
+   * so the media header can show an honest "N of <filteredTotal>" rather than the org-wide
+   * {@link MediaUsageSummary.totalCount} (which ignores the filter). Absent → fall back to that count.
+   */
+  filteredTotal?: number;
+
   /** `delete`: true when the asset was removed. */
   deleted?: boolean;
 

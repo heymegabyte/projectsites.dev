@@ -309,6 +309,28 @@ describe('BoltEmbedService (bridge response-shape parity — editor is the contr
     expect(reply['data']).toBeUndefined();
   });
 
+  it('PS_RES_MEDIA list → carries filteredTotal from the assets response `total` (honest "N of total" under a filter; MEDIA-UI-1)', async () => {
+    // fire-124 made /media/assets return a FILTERED `total` (respects kind/source/q). The reply MUST
+    // surface it as `filteredTotal` so the editor header shows "N of <filtered total>", not the
+    // org-wide usage.totalCount (which ignores the active filter and misreports under a filter).
+    const { fire, posted } = paritySetup({
+      get: (path: string) =>
+        path === '/media/assets'
+          ? of({
+              ok: true,
+              assets: [{ id: 'a1', r2_key: 'k', mime: 'image/png', size_bytes: 900, name: 'hero.png', kind: 'image', source: 'uploaded', created_at: 123 }],
+              total: 7, // 7 images match the filter; only 1 returned on this page
+            })
+          : of({ ok: true, data: { totalSizeBytes: 9000, totalCount: 42, countByKind: { image: 7 } } }),
+    });
+    fire(TRUSTED, { type: 'PS_RES_MEDIA', correlationId: 'cft', mediaAction: 'list', mediaKind: 'image' });
+    await new Promise((r) => setTimeout(r, 0));
+    const reply = last(posted, 'PS_RES_MEDIA_RESULT')!;
+    expect(reply['filteredTotal']).toBe(7); // the FILTERED total, not the org-wide 42
+    const usage = reply['usage'] as Record<string, unknown>;
+    expect(usage['totalCount']).toBe(42); // org-wide rollup still preserved for the fallback
+  });
+
   it('PS_RES_MEDIA_UPLOAD (NEW handler) → decodes dataUrl, posts FormData, replies {ok, asset mapped}', async () => {
     let sentForm: FormData | null = null;
     const { fire, posted } = paritySetup({

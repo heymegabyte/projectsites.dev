@@ -61,7 +61,14 @@ type MediaState =
   | { status: 'loading' }
   | { status: 'disabled' }
   | { status: 'error'; message: string }
-  | { status: 'ready'; assets: MediaAssetEntry[]; usage?: MediaUsageSummary; cursor?: string };
+  | {
+      status: 'ready';
+      assets: MediaAssetEntry[];
+      usage?: MediaUsageSummary;
+      cursor?: string;
+      /** FILTERED total match count for the active filter (undefined → fall back to usage.totalCount). */
+      filteredTotal?: number;
+    };
 
 type FilesState =
   | { status: 'idle' }
@@ -390,7 +397,13 @@ export const ResourcesPanel = memo(() => {
         return;
       }
 
-      setMedia({ status: 'ready', assets: reply.assets ?? [], usage: reply.usage, cursor: reply.cursor });
+      setMedia({
+        status: 'ready',
+        assets: reply.assets ?? [],
+        usage: reply.usage,
+        cursor: reply.cursor,
+        filteredTotal: reply.filteredTotal,
+      });
     } catch (err) {
       setMedia({ status: 'error', message: err instanceof Error ? err.message : 'Could not load your media.' });
     }
@@ -1031,6 +1044,28 @@ const MediaLibrary = memo(
               className="w-full min-h-[26px] pl-8 pr-2.5 py-1 text-[12px] rounded-lg border border-bolt-elements-borderColor bg-bolt-elements-background-depth-2 text-bolt-elements-textPrimary placeholder:text-bolt-elements-textTertiary transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-bolt-elements-item-contentAccent focus-visible:border-bolt-elements-item-contentAccent/50"
             />
           </div>
+
+          {/* Honest "N of total" — N = assets shown this page, total = the FILTERED match count
+              (falls back to the org-wide usage rollup when the server didn't send a filtered total).
+              Only meaningful once loaded AND the page is a subset of the total. */}
+          {state.status === 'ready' &&
+            (() => {
+              const shown = state.assets.length;
+              const total = state.filteredTotal ?? state.usage?.totalCount;
+              if (total === undefined || total <= shown) {
+                return null;
+              }
+              return (
+                <span
+                  className="shrink-0 text-[10px] text-bolt-elements-textTertiary tabular-nums whitespace-nowrap"
+                  data-testid="resources-media-count"
+                  title={`Showing ${shown} of ${total} matching file${total === 1 ? '' : 's'}`}
+                >
+                  <span className="text-bolt-elements-textSecondary font-medium">{shown}</span> of{' '}
+                  <span className="text-bolt-elements-textSecondary font-medium">{total}</span>
+                </span>
+              );
+            })()}
 
           {/* Upload — label span reserves its widest state (`Uploading…`) so it never resizes. */}
           <button

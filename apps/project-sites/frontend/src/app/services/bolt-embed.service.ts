@@ -2924,7 +2924,9 @@ export class BoltEmbedService {
             // Worker `/api/media/assets` → `{ ok, assets:[<media_assets row>] }`; `/api/media/usage` →
             // `{ ok, data:{ totalSizeBytes, totalCount, countByKind, countBySource } }`.
             assets: this.api
-              .get<{ ok?: boolean; assets?: WorkerMediaAssetRow[] }>(
+              // `total` is the FILTERED match count (respects kind/source/q) — fire-124. We surface it
+              // to the editor as `filteredTotal` so its header shows an honest "N of <filtered total>".
+              .get<{ ok?: boolean; assets?: WorkerMediaAssetRow[]; total?: number }>(
                 '/media/assets',
                 Object.keys(query).length ? query : undefined,
                 { silent: true },
@@ -2950,6 +2952,9 @@ export class BoltEmbedService {
                 action: 'list',
                 assets: (assets.assets ?? []).map(mapMediaAsset),
                 usage: mapMediaUsage(usage?.data),
+                // Editor (`ResMediaResponseMessage.filteredTotal`) reads this for an honest "N of total"
+                // under the active filter; falls back to usage.totalCount (org-wide) when absent.
+                filteredTotal: typeof assets.total === 'number' ? assets.total : undefined,
               });
             },
             error: () => reply({ ok: false, action: 'list', error: 'Could not load media.' }),
