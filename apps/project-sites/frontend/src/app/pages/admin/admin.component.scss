@@ -509,6 +509,28 @@ aside::before {
   svg { color: #00E5FF; opacity: 0.9; }
   &:hover { background: linear-gradient(90deg, rgba(0,229,255,0.16), rgba(124,58,237,0.08)); }
 }
+// ⭐ The ONE primary CTA — "New site" (top of the money funnel, DEFECT-A). A FILLED
+// cyan→violet pill so it reads as the single obvious action, never a sibling nav row.
+// Keeps its filled look even when active (overrides .nav-item-active's tinted style),
+// so the funnel's start is unmistakable from every admin route.
+.nav-item-create,
+.nav-item-create.nav-item-active {
+  margin-bottom: 6px;
+  color: #041016;
+  font-weight: 700;
+  background: linear-gradient(95deg, #00E5FF 0%, #50AAE3 55%, #7C3AED 140%);
+  box-shadow: 0 6px 20px -8px rgba(0,229,255,0.55), inset 0 1px 0 rgba(255,255,255,0.25);
+  svg { color: #041016; opacity: 1; }
+  &:hover {
+    color: #041016;
+    background: linear-gradient(95deg, #28ebff 0%, #63b6ea 55%, #8f52f0 140%);
+    transform: translateX(0) translateY(-1px);
+    box-shadow: 0 10px 26px -8px rgba(0,229,255,0.7), inset 0 1px 0 rgba(255,255,255,0.3);
+    svg { transform: scale(1.08); }
+  }
+  // The .nav-item-active left-rail accent bar would clash with the filled pill — hide it.
+  &::before { content: none; }
+}
 
 // Buttons
 .top-btn {

@@ -72,6 +72,42 @@ describe('admin-nav.model', () => {
     expect(exacts[0]?.route).toBe('/admin');
   });
 
+  // DEFECT-A (money-funnel top): `/create` — the START of the revenue funnel — was
+  // reachable only by typing the URL. The sidebar MUST carry an obvious one-click
+  // Create entry, testid `nav-create`, as the visually-dominant primary CTA.
+  describe('Create CTA (nav-create — money-funnel top)', () => {
+    const flat = ADMIN_NAV_GROUPS.flatMap((g) => g.items);
+    const create = flat.find((i) => i.id === 'create');
+
+    it('exists as a nav item', () => {
+      expect(create).withContext('create nav item must exist').toBeTruthy();
+    });
+
+    it('carries the nav-create testid', () => {
+      expect(navItemTestId(create!)).toBe('nav-create');
+    });
+
+    it('routes to the admin create overlay (/admin/create, masked to /create)', () => {
+      expect(create!.route).toBe('/admin/create');
+      expect(allNavRoutes()).toContain('/admin/create');
+    });
+
+    it('is flagged the primary CTA (cyan-accent) and labelled for a non-technical owner', () => {
+      expect(create!.cta).withContext('create must be the primary CTA').toBeTrue();
+      expect(create!.label).toBe('New site');
+    });
+
+    it('is the FIRST item in the workspace group (top of the funnel, top of the nav)', () => {
+      const workspace = ADMIN_NAV_GROUPS.find((g) => g.id === 'workspace');
+      expect(workspace?.items[0]?.id).toBe('create');
+    });
+
+    it('is visible to every viewer (never operator-gated)', () => {
+      const routes = allNavRoutes(visibleNavGroups(ADMIN_NAV_GROUPS, false));
+      expect(routes).toContain('/admin/create');
+    });
+  });
+
   describe('visibleNavGroups()', () => {
     const sysAdminRoutes = ['/admin/feature-flags', '/admin/leads', '/admin/system-services'];
 

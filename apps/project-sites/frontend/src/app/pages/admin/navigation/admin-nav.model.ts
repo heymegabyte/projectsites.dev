@@ -20,6 +20,7 @@
 
 /** Icon registry keys — one per {@link NavIconComponent} `@switch` branch. */
 export type NavIconName =
+  | 'create'
   | 'dashboard'
   | 'sites'
   | 'editor'
@@ -53,6 +54,13 @@ export interface AdminNavItem {
   readonly exact?: boolean;
   /** Cyan-tinted "home" emphasis (Dashboard). */
   readonly accent?: boolean;
+  /**
+   * The ONE visually-dominant primary call-to-action (Create a site — the TOP of
+   * the money funnel). Renders as a filled cyan pill, not a plain nav row, so the
+   * single obvious next step can never be mistaken for a sibling destination.
+   * Exactly one item carries this. (DEFECT-A, golden-path fire-116.)
+   */
+  readonly cta?: boolean;
   /** Operator-only — hidden unless the signed-in identity is a platform sys-admin. */
   readonly sysAdminOnly?: boolean;
   /** Explicit `data-testid` (falls back to `nav-<id>` when absent). */
@@ -75,6 +83,14 @@ export const ADMIN_NAV_GROUPS: readonly AdminNavGroup[] = [
   {
     id: 'workspace',
     items: [
+      // ⭐ TOP OF THE MONEY FUNNEL — "New site" (Create). The `/create` overlay was
+      // reachable ONLY by typing the URL (no sidebar entry) → the primary revenue
+      // action was invisible (DEFECT-A, golden-path fire-116). Wired here as the
+      // FIRST workspace item + the ONE `cta` (filled cyan pill) so the single obvious
+      // next step is one click from every admin route (embarrassingly-easy +
+      // interconnectedness). Routes to `/admin/create` (app.routes masks the URL to
+      // `/create`); never operator-gated — a brand-new owner is exactly who clicks it.
+      { cta: true, icon: 'create', id: 'create', label: 'New site', route: '/admin/create' },
       {
         accent: true,
         exact: true,

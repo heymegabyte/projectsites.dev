@@ -38,6 +38,11 @@ import type { NavIconName } from '../../pages/admin/navigation/admin-nav.model';
       stroke-linejoin="round"
     >
       @switch (name()) {
+        @case ('create') {
+          <circle cx="12" cy="12" r="9" />
+          <line x1="12" y1="8" x2="12" y2="16" />
+          <line x1="8" y1="12" x2="16" y2="12" />
+        }
         @case ('dashboard') {
           <rect x="3" y="3" width="7" height="7" />
           <rect x="14" y="3" width="7" height="7" />

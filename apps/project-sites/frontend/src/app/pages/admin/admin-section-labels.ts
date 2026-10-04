@@ -26,6 +26,10 @@ export const ADMIN_SECTION_LABELS: Readonly<Record<string, string>> = {
   logs: 'Logs',
   mcp: 'MCP', seo: 'SEO', inbox: 'Inbox',
   import: 'Import', sites: 'Sites', welcome: 'Welcome', email: 'Email',
+  // `/admin/create` (URL masked to `/create`) is the Create-a-site overlay — now a
+  // sidebar destination (nav-create). Without this entry the title falls back to
+  // 'Dashboard' (WCAG 2.4.2 stale title). (DEFECT-A, golden-path fire-116.)
+  create: 'New site',
   copilot: 'Copilot', dna: 'Site DNA', branches: 'Branches',
   'mcp-server': 'MCP Server', stack: 'Domain Stack', diff: 'Snapshot Diff',
   // Coverage gap closed: these routed sections fell back to 'Editor' → stale
