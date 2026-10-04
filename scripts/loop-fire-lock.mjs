@@ -28,7 +28,11 @@ import { fileURLToPath } from 'node:url';
 import { dirname, resolve } from 'node:path';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
-const LOCK_PATH = resolve(__dirname, '../.claude/run-the-loop/.fire-lease.json');
+// Lease path is CWD-proof (resolved from __dirname). FIRE_LEASE_PATH overrides it
+// so tests exercise a temp lease and never touch the live one; identical behavior unset.
+const LOCK_PATH = process.env.FIRE_LEASE_PATH
+  ? resolve(process.env.FIRE_LEASE_PATH)
+  : resolve(__dirname, '../.claude/run-the-loop/.fire-lease.json');
 const STALE_MS = parseInt(process.env.FIRE_LEASE_STALE_MS || String(20 * 60 * 1000), 10);
 // Hard ceiling on how long ANY single lease can be held, independent of
 // heartbeat freshness — the zombie-heartbeat backstop (see header).

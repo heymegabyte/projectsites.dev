@@ -40,7 +40,12 @@
 > `scripts/`, NOT `apps/project-sites/scripts/` (a prior fire burned 3 tool calls finding that).
 > Paths are repo-relative from the repo root.
 
-- **fire lock** — repo-root `scripts/loop-fire-lock.mjs` (claim/heartbeat/release)
+- **fire lock** — repo-root `scripts/loop-fire-lock.mjs` (claim/heartbeat/release). It is
+  repo-root-relative: INVOKE from repo-root (or `"$(git rev-parse --show-toplevel)"/scripts/loop-fire-lock.mjs`).
+  `node scripts/loop-fire-lock.mjs release <id>` from a SUBDIR (e.g. `.claude/run-the-loop/`) misses
+  the relative path → Node prints its version footer (`Node.js vXX`, module-not-found) + SILENTLY
+  fails to release — the recurring "manual `rm .fire-lease.json` after release" was THIS, not a script
+  bug (the lease PATH is CWD-proof via `__dirname`; only the SCRIPT path is CWD-sensitive). `FIRE_LEASE_PATH=<file>` overrides the lease path for tests (`scripts/__tests__/loop-fire-lock.smoke.mjs`).
 - **recipient allowlist** — `apps/project-sites/scripts/recipient-allowlist.mjs` (+ `.recipient-allowlist.local.json` (verify) — local override not present in a clean tree)
 - **deep UI explorer** — `apps/project-sites/e2e/deep-ui-explorer/` (`explorer.mjs` · `vision-review.mjs` · `coverage-ledger.json`)
 - **carried-blocker re-confirm (BATCH)** — `node apps/project-sites/scripts/reconfirm-carried-blockers.mjs` reads `apps/project-sites/e2e/carried-blockers.json` (header/endpoint/shell checks) → PASS(retire) | STILL-OPEN | ERROR, exit 0 iff all resolved; run it BEFORE assigning ANY fix-agent to a carried blocker (§ Carried-blocker re-confirm). Singular single-header variant: `reconfirm-carried-blocker.mjs`.
