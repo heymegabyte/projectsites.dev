@@ -1,12 +1,13 @@
 import { defineFeatureManifest } from '@projectsites/feature-manifests';
 
 /**
- * CRAWL-0 — provider-independent FOUNDATION of the whole-site-crawl feature.
+ * site_crawl — whole-site-crawl feature (CRAWL-0 foundation + CRAWL-1 provider wiring).
  *
- * This slice ships ONLY the domain: Zod schemas (`schemas.ts`), the `CrawlProvider` port +
- * a Cloudflare STUB (`provider.ts`). No routes, workflow, or persistence (those are CRAWL-1..4).
+ * CRAWL-0 shipped the domain: Zod schemas (`schemas.ts`) + the `CrawlProvider` port. CRAWL-1
+ * wires the `CloudflareCrawlProvider` to CF Browser Rendering's async, cursor-paginated `/crawl`
+ * REST API (`provider.ts`) — still NO routes, workflow, or persistence (those are CRAWL-2..4).
  * Flag `site_crawl` is DARK (`enabled=0, rollout=0, stage='experimental'`) — the server guard
- * 404s every future route until promotion. Nothing user-reachable yet; this is the typed seam.
+ * 404s every future route until promotion. Nothing user-reachable yet; this is the typed engine.
  */
 export default defineFeatureManifest({
   slug: 'site_crawl',
@@ -23,7 +24,10 @@ export default defineFeatureManifest({
   permissions: [],
   dependencies: [],
   e2eTests: [],
-  unitTests: ['../libs/features/site_crawl/__tests__/schemas.test.ts'],
+  unitTests: [
+    '../libs/features/site_crawl/__tests__/schemas.test.ts',
+    '../libs/features/site_crawl/__tests__/provider.test.ts',
+  ],
   integrationTests: [],
   testStatus: 'partial',
   zodSchemas: ['schemas.ts'],
@@ -32,11 +36,12 @@ export default defineFeatureManifest({
     defaultEnabled: false,
     environments: {},
     notes:
-      'DARK (experimental). CRAWL-0 is pure types + a provider stub — no reachable surface. The real Browser-Run /crawl wiring is CRAWL-1; routes/workflow/persistence CRAWL-1..4. Server guard 404s every future route until promoted.',
+      'DARK (experimental). CRAWL-0 types + CRAWL-1 CF Browser-Run /crawl provider — no reachable surface (no route mounts the provider). Routes/workflow/persistence are CRAWL-2..4. Server guard 404s every future route until promoted.',
   },
   risks: [
-    'Provider stub only: CloudflareCrawlProvider methods throw "CRAWL-1: not yet implemented" — this slice ships no working crawl, by design.',
-    'The domain types are the contract CRAWL-1..4 build against; a later CF-shape leak into schemas.ts would be drift — keep provider specifics in provider.ts.',
+    'Pure provider code: CloudflareCrawlProvider is wired to CF /crawl but no route invokes it yet — this slice ships no user-reachable crawl, by design.',
+    'SSRF/scope/persistence are NOT in this slice (CRAWL-2+). A route that exposes start() MUST add host-allowlist + ownership checks before promotion.',
+    'The domain types are the contract CRAWL-1..4 build against; a CF-wire-shape leak into schemas.ts would be drift — keep provider specifics in provider.ts.',
   ],
   removalNotes:
     'No table, no route, no state. Delete the libs/features/site_crawl/ folder + the site_crawl flag-registry entry. Nothing to migrate.',

@@ -2,9 +2,10 @@
  * CRAWL-0 unit coverage — the provider-independent crawl DOMAIN.
  *
  * Proves the Zod boundary (CrawlRequest validity + mode default + url requirement),
- * the coverage-status enum, and that the Cloudflare provider STUB throws `CRAWL-1`
- * from every method. Pure (no mocks, no env) — the real crawl engine is CRAWL-1.
- * This repo transforms tests with @swc/jest using the GLOBAL `jest`; no import needed.
+ * the coverage-status enum, and that the Cloudflare provider SATISFIES the port
+ * surface. Pure (no mocks, no env) — the CF engine wiring is exercised in
+ * `provider.test.ts` (CRAWL-1). This repo transforms tests with @swc/jest using the
+ * GLOBAL `jest`; no import needed.
  */
 import {
   CrawlRequestSchema,
@@ -14,7 +15,6 @@ import {
   LinkKindSchema,
 } from '../schemas';
 import { CloudflareCrawlProvider } from '../provider';
-import type { CrawlRequest } from '../schemas';
 
 describe('CrawlRequestSchema', () => {
   it('accepts a bare {url} and defaults mode to "auto"', () => {
@@ -109,29 +109,17 @@ describe('crawl enums', () => {
   });
 });
 
-describe('CloudflareCrawlProvider (CRAWL-0 stub)', () => {
-  const p = new CloudflareCrawlProvider();
-  const req: CrawlRequest = CrawlRequestSchema.parse({ url: 'https://example.com' });
+describe('CloudflareCrawlProvider (CRAWL-1 port surface)', () => {
+  // Construct with a minimal env stub — no network here; CF wiring is covered in provider.test.ts.
+  const env = { CF_ACCOUNT_ID: 'acct' } as unknown as ConstructorParameters<
+    typeof CloudflareCrawlProvider
+  >[0];
+  const p = new CloudflareCrawlProvider(env);
 
-  it('start() throws CRAWL-1: not yet implemented', () => {
-    expect(() => p.start(req)).toThrow('CRAWL-1: not yet implemented');
-  });
-
-  it('status() throws CRAWL-1: not yet implemented', () => {
-    expect(() => p.status('00000000-0000-7000-8000-000000000000')).toThrow(
-      'CRAWL-1: not yet implemented',
-    );
-  });
-
-  it('results() throws CRAWL-1: not yet implemented', () => {
-    expect(() => p.results('00000000-0000-7000-8000-000000000000')).toThrow(
-      'CRAWL-1: not yet implemented',
-    );
-  });
-
-  it('cancel() throws CRAWL-1: not yet implemented', () => {
-    expect(() => p.cancel('00000000-0000-7000-8000-000000000000')).toThrow(
-      'CRAWL-1: not yet implemented',
-    );
+  it('implements the four CrawlProvider methods (no longer throws CRAWL-1)', () => {
+    expect(typeof p.start).toBe('function');
+    expect(typeof p.status).toBe('function');
+    expect(typeof p.results).toBe('function');
+    expect(typeof p.cancel).toBe('function');
   });
 });
