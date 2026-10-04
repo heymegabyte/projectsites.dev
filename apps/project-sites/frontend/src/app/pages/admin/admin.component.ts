@@ -84,6 +84,10 @@ const SITE_INDEPENDENT_ADMIN_PATHS: readonly string[] = [
   '/admin/analytics',
   '/admin/hosting',
   '/admin/billing',
+  // /admin/create renders the create-site overlay (CreateComponent). It is the
+  // zero-site onboarding entry itself, so the "No sites yet" launchpad must NEVER
+  // swallow it — a brand-new user with no sites is EXACTLY who opens Create.
+  '/admin/create',
 ];
 
 /**

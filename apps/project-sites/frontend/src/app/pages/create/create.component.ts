@@ -4,8 +4,10 @@ import {
   type OnDestroy,
   inject,
   signal,
+  HostListener,
   ChangeDetectorRef,
 } from '@angular/core';
+import { Location } from '@angular/common';
 import { Router, ActivatedRoute, RouterLink } from '@angular/router';
 import { FormsModule } from '@angular/forms';
 import {
@@ -158,6 +160,7 @@ export class CreateComponent implements OnInit, OnDestroy {
   private toast = inject(ToastService);
   private router = inject(Router);
   private route = inject(ActivatedRoute);
+  private location = inject(Location);
   private cdr = inject(ChangeDetectorRef);
   private telemetry = inject(TelemetryService);
 
@@ -206,43 +209,25 @@ export class CreateComponent implements OnInit, OnDestroy {
 
   private static readonly STEP_KEY = 'ps_create_step';
 
-  /** Attempted-submit flag — gates inline error rendering on required fields. */
+  /** Attempted-submit flag — retained for telemetry; no longer gates any error. */
   attempted = signal(false);
 
   /**
-   * Required fields the user has TOUCHED then LEFT EMPTY on blur. Surfaces the
-   * inline error the moment they tab away from a cleared required field — not
-   * only after a submit attempt (which can never happen while the submit button
-   * is disabled). WCAG 3.3.1 Error Identification + embarrassingly-easy-to-use.
+   * ALL inputs are OPTIONAL (Brian 2026-10-03 — embarrassingly-easy-to-use +
+   * ai-permanence). Submit NEVER blocks on an empty field; the AI fills whatever
+   * the owner leaves blank. These getters are kept so the template still compiles,
+   * but they always return `null` — no "is required" message ever renders.
    */
-  blurredEmpty = signal<Set<'name' | 'address'>>(new Set());
-
-  /** Show a required-field error when a submit was attempted OR the field was
-   *  touched-then-blurred-empty. */
-  private showRequiredError(field: 'name' | 'address'): boolean {
-    return this.attempted() || this.blurredEmpty().has(field);
-  }
-
   get nameError(): string | null {
-    if (!this.showRequiredError('name')) return null;
-    return this.businessName.trim()
-      ? null
-      : 'Business name is required so we know what site to build.';
+    return null;
   }
   get addressError(): string | null {
-    if (!this.showRequiredError('address')) return null;
-    return this.businessAddress.trim()
-      ? null
-      : 'Address is required for local SEO and the contact card.';
+    return null;
   }
 
-  /** Mark a required field errored-on-blur when empty; clear it when it has a
-   *  value again so the error never lingers once fixed. */
-  private markBlurredEmpty(field: 'name' | 'address', value: string): void {
-    const next = new Set(this.blurredEmpty());
-    if (value.trim()) next.delete(field);
-    else next.add(field);
-    this.blurredEmpty.set(next);
+  /** No-op — required-field blur tracking removed now that every input is optional. */
+  private markBlurredEmpty(_field: 'name' | 'address', _value: string): void {
+    /* inputs are optional — nothing to flag */
   }
 
   categories = [
@@ -436,6 +421,16 @@ export class CreateComponent implements OnInit, OnDestroy {
   }
 
   ngOnInit(): void {
+    // The overlay is hosted under `admin/create` (AdminComponent renders the dashboard
+    // BEHIND it) but the address bar must read `/create` — rewrite it without a
+    // navigation so the admin shell stays mounted. Query params (claim/reset) survive.
+    try {
+      const qs = window.location.search || '';
+      this.location.replaceState('/create' + qs);
+    } catch {
+      /* non-browser / SSR — ignore */
+    }
+
     this.telemetry.track('site.create.opened', {
       reset_mode: !!this.route.snapshot.queryParams['reset'],
     });
@@ -606,6 +601,25 @@ export class CreateComponent implements OnInit, OnDestroy {
   ngOnDestroy(): void {
     this.destroy$.next();
     this.destroy$.complete();
+  }
+
+  /**
+   * Dismiss the full-screen create overlay → return to the admin dashboard behind it.
+   * Wired to the white top-right close button + the Esc key (WCAG 2.1.2 / dialog
+   * dismissal). If an image modal is open, Esc closes THAT first (handled below).
+   */
+  overlayClose(): void {
+    void this.router.navigate(['/admin']);
+  }
+
+  /** Esc closes the open image modal first; otherwise dismisses the whole overlay. */
+  @HostListener('document:keydown.escape')
+  onEscape(): void {
+    if (this.modalImage()) {
+      this.closeImageModal();
+      return;
+    }
+    this.overlayClose();
   }
 
   onAddressInput(): void {
@@ -1849,16 +1863,9 @@ export class CreateComponent implements OnInit, OnDestroy {
 
   submitBuild(): void {
     this.attempted.set(true);
-    if (!this.businessName.trim()) {
-      this.setStep(1);
-      this.toast.error('Business name is required so we know what site to build.');
-      return;
-    }
-    if (!this.businessAddress.trim()) {
-      this.setStep(1);
-      this.toast.error('Address is required for local SEO and the contact card.');
-      return;
-    }
+    // ALL inputs are optional (Brian 2026-10-03) — submit NEVER blocks on an empty
+    // field. The AI fills whatever the owner leaves blank; we send only what's
+    // provided. No required-field guard, no "is required" toast.
 
     // If not logged in, store business info and redirect to signin
     if (!this.auth.isLoggedIn()) {

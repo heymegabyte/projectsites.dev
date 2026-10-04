@@ -1,5 +1,30 @@
 :host { display: block; }
 
+// ── Full-screen create overlay ────────────────────────────────────
+// Left = all-white canvas with the bold phrase; right = ≤500px dark brand
+// panel carrying the form. Overlay sits above the admin dashboard behind it.
+.ps-create-overlay {
+  background: #ffffff; // white shows through on md+ where the canvas lives
+}
+
+// On small screens the white canvas is hidden (md:) and the dark panel takes the
+// full width — paint the overlay dark so there's no white flash behind the panel.
+@media (max-width: 767px) {
+  .ps-create-overlay { background: #060610; }
+}
+
+.ps-create-panel {
+  // On-brand dark panel, hairline cyan divider from the white canvas.
+  border-left: 1px solid rgba(0, 229, 255, 0.14);
+  box-shadow: -24px 0 64px rgba(0, 0, 0, 0.5);
+}
+
+.ps-create-canvas-title {
+  // Sora display face to match the brand's heading font, maximum weight.
+  font-family: 'Sora', 'Inter', system-ui, sans-serif;
+  letter-spacing: -0.02em;
+}
+
 // Sora 600 for headings + balanced wrapping, pretty for prose.
 :host h1, :host h2, :host h3 {
   font-family: 'Sora', 'Inter', system-ui, sans-serif;

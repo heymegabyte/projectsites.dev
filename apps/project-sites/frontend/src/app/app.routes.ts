@@ -70,12 +70,20 @@ export const routes: Routes = [
       import('./pages/auth/two-factor-verify.component').then((m) => m.TwoFactorVerifyComponent),
   },
   {
+    // `/create` renders the admin dashboard BEHIND a full-screen overlay (the
+    // create form). The overlay is an admin child route so AdminComponent mounts
+    // underneath; the top-level path redirects into it. CreateComponent rewrites
+    // the address bar back to `/create` on init (location.replaceState), so both
+    // `/create` and `/admin/create` show `/create` with the dashboard behind.
+    // authGuard on the admin parent gates it (create needs a signed-in session;
+    // an anonymous visitor bounces to /signin, matching the prior behavior).
     path: 'create',
-    loadComponent: () => import('./pages/create/create.component').then((m) => m.CreateComponent),
+    redirectTo: 'admin/create',
+    pathMatch: 'full',
   },
   {
     path: 'details',
-    redirectTo: 'create',
+    redirectTo: 'admin/create',
   },
   {
     path: 'waiting',
@@ -105,6 +113,16 @@ export const routes: Routes = [
             (m) => m.AdminDashboardComponent,
           ),
         pathMatch: 'full',
+      },
+      {
+        // Create-site overlay — renders INSIDE the admin shell's <router-outlet>
+        // so AdminComponent (the dashboard) stays mounted behind it. CreateComponent
+        // paints a fixed full-screen overlay (white left + dark right-panel form)
+        // and rewrites the URL to `/create` on init. The top-level `/create` path
+        // redirects here. authGuard on the admin parent covers it.
+        path: 'create',
+        loadComponent: () =>
+          import('./pages/create/create.component').then((m) => m.CreateComponent),
       },
       {
         path: 'welcome',

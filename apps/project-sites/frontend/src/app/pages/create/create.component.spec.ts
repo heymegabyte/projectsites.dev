@@ -307,13 +307,12 @@ describe('CreateComponent — address-search-unavailable nudge', () => {
 });
 
 /**
- * Submit-button gating (conversion-path a11y). `submitBuild()` early-returns with an
- * error toast when name OR address is empty — a "doomed click". The button must be
- * DISABLED until BOTH required fields are filled (never present a control that will
- * fail), and carry an aria-label explaining WHY it is disabled. Once both are filled
- * the button enables.
+ * ALL inputs OPTIONAL (Brian 2026-10-03 — embarrassingly-easy-to-use + ai-permanence).
+ * The submit button must NEVER disable on empty fields; the AI fills whatever the owner
+ * leaves blank. The ONLY thing that disables the button is an in-flight build. No
+ * "Enter business name and address" aria-label, no required-field guard.
  */
-describe('CreateComponent — submit button gates on required fields', () => {
+describe('CreateComponent — all inputs optional, submit never blocks on empty fields', () => {
   afterEach(() => {
     localStorage.clear();
     sessionStorage.clear();
@@ -362,59 +361,59 @@ describe('CreateComponent — submit button gates on required fields', () => {
     return (fx.nativeElement as HTMLElement).querySelector<HTMLButtonElement>('button.w-full');
   }
 
-  it('is DISABLED with an explanatory aria-label when both fields are empty', () => {
+  it('is ENABLED (and carries no disabled-reason aria-label) with BOTH fields empty', () => {
     const fx = render();
     const btn = submitBtn(fx);
     expect(btn).withContext('the submit button must render').not.toBeNull();
-    expect(btn?.disabled).withContext('empty name + address → doomed click, must disable').toBe(
-      true,
-    );
+    expect(btn?.disabled)
+      .withContext('every input is optional → submit must be clickable even when empty')
+      .toBe(false);
     expect(btn?.getAttribute('aria-label'))
-      .withContext('disabled reason announced to AT')
-      .toBe('Enter business name and address to continue');
-  });
-
-  it('stays DISABLED when only the name is filled (address still required)', () => {
-    const fx = render();
-    const c = fx.componentInstance;
-    c.businessName = "Vito's Mens Salon";
-    fx.detectChanges();
-    expect(submitBtn(fx)?.disabled).withContext('address still empty → still doomed').toBe(true);
-  });
-
-  it('stays DISABLED when only the address is filled (name still required)', () => {
-    const fx = render();
-    const c = fx.componentInstance;
-    c.businessAddress = '74 N Beverwyck Rd, Lake Hiawatha, NJ 07034';
-    fx.detectChanges();
-    expect(submitBtn(fx)?.disabled).withContext('name still empty → still doomed').toBe(true);
-  });
-
-  it('ENABLES (aria-label cleared) once both name and address are filled', () => {
-    const fx = render();
-    const c = fx.componentInstance;
-    c.businessName = "Vito's Mens Salon";
-    c.businessAddress = '74 N Beverwyck Rd, Lake Hiawatha, NJ 07034';
-    fx.detectChanges();
-    const btn = submitBtn(fx);
-    expect(btn?.disabled).withContext('both required fields present → clickable').toBe(false);
-    expect(btn?.getAttribute('aria-label'))
-      .withContext('no disabled reason once enabled')
+      .withContext('no "enter name and address" nag — fields are optional')
       .toBeNull();
+  });
+
+  it('stays ENABLED with only the name filled', () => {
+    const fx = render();
+    const c = fx.componentInstance;
+    c.businessName = "Vito's Mens Salon";
+    fx.detectChanges();
+    expect(submitBtn(fx)?.disabled).withContext('address optional → still clickable').toBe(false);
+  });
+
+  it('stays ENABLED with only the address filled', () => {
+    const fx = render();
+    const c = fx.componentInstance;
+    c.businessAddress = '74 N Beverwyck Rd, Lake Hiawatha, NJ 07034';
+    fx.detectChanges();
+    expect(submitBtn(fx)?.disabled).withContext('name optional → still clickable').toBe(false);
+  });
+
+  it('never surfaces a required-field error (both getters return null)', () => {
+    const fx = render();
+    const c = fx.componentInstance;
+    // Touch then empty both fields — the old "required on blur" path.
+    c.businessName = 'Salon';
+    c.onBusinessInput();
+    c.businessName = '';
+    c.closeBusinessDropdown();
+    c.businessAddress = '74 N Beverwyck Rd';
+    c.onAddressInput();
+    c.businessAddress = '';
+    c.closeAddressDropdown();
+    fx.detectChanges();
+    expect(c.nameError).withContext('name is optional — never errors').toBeNull();
+    expect(c.addressError).withContext('address is optional — never errors').toBeNull();
   });
 });
 
 /**
- * Inline required-field error on blur (embarrassingly-easy + WCAG 3.3.1 Error
- * Identification). A keyboard/AT user who types a required field then clears it
- * and tabs away must be TOLD why — the inline error + `aria-invalid` must fire on
- * a blur-while-empty of a touched field, NOT only after a submit attempt. Before
- * this fix the error gated purely on `attempted()` (set only on submit-click), so
- * emptying a field left the "Create site" button disabled with ZERO inline
- * feedback — and, because the button is disabled, the click that would set
- * `attempted` never happens (a catch-22 that strands the user with no guidance).
+ * Inputs are OPTIONAL (Brian 2026-10-03). The former WCAG-3.3.1 "required on blur"
+ * behavior is intentionally GONE — no field is required, so blurring an empty field
+ * must NOT surface an error or set `aria-invalid`. The AI fills any blank the owner
+ * leaves. This block guards against a regression that re-introduces a required nag.
  */
-describe('CreateComponent — inline required-field error on blur (WCAG 3.3.1)', () => {
+describe('CreateComponent — optional fields never nag on blur-empty', () => {
   afterEach(() => {
     localStorage.clear();
     sessionStorage.clear();
@@ -458,38 +457,27 @@ describe('CreateComponent — inline required-field error on blur (WCAG 3.3.1)',
     return fx;
   }
 
-  it('shows NO name error before the field is touched (no premature alarm)', () => {
+  it('shows NO name error before the field is touched', () => {
     const fx = render();
-    const c = fx.componentInstance;
-    expect(c.nameError).withContext('untouched empty field must not shout').toBeNull();
+    expect(fx.componentInstance.nameError).toBeNull();
   });
 
-  it('surfaces the name error after a blur-while-empty of a touched field (no submit needed)', () => {
+  it('shows NO name error after a blur-while-empty of a touched field', () => {
     const fx = render();
     const c = fx.componentInstance;
-    // User types a name (touches the field) then clears it and tabs away (blur).
     c.businessName = 'Salon';
     c.onBusinessInput();
     c.businessName = '';
     c.closeBusinessDropdown();
     fx.detectChanges();
-    expect(c.attempted())
-      .withContext('no submit attempt happened — this is a pure blur path')
-      .toBe(false);
-    expect(c.nameError)
-      .withContext('a touched-then-emptied required field must explain itself on blur')
-      .toContain('required');
+    expect(c.nameError).withContext('name is optional — no required nag on blur').toBeNull();
     const input = (fx.nativeElement as HTMLElement).querySelector<HTMLInputElement>('#create-name');
     expect(input?.getAttribute('aria-invalid'))
-      .withContext('AT must hear the field is invalid')
-      .toBe('true');
-    const err = (fx.nativeElement as HTMLElement).querySelector('#create-name-error');
-    expect((err?.textContent || '').trim().length)
-      .withContext('the inline error <p> must render visible text, not empty whitespace')
-      .toBeGreaterThan(0);
+      .withContext('optional field must not report invalid')
+      .toBe('false');
   });
 
-  it('surfaces the address error after a blur-while-empty of a touched field', () => {
+  it('shows NO address error after a blur-while-empty of a touched field', () => {
     const fx = render();
     const c = fx.componentInstance;
     c.businessAddress = '74 N Beverwyck Rd';
@@ -497,70 +485,107 @@ describe('CreateComponent — inline required-field error on blur (WCAG 3.3.1)',
     c.businessAddress = '';
     c.closeAddressDropdown();
     fx.detectChanges();
-    expect(c.addressError)
-      .withContext('a touched-then-emptied address must explain itself on blur')
-      .toContain('required');
-  });
-
-  it('clears the name error the moment a valid value is typed back', () => {
-    const fx = render();
-    const c = fx.componentInstance;
-    c.businessName = 'Salon';
-    c.onBusinessInput();
-    c.businessName = '';
-    c.closeBusinessDropdown();
-    fx.detectChanges();
-    expect(c.nameError).withContext('error present while empty').toContain('required');
-    // Type a real value back in.
-    c.businessName = 'Vito Salon';
-    c.onBusinessInput();
-    fx.detectChanges();
-    expect(c.nameError).withContext('error clears once the field is valid again').toBeNull();
-  });
-
-  // ── Focus-then-blur-empty (fire-52) ──────────────────────────────────────────
-  // The most common keyboard/AT pattern is: TAB into a required field, TAB out
-  // without typing anything. The original fire-51 fix only marked a field "touched"
-  // on TYPING (onBusinessInput / onAddressInput) or on a query-param prefill, so a
-  // visit-then-leave (focus → blur, zero keystrokes) surfaced NO error and left the
-  // Create-site button disabled with no explanation — the exact WCAG 3.3.1 catch-22
-  // the fix was meant to kill, still live for the focus-only path. A blur IS a visit:
-  // leaving a required field empty must explain itself whether or not a key was pressed.
-  // Caught by the fire-52 golden-path prod journey (address focus→Tab surfaced nothing).
-
-  it('surfaces the name error on a focus-then-blur-empty (no keystroke, no submit)', () => {
-    const fx = render();
-    const c = fx.componentInstance;
-    // User TABS into the empty name field and TABS out — never types. The template's
-    // (focus) handler does not mark the field touched, so this is the pure focus→blur path.
-    c.closeBusinessDropdown();
-    fx.detectChanges();
-    expect(c.attempted())
-      .withContext('no submit happened — pure focus→blur path')
-      .toBe(false);
-    expect(c.nameError)
-      .withContext('leaving a required field empty on blur must explain itself, even with no keystroke')
-      .toContain('required');
-    const input = (fx.nativeElement as HTMLElement).querySelector<HTMLInputElement>('#create-name');
-    expect(input?.getAttribute('aria-invalid'))
-      .withContext('AT must hear the field is invalid after a focus→blur')
-      .toBe('true');
-  });
-
-  it('surfaces the address error on a focus-then-blur-empty (no keystroke)', () => {
-    const fx = render();
-    const c = fx.componentInstance;
-    c.closeAddressDropdown();
-    fx.detectChanges();
-    expect(c.addressError)
-      .withContext('address blurred-while-empty after a bare focus must explain itself')
-      .toContain('required');
+    expect(c.addressError).withContext('address is optional — no required nag').toBeNull();
     const input = (fx.nativeElement as HTMLElement).querySelector<HTMLInputElement>(
       '#create-address',
     );
-    expect(input?.getAttribute('aria-invalid'))
-      .withContext('AT must hear the address field is invalid after a focus→blur')
-      .toBe('true');
+    expect(input?.getAttribute('aria-invalid')).toBe('false');
+  });
+
+  it('shows NO error on a focus-then-blur-empty (no keystroke)', () => {
+    const fx = render();
+    const c = fx.componentInstance;
+    c.closeBusinessDropdown();
+    c.closeAddressDropdown();
+    fx.detectChanges();
+    expect(c.nameError).toBeNull();
+    expect(c.addressError).toBeNull();
+  });
+});
+
+/**
+ * Close button + overlay dismissal (Brian 2026-10-03). The full-screen create overlay
+ * carries a white top-right close button (`aria-label="Close"`) that returns to the
+ * admin dashboard behind it; Esc does the same. The overlay must also announce itself
+ * as a dialog labelled "Create autonomous website".
+ */
+describe('CreateComponent — full-screen overlay + white close button', () => {
+  let router: Router;
+
+  afterEach(() => {
+    localStorage.clear();
+    sessionStorage.clear();
+    TestBed.resetTestingModule();
+  });
+
+  function render(): ComponentFixture<CreateComponent> {
+    const api = {
+      searchBusinesses: jasmine.createSpy('searchBusinesses').and.returnValue(of({ data: [] })),
+      searchAddress: jasmine.createSpy('searchAddress').and.returnValue(of({ data: [] })),
+    };
+    const auth = {
+      isLoggedIn: jasmine.createSpy('isLoggedIn').and.returnValue(false),
+      getAutoCreate: jasmine.createSpy('getAutoCreate').and.returnValue(false),
+      setAutoCreate: jasmine.createSpy('setAutoCreate'),
+      getPendingBuild: jasmine.createSpy('getPendingBuild').and.returnValue(false),
+      setPendingBuild: jasmine.createSpy('setPendingBuild'),
+      getSelectedBusiness: jasmine.createSpy('getSelectedBusiness').and.returnValue(null),
+      getMode: jasmine.createSpy('getMode').and.returnValue('build'),
+    };
+    TestBed.configureTestingModule({
+      imports: [CreateComponent],
+      providers: [
+        provideRouter([]),
+        { provide: ApiService, useValue: api },
+        { provide: AuthService, useValue: auth },
+        { provide: GeolocationService, useValue: { lat: () => null, lng: () => null } },
+        {
+          provide: ToastService,
+          useValue: { error: () => undefined, success: () => undefined, info: () => undefined },
+        },
+        { provide: TelemetryService, useValue: { track: () => undefined } },
+        {
+          provide: ActivatedRoute,
+          useValue: { snapshot: { queryParams: {}, queryParamMap: { get: () => null } } },
+        },
+      ],
+    });
+    router = TestBed.inject(Router);
+    spyOn(router, 'navigate').and.resolveTo(true);
+    const fx = TestBed.createComponent(CreateComponent);
+    fx.detectChanges();
+    return fx;
+  }
+
+  it('renders a dialog overlay labelled "Create autonomous website" with the bold phrase', () => {
+    const fx = render();
+    const el = fx.nativeElement as HTMLElement;
+    const overlay = el.querySelector<HTMLElement>('.ps-create-overlay');
+    expect(overlay).withContext('the full-screen overlay must render').not.toBeNull();
+    expect(overlay?.getAttribute('role')).toBe('dialog');
+    expect(overlay?.getAttribute('aria-label')).toBe('Create autonomous website');
+    expect((el.querySelector('.ps-create-canvas-title')?.textContent || '').trim()).toBe(
+      'Create autonomous website',
+    );
+  });
+
+  it('close button carries aria-label="Close" and routes to /admin on click', () => {
+    const fx = render();
+    const btn = (fx.nativeElement as HTMLElement).querySelector<HTMLButtonElement>(
+      '.ps-create-close',
+    );
+    expect(btn).withContext('the white close button must render').not.toBeNull();
+    expect(btn?.getAttribute('aria-label')).toBe('Close');
+    btn?.click();
+    expect(router.navigate).withContext('close returns to the dashboard behind').toHaveBeenCalledWith(
+      ['/admin'],
+    );
+  });
+
+  it('Esc dismisses the overlay to /admin', () => {
+    const fx = render();
+    fx.componentInstance.onEscape();
+    expect(router.navigate).toHaveBeenCalledWith(['/admin']);
   });
 });
 

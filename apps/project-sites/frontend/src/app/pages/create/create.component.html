@@ -1,8 +1,52 @@
-<section
-  class="min-h-[calc(100vh-60px)] py-12 px-6 pb-20 relative z-[1] animate-[fadeIn_0.3s_ease]"
+<!-- Full-screen create overlay: ALL-WHITE left majority + a dark brand right panel
+     (≤500px) carrying the form. Sits ON TOP of the admin dashboard behind it. -->
+<div
+  class="ps-create-overlay fixed inset-0 z-[100000] flex animate-[fadeIn_0.25s_ease]"
+  role="dialog"
+  aria-modal="true"
+  aria-label="Create autonomous website"
 >
-  <div class="max-w-[640px] mx-auto">
-    <!-- Header -->
+  <!-- Left: all-white canvas with the bold phrase. Hidden on small screens so the
+       form panel can take the full width. -->
+  <div
+    class="ps-create-canvas hidden md:flex flex-1 min-w-0 bg-white items-center p-[clamp(2rem,6vw,6rem)]"
+    aria-hidden="true"
+  >
+    <h2
+      class="ps-create-canvas-title font-[800] tracking-tight text-[#060610] leading-[1.02] [text-wrap:balance] text-[clamp(2.5rem,6vw,5rem)]"
+    >
+      Create autonomous website
+    </h2>
+  </div>
+
+  <!-- White close button, blended top-right — dismisses to /admin. -->
+  <button
+    type="button"
+    class="ps-create-close fixed top-4 right-4 z-[100001] inline-flex h-11 w-11 items-center justify-center rounded-full text-white transition-all hover:bg-white/10 focus-visible:outline focus-visible:outline-2 focus-visible:outline-white focus-visible:outline-offset-2"
+    aria-label="Close"
+    (click)="overlayClose()"
+  >
+    <svg
+      width="24"
+      height="24"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      stroke-width="2"
+      stroke-linecap="round"
+      stroke-linejoin="round"
+      aria-hidden="true"
+    >
+      <path d="M18 6 6 18M6 6l12 12" />
+    </svg>
+  </button>
+
+  <!-- Right: dark brand panel (≤500px) hosting the existing create form. -->
+  <section
+    class="ps-create-panel w-full md:w-[500px] md:max-w-[500px] shrink-0 h-full overflow-y-auto bg-[#060610] py-12 px-6 pb-20 relative z-[1]"
+  >
+    <div class="max-w-[640px] mx-auto">
+      <!-- Header -->
     <div class="text-center mb-10 animate-fade-in-up">
       <div
         class="w-16 h-16 rounded-[18px] bg-gradient-to-br from-primary/[0.1] to-secondary/[0.08] border border-primary/[0.15] flex items-center justify-center mx-auto mb-5 text-primary"
@@ -248,7 +292,8 @@
 
         <div class="mb-5 text-left relative z-[999]">
           <label class="block text-[0.85rem] font-semibold text-light mb-1.5" for="create-name">
-            Business Name <span class="text-primary">*</span>
+            Business Name
+            <span class="text-gray-400 font-normal text-[0.75rem]">(optional — AI fills gaps)</span>
           </label>
           <input
             id="create-name"
@@ -357,7 +402,8 @@
 
         <div class="mb-5 text-left relative z-[2]">
           <label class="block text-[0.85rem] font-semibold text-light mb-1.5" for="create-address">
-            Business Address <span class="text-primary">*</span>
+            Business Address
+            <span class="text-gray-400 font-normal text-[0.75rem]">(optional — AI fills gaps)</span>
           </label>
           <!-- maxlength mirrors the 500-char address cap enforced on the Settings page -->
           <input
@@ -909,15 +955,11 @@
         }
       </div>
 
-      <!-- Submit -->
+      <!-- Submit — every input is OPTIONAL, so the button only disables while a
+           build is in flight (never on empty fields). The AI fills any gaps. -->
       <button
         class="w-full mt-2 bg-primary text-dark font-semibold rounded-xl px-6 py-4 text-[1.05rem] hover:brightness-110 hover:shadow-[0_0_24px_rgba(0,229,255,0.4)] transition-all disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
-        [disabled]="submitting() || !businessName.trim() || !businessAddress.trim()"
-        [attr.aria-label]="
-          (!businessName.trim() || !businessAddress.trim())
-            ? 'Enter business name and address to continue'
-            : null
-        "
+        [disabled]="submitting()"
         (click)="submitBuild()"
       >
         @if (submitting()) {
@@ -953,7 +995,8 @@
       </p>
     </div>
   </div>
-</section>
+  </section>
+</div>
 
 <!-- Image Preview + AI Edit Modal -->
 @if (modalImage()) {
