@@ -247,6 +247,7 @@ export { DriveSyncWorkflow } from './workflows/drive-sync.js';
 export { ImageGenerationWorkflow } from './workflows/image-generation.js';
 export { SnapshotQualityWorkflow } from './workflows/snapshot-quality.js';
 export { SocialPublishWorkflow } from './workflows/social-publish.js';
+export { SiteCrawlWorkflow } from './workflows/site-crawl.js';
 export { SiteBuilderContainer } from './container.js';
 export { TraceHub, ActivityHub } from './durable_objects/trace_hub.js';
 export { PsNotifyDO } from '../libs/features/psnotify/do.js'; // psnotify inbox DO (SQLite-backed; binding PSNOTIFY_DO, migration v_psnotify_do)

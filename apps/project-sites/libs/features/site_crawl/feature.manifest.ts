@@ -11,9 +11,13 @@ import { defineFeatureManifest } from '@projectsites/feature-manifests';
  * authz. CRAWL-3 adds durable persistence (`persistence.ts` + migration `0658_site_crawls.sql`):
  * on a results read the normalized corpus (manifest/pages/links/full-site) is written to R2
  * (`SITES_BUCKET` under `crawls/{domain}/{crawlId}/`) + one metadata row upserted into the
- * `site_crawls` D1 table — fire-and-forget on `waitUntil`, fully fail-soft.
+ * `site_crawls` D1 table — fire-and-forget on `waitUntil`, fully fail-soft. CRAWL-3 also wraps the
+ * crawl LIFECYCLE in a durable Cloudflare Workflow (`src/workflows/site-crawl.ts`, binding
+ * `SITE_CRAWL_WORKFLOW`): `POST /api/crawl` fires `SITE_CRAWL_WORKFLOW.create` behind the flag so a
+ * crawl that outlives the request still completes (start→monitor→collect→persist→finalize); the
+ * handler falls back to the inline provider path when the binding is absent (never 500s).
  * Flag `site_crawl` stays DARK (`enabled=0, rollout=0, stage='experimental'`) — the server guard
- * 404s every route until promotion, so the mounted routes (and persistence) are inert in prod.
+ * 404s every route until promotion, so the mounted routes (and persistence + workflow) are inert.
  */
 export default defineFeatureManifest({
   slug: 'site_crawl',
@@ -43,6 +47,7 @@ export default defineFeatureManifest({
     '../libs/features/site_crawl/__tests__/provider.test.ts',
     '../libs/features/site_crawl/__tests__/handlers.test.ts',
     '../libs/features/site_crawl/__tests__/persistence.test.ts',
+    '../libs/features/site_crawl/__tests__/workflow.test.ts',
   ],
   integrationTests: [],
   testStatus: 'partial',
@@ -60,5 +65,5 @@ export default defineFeatureManifest({
     'The domain types are the contract CRAWL-1..4 build against; a CF-wire-shape leak into schemas.ts would be drift — keep provider specifics in provider.ts.',
   ],
   removalNotes:
-    'Unmount `siteCrawl` in src/index.ts, delete the libs/features/site_crawl/ folder + the site_crawl flag-registry entry. CRAWL-3 added the `site_crawls` D1 table (migration 0658) + an R2 corpus under `crawls/*`; on removal drop the table + purge the `crawls/` R2 prefix (both inert while DARK — no rows/objects are written until the flag is promoted).',
+    'Unmount `siteCrawl` in src/index.ts, delete the libs/features/site_crawl/ folder + the site_crawl flag-registry entry. CRAWL-3 added the `site_crawls` D1 table (migration 0658) + an R2 corpus under `crawls/*` + the durable `SiteCrawlWorkflow` (src/workflows/site-crawl.ts, exported from src/index.ts, bound as `SITE_CRAWL_WORKFLOW` in wrangler.toml dev + env.production); on removal drop the table, purge the `crawls/` R2 prefix, delete the workflow file + its export + both wrangler bindings (all inert while DARK — nothing is written or triggered until the flag is promoted).',
 });

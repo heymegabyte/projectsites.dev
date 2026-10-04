@@ -273,12 +273,45 @@ siteCrawl.post('/api/crawl', async (c) => {
   }
 
   try {
+    // CRAWL-3: start the crawl inline (always) so ownership + the returned job are bound exactly as
+    // before. When the durable SITE_CRAWL_WORKFLOW binding is present, ALSO kick off the resumable
+    // lifecycle workflow (start→monitor→collect→persist→finalize) keyed by the job id — it owns the
+    // long-running poll + persist so a crawl that outlives this request still completes. The workflow
+    // is purely additive: if the binding is ABSENT (not yet deployed) we fall back to the current
+    // inline-only path and never 500. `create` is best-effort — a workflow-create failure degrades to
+    // the inline path rather than failing the 202.
     const job = await getProvider(c).start(parsed.data);
     jobOrg.set(job.id, g); // bind ownership (TODO(CRAWL-3): persist to D1)
     jobRequest.set(job.id, parsed.data); // remember config for the manifest/fingerprint on persist
-    log(c, 'started', { crawl_id: job.id });
+
+    const wf = c.env.SITE_CRAWL_WORKFLOW;
+    let durable = false;
+    if (wf && typeof wf.create === 'function') {
+      try {
+        await wf.create({
+          id: job.id,
+          params: {
+            crawlId: job.id,
+            url: parsed.data.url,
+            mode: parsed.data.mode,
+            orgId: g,
+            request: parsed.data,
+          },
+        });
+        durable = true;
+      } catch (wfErr) {
+        // Fail-soft: the inline job is already started + bound, so a workflow-create hiccup degrades
+        // to the inline path rather than failing the request.
+        log(c, 'workflow_create_failed', {
+          crawl_id: job.id,
+          error: wfErr instanceof Error ? wfErr.message : String(wfErr),
+        });
+      }
+    }
+
+    log(c, 'started', { crawl_id: job.id, durable });
     // 202 Accepted — the crawl runs async; poll GET /api/crawl/:id for progress.
-    return c.json({ ok: true, job }, 202);
+    return c.json({ ok: true, job, durable }, 202);
   } catch (err) {
     return providerError(c, err);
   }

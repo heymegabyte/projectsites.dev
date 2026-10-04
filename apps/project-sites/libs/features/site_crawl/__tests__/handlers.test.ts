@@ -265,3 +265,69 @@ describe('DELETE /api/crawl/:id — cancel', () => {
     expect(cancelMock).toHaveBeenCalledWith(JOB_ID);
   });
 });
+
+describe('CRAWL-3 — POST /api/crawl fires the durable workflow (flag-dark, additive, fail-soft)', () => {
+  /** An env carrying the SITE_CRAWL_WORKFLOW binding with an observable `create`. */
+  const envWith = (create: jest.Mock) => ({ SITE_CRAWL_WORKFLOW: { create } }) as never;
+
+  it('fires SITE_CRAWL_WORKFLOW.create keyed by the job id when the binding is present (durable:true)', async () => {
+    startMock.mockResolvedValueOnce(startedJob());
+    const create = jest.fn().mockResolvedValue({ id: JOB_ID });
+    const res = await authed().request('/api/crawl', post({ url: 'https://example.com' }), envWith(create));
+    expect(res.status).toBe(202);
+    const body = (await res.json()) as { ok: boolean; durable: boolean; job: { id: string } };
+    expect(body.ok).toBe(true);
+    expect(body.durable).toBe(true);
+    expect(body.job.id).toBe(JOB_ID);
+    expect(create).toHaveBeenCalledTimes(1);
+    // The workflow id is the crawl/job id; params carry crawlId + orgId + the Zod-validated request.
+    const arg = create.mock.calls[0][0] as {
+      id: string;
+      params: { crawlId: string; url: string; mode: string; orgId: string };
+    };
+    expect(arg.id).toBe(JOB_ID);
+    expect(arg.params.crawlId).toBe(JOB_ID);
+    expect(arg.params.orgId).toBe('org1');
+    expect(arg.params.url).toBe('https://example.com');
+    // The inline provider still started the crawl (ownership binding is unchanged).
+    expect(startMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('falls back to the inline path (durable:false, still 202) when the binding is ABSENT', async () => {
+    startMock.mockResolvedValueOnce(startedJob());
+    // `env` is `{}` — no SITE_CRAWL_WORKFLOW — so the handler takes the inline-only path.
+    const res = await authed().request('/api/crawl', post({ url: 'https://example.com' }), env);
+    expect(res.status).toBe(202);
+    const body = (await res.json()) as { ok: boolean; durable: boolean };
+    expect(body.ok).toBe(true);
+    expect(body.durable).toBe(false);
+    expect(startMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('a workflow-create FAILURE degrades to the inline path (durable:false, 202 — never 500)', async () => {
+    startMock.mockResolvedValueOnce(startedJob());
+    const create = jest.fn().mockRejectedValue(new Error('workflow quota'));
+    const res = await authed().request('/api/crawl', post({ url: 'https://example.com' }), envWith(create));
+    expect(res.status).toBe(202); // the already-started inline job keeps the request successful
+    const body = (await res.json()) as { ok: boolean; durable: boolean };
+    expect(body.ok).toBe(true);
+    expect(body.durable).toBe(false); // create threw → fell back to inline
+  });
+
+  it('flag OFF → 404 and the workflow is NEVER created (dark)', async () => {
+    mFlag.mockResolvedValue(false);
+    const create = jest.fn();
+    const res = await authed().request('/api/crawl', post({ url: 'https://example.com' }), envWith(create));
+    expect(res.status).toBe(404);
+    expect(create).not.toHaveBeenCalled();
+    expect(startMock).not.toHaveBeenCalled();
+  });
+
+  it('an SSRF-unsafe seed → 400 and the workflow is NEVER created', async () => {
+    const create = jest.fn();
+    const res = await authed().request('/api/crawl', post({ url: 'http://169.254.169.254/' }), envWith(create));
+    expect(res.status).toBe(400);
+    expect(create).not.toHaveBeenCalled();
+    expect(startMock).not.toHaveBeenCalled();
+  });
+});

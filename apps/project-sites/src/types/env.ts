@@ -104,6 +104,13 @@ export interface Env {
    * Fired by the every-minute due-post sweep cron.
    */
   SOCIAL_PUBLISH_WORKFLOW?: Workflow;
+  /**
+   * Workflows v2 binding for the durable whole-site-crawl lifecycle (CRAWL-3). See
+   * {@link workflows/site-crawl.SiteCrawlWorkflow}. Optional — when missing, the
+   * `POST /api/crawl` handler falls back to the inline provider path (never 500s).
+   * Flag-dark: only triggered behind the `site_crawl` flag.
+   */
+  SITE_CRAWL_WORKFLOW?: Workflow;
 
   // ── Pulse Social — per-platform OAuth app credentials (optional) ────
   /** Cloudflare Turnstile secret — server-side siteverify for the #32 build bot-gate. */

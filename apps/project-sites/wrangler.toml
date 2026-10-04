@@ -145,6 +145,14 @@ name = "social-publish-workflow"
 binding = "SOCIAL_PUBLISH_WORKFLOW"
 class_name = "SocialPublishWorkflow"
 
+# ─── Whole-site crawl — durable crawl lifecycle (dev binding, CRAWL-3) ────
+# Flag-dark: POST /api/crawl only triggers this behind the `site_crawl` flag; the
+# handler falls back to the inline provider path when the binding is absent.
+[[workflows]]
+name = "site-crawl-workflow"
+binding = "SITE_CRAWL_WORKFLOW"
+class_name = "SiteCrawlWorkflow"
+
 # ─── AI binding for Cloudflare Workers AI ─────────────────────
 [ai]
 binding = "AI"
@@ -309,6 +317,13 @@ class_name = "SnapshotQualityWorkflow"
 name = "social-publish-workflow-production"
 binding = "SOCIAL_PUBLISH_WORKFLOW"
 class_name = "SocialPublishWorkflow"
+
+# Whole-site crawl — durable crawl lifecycle (CRAWL-3). Flag-dark: POST /api/crawl
+# triggers it only behind the `site_crawl` flag; absent binding → inline fallback.
+[[env.production.workflows]]
+name = "site-crawl-workflow-production"
+binding = "SITE_CRAWL_WORKFLOW"
+class_name = "SiteCrawlWorkflow"
 
 [env.production.ai]
 binding = "AI"
