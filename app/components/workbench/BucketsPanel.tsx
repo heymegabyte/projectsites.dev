@@ -1483,7 +1483,12 @@ const CreateBucketModal = memo(
     }, [valid, creating, name, isPublic, onCreated]);
 
     return (
-      <ModalShell title="Create a bucket" icon="i-ph:hard-drives-duotone" onClose={onClose} testId="buckets-create-modal">
+      <ModalShell
+        title="Create a bucket"
+        icon="i-ph:hard-drives-duotone"
+        onClose={onClose}
+        testId="buckets-create-modal"
+      >
         <label className="block">
           <span className="text-[11px] font-medium text-bolt-elements-textSecondary">Bucket name</span>
           <input
