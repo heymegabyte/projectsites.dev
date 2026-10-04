@@ -42,8 +42,10 @@ import {
   saveStockToLibrary,
   searchStock,
   sendToBolt,
+  signedRawMediaUrl,
   softDeleteAsset,
   uploadAsset,
+  verifyMediaToken,
   type MediaAsset,
   type PodcastScriptLine,
   type StockCandidate,
@@ -163,7 +165,16 @@ mediaRoutes.get('/api/media/assets', async (c) => {
     listAssets(c.env, scope.orgId, { ...filter, limit, offset }),
     countAssets(c.env, scope.orgId, filter),
   ]);
-  return c.json({ ok: true, assets, total, limit, offset });
+  // Attach a signed, ABSOLUTE, bearer-free raw URL per asset. The embedded bolt editor
+  // renders thumbnails with a plain cross-origin `<img>` that can carry no bearer and
+  // resolves a relative path against the EDITOR origin (404). `rawUrl` is an absolute
+  // `projectsites.dev/...raw?token=` URL an `<img>` loads directly (token binds org+asset+exp,
+  // IDOR-safe). Minted server-side here so the admin bridge just forwards it — one list call,
+  // N signed URLs, zero extra round-trips. (Fixes Resources → Media blank-404 thumbnails.)
+  const withUrls = await Promise.all(
+    assets.map(async (a) => ({ ...a, rawUrl: await signedRawMediaUrl(c.env, a.id, scope.orgId) })),
+  );
+  return c.json({ ok: true, assets: withUrls, total, limit, offset });
 });
 
 // ─── GET /api/media/usage ──────────────────────────────────
@@ -200,10 +211,38 @@ mediaRoutes.get('/api/media/assets/:id', async (c) => {
 // ─── GET /api/media/assets/:id/raw ─────────────────────────
 
 mediaRoutes.get('/api/media/assets/:id/raw', async (c) => {
-  const scope = getOrgScope(c);
-  if (scope instanceof Response) return scope;
+  const id = c.req.param('id');
 
-  const asset = await getAsset(c.env, scope.orgId, c.req.param('id'));
+  // Two ways to authorize a raw read:
+  //  1. A signed `?token=` — authorizes THIS asset for a bearer-free cross-origin `<img>`
+  //     (the embedded bolt editor can't send our Authorization header). The token binds
+  //     org+asset+exp (IDOR-safe); we resolve the asset scoped to the token's org, so a
+  //     token for another org fails the HMAC (verify) AND the scoped lookup (defense-in-depth).
+  //  2. Otherwise — the usual bearer/session org scope (same-origin admin, API keys).
+  const token = new URL(c.req.url).searchParams.get('token');
+  let orgId: string | null = null;
+  if (token) {
+    const claims = await verifyMediaToken(c.env, id, token);
+    if (!claims) {
+      return c.json(
+        {
+          error: {
+            code: 'UNAUTHORIZED',
+            message: 'Invalid or expired media token',
+            request_id: c.get('requestId'),
+          },
+        },
+        401,
+      );
+    }
+    orgId = claims.orgId;
+  } else {
+    const scope = getOrgScope(c);
+    if (scope instanceof Response) return scope;
+    orgId = scope.orgId;
+  }
+
+  const asset = await getAsset(c.env, orgId, id);
   if (!asset) {
     return c.json(
       { error: { code: 'NOT_FOUND', message: 'Asset not found', request_id: c.get('requestId') } },

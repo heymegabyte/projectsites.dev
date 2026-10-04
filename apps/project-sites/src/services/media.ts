@@ -29,6 +29,7 @@ import { dbExecute, dbInsert, dbQuery, dbQueryOne, dbUpdate } from './db.js';
 import { sanitizeLikeTerm } from './like_pattern.js';
 import { callDallE3 } from './image_generation.js';
 import { isSafeCrawlUrl } from './outbound_webhooks.js';
+import { timingSafeEqual } from '../lib/timing_safe_equal.js';
 
 /** Realistic UA used for stock-downloads — most CDNs block default UAs. */
 const STOCK_UA =
@@ -726,6 +727,143 @@ export async function generatePodcast(env: Env, args: GeneratePodcastArgs): Prom
       voices: [...new Set(args.script.map((l) => l.voice))],
     },
   });
+}
+
+// ─── Signed raw-media tokens (cross-origin <img> without a bearer) ─────────────
+
+/**
+ * The absolute origin the signed raw-media URL points at. The `/api/media/*`
+ * routes live ONLY on the public API (`projectsites.dev` / its workers.dev), never
+ * on the bolt editor origin (`editor.projectsites.dev`). A bare relative `/raw`
+ * path resolves against whatever origin renders the `<img>` — inside the embedded
+ * editor iframe that's the editor origin, where the route 404s. So the signed URL
+ * is ALWAYS absolute to this origin. (fire: Resources → Media thumbnails were blank
+ * 404s because the bridge handed the editor a relative, auth-gated `/raw` URL.)
+ */
+const RAW_MEDIA_ORIGIN = 'https://projectsites.dev';
+
+/** Default lifetime of a signed raw-media token (30 min — long enough to browse a grid). */
+const RAW_TOKEN_TTL_SECONDS = 60 * 30;
+
+/**
+ * Resolve the HMAC secret for signing raw-media tokens. Reuses the SAME
+ * dedicated→AES-key fallback chain as `site_capability_manifest.ts`
+ * (`MANIFEST_SIGNING_SECRET ?? MCP_ENCRYPTION_KEY`), so no NEW secret has to be
+ * provisioned — both are already set in prod. Returns `''` when neither exists
+ * (dev without secrets), which callers treat as "cannot sign → fall back".
+ */
+function rawTokenSecret(env: Pick<Env, 'MANIFEST_SIGNING_SECRET' | 'MCP_ENCRYPTION_KEY'>): string {
+  return env.MANIFEST_SIGNING_SECRET ?? env.MCP_ENCRYPTION_KEY ?? '';
+}
+
+/** HMAC-SHA256 → lowercase hex (mirrors `site_capability_manifest.ts#hmacHex`). */
+async function hmacHex(secret: string, message: string): Promise<string> {
+  const key = await crypto.subtle.importKey(
+    'raw',
+    new TextEncoder().encode(secret),
+    { name: 'HMAC', hash: 'SHA-256' },
+    false,
+    ['sign'],
+  );
+  const sigBuf = await crypto.subtle.sign('HMAC', key, new TextEncoder().encode(message));
+  return [...new Uint8Array(sigBuf)].map((b) => b.toString(16).padStart(2, '0')).join('');
+}
+
+/**
+ * The canonical message a raw-media token signs over. Binding the `assetId`, the
+ * `orgId`, AND the `exp` makes the token IDOR-safe AND tamper-proof: the `orgId`
+ * is carried in the token string (so the route can resolve the asset without a
+ * bearer) but ALSO folded into the HMAC — flipping either id or the expiry
+ * invalidates the signature, so a token for one org's asset can never be edited to
+ * read a DIFFERENT org's asset. `exp` bounds replay to {@link RAW_TOKEN_TTL_SECONDS}.
+ */
+function rawTokenMessage(assetId: string, orgId: string, exp: number): string {
+  return `media-raw:${assetId}:${orgId}:${exp}`;
+}
+
+/** The claims carried by (and signed into) a raw-media token. */
+export interface MediaRawTokenClaims {
+  orgId: string;
+  exp: number;
+}
+
+/**
+ * Mint a short-TTL signed token authorizing a plain `<img>`/`fetch` GET of ONE
+ * asset's raw bytes WITHOUT a bearer. Shape: `{orgId}.{exp}.{sigHex}` —
+ * `orgId` lets the verifying route resolve the asset (no bearer, so no session
+ * org) and is ALSO folded into the HMAC; `exp` is absolute unix-seconds expiry
+ * (stateless verify); `sigHex` is the HMAC over {@link rawTokenMessage}. The org
+ * id is not secret — the HMAC is what prevents forgery. Returns `null` when no
+ * signing secret is configured (caller falls back to the bearer-only relative URL).
+ *
+ * @example signMediaToken(env, 'asset-1', 'org-1') // → 'org-1.1730000000.9f3c…'
+ */
+export async function signMediaToken(
+  env: Pick<Env, 'MANIFEST_SIGNING_SECRET' | 'MCP_ENCRYPTION_KEY'>,
+  assetId: string,
+  orgId: string,
+  ttlSeconds: number = RAW_TOKEN_TTL_SECONDS,
+): Promise<string | null> {
+  const secret = rawTokenSecret(env);
+  // Org ids never contain a dot in this system, but guard the delimiter anyway so a
+  // pathological id can't desync the 3-part split on the verify side.
+  if (!secret || !assetId || !orgId || orgId.includes('.')) return null;
+  const exp = Math.floor(Date.now() / 1000) + Math.max(1, Math.trunc(ttlSeconds));
+  const sig = await hmacHex(secret, rawTokenMessage(assetId, orgId, exp));
+  return `${orgId}.${exp}.${sig}`;
+}
+
+/**
+ * Verify a signed raw-media token for `assetId` and return its claims (the bound
+ * `orgId` + `exp`) when the signature matches AND it hasn't expired; otherwise
+ * `null`. The route uses the returned `orgId` to load the asset org-scoped, so a
+ * forged/edited org fails the HMAC here and a mismatched asset fails the scoped
+ * lookup there — IDOR-safe on both axes. Constant-time signature compare.
+ *
+ * @returns the verified claims, or `null` when invalid/expired/unsigned.
+ */
+export async function verifyMediaToken(
+  env: Pick<Env, 'MANIFEST_SIGNING_SECRET' | 'MCP_ENCRYPTION_KEY'>,
+  assetId: string,
+  token: string,
+): Promise<MediaRawTokenClaims | null> {
+  const secret = rawTokenSecret(env);
+  if (!secret || !assetId || !token) return null;
+  // Shape: {orgId}.{exp}.{sigHex} — split from the RIGHT so an org id is never
+  // confused with exp/sig (exp + sig never contain a dot).
+  const lastDot = token.lastIndexOf('.');
+  if (lastDot <= 0) return null;
+  const sig = token.slice(lastDot + 1);
+  const rest = token.slice(0, lastDot);
+  const midDot = rest.lastIndexOf('.');
+  if (midDot <= 0) return null;
+  const orgId = rest.slice(0, midDot);
+  const exp = Number(rest.slice(midDot + 1));
+  if (!orgId || !sig || !Number.isFinite(exp)) return null;
+  // Expired → reject (bounds the replay window to the token TTL).
+  if (exp < Math.floor(Date.now() / 1000)) return null;
+  const expected = await hmacHex(secret, rawTokenMessage(assetId, orgId, exp));
+  return timingSafeEqual(expected, sig) ? { orgId, exp } : null;
+}
+
+/**
+ * Build the ABSOLUTE, signed, bearer-free URL for one asset's raw bytes — the URL a
+ * cross-origin `<img src>` in the embedded editor can load directly. Returns the
+ * plain (bearer-only) relative path when no signing secret is configured, so the
+ * contract never breaks; the editor then shows its glyph fallback rather than a
+ * broken image. `orgId` MUST be the asset's owning org (the token binds it).
+ *
+ * @example await signedRawMediaUrl(env, 'asset-1', 'org-1')
+ *   // → 'https://projectsites.dev/api/media/assets/asset-1/raw?token=1730000000.9f3c…'
+ */
+export async function signedRawMediaUrl(
+  env: Pick<Env, 'MANIFEST_SIGNING_SECRET' | 'MCP_ENCRYPTION_KEY'>,
+  assetId: string,
+  orgId: string,
+): Promise<string> {
+  const path = `/api/media/assets/${encodeURIComponent(assetId)}/raw`;
+  const token = await signMediaToken(env, assetId, orgId);
+  return token ? `${RAW_MEDIA_ORIGIN}${path}?token=${encodeURIComponent(token)}` : path;
 }
 
 // ─── Send to bolt iframe ───────────────────────────────────
