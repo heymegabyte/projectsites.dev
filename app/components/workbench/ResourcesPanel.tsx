@@ -54,6 +54,53 @@ const ENVIRONMENTS: { value: ResourceEnvironment; label: string }[] = [
   { value: 'preview', label: 'Preview' },
 ];
 
+/**
+ * localStorage key for the persisted Resources env selection (RES-ENV-STICKY). Persisting the choice
+ * means it survives a section change, a tab remount, and a fresh editor boot — an owner who's working
+ * in Preview never silently snaps back to Production on navigation (per `real-time-data-no-manual-refresh`
+ * sibling: the surface remembers its own state, the user never re-sets it).
+ */
+export const RES_ENV_STORAGE_KEY = 'ps_resources_env';
+
+/** The default env when nothing is persisted (production = the live site, the safest first view). */
+const DEFAULT_RES_ENV: ResourceEnvironment = 'production';
+
+/**
+ * Read the persisted Resources environment, SSR/quota/private-mode safe (mirrors the AppShellService
+ * guard pattern). Returns {@link DEFAULT_RES_ENV} when storage is unavailable OR the stored value isn't a
+ * recognized environment — a corrupt/stale value never strands the panel on an invalid selection.
+ *
+ * @returns the persisted environment, or the default.
+ * @example readPersistedResEnv() // 'production' (nothing stored)
+ */
+export function readPersistedResEnv(): ResourceEnvironment {
+  try {
+    const stored = localStorage.getItem(RES_ENV_STORAGE_KEY);
+
+    if (stored === 'preview' || stored === 'production') {
+      return stored;
+    }
+  } catch {
+    /* SSR / private mode / quota — fall back to the default */
+  }
+
+  return DEFAULT_RES_ENV;
+}
+
+/**
+ * Persist the Resources environment, SSR/quota/private-mode safe (mirrors the AppShellService guard).
+ * A failed write is swallowed — the UI still works for the session, just doesn't remember next boot.
+ *
+ * @param env - the environment the user selected.
+ */
+export function persistResEnv(env: ResourceEnvironment): void {
+  try {
+    localStorage.setItem(RES_ENV_STORAGE_KEY, env);
+  } catch {
+    /* SSR / private mode / quota — ignore; selection still applies for this session */
+  }
+}
+
 /** The asset sections this panel surfaces. */
 type Section = 'media' | 'files' | 'buckets' | 'automations';
 
@@ -506,8 +553,17 @@ function fileToDataUrl(file: File): Promise<string> {
 // ── Component ────────────────────────────────────────────────────────────────
 
 export const ResourcesPanel = memo(() => {
-  const [environment, setEnvironment] = useState<ResourceEnvironment>('production');
+  /*
+   * Env selection is PERSISTED (RES-ENV-STICKY): the lazy initializer reads the last choice from
+   * localStorage (SSR/quota-safe), and an effect writes it back on every change — so Preview↔Production
+   * survives a section switch, a tab remount, and a fresh editor boot. No manual re-set, ever.
+   */
+  const [environment, setEnvironment] = useState<ResourceEnvironment>(readPersistedResEnv);
   const [section, setSection] = useState<Section>('media');
+
+  useEffect(() => {
+    persistResEnv(environment);
+  }, [environment]);
 
   // Media library state.
   const [media, setMedia] = useState<MediaState>({ status: 'loading' });
