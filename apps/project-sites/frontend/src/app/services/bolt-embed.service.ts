@@ -3038,12 +3038,16 @@ export class BoltEmbedService {
             reply({ ok: false, error: 'No site selected' });
             break;
           }
-          const filesQuery =
-            typeof msg.version === 'string' && msg.version ? { version: msg.version } : undefined;
-          // Worker `/build-files` → `{ ok, data:{ files:[{key,name,size,uploaded,url}], totalSize, version } }`.
-          // The editor (`ResSiteFilesResponseMessage`) reads TOP-LEVEL `{ files, prefix, version }` where each
-          // file is `{ key, name, size, uploaded, url }` (contentType optional — the worker omits it, and the
-          // editor tolerates its absence). Flatten `data` up + derive `prefix` from slug + version.
+          // Build the query: version (optional) + cursor (optional — pages past the windowed first
+          // page, FILES-PAGING). Only defined keys are forwarded.
+          const filesQuery: Record<string, string> = {};
+          if (typeof msg.version === 'string' && msg.version) filesQuery['version'] = msg.version;
+          if (typeof msg.cursor === 'string' && msg.cursor) filesQuery['cursor'] = msg.cursor;
+          // Worker `/build-files` → `{ ok, data:{ files:[{key,name,size,uploaded,url}], totalSize, version,
+          // truncated, cap, cursor } }`. The editor (`ResSiteFilesResponseMessage`) reads TOP-LEVEL
+          // `{ files, prefix, version, truncated, cap, cursor }` where each file is
+          // `{ key, name, size, uploaded, url }` (contentType optional — the worker omits it, and the editor
+          // tolerates its absence). Flatten `data` up + derive `prefix` from slug + version.
           this.api
             .get<{
               ok?: boolean;
@@ -3053,8 +3057,11 @@ export class BoltEmbedService {
                 version?: string | null;
                 truncated?: boolean;
                 cap?: number;
+                cursor?: string;
               };
-            }>(`/sites/${site.id}/build-files`, filesQuery, { silent: true })
+            }>(`/sites/${site.id}/build-files`, Object.keys(filesQuery).length ? filesQuery : undefined, {
+              silent: true,
+            })
             .subscribe({
               next: (res) => {
                 const version = res?.data?.version ?? null;
@@ -3067,6 +3074,9 @@ export class BoltEmbedService {
                   // instead of a silently under-counted total.
                   truncated: res?.data?.truncated === true,
                   cap: res?.data?.cap,
+                  // The opaque R2 cursor to the next page (only present when truncated) — the editor's
+                  // "Load more" sends it back to append the next page (FILES-PAGING).
+                  cursor: res?.data?.cursor,
                 });
               },
               // Distinguish the dark-flag 404 (feature off → editor hides) from any other failure.

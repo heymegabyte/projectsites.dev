@@ -1955,6 +1955,13 @@ export interface ResSiteFilesRequestMessage {
 
   /** Which environment's build to list (`production` | `preview`). Omit for the default. */
   environment?: string;
+
+  /**
+   * Opaque R2 pagination cursor from the previous page's {@link ResSiteFilesResponseMessage.cursor}.
+   * Pages PAST the windowed first page for builds with more objects than the per-page cap
+   * (FILES-PAGING). Omit for the first page.
+   */
+  cursor?: string;
 }
 
 /** Parent → Child: the admin's reply to {@link ResSiteFilesRequestMessage}. */
@@ -1981,6 +1988,13 @@ export interface ResSiteFilesResponseMessage {
 
   /** The server's per-page object cap (only set when {@link truncated}) — for an honest "first N" label. */
   cap?: number;
+
+  /**
+   * Opaque R2 cursor to the NEXT page — present only when {@link truncated} (the build has more
+   * objects than this page). "Load more" sends it back as {@link ResSiteFilesRequestMessage.cursor}
+   * to append the next page; absent → this is the last page (FILES-PAGING).
+   */
+  cursor?: string;
 
   /** `false` when the surface's flag is off (the dark-flag 404) → the surface stays hidden. */
   enabled?: boolean;
@@ -3051,7 +3065,7 @@ export function requestMediaUpload(input: {
 
 /** List the site's build files. Resolves with the parent's {@link ResSiteFilesResponseMessage}. */
 export function requestResSiteFiles(
-  input: { version?: string; environment?: string } = {},
+  input: { version?: string; environment?: string; cursor?: string } = {},
 ): Promise<ResSiteFilesResponseMessage> {
   return requestFromParent<ResSiteFilesResponseMessage>(
     {
@@ -3059,6 +3073,8 @@ export function requestResSiteFiles(
       correlationId: nextBridgeCorrelationId(),
       version: input.version,
       environment: input.environment,
+      // `cursor` pages past the windowed first page (FILES-PAGING); omit for the first page.
+      cursor: input.cursor,
     },
     'PS_RES_SITE_FILES_RESULT',
   );

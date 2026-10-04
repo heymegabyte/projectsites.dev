@@ -941,6 +941,18 @@ siteDbApi.get('/api/sites/:siteId/build-files', async (c) => {
   if (!(await isFlagOn(c.env, FLAG, { orgId, siteId })))
     return c.json({ error: { code: 'NOT_FOUND', message: 'Per-site data is not enabled' } }, 404);
 
+  // `?cursor=` pages PAST the windowed first page: R2 `.list` returns an opaque `cursor` when the
+  // listing is truncated; passing it back fetches the next page (FILES-PAGING — fire-143). It's an
+  // opaque R2 token, never interpolated into a prefix, but validate its shape so a hostile value
+  // can't ride through. Absent → the first page.
+  const rawCursor = c.req.query('cursor');
+  let cursor: string | undefined;
+  if (typeof rawCursor === 'string' && rawCursor) {
+    if (rawCursor.length > 1024 || !/^[A-Za-z0-9+/=_-]+$/.test(rawCursor))
+      return c.json({ error: { code: 'BAD_REQUEST', message: 'Invalid cursor' } }, 400);
+    cursor = rawCursor;
+  }
+
   // Ownership + slug in one query (the R2 prefix needs the slug).
   const site = await dbQueryOne<{ slug: string; current_build_version: string | null }>(
     c.env.DB,
@@ -979,7 +991,13 @@ siteDbApi.get('/api/sites/:siteId/build-files', async (c) => {
   // site whose build has MORE objects than the cap would silently UNDER-report (a lying-undercount —
   // honest-count class). We surface `truncated` + `cap` so the editor can say "first N of many"
   // instead of an inaccurate total. (FILES-COUNT-1: WINDOWED, not unbounded — fire-140.)
-  const listed = await c.env.SITES_BUCKET.list({ limit: R2_FILE_LIST_CAP, prefix });
+  // With `?cursor=` we page PAST that window: R2 echoes a `cursor` for the next page when truncated,
+  // and the editor's "Load more" appends each page (FILES-PAGING — fire-143).
+  const listed = await c.env.SITES_BUCKET.list({
+    limit: R2_FILE_LIST_CAP,
+    prefix,
+    ...(cursor ? { cursor } : {}),
+  });
   const files = listed.objects
     .filter((obj) => !obj.key.includes('/_meta/'))
     .map((obj) => {
@@ -996,9 +1014,21 @@ siteDbApi.get('/api/sites/:siteId/build-files', async (c) => {
   // `listed.truncated` is R2's own "there are more objects than this page" signal — the authoritative
   // cap flag (the `/_meta/` filter only ever REMOVES rows, never hides the cap).
   const truncated = listed.truncated === true;
+  // R2 returns `cursor` ONLY when truncated — pass it through so the next page can be fetched. (A
+  // Workers-types quirk: `cursor` is typed on the truncated branch; read it defensively either way.)
+  const nextCursor = truncated
+    ? ((listed as { cursor?: string }).cursor ?? undefined)
+    : undefined;
 
   return c.json({
-    data: { files, totalSize, version, truncated, cap: truncated ? R2_FILE_LIST_CAP : undefined },
+    data: {
+      files,
+      totalSize,
+      version,
+      truncated,
+      cap: truncated ? R2_FILE_LIST_CAP : undefined,
+      cursor: nextCursor,
+    },
     ok: true,
   });
 });

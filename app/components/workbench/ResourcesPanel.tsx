@@ -130,6 +130,8 @@ type FilesState =
       truncated?: boolean;
       /** The server per-page object cap (set only when `truncated`) — for the honest "first N of many" label. */
       cap?: number;
+      /** Opaque R2 cursor to the NEXT page — present only while there's more to fetch (FILES-PAGING). */
+      cursor?: string;
     };
 
 /**
@@ -162,6 +164,40 @@ export function mergeMediaAssets(prev: MediaAssetEntry[], next: MediaAssetEntry[
  */
 export function hasMoreMedia(shown: number, total: number | undefined): boolean {
   return typeof total === 'number' && total > shown;
+}
+
+/**
+ * Append the next build-files page onto the current list, deduping by `key` (prev wins, order stable).
+ * The "Load more" path APPENDS — never replaces — so earlier pages stay on screen as the user pages
+ * past the windowed first 1000 (FILES-PAGING). Mirrors {@link mergeMediaAssets}; exported so the
+ * component and its test share one source of truth.
+ */
+export function mergeBuildFiles(prev: SiteBuildFileEntry[], next: SiteBuildFileEntry[]): SiteBuildFileEntry[] {
+  if (next.length === 0) {
+    return prev;
+  }
+
+  const seen = new Set(prev.map((f) => f.key));
+  const merged = [...prev];
+
+  for (const file of next) {
+    if (!seen.has(file.key)) {
+      seen.add(file.key);
+      merged.push(file);
+    }
+  }
+
+  return merged;
+}
+
+/**
+ * Is there another build-files page to fetch? True only when the listing was WINDOWED (`truncated`)
+ * AND the server handed back a `cursor` to the next page. Drives the "Load more" control's visibility
+ * — it HIDES the instant the last page arrives (no cursor), so it can never offer a doomed fetch.
+ * Mirrors {@link hasMoreMedia} (cursor-paged instead of offset/total-paged, since R2 is cursor-based).
+ */
+export function hasMoreFiles(truncated: boolean | undefined, cursor: string | undefined): boolean {
+  return truncated === true && typeof cursor === 'string' && cursor.length > 0;
 }
 
 /**
@@ -276,6 +312,51 @@ export function FilesCountSummary({
     >
       {countLabel} · {formatBytes(totalBytes)}
     </span>
+  );
+}
+
+/**
+ * Pagination footer for the build-files list — a "Load more" control that fetches the next R2 page
+ * past the windowed first 1000 (FILES-PAGING). PURE + presentational so the render is unit-falsifiable
+ * WITHOUT booting the WebContainer (mirrors {@link MediaPageStats}). It renders ONLY while there's a
+ * next page (`hasMore`) — so once the last page arrives it vanishes, never offering a doomed fetch.
+ * The button is sized for its LONGEST label ("Loading…") so it never resizes on state change.
+ */
+export function FilesPageStats({
+  shown,
+  hasMore,
+  loadingMore,
+  onLoadMore,
+}: {
+  shown: number;
+  hasMore: boolean;
+  loadingMore: boolean;
+  onLoadMore: () => void;
+}) {
+  if (!hasMore) {
+    return null;
+  }
+
+  return (
+    <div className="flex items-center justify-center pt-3 pb-1">
+      <button
+        type="button"
+        onClick={onLoadMore}
+        disabled={loadingMore}
+        data-testid="resources-files-load-more"
+        title={`Load more build files — ${shown} shown so far`}
+        className={classNames(BTN_SECONDARY, 'min-h-[26px] px-3 py-1 text-[11px]')}
+      >
+        <div
+          className={classNames(
+            loadingMore ? 'i-ph:circle-notch animate-spin motion-reduce:animate-none' : 'i-ph:arrow-down-bold',
+            'text-sm shrink-0',
+          )}
+          aria-hidden
+        />
+        <span className="min-w-[9ch] text-center">{loadingMore ? 'Loading…' : 'Load more'}</span>
+      </button>
+    </div>
   );
 }
 
@@ -583,6 +664,13 @@ export const ResourcesPanel = memo(() => {
 
   // Build files state (lazy — loaded when the section is first opened).
   const [files, setFiles] = useState<FilesState>({ status: 'idle' });
+  // Latest-ref so the files "Load more" closure reads the current page without widening its deps
+  // (mirrors mediaRef — never a stale snapshot, per the datapanel empty-deps-needs-latest-ref incident).
+  const filesRef = useRef<FilesState>(files);
+  filesRef.current = files;
+  // True while a files "Load more" page is in flight (separate from media's — the two sections page
+  // independently, so one's spinner never disables the other's control).
+  const [loadingMoreFiles, setLoadingMoreFiles] = useState(false);
 
   // The deeper CF-primitive console overlay (kept reachable — interconnectedness).
   const [showConsole, setShowConsole] = useState(false);
@@ -717,11 +805,64 @@ export const ResourcesPanel = memo(() => {
         prefix: reply.prefix,
         truncated: reply.truncated,
         cap: reply.cap,
+        cursor: reply.cursor,
       });
     } catch (err) {
       setFiles({ status: 'error', message: err instanceof Error ? err.message : 'Could not load your build files.' });
     }
   }, [environment]);
+
+  /**
+   * Load the NEXT build-files page and APPEND it (dedupe by key via {@link mergeBuildFiles}) — never
+   * replace — so the user can page PAST the windowed first 1000 (FILES-PAGING). Sends the current
+   * `cursor` back to the worker; the new reply's `truncated`+`cursor` converge the count toward "all
+   * N files" and HIDE the "Load more" control the instant the last page (no cursor) arrives.
+   */
+  const loadMoreFiles = useCallback(async () => {
+    if (loadingMoreFiles) {
+      return;
+    }
+
+    // Guard: only page when loaded AND there's genuinely a next page (same predicate the control uses).
+    const cur = filesRef.current;
+
+    if (cur.status !== 'ready' || !hasMoreFiles(cur.truncated, cur.cursor)) {
+      return;
+    }
+
+    setLoadingMoreFiles(true);
+
+    try {
+      const reply = await requestResSiteFiles({ environment, cursor: cur.cursor });
+
+      if (!reply.ok) {
+        postToastToParent('error', reply.error || 'Could not load more build files.');
+
+        return;
+      }
+
+      const page = reply.files ?? [];
+
+      setFiles((prev) =>
+        prev.status === 'ready'
+          ? {
+              ...prev,
+              files: mergeBuildFiles(prev.files, page),
+              // The freshest windowing signal from the appended page drives the count + control:
+              // when this page is the last (truncated:false / no cursor), "Load more" disappears and
+              // the count converges from "first N of many" to the honest complete "N files".
+              truncated: reply.truncated,
+              cap: reply.cap,
+              cursor: reply.cursor,
+            }
+          : prev,
+      );
+    } catch (err) {
+      postToastToParent('error', err instanceof Error ? err.message : 'Could not load more build files.');
+    } finally {
+      setLoadingMoreFiles(false);
+    }
+  }, [loadingMoreFiles, environment]);
 
   // Media reloads whenever env/kind/search changes (debounced on search).
   useEffect(() => {
@@ -935,7 +1076,12 @@ export const ResourcesPanel = memo(() => {
             onRetry={() => void loadMedia()}
           />
         ) : section === 'files' ? (
-          <BuildFiles state={files} onRetry={() => void loadFiles()} />
+          <BuildFiles
+            state={files}
+            onRetry={() => void loadFiles()}
+            loadingMore={loadingMoreFiles}
+            onLoadMore={() => void loadMoreFiles()}
+          />
         ) : section === 'buckets' ? (
           // Buckets — the per-site R2 manager. Self-managing (its own load/refresh + object browser).
           <BucketsPanel />
@@ -1697,7 +1843,18 @@ const CopyFilePathButton = memo(({ path }: { path: string }) => {
 
 CopyFilePathButton.displayName = 'ResourcesPanel.CopyFilePathButton';
 
-const BuildFiles = memo(({ state, onRetry }: { state: FilesState; onRetry: () => void }) => {
+export const BuildFiles = memo(
+  ({
+    state,
+    onRetry,
+    loadingMore,
+    onLoadMore,
+  }: {
+    state: FilesState;
+    onRetry: () => void;
+    loadingMore: boolean;
+    onLoadMore: () => void;
+  }) => {
   if (state.status === 'idle' || state.status === 'loading') {
     return <PanelLoading label="Loading your build files…" />;
   }
@@ -1787,8 +1944,17 @@ const BuildFiles = memo(({ state, onRetry }: { state: FilesState; onRetry: () =>
           </div>
         </div>
       ))}
+
+      {/* Page past the windowed first 1000 (FILES-PAGING) — appends the next R2 page, hides at the end. */}
+      <FilesPageStats
+        shown={state.files.length}
+        hasMore={hasMoreFiles(state.truncated, state.cursor)}
+        loadingMore={loadingMore}
+        onLoadMore={onLoadMore}
+      />
     </div>
   );
-});
+  },
+);
 
 BuildFiles.displayName = 'ResourcesPanel.BuildFiles';

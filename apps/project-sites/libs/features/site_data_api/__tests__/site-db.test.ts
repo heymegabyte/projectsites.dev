@@ -620,4 +620,57 @@ describe('GET /api/sites/:siteId/build-files', () => {
     expect(body.data.truncated).toBe(false);
     expect(body.data.cap).toBeUndefined();
   });
+
+  it('returns a cursor when truncated, and pages the remainder when it is passed back (FILES-PAGING)', async () => {
+    // Page 1: truncated → R2 echoes a `cursor`. The handler forwards it so the editor can "Load more".
+    mockFlag.mockResolvedValue(true);
+    mockDbQueryOne.mockResolvedValue({ current_build_version: '2026-01-01', slug: 'acme' });
+    const listMock = jest.fn(async (opts: { cursor?: string }) =>
+      opts.cursor === 'CUR_PAGE2'
+        ? {
+            // Page 2: the remainder, no more pages.
+            truncated: false,
+            objects: [{ key: 'sites/acme/2026-01-01/b.css', size: 20, uploaded: new Date('2026-01-01') }],
+          }
+        : {
+            // Page 1: windowed → a cursor to the next page.
+            truncated: true,
+            cursor: 'CUR_PAGE2',
+            objects: [{ key: 'sites/acme/2026-01-01/a.html', size: 10, uploaded: new Date('2026-01-01') }],
+          },
+    );
+    const env = mockEnv({ bucket: { list: listMock } });
+
+    const page1 = await authed().request('/api/sites/s1/build-files', {}, env);
+    const b1 = (await page1.json()) as { data: { files: Array<{ name: string }>; truncated?: boolean; cursor?: string } };
+    expect(b1.data.truncated).toBe(true);
+    expect(b1.data.cursor).toBe('CUR_PAGE2');
+    expect(b1.data.files.map((f) => f.name)).toEqual(['a.html']);
+
+    const page2 = await authed().request(
+      `/api/sites/s1/build-files?cursor=${b1.data.cursor}`,
+      {},
+      env,
+    );
+    const b2 = (await page2.json()) as { data: { files: Array<{ name: string }>; truncated?: boolean; cursor?: string } };
+    // The remainder came back via the cursor; no further page.
+    expect(b2.data.files.map((f) => f.name)).toEqual(['b.css']);
+    expect(b2.data.truncated).toBe(false);
+    expect(b2.data.cursor).toBeUndefined();
+    // The cursor was forwarded to R2 on the 2nd list call.
+    expect(listMock).toHaveBeenLastCalledWith(expect.objectContaining({ cursor: 'CUR_PAGE2', limit: 1000 }));
+  });
+
+  it('400 for a hostile cursor (never forwarded to R2)', async () => {
+    mockFlag.mockResolvedValue(true);
+    mockDbQueryOne.mockResolvedValue({ current_build_version: '2026-01-01', slug: 'acme' });
+    const listMock = jest.fn(async () => ({ truncated: false, objects: [] }));
+    const res = await authed().request(
+      '/api/sites/s1/build-files?cursor=../secrets%20DROP',
+      {},
+      mockEnv({ bucket: { list: listMock } }),
+    );
+    expect(res.status).toBe(400);
+    expect(listMock).not.toHaveBeenCalled();
+  });
 });
