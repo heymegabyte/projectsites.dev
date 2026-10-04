@@ -50,9 +50,12 @@ const CATEGORY_RULES = [
   ['architecture', /\b(drift|orphan|\badr\b|rearch|re-arch|architect|consolidat|interconnect|module|one-way|spine)/i],
   ['cleanup', /\b(dead[- ]code|knip|ts-prune|compress|\bperf\b|bundle|cleanup|hygiene|simplif|thin |lean )/i],
   ['discovery', /\b(scout|discovery|cf-release|replenish|tech-scout|next-wave)/i],
-  ['loop', /\b(loop-improve|loop improvement|§7|wrapper|harden|operating-principle|role brief|category budget|starvation)/i],
   ['product', /\b(feat\(|fix\(|media-ui|money[- ]path|create|editor|publish|domain|billing|data-platform|feature|wfp|checkout|onboard)/i],
   ['docs', /\b(docs?\(|readme|changelog|\bdoc\b)/i],
+  // `loop` is LAST: EVERY fire ships a §7 loop-improvement, so that keyword is a constant, not the
+  // fire's PRIMARY category. It only wins when no substantive-work category matched (a pure-loop fire).
+  // fire-136 fix: fire-135 ("MEDIA-UI-1 deployed + §7") was mis-tagged `loop` when this rule sat before `product`.
+  ['loop', /\b(loop-improve|loop improvement|§7|wrapper|harden|operating-principle|role brief|category budget|starvation)/i],
 ];
 
 function parseArgs(argv) {
@@ -121,9 +124,13 @@ function gitFires(limit = 60) {
   }
 }
 
-/** Strip the `docs(loop): 📘 fire-NN —` ledger-wrapper prefix so classification reads the substance. */
+/**
+ * Strip the conventional `<type>(loop): 📘 fire-NN —` ledger-wrapper prefix so classification reads
+ * the SUBSTANCE. fire-136: strip ANY `<type>(loop):` (docs/chore/feat/fix…), not just `docs(loop):` —
+ * fire-135's summary used `chore(loop):`, which leaked the prefix into the classifier.
+ */
 function stripWrapper(text) {
-  return text.replace(/docs\(loop\):/gi, ' ').replace(/📘|📥|🔁|🎨|📘/g, ' ').replace(/fire-\d+\s*[—–-]?/gi, ' ');
+  return text.replace(/\w+\(loop\):/gi, ' ').replace(/📘|📥|🔁|🎨/g, ' ').replace(/fire-\d+\s*[—–-]?/gi, ' ');
 }
 
 /** Classify one fire's accumulated subject text into a §3 category (first-match, substance-first). */

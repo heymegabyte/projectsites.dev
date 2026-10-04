@@ -308,8 +308,10 @@
 ## feature
 
 <!-- fire-135 replenish (2026-10-04) — honest-count / silent-cap class (sibling of the shipped MEDIA-UI-1), from fire-135 Product Discovery + Architecture -->
-- [ ] MEDIA-UI-1b: editor Resources media panel load-more via the `cursor` already on the wire — acceptance: with >1 page of media, a "Load more" appends the next page (PS_RES_MEDIA offset/cursor) and the "N of total" count converges to total as pages load; unit asserts the cursor round-trips. (follow-on to MEDIA-UI-1, fire-135)
-  - cadence: next-fire · priority: med · category: feature · discovered_by: fire-135-product-discovery
+- [x] MEDIA-UI-1b: editor Resources media panel load-more — DONE fire-136 (`7ac73f942`): `mergeMediaAssets` (append + dedupe-by-id) + `hasMoreMedia` pure helpers, `loadMoreMedia` offset-paged APPEND (never replace), `[data-testid=resources-media-load-more]` gated on hasMore + hidden at shown===total. TDD RED→GREEN (4 tests), tsc 0, vitest 6/6. Deployed editor Pages.
+  - cadence: DONE · priority: med · category: feature · discovered_by: fire-135-product-discovery
+- [ ] MEDIA-UI-VERIFY-LIVE: browser-confirm the "N of total" + load-more RENDER in the live editor (org-brian-001, 109 assets) — acceptance: a real-browser pass auths as brian → opens the editor Resources→Media panel → observes + screenshots `[data-testid=resources-media-count]` showing "N of 109" (M>N) + a load-more that appends. fire-136 BLOCKED: the browser agent authed + loaded the editor (screenshots 01-05) but cut off before driving the WebContainer iframe into the media panel; render LOGIC is unit-proven (fire-135 vitest 15/15 + fire-136 4 tests). Needs a robust editor-iframe nav helper (WebContainer ~30-60s boot) in e2e/.
+  - cadence: next-fire · priority: high · category: golden-path · discovered_by: fire-136-browser-verify
 - [ ] FILES-COUNT-1: editor Resources Files tab honest total — acceptance: `ResourcesPanel.tsx` Files header ("N files") reads "N of TOTAL" when the file list is windowed/capped; if provably unbounded, a unit asserts that (no silent cap). (same honest-count class as MEDIA-UI-1)
   - cadence: next-2-fires · priority: med · category: feature · discovered_by: fire-135-architecture
 - [ ] LEADS-TOTAL-1: leads list true total + load-more — acceptance: `leads.component.ts` header shows "N of TOTAL" from the server's true filtered count (not a page-length count) + a load-more pages the remainder; reconcile display-vs-store against the D1 ground-truth count. (silent-cap class, outreach surface)
@@ -766,6 +768,15 @@
 
 ## dead-code / hygiene
 
+<!-- fire-136 replenish — code-simplifier knip/ts-prune sweep (Cleanup category; VERIFY callsites before removing per knip-unused-not-always-dead) -->
+- [ ] dead-code-136: verify-then-remove the top sweep candidates (0 new orphans; 134 advisory SERVICE_MODULE baseline holds) — acceptance: each confirmed-dead export/dep removed in a batch with tsc+build green; false-positives (entrypoints/dynamic-imports/manifest-refs) left with a one-line why.
+  - `frontend/src/app/animations/motion.ts` (fadeRise, drawerSlide, dialogScaleFade, contentFade, buttonState) — **safe** (unused animation exports, no internal refs)
+  - `frontend/src/app/lib/json-ld.ts` `localBusiness` builder — **safe** (no route calls it)
+  - `frontend/src/app/ui/card.ts` (HlmCard/CardTitle/CardDescription directives) — **verify** (Spartan re-exports; grep index consumption first)
+  - `frontend/src/app/ui/index.ts` (cn, buttonVariants, badgeVariants) — **verify** (may be aliased-consumed)
+  - `frontend/package.json` deps (monaco-editor, partysocket, yjs, tw-animate-css, qrcode) — **verify** (may be lazy/@defer-gated — grep before dropping)
+  - Storybook devDeps (@storybook/addon-onboarding, eslint-plugin-storybook, @compodoc/compodoc, @types/dompurify) — **verify** (drop only if zero stories in repo)
+  - cadence: next-2-fires · priority: med · category: dead-code · discovered_by: fire-136-cleanup-sweep
 - [ ] audit-dead-code — orphan sweep + verify-before-delete batch
   - cadence: every-loop
   - priority: med
