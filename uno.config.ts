@@ -1,5 +1,6 @@
 import { globSync } from 'fast-glob';
 import fs from 'node:fs/promises';
+import { readFileSync } from 'node:fs';
 import { basename } from 'node:path';
 import { defineConfig, presetIcons, presetUno, transformerDirectives } from 'unocss';
 
@@ -18,6 +19,30 @@ const customIconCollection = iconPaths.reduce(
   },
   {} as Record<string, Record<string, () => Promise<string>>>,
 );
+
+/**
+ * Safelist the Phosphor icon classes that the workbench panels pass as the `icon=` PROP of
+ * `PanelHeader` / `PanelEmpty` (and the preview route). UnoCSS's source extractor misses these —
+ * the class is a string-literal prop attribute consumed via `classNames(icon, …)`, not a literal
+ * `class="…"` — so the `-duotone` masks never generate and the icon preset fills the badge as a
+ * FLAT currentColor SQUARE (no `mask-image`, no glyph). Safelisting FORCES mask generation for the
+ * whole prop-passed set regardless of extraction. Derived at config-load from the same grep the
+ * diagnosis used, so it can never drift from the components:
+ *   grep -rhoE 'i-ph:[a-z0-9-]+' app/components/workbench/*.tsx app/components/workbench/panel/*.tsx app/routes/[_]preview.tsx
+ * NOTE: `i-ph:bucket` / `i-ph:bucket-duotone` do NOT exist in @iconify-json/ph 1.2.2 (Phosphor
+ * removed them) — safelisting is a no-op for those two; their callers need a real icon name.
+ */
+const PANEL_ICON_GLOBS = [
+  './app/components/workbench/*.tsx',
+  './app/components/workbench/panel/*.tsx',
+  './app/routes/[[]_[]]preview.tsx',
+];
+
+const panelIconSafelist = Array.from(
+  new Set(
+    globSync(PANEL_ICON_GLOBS).flatMap((file) => readFileSync(file, 'utf8').match(/i-ph:[a-z0-9-]+/g) ?? []),
+  ),
+).sort();
 
 const BASE_COLORS = {
   white: '#FFFFFF',
@@ -111,7 +136,10 @@ const COLOR_PRIMITIVES = {
 };
 
 export default defineConfig({
-  safelist: [...Object.keys(customIconCollection[collectionName] || {}).map((x) => `i-bolt:${x}`)],
+  safelist: [
+    ...Object.keys(customIconCollection[collectionName] || {}).map((x) => `i-bolt:${x}`),
+    ...panelIconSafelist,
+  ],
   shortcuts: {
     'bolt-ease-cubic-bezier': 'ease-[cubic-bezier(0.4,0,0.2,1)]',
     'transition-theme': 'transition-[background-color,border-color,color] duration-150 bolt-ease-cubic-bezier',
