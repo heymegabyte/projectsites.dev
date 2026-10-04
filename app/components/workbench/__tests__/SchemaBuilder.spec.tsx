@@ -109,6 +109,18 @@ function replyTablesDisabled() {
   });
 }
 
+/**
+ * Reply with the column list for a loadColumns() round-trip.
+ * loadColumns runs `SELECT name FROM pragma_table_info(?1)` via a PS_RES_MUTATE_REQUEST and reads
+ * `reply.result.data.rows` → `{ name }[]`. Mirror that exact shape here.
+ */
+function replyColumnsReady(columns: string[] = []) {
+  replyToLast('PS_RES_MUTATE_RESPONSE', {
+    ok: true,
+    result: { ok: true, data: { rows: columns.map((name) => ({ name })) } },
+  });
+}
+
 /** Reply with exec success. */
 function replyExecOk() {
   replyToLast('PS_RES_MUTATE_RESPONSE', {
@@ -266,10 +278,10 @@ describe('SchemaBuilder — addColumn operation', () => {
 // ── 5. dropColumn destructive gate ───────────────────────────────────────────
 
 describe('SchemaBuilder — dropColumn destructive gate', () => {
-  // TODO(fire-150): the destructive gate (schema-drop-confirm) renders only after the full
-  // select-table → fetch-columns (bridge reply) → select-column chain. This test asserts the
-  // gate without driving that sequence; re-enable once a columns-reply bridge mock is added.
-  it.skip('schema-drop-confirm input is present when dropColumn is active', async () => {
+  // The destructive gate (schema-destructive-gate + schema-drop-confirm) renders only after the
+  // full select-table → fetch-columns (bridge reply) → select-column chain makes compiled.plan a
+  // destructive DROP COLUMN. This drives that real sequence via the columns-reply bridge mock.
+  it('schema-drop-confirm input is present when dropColumn is active', async () => {
     render(<SchemaBuilder initialOp="dropColumn" />);
 
     await waitFor(() =>
@@ -278,19 +290,45 @@ describe('SchemaBuilder — dropColumn destructive gate', () => {
 
     replyTablesReady(['users']);
 
-    // Ensure dropColumn op is selected (it is via initialOp).
+    // dropColumn op is selected via initialOp; the table picker appears once tables are ready.
     await waitFor(() => expect(screen.getByTestId('schema-op-dropColumn')).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByTestId('schema-table-picker')).toBeInTheDocument());
 
-    // The Apply button must be present.
-    await waitFor(() => expect(screen.getByTestId('schema-apply')).toBeInTheDocument());
+    // Select a table → the picker-table effect fires loadColumns(), posting a pragma_table_info read.
+    fireEvent.change(screen.getByTestId('schema-table-picker'), { target: { value: 'users' } });
+
+    await waitFor(() =>
+      expect(postToParent).toHaveBeenCalledWith(
+        expect.objectContaining({
+          type: 'PS_RES_MUTATE_REQUEST',
+          input: expect.objectContaining({ sql: expect.stringContaining('pragma_table_info') }),
+        }),
+      ),
+    );
+
+    // Reply with the column list → the ColumnPicker (schema-column-picker) renders its options.
+    replyColumnsReady(['id', 'email']);
+
+    await waitFor(() => expect(screen.getByTestId('schema-column-picker')).toBeInTheDocument());
+
+    // Pick a column → compiled.plan becomes a destructive DROP COLUMN → the gate + Apply render.
+    fireEvent.change(screen.getByTestId('schema-column-picker'), { target: { value: 'email' } });
+
+    await waitFor(() => expect(screen.getByTestId('schema-destructive-gate')).toBeInTheDocument());
+    expect(screen.getByTestId('schema-apply')).toBeInTheDocument();
 
     // The drop-confirm input must be present for the destructive gate.
     const confirmInput = screen.getByTestId('schema-drop-confirm');
     expect(confirmInput).toBeInTheDocument();
 
-    // Typing DROP into the confirm field should be accepted.
+    // Before confirmation, Apply is gated (destructiveGateOk === false).
+    expect(screen.getByTestId('schema-apply')).toBeDisabled();
+
+    // Typing DROP into the confirm field should be accepted and ungate Apply.
     fireEvent.change(confirmInput, { target: { value: 'DROP' } });
     expect(confirmInput).toHaveValue('DROP');
+
+    await waitFor(() => expect(screen.getByTestId('schema-apply')).not.toBeDisabled());
   });
 });
 

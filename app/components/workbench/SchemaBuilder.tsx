@@ -628,7 +628,7 @@ export const SchemaBuilder = memo(({ initialOp = 'createTable', onApplied }: Sch
                 data-testid="schema-destructive-gate"
               >
                 <p className="text-[11px] text-red-300 flex items-start gap-1.5">
-                  <div className="i-ph:warning-octagon mt-0.5 shrink-0" />
+                  <span className="i-ph:warning-octagon mt-0.5 shrink-0" aria-hidden="true" />
                   <span>
                     This permanently removes the column and its data. Type{' '}
                     <span className="font-mono font-semibold">DROP</span> to confirm.
