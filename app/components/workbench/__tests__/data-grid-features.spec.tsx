@@ -383,12 +383,11 @@ describe('empty-state launchpad exposes AI-seed AND Create-Table', () => {
   });
 
   /*
-   * SKIPPED 2026-09-28: asserts `sitedb-list-seed-ai` (the table-list "Seed with AI" button), which was
-   * intentionally removed in commit c5ed2b07a ("drop Seed button"). Pre-existing stale drift — not a
-   * regression from the column-management work — kept skipped (not deleted) per the removed-feature convention.
+   * Regression (rewritten fire-152, was skipped 2026-09-28): commit c5ed2b07a dropped the table-list
+   * "Seed with AI" (`sitedb-list-seed-ai`) + inline-create (`sitedb-new-table-inline`) buttons. This now
+   * asserts the CURRENT reality — those controls stay absent and the list renders the returned tables.
    */
-  it.skip('the table-list toolbar also offers Use-AI + Create-Table so you can always seed', async () => {
-    // The Create-Table button gates on a create handler being wired (the guided builder).
+  it('no longer shows the removed Seed-AI / inline-create buttons on the table list (renders the tables instead)', async () => {
     render(<SiteTablesPanel onCreateTable={vi.fn()} />);
 
     await waitFor(() => {
@@ -406,8 +405,11 @@ describe('empty-state launchpad exposes AI-seed AND Create-Table', () => {
       });
     });
 
-    expect(screen.getByTestId('sitedb-list-seed-ai')).toBeTruthy();
-    expect(screen.getByTestId('sitedb-new-table-inline')).toBeTruthy();
+    // The removed controls stay removed (regression guard)…
+    expect(screen.queryByTestId('sitedb-list-seed-ai')).toBeNull();
+    expect(screen.queryByTestId('sitedb-new-table-inline')).toBeNull();
+    // …and the list renders the returned table instead (name appears ≥1× — list + header).
+    expect(screen.getAllByText('posts').length).toBeGreaterThan(0);
   });
 });
 
