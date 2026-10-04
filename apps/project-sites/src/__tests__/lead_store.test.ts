@@ -1,5 +1,5 @@
 import { dbQueryOne, dbInsert, dbQuery, dbExecute } from '../services/db.js';
-import { createLead, getLead, listLeads, updateLeadContact } from '../services/lead_store';
+import { createLead, getLead, listLeads, countLeads, updateLeadContact } from '../services/lead_store';
 
 /**
  * #9/#1 shared dependency — the leads store. The scanner (#9) persists a
@@ -188,6 +188,39 @@ describe('listLeads', () => {
   it('returns an empty array when there are no leads', async () => {
     mockQuery.mockResolvedValue({ data: [] });
     expect(await listLeads(db)).toEqual([]);
+  });
+});
+
+describe('countLeads', () => {
+  it('returns the TRUE total via COUNT(*) — ignoring limit/offset (the page cap)', async () => {
+    // fire-137 lying-count fix: listLeads caps at its page size (default 50) so the UI
+    // must read the real matching total from here, never the page length.
+    mockQueryOne.mockResolvedValue({ n: 109 });
+    const total = await countLeads(db);
+    expect(total).toBe(109);
+    const [, sql, params] = mockQueryOne.mock.calls[0];
+    expect(sql).toMatch(/SELECT\s+COUNT\(\*\)/i);
+    expect(sql).not.toMatch(/LIMIT/i); // the whole point: no page cap on the total
+    expect(params).toEqual([]); // no limit/offset params bound into the count
+  });
+
+  it('applies the SAME website filter as listLeads when onlyNoWebsite is set', async () => {
+    mockQueryOne.mockResolvedValue({ n: 7 });
+    await countLeads(db, { onlyNoWebsite: true });
+    const [, sql] = mockQueryOne.mock.calls[0];
+    expect(sql).toMatch(/has_website\s*=\s*0/i);
+  });
+
+  it('does NOT filter by website by default (count matches the unfiltered list)', async () => {
+    mockQueryOne.mockResolvedValue({ n: 42 });
+    await countLeads(db);
+    const [, sql] = mockQueryOne.mock.calls[0];
+    expect(sql).not.toMatch(/has_website\s*=\s*0/i);
+  });
+
+  it('fail-soft returns 0 when the count query returns null (count is advisory)', async () => {
+    mockQueryOne.mockResolvedValue(null);
+    expect(await countLeads(db)).toBe(0);
   });
 });
 

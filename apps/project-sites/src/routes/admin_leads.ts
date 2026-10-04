@@ -20,7 +20,7 @@ import { isSuperAdmin } from '../services/sysadmin.js';
 import { searchPlacesByQuery } from '../services/places_search.js';
 import { scanResultsToLeads } from '../services/lead_scan.js';
 import { scoreLead } from '../services/lead_scanner_score.js';
-import { createLead, listLeads, getLead, updateLeadContact } from '../services/lead_store.js';
+import { createLead, listLeads, countLeads, getLead, updateLeadContact } from '../services/lead_store.js';
 import { enrichLeadContact } from '../services/lead_enrichment.js';
 import { discoverLeadsForQuery } from '../services/lead_query_discovery.js';
 import { tryEmitEvent } from '../services/emit_event.js';
@@ -268,15 +268,19 @@ adminLeads.get('/api/admin/leads', async (c) => {
     return c.json(errorBody('VALIDATION_ERROR', 'Invalid list query', requestId), 400);
   }
 
-  const leads = await listLeads(c.env.DB, {
+  const opts = {
     ...(parsed.data.limit === undefined ? {} : { limit: parsed.data.limit }),
     ...(parsed.data.offset === undefined ? {} : { offset: parsed.data.offset }),
     ...(parsed.data.onlyNoWebsite === undefined
       ? {}
       : { onlyNoWebsite: parsed.data.onlyNoWebsite }),
-  });
+  };
+  // `count` is the PAGE length (what we returned); `total` is the TRUE matching row
+  // count from the SAME filter — the UI shows "N of TOTAL" so a capped page never
+  // reads as "all" (fire-137 lying-count fix; mirrors media listAssets/countAssets).
+  const [leads, total] = await Promise.all([listLeads(c.env.DB, opts), countLeads(c.env.DB, opts)]);
 
-  return c.json({ leads, count: leads.length }, 200);
+  return c.json({ leads, count: leads.length, total }, 200);
 });
 
 /**

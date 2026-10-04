@@ -19,6 +19,7 @@ jest.mock('../services/places_search.js', () => ({ searchPlacesByQuery: jest.fn(
 jest.mock('../services/lead_store.js', () => ({
   createLead: jest.fn(),
   listLeads: jest.fn(),
+  countLeads: jest.fn(),
   getLead: jest.fn(),
 }));
 jest.mock('../services/claim_links.js', () => ({ createClaimLink: jest.fn() }));
@@ -32,6 +33,8 @@ const mockSearch = require('../services/places_search.js').searchPlacesByQuery a
 const mockCreateLead = require('../services/lead_store.js').createLead as jest.Mock;
 // eslint-disable-next-line @typescript-eslint/no-var-requires
 const mockListLeads = require('../services/lead_store.js').listLeads as jest.Mock;
+// eslint-disable-next-line @typescript-eslint/no-var-requires
+const mockCountLeads = require('../services/lead_store.js').countLeads as jest.Mock;
 // eslint-disable-next-line @typescript-eslint/no-var-requires
 const mockGetLead = require('../services/lead_store.js').getLead as jest.Mock;
 // eslint-disable-next-line @typescript-eslint/no-var-requires
@@ -86,6 +89,7 @@ beforeEach(() => {
   mockSearch.mockResolvedValue([]);
   mockCreateLead.mockResolvedValue({ leadId: 'lead_1' });
   mockListLeads.mockResolvedValue([]);
+  mockCountLeads.mockResolvedValue(0);
   mockGetLead.mockResolvedValue({ leadId: 'lead_1', profile: { businessName: 'Acme' } });
   mockCreateClaimLink.mockResolvedValue({ token: 'abc12345', leadId: 'lead_1' });
 });
@@ -174,7 +178,7 @@ describe('GET /api/admin/leads', () => {
     expect(mockListLeads).not.toHaveBeenCalled();
   });
 
-  it('200s with the lead list + count for a super-admin', async () => {
+  it('200s with the lead list + count + total for a super-admin', async () => {
     mockListLeads.mockResolvedValue([
       {
         leadId: 'l1',
@@ -188,11 +192,26 @@ describe('GET /api/admin/leads', () => {
         createdAt: '2026-06-19T00:00:00Z',
       },
     ]);
+    mockCountLeads.mockResolvedValue(1);
     const res = await getLeads(makeApp({ userId: 'u1', orgId: 'o1' }));
     expect(res.status).toBe(200);
-    const body = (await res.json()) as { leads: unknown[]; count: number };
+    const body = (await res.json()) as { leads: unknown[]; count: number; total: number };
     expect(body.count).toBe(1);
+    expect(body.total).toBe(1);
     expect(body.leads).toHaveLength(1);
+  });
+
+  it('returns the TRUE total (not the page length) when the store holds more than one page', async () => {
+    // fire-137 lying-count regression: a 50-row page over a 109-row store must report
+    // count=50 (page) AND total=109 (store), never total=50.
+    mockListLeads.mockResolvedValue(Array.from({ length: 50 }, (_, i) => ({ leadId: `l${i}` })));
+    mockCountLeads.mockResolvedValue(109);
+    const res = await getLeads(makeApp({ userId: 'u1', orgId: 'o1' }), '?limit=50');
+    const body = (await res.json()) as { count: number; total: number };
+    expect(body.count).toBe(50);
+    expect(body.total).toBe(109);
+    // countLeads MUST receive the same filter opts as listLeads (page/total can't drift)
+    expect(mockCountLeads).toHaveBeenCalledWith(env.DB, expect.objectContaining({ limit: 50 }));
   });
 
   it('forwards parsed query params (limit/offset/onlyNoWebsite) to listLeads', async () => {

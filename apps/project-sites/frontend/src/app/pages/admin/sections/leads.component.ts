@@ -308,10 +308,14 @@ export function bestOutreachChannel(lead: {
         }
       </form>
 
-      <!-- Lead count -->
+      <!-- Lead count — show "N of TOTAL" whenever the loaded page is capped below the store -->
       <div class="mb-4 flex items-center gap-2 text-sm text-text-secondary">
         <app-rolling-counter [value]="leads().length" />
-        <span>{{ leads().length === 1 ? 'lead' : 'leads' }}</span>
+        @if (total() > leads().length) {
+          <span>of {{ total() }} {{ total() === 1 ? 'lead' : 'leads' }}</span>
+        } @else {
+          <span>{{ leads().length === 1 ? 'lead' : 'leads' }}</span>
+        }
       </div>
 
       <!-- States -->
@@ -561,6 +565,12 @@ export class AdminLeadsComponent implements OnInit {
   readonly loading = signal(false);
   readonly loadError = signal(false);
   readonly leads = signal<LeadSummary[]>([]);
+  /**
+   * TRUE matching lead total from the server (`GET /api/admin/leads` → `total`),
+   * which can exceed the loaded page (capped at 200). Rendered as "N of TOTAL" so a
+   * capped page never reads as "all" (fire-137 lying-count fix).
+   */
+  readonly total = signal(0);
   readonly lastScan = signal<{
     scanned: number;
     created: number;
@@ -606,9 +616,15 @@ export class AdminLeadsComponent implements OnInit {
     this.loading.set(true);
     this.loadError.set(false);
     const query = this.onlyNoWebsite() ? '?onlyNoWebsite=true' : '';
-    this.api.get<{ leads: LeadSummary[]; count: number }>(`/admin/leads${query}`).subscribe({
+    this.api
+      .get<{ leads: LeadSummary[]; count: number; total?: number }>(`/admin/leads${query}`)
+      .subscribe({
       next: (res) => {
-        this.leads.set(res?.leads ?? []);
+        const rows = res?.leads ?? [];
+        this.leads.set(rows);
+        // Prefer the server's true total; fall back to the page length for an older
+        // worker that predates the `total` field (never show fewer than we rendered).
+        this.total.set(Math.max(res?.total ?? 0, rows.length));
         this.loading.set(false);
       },
       error: () => {

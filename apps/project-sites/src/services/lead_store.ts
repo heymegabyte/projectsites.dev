@@ -189,9 +189,22 @@ function parseSocials(json: string | null): Record<string, string> {
 }
 
 /**
+ * Shared WHERE fragment for the lead list/count so a page and its total can never
+ * drift — both {@link listLeads} and {@link countLeads} build the filter here, the
+ * same way {@link import('./media.js').buildAssetFilter} pairs listAssets/countAssets.
+ * `scanned_leads` has no soft-delete column, so every row is live (no `deleted_at`).
+ */
+function buildLeadFilter(opts: ListLeadsOptions): string {
+  return opts.onlyNoWebsite ? 'AND has_website = 0' : '';
+}
+
+/**
  * List scanned leads for the Super-Admin scanner UI, highest score first. Reads
  * only the queryable columns (no per-row profile JSON parse). `scanned_leads`
  * has no soft-delete column, so every row is live.
+ *
+ * Paginated (capped at `limit`, default 50) — pair with {@link countLeads} for the
+ * TRUE matching total so the UI never implies a capped page is everything.
  *
  * @param db - D1 binding.
  * @param opts - {@link ListLeadsOptions} (limit clamped 1..200, offset floored 0).
@@ -205,7 +218,7 @@ export async function listLeads(
 ): Promise<LeadSummary[]> {
   const limit = Math.min(Math.max(opts.limit ?? 50, 1), 200);
   const offset = Math.max(opts.offset ?? 0, 0);
-  const websiteFilter = opts.onlyNoWebsite ? 'AND has_website = 0' : '';
+  const websiteFilter = buildLeadFilter(opts);
   const { data } = await dbQuery<LeadRow>(
     db,
     `SELECT id, business_name, has_website, lead_score, priority, email, email_status, source, created_at,
@@ -230,6 +243,30 @@ export async function listLeads(
     socials: parseSocials(row.socials_json),
     enrichedAt: row.enriched_at ?? null,
   }));
+}
+
+/**
+ * Count ALL scanned leads matching the filter, IGNORING limit/offset — the TRUE total
+ * for the UI's "N of TOTAL". Without it the list endpoint silent-caps at its page size
+ * (default 50) and the UI implies "this is all" when the store holds more (the fire-124
+ * media lying-count class, applied to leads in fire-137). Uses the SAME {@link buildLeadFilter}
+ * as {@link listLeads} so the page and total can never drift. Fail-soft: 0 on a null/absent
+ * row (callers treat a count as advisory, never a hard gate).
+ *
+ * @param db - D1 binding.
+ * @param opts - Same {@link ListLeadsOptions} shape as the list (only the filter is read).
+ * @returns The total matching row count (0 when none / on error).
+ * @example
+ * const total = await countLeads(env.DB, { onlyNoWebsite: true });
+ */
+export async function countLeads(db: D1Database, opts: ListLeadsOptions = {}): Promise<number> {
+  const websiteFilter = buildLeadFilter(opts);
+  const row = await dbQueryOne<{ n: number }>(
+    db,
+    `SELECT COUNT(*) AS n FROM ${TABLE} WHERE 1 = 1 ${websiteFilter}`,
+    [],
+  );
+  return row?.n ?? 0;
 }
 
 /**
