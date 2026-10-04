@@ -57,17 +57,9 @@ vi.mock('~/utils/constants', () => ({
 vi.mock('../panel', () => ({
   PanelShell: ({ children, testId }: { children: React.ReactNode; testId?: string }) =>
     React.createElement('div', { 'data-testid': testId ?? 'panel-shell' }, children),
-  PanelHeader: ({ title }: { title: string }) =>
-    React.createElement('div', { 'data-testid': 'panel-header' }, title),
-  PanelEmpty: ({
-    title,
-    action,
-  }: {
-    title: string;
-    description?: string;
-    icon?: string;
-    action?: React.ReactNode;
-  }) => React.createElement('div', { 'data-testid': 'panel-empty' }, title, action),
+  PanelHeader: ({ title }: { title: string }) => React.createElement('div', { 'data-testid': 'panel-header' }, title),
+  PanelEmpty: ({ title, action }: { title: string; description?: string; icon?: string; action?: React.ReactNode }) =>
+    React.createElement('div', { 'data-testid': 'panel-empty' }, title, action),
 }));
 
 // Patch globalThis.fetch with our controllable mock.
@@ -262,7 +254,11 @@ describe('AiSeedPanel — generating state', () => {
 
     // Keep fetch pending so we can observe the mid-flight state.
     let resolveFetch!: (v: unknown) => void;
-    fetchMock.mockReturnValueOnce(new Promise((r) => { resolveFetch = r; }));
+    fetchMock.mockReturnValueOnce(
+      new Promise((r) => {
+        resolveFetch = r;
+      }),
+    );
 
     fireEvent.click(screen.getByTestId('seed-generate'));
 

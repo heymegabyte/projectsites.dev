@@ -68,7 +68,11 @@ beforeEach(() => {
   postToParent.mockClear();
   handlers.length = 0;
   lastRequest.value = null;
-  try { localStorage.clear(); } catch { /* jsdom may restrict */ }
+  try {
+    localStorage.clear();
+  } catch {
+    /* jsdom may restrict */
+  }
 });
 
 afterEach(() => cleanup());
