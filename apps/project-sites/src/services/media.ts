@@ -116,7 +116,10 @@ export interface SearchStockOpts {
  * non-deleted). Both {@link listAssets} and {@link countAssets} build from this so a filter added
  * to one can never drift from the other — the page and its total always agree.
  */
-function buildAssetFilter(orgId: string, opts: ListAssetOpts): { wheres: string[]; params: unknown[] } {
+function buildAssetFilter(
+  orgId: string,
+  opts: ListAssetOpts,
+): { wheres: string[]; params: unknown[] } {
   const { kind, source, search } = opts;
   const wheres: string[] = ['org_id = ?', 'deleted_at IS NULL'];
   const params: unknown[] = [orgId];
@@ -167,7 +170,11 @@ export async function listAssets(
  * implies "this is all" when the store holds more (fire-124: display=50 vs store=109). Fail-soft: 0
  * on query error (callers treat a count as advisory, never a hard gate).
  */
-export async function countAssets(env: Env, orgId: string, opts: ListAssetOpts = {}): Promise<number> {
+export async function countAssets(
+  env: Env,
+  orgId: string,
+  opts: ListAssetOpts = {},
+): Promise<number> {
   const { wheres, params } = buildAssetFilter(orgId, opts);
   const row = await dbQueryOne<{ n: number }>(
     env.DB,
