@@ -177,7 +177,7 @@ export interface ExitPagesResponse {
         margin: 0.6rem 0 0;
         font-size: 0.62rem;
         line-height: 1.4;
-        color: color-mix(in oklch, var(--ps-ink, #f4f4ff) 45%, transparent);
+        color: color-mix(in oklch, var(--ps-ink, #f4f4ff) 78%, var(--ps-bg, #060610));
         font-style: italic;
       }
     `,

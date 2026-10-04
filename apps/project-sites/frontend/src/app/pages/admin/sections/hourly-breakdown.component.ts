@@ -142,12 +142,12 @@ export function formatHour(h: number): string {
         margin-top: 4px;
         font-size: 0.58rem;
         font-variant-numeric: tabular-nums;
-        color: color-mix(in oklch, var(--ps-ink, #f4f4ff) 45%, transparent);
+        color: color-mix(in oklch, var(--ps-ink, #f4f4ff) 78%, var(--ps-bg, #060610));
       }
       .hb-fine {
         margin: 0.5rem 0 0;
         font-size: 0.6rem;
-        color: color-mix(in oklch, var(--ps-ink, #f4f4ff) 45%, transparent);
+        color: color-mix(in oklch, var(--ps-ink, #f4f4ff) 78%, var(--ps-bg, #060610));
       }
       .hb-empty {
         margin: 0;

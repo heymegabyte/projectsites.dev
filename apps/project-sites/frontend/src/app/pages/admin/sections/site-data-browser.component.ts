@@ -738,7 +738,7 @@ import { toCsv, downloadText } from '../../../utils/csv-export';
       .db-table-fresh {
         font-variant-numeric: tabular-nums;
         font-size: 0.62rem;
-        color: color-mix(in oklch, var(--ps-ink, #f4f4ff) 48%, transparent);
+        color: color-mix(in oklch, var(--ps-ink, #f4f4ff) 78%, var(--ps-bg, #060610));
       }
       .db-activity {
         margin-top: 1.1rem;
@@ -811,7 +811,7 @@ import { toCsv, downloadText } from '../../../utils/csv-export';
         flex-shrink: 0;
         font-variant-numeric: tabular-nums;
         font-size: 0.66rem;
-        color: color-mix(in oklch, var(--ps-ink, #f4f4ff) 45%, transparent);
+        color: color-mix(in oklch, var(--ps-ink, #f4f4ff) 78%, var(--ps-bg, #060610));
       }
       .db-desc {
         margin: 0 0 0.75rem;
@@ -1439,7 +1439,7 @@ import { toCsv, downloadText } from '../../../utils/csv-export';
         letter-spacing: 0.04em;
         padding: 0.05rem 0.35rem;
         border-radius: 4px;
-        color: color-mix(in oklch, var(--ps-ink, #f4f4ff) 45%, transparent);
+        color: color-mix(in oklch, var(--ps-ink, #f4f4ff) 78%, var(--ps-bg, #060610));
         background: color-mix(in oklch, var(--ps-ink, #f4f4ff) 8%, transparent);
       }
       .db-expand {

@@ -94,7 +94,7 @@ export interface EntryPagesResponse {
     .ep-count { font-size: 0.72rem; font-weight: 600; color: var(--ps-accent, #00e5ff); font-variant-numeric: tabular-nums; flex-shrink: 0; }
     .ep-bar { height: 5px; border-radius: 999px; background: color-mix(in oklch, var(--ps-ink, #f4f4ff) 8%, transparent); overflow: hidden; }
     .ep-bar-fill { height: 100%; border-radius: 999px; min-width: 0; background: linear-gradient(90deg, color-mix(in oklch, var(--ps-accent, #00e5ff) 70%, transparent), var(--ps-accent, #00e5ff)); }
-    .ep-disclaimer { margin: 0.6rem 0 0; font-size: 0.62rem; line-height: 1.4; color: color-mix(in oklch, var(--ps-ink, #f4f4ff) 45%, transparent); font-style: italic; }
+    .ep-disclaimer { margin: 0.6rem 0 0; font-size: 0.62rem; line-height: 1.4; color: color-mix(in oklch, var(--ps-ink, #f4f4ff) 78%, var(--ps-bg, #060610)); font-style: italic; }
   `],
 })
 export class EntryPagesCardComponent {

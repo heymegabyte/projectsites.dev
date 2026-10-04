@@ -128,7 +128,7 @@ export interface FormFunnel {
     .ff-form-head { display: flex; justify-content: space-between; gap: 0.6rem; margin-bottom: 0.2rem; }
     .ff-form-name { font-size: 0.76rem; color: #fff; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
     .ff-form-stat { font-size: 0.72rem; font-weight: 600; color: var(--ps-accent, #00e5ff); font-variant-numeric: tabular-nums; flex-shrink: 0; }
-    .ff-form-pct { color: color-mix(in oklch, var(--ps-ink, #f4f4ff) 45%, transparent); font-size: 0.9em; }
+    .ff-form-pct { color: color-mix(in oklch, var(--ps-ink, #f4f4ff) 78%, var(--ps-bg, #060610)); font-size: 0.9em; }
     .ff-empty { margin: 0; font-size: 0.72rem; line-height: 1.5; color: color-mix(in oklch, var(--ps-ink, #f4f4ff) 55%, transparent); }
   `],
 })

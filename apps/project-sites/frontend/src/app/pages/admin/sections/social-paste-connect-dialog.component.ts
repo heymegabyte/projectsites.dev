@@ -164,7 +164,7 @@ interface PasteFields {
         font-size: 0.72rem; font-weight: 600; letter-spacing: 0.04em;
         color: color-mix(in oklch, var(--ps-ink, #f4f4ff) 75%, transparent);
       }
-      .paste-opt { font-weight: 500; text-transform: none; letter-spacing: 0; color: color-mix(in oklch, var(--ps-ink, #f4f4ff) 40%, transparent); }
+      .paste-opt { font-weight: 500; text-transform: none; letter-spacing: 0; color: color-mix(in oklch, var(--ps-ink, #f4f4ff) 78%, var(--ps-bg, #060610)); }
       .paste-err {
         margin: 0; font-size: 0.68rem; color: #ffb454;
       }

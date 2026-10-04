@@ -154,7 +154,7 @@ export interface ConciergeResponse {
         font-size: 0.58rem;
         text-transform: uppercase;
         letter-spacing: 0.08em;
-        color: color-mix(in oklch, var(--ps-ink, #f4f4ff) 45%, transparent);
+        color: color-mix(in oklch, var(--ps-ink, #f4f4ff) 78%, var(--ps-bg, #060610));
       }
       .cc-secondary dd {
         margin: 0;
@@ -167,7 +167,7 @@ export interface ConciergeResponse {
         margin: 0.5rem 0 0;
         font-size: 0.62rem;
         line-height: 1.4;
-        color: color-mix(in oklch, var(--ps-ink, #f4f4ff) 45%, transparent);
+        color: color-mix(in oklch, var(--ps-ink, #f4f4ff) 78%, var(--ps-bg, #060610));
         font-style: italic;
       }
     `,

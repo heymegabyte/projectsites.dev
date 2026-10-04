@@ -221,14 +221,14 @@ interface MetricTile {
     }
     .wv-metric { font-size: 0.66rem; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; color: color-mix(in oklch, var(--ps-ink, #f4f4ff) 60%, transparent); cursor: help; }
     .wv-value { font-size: 1.5rem; font-weight: 700; line-height: 1.1; margin-top: 0.2rem; color: #fff; font-variant-numeric: tabular-nums; }
-    .wv-empty { color: color-mix(in oklch, var(--ps-ink, #f4f4ff) 40%, transparent); }
+    .wv-empty { color: color-mix(in oklch, var(--ps-ink, #f4f4ff) 78%, var(--ps-bg, #060610)); }
     .wv-rating { display: inline-flex; align-items: center; gap: 5px; margin-top: 0.3rem; font-size: 0.7rem; font-weight: 600; }
     .wv-dot { width: 7px; height: 7px; border-radius: 50%; background: currentColor; flex-shrink: 0; }
     .wv-rating[data-rating='good'] { color: #4dffb5; }
     .wv-rating[data-rating='needs'] { color: #ffd166; }
     .wv-rating[data-rating='poor'] { color: #ff7e8a; }
     .wv-measuring { margin-top: 0.3rem; font-size: 0.68rem; font-style: italic; color: color-mix(in oklch, var(--ps-ink, #f4f4ff) 50%, transparent); }
-    .wv-samples { margin-top: 0.15rem; font-size: 0.62rem; color: color-mix(in oklch, var(--ps-ink, #f4f4ff) 45%, transparent); font-variant-numeric: tabular-nums; }
+    .wv-samples { margin-top: 0.15rem; font-size: 0.62rem; color: color-mix(in oklch, var(--ps-ink, #f4f4ff) 78%, var(--ps-bg, #060610)); font-variant-numeric: tabular-nums; }
     .wv-dist { margin-top: 0.4rem; }
     .wv-dist-bar { display: flex; height: 6px; border-radius: 999px; overflow: hidden; background: color-mix(in oklch, var(--ps-ink, #f4f4ff) 8%, transparent); }
     .wv-seg { height: 100%; }
@@ -257,7 +257,7 @@ interface MetricTile {
     .wv-page-rating[data-rating='good'] { color: #4dffb5; }
     .wv-page-rating[data-rating='needs'] { color: #ffd166; }
     .wv-page-rating[data-rating='poor'] { color: #ff7e8a; }
-    .wv-page-samples { text-align: right; color: color-mix(in oklch, var(--ps-ink, #f4f4ff) 45%, transparent); font-variant-numeric: tabular-nums; white-space: nowrap; }
+    .wv-page-samples { text-align: right; color: color-mix(in oklch, var(--ps-ink, #f4f4ff) 78%, var(--ps-bg, #060610)); font-variant-numeric: tabular-nums; white-space: nowrap; }
   `],
 })
 export class WebVitalsCardComponent {

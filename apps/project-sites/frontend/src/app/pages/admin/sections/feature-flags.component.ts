@@ -242,7 +242,7 @@ const FLAG_CONSTRAINTS: FlagConstraint[] = [
       border-radius: 7px; padding: .3rem .55rem; font-family: 'JetBrains Mono', ui-monospace, monospace;
     }
     .ff-trace-input:focus-visible { outline: 2px solid var(--ps-accent, #00e5ff); outline-offset: 1px; border-color: var(--ps-accent, #00e5ff); }
-    .ff-trace-input::placeholder { color: color-mix(in oklch, var(--ps-ink, #f4f4ff) 40%, transparent); }
+    .ff-trace-input::placeholder { color: color-mix(in oklch, var(--ps-ink, #f4f4ff) 78%, var(--ps-bg, #060610)); }
     .ff-trace-bucket {
       font-size: .72rem; font-family: 'JetBrains Mono', ui-monospace, monospace; white-space: nowrap;
       color: var(--ps-accent, #00e5ff); padding: .25rem .5rem; border-radius: 6px;

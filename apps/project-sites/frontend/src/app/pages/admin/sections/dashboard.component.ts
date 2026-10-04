@@ -650,7 +650,7 @@ const RECENT_KEY = 'ps_dash_recents';
         box-shadow: none !important;
       }
       .search-input::placeholder {
-        color: color-mix(in oklch, var(--ps-ink, #f4f4ff) 45%, transparent);
+        color: color-mix(in oklch, var(--ps-ink, #f4f4ff) 78%, var(--ps-bg, #060610));
       }
       .search-input::-webkit-search-cancel-button {
         display: none;
@@ -883,7 +883,7 @@ const RECENT_KEY = 'ps_dash_recents';
         border-radius: 8px;
         border: 1px solid transparent;
         background: transparent;
-        color: color-mix(in oklch, var(--ps-ink, #f4f4ff) 40%, transparent);
+        color: color-mix(in oklch, var(--ps-ink, #f4f4ff) 78%, var(--ps-bg, #060610));
         cursor: pointer;
         opacity: 0;
         font-size: 0.85rem;

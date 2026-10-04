@@ -41,7 +41,7 @@ import { ApiService, type SchemaTable, type SiteMigrations } from '../../../serv
     .sb-search { flex: 1; min-width: 0; font: inherit; font-size: 0.82rem; padding: 0.4rem 0.6rem; border-radius: 8px; color: var(--ps-ink, #f4f4ff); background: rgba(0,0,0,0.25); border: 1px solid var(--ps-edge, rgba(255,255,255,0.12)); }
     .sb-search:focus-visible { outline: 2px solid var(--ps-accent, #00e5ff); outline-offset: 2px; }
     .sb-count { font-size: 0.72rem; color: color-mix(in oklch, var(--ps-ink, #f4f4ff) 55%, transparent); font-variant-numeric: tabular-nums; }
-    .sb-live { display: inline-flex; align-items: center; gap: 0.35rem; font-size: 0.68rem; font-variant-numeric: tabular-nums; color: color-mix(in oklch, var(--ps-ink, #f4f4ff) 45%, transparent); white-space: nowrap; user-select: none; }
+    .sb-live { display: inline-flex; align-items: center; gap: 0.35rem; font-size: 0.68rem; font-variant-numeric: tabular-nums; color: color-mix(in oklch, var(--ps-ink, #f4f4ff) 78%, var(--ps-bg, #060610)); white-space: nowrap; user-select: none; }
     .sb-live-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--ps-accent, #00e5ff); animation: sb-live-pulse 2s ease-in-out infinite; }
     .sb-live-dot.is-paused { background: color-mix(in oklch, var(--ps-ink, #f4f4ff) 35%, transparent); animation: none; }
     @keyframes sb-live-pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.35; } }
@@ -56,7 +56,7 @@ import { ApiService, type SchemaTable, type SiteMigrations } from '../../../serv
     .sb-table-name { font-family: 'JetBrains Mono', ui-monospace, monospace; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
     .sb-table-meta { display: inline-flex; align-items: center; gap: 0.35rem; flex-shrink: 0; }
     .sb-type-badge { font-size: 0.58rem; text-transform: uppercase; letter-spacing: 0.04em; padding: 0.05rem 0.3rem; border-radius: 4px; background: color-mix(in oklch, var(--ps-ink, #f4f4ff) 10%, transparent); }
-    .sb-col-count { font-size: 0.68rem; font-variant-numeric: tabular-nums; color: color-mix(in oklch, var(--ps-ink, #f4f4ff) 45%, transparent); }
+    .sb-col-count { font-size: 0.68rem; font-variant-numeric: tabular-nums; color: color-mix(in oklch, var(--ps-ink, #f4f4ff) 78%, var(--ps-bg, #060610)); }
     .sb-detail-head { margin-bottom: 0.6rem; }
     .sb-detail-name { margin: 0; font-size: 1rem; font-family: 'JetBrains Mono', ui-monospace, monospace; color: #fff; }
     .sb-detail-sub { font-size: 0.72rem; color: color-mix(in oklch, var(--ps-ink, #f4f4ff) 55%, transparent); }

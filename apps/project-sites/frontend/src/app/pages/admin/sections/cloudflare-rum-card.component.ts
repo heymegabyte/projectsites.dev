@@ -145,14 +145,14 @@ interface RumTile {
     .cr-tile { padding: 0.6rem 0.7rem; border-radius: var(--ps-radius-md, 12px); background: color-mix(in oklch, var(--ps-ink, #f4f4ff) 4%, transparent); border: 1px solid var(--ps-edge, rgba(255,255,255,0.08)); }
     .cr-metric { font-size: 0.64rem; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; color: color-mix(in oklch, var(--ps-ink, #f4f4ff) 60%, transparent); }
     .cr-value { font-size: 1.3rem; font-weight: 700; line-height: 1.1; margin-top: 0.2rem; color: #fff; font-variant-numeric: tabular-nums; }
-    .cr-empty { color: color-mix(in oklch, var(--ps-ink, #f4f4ff) 40%, transparent); }
+    .cr-empty { color: color-mix(in oklch, var(--ps-ink, #f4f4ff) 78%, var(--ps-bg, #060610)); }
     .cr-rating { display: inline-flex; align-items: center; gap: 5px; margin-top: 0.3rem; font-size: 0.68rem; font-weight: 600; }
-    .cr-unrated { color: color-mix(in oklch, var(--ps-ink, #f4f4ff) 45%, transparent); font-weight: 500; }
+    .cr-unrated { color: color-mix(in oklch, var(--ps-ink, #f4f4ff) 78%, var(--ps-bg, #060610)); font-weight: 500; }
     .cr-dot { width: 7px; height: 7px; border-radius: 50%; background: currentColor; flex-shrink: 0; }
     .cr-rating[data-rating='good'] { color: #4dffb5; }
     .cr-rating[data-rating='needs'] { color: #ffd166; }
     .cr-rating[data-rating='poor'] { color: #ff7e8a; }
-    .cr-samples { margin-top: 0.15rem; font-size: 0.6rem; color: color-mix(in oklch, var(--ps-ink, #f4f4ff) 45%, transparent); font-variant-numeric: tabular-nums; }
+    .cr-samples { margin-top: 0.15rem; font-size: 0.6rem; color: color-mix(in oklch, var(--ps-ink, #f4f4ff) 78%, var(--ps-bg, #060610)); font-variant-numeric: tabular-nums; }
     .cr-measuring { margin-top: 0.3rem; font-size: 0.66rem; font-style: italic; color: color-mix(in oklch, var(--ps-ink, #f4f4ff) 50%, transparent); }
     .cr-state { padding: 0.9rem 0; font-size: 0.72rem; color: color-mix(in oklch, var(--ps-ink, #f4f4ff) 55%, transparent); }
     .cr-note { margin: 0.75rem 0 0; font-size: 0.66rem; line-height: 1.45; color: color-mix(in oklch, var(--ps-ink, #f4f4ff) 55%, transparent); }

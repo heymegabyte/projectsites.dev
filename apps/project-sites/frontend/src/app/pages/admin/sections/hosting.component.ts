@@ -593,7 +593,7 @@ interface CopyTarget {
       .gate-reason {
         margin: 14px 0 0;
         font-size: 0.78rem;
-        color: color-mix(in oklch, var(--ps-ink, #f4f4ff) 48%, transparent);
+        color: color-mix(in oklch, var(--ps-ink, #f4f4ff) 78%, var(--ps-bg, #060610));
       }
       .empty-actions {
         display: flex;

@@ -234,7 +234,7 @@ const CADENCE_LABELS: Record<number, string> = {
         font-size: 0.76rem; color: var(--ps-ink, #f4f4ff);
       }
       .ap-dlg-preview__media { font-size: 0.66rem; color: var(--ps-accent, #00e5ff); }
-      .ap-dlg-preview__empty { font-size: 0.68rem; color: color-mix(in oklch, var(--ps-ink, #f4f4ff) 45%, transparent); }
+      .ap-dlg-preview__empty { font-size: 0.68rem; color: color-mix(in oklch, var(--ps-ink, #f4f4ff) 78%, var(--ps-bg, #060610)); }
       .ap-dlg-footer { display: flex; justify-content: flex-end; gap: 10px; }
       .ap-dlg-btn {
         border-radius: 10px; padding: 8px 16px; font-size: 0.78rem; font-weight: 600;

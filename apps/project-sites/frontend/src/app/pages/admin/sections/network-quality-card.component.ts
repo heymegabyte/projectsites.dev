@@ -60,12 +60,12 @@ const CLASS_LABELS: Record<string, string> = {
     .nq { border: 1px solid var(--ps-edge, rgba(255,255,255,0.08)); border-radius: var(--ps-radius-xl, 16px); background: rgba(255,255,255,0.02); padding: 0.9rem 1rem; }
     .nq-head { display: flex; align-items: baseline; justify-content: space-between; gap: 0.5rem; margin-bottom: 0.5rem; }
     .nq-title { font-size: 0.8rem; font-weight: 700; color: var(--ps-ink, #f4f4ff); display: flex; align-items: center; gap: 0.4rem; }
-    .nq-win { font-size: 0.62rem; color: color-mix(in oklch, var(--ps-ink, #f4f4ff) 45%, transparent); }
+    .nq-win { font-size: 0.62rem; color: color-mix(in oklch, var(--ps-ink, #f4f4ff) 78%, var(--ps-bg, #060610)); }
     .nq-stats { display: flex; flex-wrap: wrap; gap: 0.9rem; margin-bottom: 0.2rem; }
     .nq-stat { display: flex; flex-direction: column; }
     .nq-val { font-size: 1.25rem; font-weight: 700; color: var(--ps-accent, #00e5ff); font-variant-numeric: tabular-nums; }
     .nq-lbl { font-size: 0.62rem; color: color-mix(in oklch, var(--ps-ink, #f4f4ff) 55%, transparent); }
-    .nq-samples { font-size: 0.62rem; color: color-mix(in oklch, var(--ps-ink, #f4f4ff) 45%, transparent); margin-top: 0.15rem; }
+    .nq-samples { font-size: 0.62rem; color: color-mix(in oklch, var(--ps-ink, #f4f4ff) 78%, var(--ps-bg, #060610)); margin-top: 0.15rem; }
     .nq-measuring { font-size: 0.76rem; color: color-mix(in oklch, var(--ps-ink, #f4f4ff) 60%, transparent); }
     .nq-dist { margin: 0.7rem 0 0; display: grid; gap: 0.3rem; }
     .nq-rung { display: grid; grid-template-columns: 5rem 1fr auto; gap: 0.5rem; align-items: center; font-size: 0.72rem; }
@@ -73,7 +73,7 @@ const CLASS_LABELS: Record<string, string> = {
     .nq-bar { height: 0.5rem; border-radius: 999px; background: rgba(255,255,255,0.07); overflow: hidden; }
     .nq-bar-fill { height: 100%; border-radius: 999px; background: var(--ps-accent, #00e5ff); }
     .nq-rung-pct { color: #fff; font-variant-numeric: tabular-nums; white-space: nowrap; }
-    .nq-note { margin: 0.55rem 0 0; font-size: 0.62rem; line-height: 1.4; color: color-mix(in oklch, var(--ps-ink, #f4f4ff) 45%, transparent); }
+    .nq-note { margin: 0.55rem 0 0; font-size: 0.62rem; line-height: 1.4; color: color-mix(in oklch, var(--ps-ink, #f4f4ff) 78%, var(--ps-bg, #060610)); }
     .nq-pages { margin: 0.75rem 0 0; padding: 0.7rem 0 0; border-top: 1px solid var(--ps-edge, rgba(255,255,255,0.08)); }
     .nq-pages-h { font-size: 0.6rem; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; color: color-mix(in oklch, var(--ps-ink, #f4f4ff) 50%, transparent); margin-bottom: 0.3rem; }
     .nq-page-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 0.25rem; }

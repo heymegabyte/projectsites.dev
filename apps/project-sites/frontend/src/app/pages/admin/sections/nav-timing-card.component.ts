@@ -58,11 +58,11 @@ const PHASES: ReadonlyArray<{ key: keyof NavTimingBlock; label: string }> = [
     .nt { border: 1px solid var(--ps-edge, rgba(255,255,255,0.08)); border-radius: var(--ps-radius-xl, 16px); background: rgba(255,255,255,0.02); padding: 0.9rem 1rem; }
     .nt-head { display: flex; align-items: baseline; justify-content: space-between; gap: 0.5rem; margin-bottom: 0.5rem; }
     .nt-title { font-size: 0.8rem; font-weight: 700; color: var(--ps-ink, #f4f4ff); display: flex; align-items: center; gap: 0.4rem; }
-    .nt-win { font-size: 0.62rem; color: color-mix(in oklch, var(--ps-ink, #f4f4ff) 45%, transparent); }
+    .nt-win { font-size: 0.62rem; color: color-mix(in oklch, var(--ps-ink, #f4f4ff) 78%, var(--ps-bg, #060610)); }
     .nt-figure { display: flex; align-items: baseline; gap: 0.5rem; margin-bottom: 0.2rem; }
     .nt-total { font-size: 1.5rem; font-weight: 700; color: var(--ps-accent, #00e5ff); font-variant-numeric: tabular-nums; }
     .nt-total-lbl { font-size: 0.66rem; color: color-mix(in oklch, var(--ps-ink, #f4f4ff) 55%, transparent); }
-    .nt-samples { font-size: 0.62rem; color: color-mix(in oklch, var(--ps-ink, #f4f4ff) 45%, transparent); }
+    .nt-samples { font-size: 0.62rem; color: color-mix(in oklch, var(--ps-ink, #f4f4ff) 78%, var(--ps-bg, #060610)); }
     .nt-measuring { font-size: 0.76rem; color: color-mix(in oklch, var(--ps-ink, #f4f4ff) 60%, transparent); }
     .nt-rows { margin: 0.7rem 0 0; display: grid; gap: 0.3rem; }
     .nt-row { display: grid; grid-template-columns: 8.5rem 1fr auto; gap: 0.5rem; align-items: center; font-size: 0.72rem; }
@@ -70,7 +70,7 @@ const PHASES: ReadonlyArray<{ key: keyof NavTimingBlock; label: string }> = [
     .nt-bar { height: 0.5rem; border-radius: 999px; background: rgba(255,255,255,0.07); overflow: hidden; }
     .nt-bar-fill { height: 100%; border-radius: 999px; background: var(--ps-accent, #00e5ff); }
     .nt-row-ms { color: #fff; font-variant-numeric: tabular-nums; white-space: nowrap; }
-    .nt-note { margin: 0.55rem 0 0; font-size: 0.62rem; line-height: 1.4; color: color-mix(in oklch, var(--ps-ink, #f4f4ff) 45%, transparent); }
+    .nt-note { margin: 0.55rem 0 0; font-size: 0.62rem; line-height: 1.4; color: color-mix(in oklch, var(--ps-ink, #f4f4ff) 78%, var(--ps-bg, #060610)); }
     .nt-pages { margin: 0.75rem 0 0; padding: 0.7rem 0 0; border-top: 1px solid var(--ps-edge, rgba(255,255,255,0.08)); }
     .nt-pages-h { font-size: 0.6rem; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; color: color-mix(in oklch, var(--ps-ink, #f4f4ff) 50%, transparent); margin-bottom: 0.3rem; }
     .nt-page-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 0.25rem; }

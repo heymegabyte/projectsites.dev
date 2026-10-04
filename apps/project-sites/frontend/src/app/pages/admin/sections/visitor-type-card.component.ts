@@ -123,13 +123,13 @@ export interface VisitorTypeResponse {
     .vt-row-head { display: flex; justify-content: space-between; gap: 0.6rem; margin-bottom: 0.2rem; }
     .vt-label { font-size: 0.78rem; color: #fff; }
     .vt-count { font-size: 0.72rem; font-weight: 600; color: var(--ps-accent, #00e5ff); font-variant-numeric: tabular-nums; flex-shrink: 0; }
-    .vt-pct { color: color-mix(in oklch, var(--ps-ink, #f4f4ff) 45%, transparent); font-size: 0.9em; font-variant-numeric: tabular-nums; }
+    .vt-pct { color: color-mix(in oklch, var(--ps-ink, #f4f4ff) 78%, var(--ps-bg, #060610)); font-size: 0.9em; font-variant-numeric: tabular-nums; }
     .vt-bar { height: 5px; border-radius: 999px; background: color-mix(in oklch, var(--ps-ink, #f4f4ff) 8%, transparent); overflow: hidden; }
     .vt-bar-fill { height: 100%; border-radius: 999px; min-width: 0; }
     .vt-bar-new { background: linear-gradient(90deg, color-mix(in oklch, var(--ps-accent, #00e5ff) 70%, transparent), var(--ps-accent, #00e5ff)); }
     .vt-bar-returning { background: linear-gradient(90deg, color-mix(in oklch, #7C3AED 70%, transparent), #7C3AED); }
-    .vt-unknown { margin: 0.5rem 0 0; font-size: 0.62rem; color: color-mix(in oklch, var(--ps-ink, #f4f4ff) 45%, transparent); }
-    .vt-disclaimer { margin: 0.6rem 0 0; font-size: 0.62rem; line-height: 1.4; color: color-mix(in oklch, var(--ps-ink, #f4f4ff) 45%, transparent); font-style: italic; }
+    .vt-unknown { margin: 0.5rem 0 0; font-size: 0.62rem; color: color-mix(in oklch, var(--ps-ink, #f4f4ff) 78%, var(--ps-bg, #060610)); }
+    .vt-disclaimer { margin: 0.6rem 0 0; font-size: 0.62rem; line-height: 1.4; color: color-mix(in oklch, var(--ps-ink, #f4f4ff) 78%, var(--ps-bg, #060610)); font-style: italic; }
   `],
 })
 export class VisitorTypeCardComponent {

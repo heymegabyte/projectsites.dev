@@ -554,7 +554,7 @@ function actionToFallbackMessage(action: string): string {
     .tk-str  { color: #86efac; }
     .tk-num  { color: #67e8f9; }
     .tk-bool { color: #c4b5fd; }
-    .tk-null { color: color-mix(in oklch, var(--ps-ink, #f4f4ff) 45%, transparent); }
+    .tk-null { color: color-mix(in oklch, var(--ps-ink, #f4f4ff) 78%, var(--ps-bg, #060610)); }
     .tk-pun  { color: color-mix(in oklch, var(--ps-ink, #f4f4ff) 55%, transparent); }
     .det-action {
       padding: 0.35rem 0.75rem; border-radius: 8px; font-size: 0.64rem; font-weight: 700;
