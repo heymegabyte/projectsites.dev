@@ -262,10 +262,7 @@ type SortKey = 'name' | 'size' | 'time';
  */
 export function BucketsTwoPane({ left, right }: { left: React.ReactNode; right: React.ReactNode }) {
   return (
-    <div
-      className="relative flex-1 overflow-hidden flex flex-col lg:flex-row min-h-0"
-      data-testid="buckets-two-pane"
-    >
+    <div className="relative flex-1 overflow-hidden flex flex-col lg:flex-row min-h-0" data-testid="buckets-two-pane">
       {/* Left: bucket list (fixed width on wide screens). */}
       <div className="lg:w-72 shrink-0 border-b lg:border-b-0 lg:border-r border-bolt-elements-borderColor/60 overflow-auto modern-scrollbar">
         {left}
