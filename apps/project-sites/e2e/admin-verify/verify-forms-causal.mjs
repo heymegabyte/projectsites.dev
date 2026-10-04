@@ -20,16 +20,24 @@
  */
 import { chromium } from '@playwright/test';
 import { mkdirSync } from 'node:fs';
-import { resolveBrowserbaseCreds } from './_browserbase-creds.mjs';
-const { BB, PROJ, PW } = resolveBrowserbaseCreds();
-if (!BB || !PROJ || !PW) { console.log('::notice:: skipped — creds unset'); process.exit(0); }
+import { execSync } from 'node:child_process';
+// LOCAL headless Playwright (migrated off Browserbase, fire-125): Browserbase credit returned 402
+// (session create failed), and fire-122 proved a cf_clearance'd local headless browser POSTs the
+// test-login seam fine (load `/` first → in-page fetch carries the cookie). Password: env → get-secret.
+const PW =
+  process.env.E2E_TEST_PASSWORD ||
+  (() => {
+    try {
+      return execSync('/Users/Apple/.local/bin/get-secret E2E_TEST_PASSWORD', { encoding: 'utf8', timeout: 5000 }).trim();
+    } catch {
+      return '';
+    }
+  })();
+if (!PW) { console.log('::notice:: skipped — E2E_TEST_PASSWORD unset'); process.exit(0); }
 mkdirSync('/tmp/psvis', { recursive: true });
 const VALID_EMAIL = 'causal-forms-test@example.com', INJ_EMAIL = 'causal-inject-test@example.com';
 const INJ_NAME = "<script>alert(1)</script>";
-const r = await fetch('https://api.browserbase.com/v1/sessions', { method: 'POST', headers: { 'X-BB-API-Key': BB, 'Content-Type': 'application/json' }, body: JSON.stringify({ projectId: PROJ, timeout: 600 }) });
-if (!r.ok) { console.log('session create failed', r.status); process.exit(3); }
-const { id } = await r.json();
-const browser = await chromium.connectOverCDP(`wss://connect.browserbase.com?apiKey=${encodeURIComponent(BB)}&sessionId=${encodeURIComponent(id)}`);
+const browser = await chromium.launch({ headless: true });
 let cur = 'boot'; const errs = []; let xssFired = false;
 const out = {};
 try {
@@ -63,7 +71,7 @@ try {
 
   // ── login as brian + display check ──
   cur = 'login';
-  await page.evaluate(async (pw) => { const res = await fetch('/api/auth/test-login', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ email: 'brian@megabyte.space', password: pw }) }); const j = await res.json().catch(() => ({})); if (j?.data?.token) localStorage.setItem('ps_session', JSON.stringify({ token: j.data.token, identifier: j.data.email ?? 'brian@megabyte.space', issuedAt: Date.now() })); }, PW);
+  await page.evaluate(async (pw) => { const res = await fetch('/api/auth/test-login', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ email: 'brian@megabyte.space', password: pw }) }); const j = await res.json().catch(() => ({})); if (j?.data?.token) localStorage.setItem('ps_session', JSON.stringify({ token: j.data.token, identifier: j.data.email ?? 'brian@megabyte.space', createdAt: Date.now() })); }, PW);
   await page.evaluate(async () => { try { const rs = await navigator.serviceWorker?.getRegistrations(); await Promise.all((rs ?? []).map((x) => x.unregister())); } catch {} try { const ks = await caches?.keys(); await Promise.all((ks ?? []).map((k) => caches.delete(k))); } catch {} });
 
   // TECHNICAL: fetch the forms list as brian → does it include the 2 new submissions?
