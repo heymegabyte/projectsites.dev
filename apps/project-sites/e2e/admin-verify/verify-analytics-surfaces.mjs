@@ -7,15 +7,19 @@
  *   - /api/sites/:id/multi-url-analytics?range=30d (CF-zone — empty for subdomains)
  * Reconcile: overview shows real pv (fallback works); live feed shows real events
  * (once repointed off the dead analytics_events table). Exits 0 (skip) if creds unset.
- * Creds (get-secret): BROWSERBASE_API_KEY, BROWSERBASE_PROJECT_ID, E2E_TEST_PASSWORD. */
-import { chromium } from '@playwright/test';
-const BB = process.env.BROWSERBASE_API_KEY, PROJ = process.env.BROWSERBASE_PROJECT_ID, PW = process.env.E2E_TEST_PASSWORD;
+ *
+ * LOCAL headless Playwright (migrated off dead Browserbase, fire-127): Browserbase credit
+ * returned 402 (session create failed), so this probe SKIPPED every fire. fire-122 proved a
+ * cf_clearance'd local headless browser authenticates the test-login seam fine (goto('/')
+ * first → the in-page fetch carries the cookie; a node/curl POST 403s). This probe makes its
+ * OWN token-based API calls inside one page.evaluate (no ps_session seeding), so it keeps its
+ * inline login — only the Browserbase plumbing is swapped for the shared helper.
+ * Creds (env → get-secret): E2E_TEST_PASSWORD. */
+import { launchLocalBrowser, getTestPassword } from './_local-browser.mjs';
+const PW = getTestPassword();
 const SITE = process.argv[2] || 'site-megabytespace-001';
-if (!BB || !PROJ || !PW) { console.log('::notice:: skipped — creds unset'); process.exit(0); }
-const r = await fetch('https://api.browserbase.com/v1/sessions', { method: 'POST', headers: { 'X-BB-API-Key': BB, 'Content-Type': 'application/json' }, body: JSON.stringify({ projectId: PROJ, timeout: 300 }) });
-if (!r.ok) { console.log('session create failed', r.status); process.exit(3); }
-const { id } = await r.json();
-const browser = await chromium.connectOverCDP(`wss://connect.browserbase.com?apiKey=${encodeURIComponent(BB)}&sessionId=${encodeURIComponent(id)}`);
+if (!PW) { console.log('::notice:: verify-analytics-surfaces skipped — E2E_TEST_PASSWORD unset'); process.exit(0); }
+const browser = await launchLocalBrowser();
 try {
   const ctx = browser.contexts()[0] ?? await browser.newContext();
   const page = ctx.pages()[0] ?? await ctx.newPage();

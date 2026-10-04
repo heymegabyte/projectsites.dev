@@ -15,26 +15,23 @@
  *  3. PATCH {markup_factor: 99} (out of range) → 400 — the worker clamps 0.5–5;
  *     the FE now guards this range before calling (saveFactor).
  *
- * Creds (get-secret): BROWSERBASE_API_KEY, BROWSERBASE_PROJECT_ID,
- * E2E_TEST_PASSWORD. Exits 0 (skip) if any is unset.
+ * LOCAL headless Playwright (migrated off dead Browserbase, fire-127): Browserbase credit
+ * returned 402 (session create failed), so this probe SKIPPED every fire. fire-122 proved a
+ * cf_clearance'd local headless browser authenticates the test-login seam fine (goto('/')
+ * first → the in-page fetch carries the cookie; a node/curl POST 403s). This probe makes its
+ * OWN token-based API calls (no ps_session seeding needed), so it keeps its inline login that
+ * returns the token — only the Browserbase plumbing is swapped for the shared helper.
+ * Creds (env → get-secret): E2E_TEST_PASSWORD. Exits 0 (skip) if unset.
  */
-import { chromium } from '@playwright/test';
+import { launchLocalBrowser, getTestPassword } from './_local-browser.mjs';
 
-const BB = process.env.BROWSERBASE_API_KEY;
-const PROJ = process.env.BROWSERBASE_PROJECT_ID;
-const PW = process.env.E2E_TEST_PASSWORD;
-if (!BB || !PROJ || !PW) {
-  console.log('::notice:: super-admin-probe skipped — creds unset');
+const PW = getTestPassword();
+if (!PW) {
+  console.log('::notice:: super-admin-probe skipped — E2E_TEST_PASSWORD unset');
   process.exit(0);
 }
 
-const r = await fetch('https://api.browserbase.com/v1/sessions', {
-  method: 'POST', headers: { 'X-BB-API-Key': BB, 'Content-Type': 'application/json' },
-  body: JSON.stringify({ projectId: PROJ, timeout: 600 }),
-});
-if (!r.ok) { console.log('session create failed', r.status); process.exit(3); }
-const { id } = await r.json();
-const browser = await chromium.connectOverCDP(`wss://connect.browserbase.com?apiKey=${encodeURIComponent(BB)}&sessionId=${encodeURIComponent(id)}`);
+const browser = await launchLocalBrowser();
 let exitCode = 0;
 try {
   const ctx = browser.contexts()[0] ?? await browser.newContext();

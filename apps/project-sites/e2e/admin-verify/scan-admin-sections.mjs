@@ -14,13 +14,18 @@
  * 109pv · analytics_daily 9 · media 2 · snapshots 4 · audit 1129 · voice 1 · mcp 2 ·
  * api_tokens 1 · (forms/leads/social/subs/apps/notifications/hostnames = 0 honest-empty).
  *
- * Creds (get-secret): BROWSERBASE_API_KEY, BROWSERBASE_PROJECT_ID, E2E_TEST_PASSWORD.
+ * LOCAL headless Playwright (migrated off dead Browserbase, fire-127): Browserbase credit
+ * returned 402 (session create failed), so this scan SKIPPED every fire. fire-122 proved a
+ * cf_clearance'd local headless browser authenticates the test-login seam fine (goto('/')
+ * first → in-page fetch carries the cookie). authSeedBrian seeds ps_session with the correct
+ * `createdAt` recipe (NOT `issuedAt`, which AuthService treats as expired → bounce to /signin).
+ * Creds (env → get-secret): E2E_TEST_PASSWORD. Exits 0 (skip) if unset.
  */
-import { chromium } from '@playwright/test';
+import { launchLocalBrowser, getTestPassword, authSeedBrian } from './_local-browser.mjs';
 import { mkdirSync } from 'node:fs';
 
-const BB = process.env.BROWSERBASE_API_KEY, PROJ = process.env.BROWSERBASE_PROJECT_ID, PW = process.env.E2E_TEST_PASSWORD;
-if (!BB || !PROJ || !PW) { console.log('::notice:: skipped — creds unset'); process.exit(0); }
+const PW = getTestPassword();
+if (!PW) { console.log('::notice:: scan-admin-sections skipped — E2E_TEST_PASSWORD unset'); process.exit(0); }
 mkdirSync('/tmp/psvis', { recursive: true });
 
 // path · whether the section is site-scoped (needs the site-switcher) · concepts with
@@ -50,10 +55,7 @@ const SECTIONS = [
 ];
 const nameOf = (p) => p.replace(/^\/admin\/?/, '') || 'hub';
 
-const r = await fetch('https://api.browserbase.com/v1/sessions', { method: 'POST', headers: { 'X-BB-API-Key': BB, 'Content-Type': 'application/json' }, body: JSON.stringify({ projectId: PROJ, timeout: 800 }) });
-if (!r.ok) { console.log('session create failed', r.status); process.exit(3); }
-const { id } = await r.json();
-const browser = await chromium.connectOverCDP(`wss://connect.browserbase.com?apiKey=${encodeURIComponent(BB)}&sessionId=${encodeURIComponent(id)}`);
+const browser = await launchLocalBrowser();
 let current = 'boot';
 const errs = {}, failed = {};
 try {
@@ -65,9 +67,10 @@ try {
   // (t*.gstatic.com/faviconV2) which 404s for domains it lacks — not an app bug.
   page.on('response', (res) => { if (res.status() >= 400 && !/google-analytics|\/g\/collect|posthog|gstatic\.com|faviconV2/.test(res.url())) (failed[current] ??= []).push(res.status() + ' ' + res.url().replace('https://projectsites.dev', '').slice(0, 70)); });
 
-  await page.goto('https://projectsites.dev/', { waitUntil: 'domcontentloaded', timeout: 60000 });
-  await page.waitForTimeout(7000);
-  await page.evaluate(async (pw) => { const res = await fetch('/api/auth/test-login', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ email: 'brian@megabyte.space', password: pw }) }); const j = await res.json().catch(() => ({})); if (j?.data?.token) localStorage.setItem('ps_session', JSON.stringify({ token: j.data.token, identifier: j.data.email ?? 'brian@megabyte.space', issuedAt: Date.now() })); }, PW);
+  // Log in as brian INSIDE the browser (goto('/') for cf_clearance, then the in-page
+  // test-login POST). authSeedBrian seeds ps_session with the correct `createdAt`.
+  const { ok } = await authSeedBrian(page, PW);
+  if (!ok) { console.log('::error:: test-login returned no token'); process.exit(4); }
   await page.evaluate(async () => { try { const rs = await navigator.serviceWorker?.getRegistrations(); await Promise.all((rs ?? []).map((x) => x.unregister())); } catch {} try { const ks = await caches?.keys(); await Promise.all((ks ?? []).map((k) => caches.delete(k))); } catch {} });
 
   const report = {};
