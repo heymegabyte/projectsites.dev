@@ -109,6 +109,71 @@ export function hasMoreMedia(shown: number, total: number | undefined): boolean 
   return typeof total === 'number' && total > shown;
 }
 
+/**
+ * Pagination footer for the media grid — the honest "Showing N of total" count + the "Load more"
+ * control, together below the grid. PURE + presentational so the render is unit-falsifiable WITHOUT
+ * booting the WebContainer editor (closes MEDIA-UI-VERIFY-LIVE, fire-137 — the live browser pass
+ * blocked on the cross-origin iframe twice). `total` = `filteredTotal ?? usage.totalCount` — the
+ * FILTERED match count first (fire-135), org-wide rollup as fallback. The count HIDES when
+ * `total <= shown` so it can never lie "50 of 50"; renders nothing when there's no count AND no next page.
+ */
+export function MediaPageStats({
+  shown,
+  filteredTotal,
+  usage,
+  hasMore,
+  loadingMore,
+  onLoadMore,
+}: {
+  shown: number;
+  filteredTotal: number | undefined;
+  usage: MediaUsageSummary | undefined;
+  hasMore: boolean;
+  loadingMore: boolean;
+  onLoadMore: () => void;
+}) {
+  const total = filteredTotal ?? usage?.totalCount;
+  const showCount = total !== undefined && total > shown;
+
+  if (!showCount && !hasMore) {
+    return null;
+  }
+
+  return (
+    <div className="flex items-center justify-center gap-3 pt-3">
+      {showCount && (
+        <span
+          className="shrink-0 text-[10px] text-bolt-elements-textTertiary tabular-nums whitespace-nowrap"
+          data-testid="resources-media-count"
+          title={`Showing ${shown} of ${total} matching file${total === 1 ? '' : 's'}`}
+        >
+          <span className="text-bolt-elements-textSecondary font-medium">{shown}</span> of{' '}
+          <span className="text-bolt-elements-textSecondary font-medium">{total}</span>
+        </span>
+      )}
+      {hasMore && (
+        <button
+          type="button"
+          onClick={onLoadMore}
+          disabled={loadingMore}
+          data-testid="resources-media-load-more"
+          title={`Load more — showing ${shown} of ${total ?? '?'}`}
+          className={classNames(BTN_SECONDARY, 'min-h-[26px] px-3 py-1 text-[11px]')}
+        >
+          <div
+            className={classNames(
+              loadingMore ? 'i-ph:circle-notch animate-spin motion-reduce:animate-none' : 'i-ph:arrow-down-bold',
+              'text-sm shrink-0',
+            )}
+            aria-hidden
+          />
+          <span className="min-w-[9ch] text-center">{loadingMore ? 'Loading…' : 'Load more'}</span>
+        </button>
+      )}
+    </div>
+  );
+}
+
 /*
  * ── Branded control primitives (the button contract, one source of truth) ────────────────────────
  *
@@ -1151,28 +1216,6 @@ const MediaLibrary = memo(
             />
           </div>
 
-          {/* Honest "N of total" — N = assets shown this page, total = the FILTERED match count
-              (falls back to the org-wide usage rollup when the server didn't send a filtered total).
-              Only meaningful once loaded AND the page is a subset of the total. */}
-          {state.status === 'ready' &&
-            (() => {
-              const shown = state.assets.length;
-              const total = state.filteredTotal ?? state.usage?.totalCount;
-              if (total === undefined || total <= shown) {
-                return null;
-              }
-              return (
-                <span
-                  className="shrink-0 text-[10px] text-bolt-elements-textTertiary tabular-nums whitespace-nowrap"
-                  data-testid="resources-media-count"
-                  title={`Showing ${shown} of ${total} matching file${total === 1 ? '' : 's'}`}
-                >
-                  <span className="text-bolt-elements-textSecondary font-medium">{shown}</span> of{' '}
-                  <span className="text-bolt-elements-textSecondary font-medium">{total}</span>
-                </span>
-              );
-            })()}
-
           {/* Upload — label span reserves its widest state (`Uploading…`) so it never resizes. */}
           <button
             type="button"
@@ -1218,38 +1261,17 @@ const MediaLibrary = memo(
                 ))}
               </div>
 
-              {/* Load more — only when this page is a subset of the filtered total. Appends the
-                  next page (dedupe by id), so the grid grows + "N of total" converges. The label
-                  span reserves its widest state (`Loading…`) so the control never resizes. */}
-              {(() => {
-                const total = state.filteredTotal ?? state.usage?.totalCount;
-                if (!hasMoreMedia(state.assets.length, total)) {
-                  return null;
-                }
-                return (
-                  <div className="flex justify-center pt-3">
-                    <button
-                      type="button"
-                      onClick={onLoadMore}
-                      disabled={loadingMore}
-                      data-testid="resources-media-load-more"
-                      title={`Load more — showing ${state.assets.length} of ${total}`}
-                      className={classNames(BTN_SECONDARY, 'min-h-[26px] px-3 py-1 text-[11px]')}
-                    >
-                      <div
-                        className={classNames(
-                          loadingMore
-                            ? 'i-ph:circle-notch animate-spin motion-reduce:animate-none'
-                            : 'i-ph:arrow-down-bold',
-                          'text-sm shrink-0',
-                        )}
-                        aria-hidden
-                      />
-                      <span className="min-w-[9ch] text-center">{loadingMore ? 'Loading…' : 'Load more'}</span>
-                    </button>
-                  </div>
-                );
-              })()}
+              {/* Pagination footer — the honest "N of total" count + "Load more", together below the
+                  grid. Extracted to <MediaPageStats> so the render is unit-testable without the
+                  WebContainer (resources-media-count.render.spec). */}
+              <MediaPageStats
+                shown={state.assets.length}
+                filteredTotal={state.filteredTotal}
+                usage={state.usage}
+                hasMore={hasMoreMedia(state.assets.length, state.filteredTotal ?? state.usage?.totalCount)}
+                loadingMore={loadingMore}
+                onLoadMore={onLoadMore}
+              />
             </div>
           ))}
 
