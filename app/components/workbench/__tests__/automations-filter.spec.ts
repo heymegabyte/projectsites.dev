@@ -15,11 +15,7 @@
  *   3. The 'all' filter returns every row; an empty bucket yields `[]`.
  */
 import { describe, expect, it } from 'vitest';
-import {
-  statusBucket,
-  summarizeAutomations,
-  type AutomationFilter,
-} from '../AutomationsPanel';
+import { statusBucket, summarizeAutomations, type AutomationFilter } from '../AutomationsPanel';
 import type { AutomationEntry } from '~/lib/embed/embedded-mode';
 
 /** Build an AutomationEntry with just the fields the filter logic reads. */

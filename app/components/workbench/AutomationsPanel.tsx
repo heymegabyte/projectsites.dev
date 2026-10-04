@@ -523,15 +523,7 @@ AutomationsFilterBar.displayName = 'AutomationsPanel.FilterBar';
 // ── Row ──────────────────────────────────────────────────────────────────────
 
 const AutomationRow = memo(
-  ({
-    automation,
-    retrying,
-    onRetry,
-  }: {
-    automation: AutomationEntry;
-    retrying: boolean;
-    onRetry: () => void;
-  }) => {
+  ({ automation, retrying, onRetry }: { automation: AutomationEntry; retrying: boolean; onRetry: () => void }) => {
     const sm = statusMeta(automation.status);
     const created = formatRelativeTime(automation.created_at);
     const finished = formatRelativeTime(automation.finished_at);
