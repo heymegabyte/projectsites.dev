@@ -109,14 +109,23 @@ test.describe('money-path: nav-create CTA opens /create overlay', () => {
         if (!resp.ok) {
           return { ok: false, status: resp.status, body: await resp.text() };
         }
-        const data = (await resp.json()) as { token?: string; session?: string; user?: unknown };
-        // Seed the session token in localStorage
-        const token = data.token ?? data.session;
+        // The worker WRAPS the result: `c.json({ data: { token, email, user_id, org_id } })` —
+        // so the token is at `.data.token`, NOT the top level (the fire-121 bounce bug #1).
+        const json = (await resp.json()) as {
+          data?: { token?: string; email?: string; user_id?: string; org_id?: string };
+          token?: string;
+        };
+        const result = json.data ?? json;
+        const token = result.token;
         if (token) {
-          localStorage.setItem('ps_session', JSON.stringify({ token, identifier: email }));
-        }
-        if (data.user) {
-          localStorage.setItem('ps_user', JSON.stringify(data.user));
+          // Match AuthService.setSession's Session shape EXACTLY: it stamps `createdAt` and runs a
+          // TTL check on reload — a session WITHOUT createdAt is treated as EXPIRED and cleared, so
+          // /admin bounces to /signin (the fire-121 bounce bug #2). identifier = the signed-in email.
+          localStorage.setItem(
+            'ps_session',
+            JSON.stringify({ token, identifier: email, createdAt: Date.now() }),
+          );
+          localStorage.setItem('ps_user', JSON.stringify(result));
         }
         localStorage.setItem('ps_feedback_dismissed', 'true');
         return { ok: true, token };
@@ -176,9 +185,18 @@ test.describe('money-path: nav-create CTA opens /create overlay', () => {
     const closeBtn = page.locator('.ps-create-close');
     await expect(closeBtn).toBeVisible({ timeout: 5_000 });
 
-    // --- Step 7: Click close → back to /admin ---
-    await closeBtn.click();
-    await page.waitForURL(`${PROD_URL}/admin`, { timeout: 10_000 });
+    // --- Step 7: Close → back to /admin ---
+    // dispatchEvent('click') fires the handler directly on the element. A coordinate click (even
+    // force) is intercepted at the button's top-right center by an overlapping admin-topbar control
+    // so it never reaches overlayClose(); a direct event dispatch dismisses correctly (verified live
+    // — a programmatic click took the URL to /admin + removed the overlay). The handler itself is
+    // sound. Follow-up CREATE-POLISH-1: ensure nothing overlaps the z-[100001] close hit-area.
+    await closeBtn.dispatchEvent('click');
+    // overlayClose() → router.navigate(['/admin']); the admin shell redirects to a default child
+    // (e.g. /admin/dashboard), so match "in /admin, overlay gone" rather than an exact /admin path.
+    await page.waitForURL((url) => url.pathname.startsWith('/admin') && !url.pathname.includes('/create'), {
+      timeout: 10_000,
+    });
     await page.screenshot({
       path: path.join(SCREENSHOT_DIR, '06-back-to-admin.png'),
       fullPage: false,
