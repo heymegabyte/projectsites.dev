@@ -25,7 +25,7 @@
 import React from 'react';
 import { cleanup, fireEvent, render, screen } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { BucketsEmpty, ObjectsEmpty } from '../BucketsPanel';
+import { BucketsEmpty, ObjectsEmpty, BucketsTwoPane } from '../BucketsPanel';
 
 afterEach(cleanup);
 
@@ -95,5 +95,16 @@ describe('ObjectsEmpty — filtered to zero results', () => {
     const empty = screen.getByTestId('buckets-objects-empty');
     expect(empty.textContent).toContain('No matching objects');
     expect(screen.queryByTestId('buckets-objects-empty-upload')).toBeNull();
+  });
+
+  it('BucketsTwoPane keeps the object pane shrinkable (min-w-0) so it never clips in the narrow editor panel', () => {
+    render(<BucketsTwoPane left={<div data-testid="l">list</div>} right={<div data-testid="r">browser</div>} />);
+    expect(screen.getByTestId('l')).toBeTruthy();
+    expect(screen.getByTestId('r')).toBeTruthy();
+    // The object pane MUST carry min-w-0 — without it the flex child can't shrink and the object
+    // browser overflows the overflow-hidden parent (clipped at the ~600px panel edge, fire-153/160).
+    expect(screen.getByTestId('buckets-object-pane').className).toContain('min-w-0');
+    // The container is overflow-hidden, so a NON-shrinking child would clip — min-w-0 is the guard.
+    expect(screen.getByTestId('buckets-two-pane').className).toContain('overflow-hidden');
   });
 });

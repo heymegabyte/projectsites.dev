@@ -252,6 +252,34 @@ type ObjectsState =
 
 type SortKey = 'name' | 'size' | 'time';
 
+// ── Two-pane layout (extracted so the min-w-0 clip fix is a reusable, testable primitive) ─────
+
+/**
+ * The Buckets two-pane layout — bucket LIST (left, fixed-width on wide screens) + object BROWSER
+ * (right, flex-fill). Extracted (fire-160) so the exact flex structure — including the `min-w-0`
+ * right pane that stops the object browser clipping at the narrow ~600px editor panel — is ONE
+ * reusable primitive, independently render-testable + visible in the /_preview gallery.
+ */
+export function BucketsTwoPane({ left, right }: { left: React.ReactNode; right: React.ReactNode }) {
+  return (
+    <div
+      className="relative flex-1 overflow-hidden flex flex-col lg:flex-row min-h-0"
+      data-testid="buckets-two-pane"
+    >
+      {/* Left: bucket list (fixed width on wide screens). */}
+      <div className="lg:w-72 shrink-0 border-b lg:border-b-0 lg:border-r border-bolt-elements-borderColor/60 overflow-auto modern-scrollbar">
+        {left}
+      </div>
+      {/* Right: object browser. `min-w-0` lets the pane shrink to its flex share inside the narrow
+          (~600px) editor panel so the browser scrolls internally instead of overflowing the
+          `overflow-hidden` parent (was clipped at the panel edge — fire-153). */}
+      <div className="flex-1 min-h-0 min-w-0 flex flex-col" data-testid="buckets-object-pane">
+        {right}
+      </div>
+    </div>
+  );
+}
+
 // ── Component ────────────────────────────────────────────────────────────────
 
 export const BucketsPanel = memo(() => {
@@ -458,32 +486,29 @@ export const BucketsPanel = memo(() => {
       {/* Needs-creds banner — object ops disabled but bucket CRUD works. */}
       {buckets.status === 'ready' && !objectOpsAvailable && buckets.buckets.length > 0 && <NeedsCredsBanner />}
 
-      <div className="relative flex-1 overflow-hidden flex flex-col lg:flex-row min-h-0">
-        {/* Left: bucket list. */}
-        <div className="lg:w-72 shrink-0 border-b lg:border-b-0 lg:border-r border-bolt-elements-borderColor/60 overflow-auto modern-scrollbar">
-          {buckets.status === 'loading' && <BucketsSkeleton />}
-          {buckets.status === 'error' && <ErrorCard message={buckets.message} onRetry={() => void loadBuckets()} />}
-          {buckets.status === 'ready' &&
-            (buckets.buckets.length === 0 ? (
-              <BucketsEmpty onCreate={() => setShowCreate(true)} />
-            ) : (
-              <BucketList
-                buckets={buckets.buckets}
-                selected={selectedBucket}
-                onSelect={setSelectedBucket}
-                onDelete={setDeleteTarget}
-                onAddress={openAddress}
-                onTogglePublic={onTogglePublic}
-                onPromote={onPromote}
-              />
-            ))}
-        </div>
-
-        {/* Right: object browser for the selected bucket. `min-w-0` lets the pane shrink to its
-            flex share inside the narrow (~600px) editor panel so ObjectBrowser scrolls internally
-            instead of overflowing the `overflow-hidden` parent (was clipped at the panel edge). */}
-        <div className="flex-1 min-h-0 min-w-0 flex flex-col">
-          {selectedBucket && buckets.status === 'ready' ? (
+      <BucketsTwoPane
+        left={
+          <>
+            {buckets.status === 'loading' && <BucketsSkeleton />}
+            {buckets.status === 'error' && <ErrorCard message={buckets.message} onRetry={() => void loadBuckets()} />}
+            {buckets.status === 'ready' &&
+              (buckets.buckets.length === 0 ? (
+                <BucketsEmpty onCreate={() => setShowCreate(true)} />
+              ) : (
+                <BucketList
+                  buckets={buckets.buckets}
+                  selected={selectedBucket}
+                  onSelect={setSelectedBucket}
+                  onDelete={setDeleteTarget}
+                  onAddress={openAddress}
+                  onTogglePublic={onTogglePublic}
+                  onPromote={onPromote}
+                />
+              ))}
+          </>
+        }
+        right={
+          selectedBucket && buckets.status === 'ready' ? (
             <ObjectBrowser
               bucket={buckets.buckets.find((b) => b.name === selectedBucket) ?? { name: selectedBucket }}
               objectOpsAvailable={objectOpsAvailable}
@@ -499,9 +524,9 @@ export const BucketsPanel = memo(() => {
             <div className="flex-1 flex items-center justify-center p-8 text-center text-[12px] text-bolt-elements-textTertiary">
               Select a bucket to browse its objects.
             </div>
-          ) : null}
-        </div>
-      </div>
+          ) : null
+        }
+      />
 
       {showCreate && <CreateBucketModal onClose={() => setShowCreate(false)} onCreated={onCreated} />}
       {deleteTarget && (
