@@ -12,16 +12,20 @@
  *   5. real-time: NO manual Refresh button; the list self-updates on a visibility-aware interval.
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { act, cleanup, render, screen, waitFor } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import React from 'react';
 
-const { requestAutomations } = vi.hoisted(() => ({
+const { requestAutomations, requestAutomationRetry, postToastToParent } = vi.hoisted(() => ({
   requestAutomations: vi.fn(),
+  requestAutomationRetry: vi.fn(),
+  postToastToParent: vi.fn(),
 }));
 
 vi.mock('~/lib/embed/embedded-mode', () => ({
   isEmbedded: true,
   requestAutomations,
+  requestAutomationRetry,
+  postToastToParent,
 }));
 
 vi.mock('~/utils/classNames', () => ({
@@ -32,6 +36,8 @@ import { AutomationsPanel } from './AutomationsPanel';
 
 beforeEach(() => {
   requestAutomations.mockReset();
+  requestAutomationRetry.mockReset();
+  postToastToParent.mockReset();
 });
 
 afterEach(() => cleanup());
@@ -170,5 +176,89 @@ describe('AutomationsPanel — real-time, no manual refresh', () => {
     } finally {
       vi.useRealTimers();
     }
+  });
+});
+
+describe('AutomationsPanel — Re-run (retry mutation)', () => {
+  const failedRow = {
+    id: 'job-failed',
+    type: 'site-generation',
+    status: 'failed',
+    created_at: new Date(Date.now() - 3_600_000).toISOString(),
+    finished_at: new Date(Date.now() - 3_000_000).toISOString(),
+  };
+  const okRow = {
+    id: 'job-ok',
+    type: 'image-generation',
+    status: 'success',
+    created_at: new Date().toISOString(),
+    finished_at: new Date().toISOString(),
+  };
+
+  it('shows a Re-run button ONLY on failed rows (not on succeeded/running)', async () => {
+    requestAutomations.mockResolvedValue({
+      type: 'PS_RES_AUTOMATIONS_RESULT',
+      ok: true,
+      automations: [failedRow, okRow],
+    });
+
+    render(<AutomationsPanel />);
+    await waitFor(() => expect(screen.getByTestId('automations-list')).toBeTruthy());
+
+    // Exactly one Re-run control, for the single failed row.
+    const buttons = screen.getAllByTestId('automation-retry');
+    expect(buttons.length).toBe(1);
+    expect(screen.getByRole('button', { name: /re-run/i })).toBeTruthy();
+  });
+
+  it('clicking Re-run calls the bridge op with the failed job id + flips the row to running', async () => {
+    requestAutomations.mockResolvedValue({
+      type: 'PS_RES_AUTOMATIONS_RESULT',
+      ok: true,
+      automations: [failedRow],
+    });
+    requestAutomationRetry.mockResolvedValue({
+      type: 'PS_RES_AUTOMATION_RETRY_RESULT',
+      ok: true,
+      status: 'building',
+    });
+
+    render(<AutomationsPanel />);
+    await waitFor(() => expect(screen.getByTestId('automation-retry')).toBeTruthy());
+
+    await act(async () => {
+      fireEvent.click(screen.getByTestId('automation-retry'));
+    });
+
+    // The op was invoked with the failed automation's id.
+    expect(requestAutomationRetry).toHaveBeenCalledWith('job-failed');
+    // Optimistic: the row no longer reads "failed" (flipped to running) → the Re-run button is gone.
+    await waitFor(() => expect(screen.queryByTestId('automation-retry')).toBeNull());
+    expect(postToastToParent).toHaveBeenCalledWith('success', expect.stringMatching(/re-run|building|rebuild/i));
+  });
+
+  it('surfaces a toast + keeps the Re-run button on a retry error (no optimistic flip stuck)', async () => {
+    requestAutomations.mockResolvedValue({
+      type: 'PS_RES_AUTOMATIONS_RESULT',
+      ok: true,
+      automations: [failedRow],
+    });
+    requestAutomationRetry.mockResolvedValue({
+      type: 'PS_RES_AUTOMATION_RETRY_RESULT',
+      ok: false,
+      error: 'A build is already in progress for this site.',
+    });
+
+    render(<AutomationsPanel />);
+    await waitFor(() => expect(screen.getByTestId('automation-retry')).toBeTruthy());
+
+    await act(async () => {
+      fireEvent.click(screen.getByTestId('automation-retry'));
+    });
+
+    expect(requestAutomationRetry).toHaveBeenCalledWith('job-failed');
+    expect(postToastToParent).toHaveBeenCalledWith('error', expect.stringMatching(/already in progress/i));
+    // The row reverts to failed → the Re-run control is still available for another try.
+    await waitFor(() => expect(screen.getByTestId('automation-retry')).toBeTruthy());
   });
 });

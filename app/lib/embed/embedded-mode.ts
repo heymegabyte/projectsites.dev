@@ -2021,6 +2021,30 @@ export interface AutomationsResponseMessage {
   error?: string;
 }
 
+/**
+ * Child → Parent: RETRY one automation — re-run a (typically FAILED) job by re-dispatching
+ * the site's generation workflow. The admin proxies to
+ * `POST /api/sites/:id/automations/:automationId/retry` (RES-AUTO slice 3).
+ */
+export interface AutomationRetryRequestMessage {
+  type: 'PS_RES_AUTOMATION_RETRY';
+  correlationId: string;
+  /** The failed `workflow_jobs` instance id to re-run. */
+  automationId: string;
+}
+
+/** Parent → Child: the admin's reply to {@link AutomationRetryRequestMessage}. */
+export interface AutomationRetryResponseMessage {
+  type: 'PS_RES_AUTOMATION_RETRY_RESULT';
+  correlationId?: string;
+  ok: boolean;
+  /** The status the site flipped to on success (`'building'`). */
+  status?: string;
+  /** `false` when the surface's flag is off (dark-flag 404). */
+  enabled?: boolean;
+  error?: string;
+}
+
 /*
  * ── Resources Buckets bridge messages (Resources → Buckets tab) ─────────────────────────────────
  *
@@ -2260,6 +2284,7 @@ export type ParentToChildMessage =
   | MediaUploadResponseMessage
   | ResSiteFilesResponseMessage
   | AutomationsResponseMessage
+  | AutomationRetryResponseMessage
   | R2ResponseMessage
   | BucketUploadResponseMessage
   | BucketDownloadResponseMessage
@@ -2303,6 +2328,7 @@ export type ChildToParentMessage =
   | MediaUploadRequestMessage
   | ResSiteFilesRequestMessage
   | AutomationsRequestMessage
+  | AutomationRetryRequestMessage
   | R2RequestMessage
   | BucketUploadRequestMessage
   | BucketDownloadRequestMessage
@@ -3037,6 +3063,19 @@ export function requestAutomations(): Promise<AutomationsResponseMessage> {
   return requestFromParent<AutomationsResponseMessage>(
     { type: 'PS_RES_AUTOMATIONS', correlationId: nextBridgeCorrelationId() },
     'PS_RES_AUTOMATIONS_RESULT',
+  );
+}
+
+/**
+ * Resources → Automations: ask the parent admin to RE-RUN one automation (re-dispatch the
+ * site's workflow). Resolves with the parent's {@link AutomationRetryResponseMessage} (the
+ * admin proxies to `POST /api/sites/:id/automations/:automationId/retry`). DARK behind
+ * `site_automations` → `{ok:false, enabled:false}`.
+ */
+export function requestAutomationRetry(automationId: string): Promise<AutomationRetryResponseMessage> {
+  return requestFromParent<AutomationRetryResponseMessage>(
+    { type: 'PS_RES_AUTOMATION_RETRY', correlationId: nextBridgeCorrelationId(), automationId },
+    'PS_RES_AUTOMATION_RETRY_RESULT',
   );
 }
 

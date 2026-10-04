@@ -26,3 +26,22 @@ export const ListAutomationsResponse = z.object({
   data: z.array(Automation),
 });
 export type ListAutomationsResponse = z.infer<typeof ListAutomationsResponse>;
+
+/**
+ * Route params for POST /api/sites/:siteId/automations/:id/retry — the RETRY mutation.
+ * Both ids are opaque non-empty strings (site id + the failed `workflow_jobs` instance
+ * id); the handler owns ownership + flag gating, this only guards the shape.
+ */
+export const RetryAutomationParams = z.object({
+  siteId: z.string().min(1).max(128),
+  id: z.string().min(1).max(128),
+});
+export type RetryAutomationParams = z.infer<typeof RetryAutomationParams>;
+
+/** Response envelope for the retry mutation. */
+export const RetryAutomationResponse = z.object({
+  ok: z.literal(true),
+  /** The status the site was flipped to by the re-dispatch. */
+  status: z.literal('building'),
+});
+export type RetryAutomationResponse = z.infer<typeof RetryAutomationResponse>;

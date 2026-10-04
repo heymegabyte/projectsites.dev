@@ -11,7 +11,7 @@ export default defineFeatureManifest({
   slug: 'site_automations',
   name: 'Site Automations Panel',
   description:
-    'Read-only list of a sites workflow and automation instances (id, type, status, created_at, finished_at) from the workflow_jobs table, org-scoped. First backend slice of the Automations panel.',
+    'The Automations panel: lists a sites workflow_jobs (id, type, status, timestamps), org-scoped, PLUS a RETRY mutation (POST .../:id/retry) re-dispatching the sites workflow the way reset does.',
   lifecycle: 'alpha',
   flagKey: 'site_automations',
   owner: 'brian@megabyte.space',
@@ -19,13 +19,19 @@ export default defineFeatureManifest({
   updatedAt: '2026-10-02',
 
   routes: [],
-  apiRoutes: ['GET /api/sites/:siteId/automations'],
+  apiRoutes: [
+    'GET /api/sites/:siteId/automations',
+    'POST /api/sites/:siteId/automations/:id/retry',
+  ],
 
-  permissions: ['sites:read'],
+  permissions: ['sites:read', 'sites:write'],
   dependencies: [],
 
   e2eTests: [],
-  unitTests: ['src/__tests__/site_automations_route.test.ts'],
+  unitTests: [
+    'src/__tests__/site_automations_route.test.ts',
+    'src/__tests__/site_automations_retry_route.test.ts',
+  ],
   integrationTests: [],
   testStatus: 'passing',
 
@@ -43,6 +49,7 @@ export default defineFeatureManifest({
   risks: [
     'Reads the shared platform workflow_jobs table — hard-scoped to site_id AND guarded by assertSiteOwned so it never exposes another tenant\'s jobs.',
     'List is capped at 200 rows; a very active site could have older runs omitted (acceptable for a recent-activity panel).',
+    'The retry mutation re-dispatches a $-costly SITE_WORKFLOW build — guarded by assertSiteOwned (IDOR) AND an in-flight (building/generating) check so a double-click cannot spawn two concurrent builds.',
   ],
 
   removalNotes:

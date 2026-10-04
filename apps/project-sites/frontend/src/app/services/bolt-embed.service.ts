@@ -315,6 +315,8 @@ interface PsMessage {
   readonly q?: string;
   /** PS_RES_MEDIA (Resources tab, delete): the media asset id to soft-delete. */
   readonly assetId?: string;
+  /** PS_RES_AUTOMATION_RETRY (Resources → Automations): the failed workflow_jobs instance id to re-run. */
+  readonly automationId?: string;
   /**
    * PS_RES_MEDIA_UPLOAD (Resources tab): the upload's display file name — reuses the shared `name`
    * field above (also used by PS_VEC_REQUEST / PS_VIEW_REQUEST), so no separate declaration.
@@ -3117,6 +3119,58 @@ export class BoltEmbedService {
                   reply({ ok: false, enabled: false });
                 } else {
                   reply({ ok: false, error: 'Could not load automations.' });
+                }
+              },
+            });
+          break;
+        }
+        case 'PS_RES_AUTOMATION_RETRY': {
+          // Resources → Automations (RETRY) — the embedded editor has no cross-origin session, so it
+          // asks US (we hold currentSite + the ApiService bearer) to RE-RUN one automation by
+          // re-dispatching the site's workflow via POST /api/sites/:id/automations/:automationId/retry
+          // (slice 3 — same mechanism as reset). Reply PS_RES_AUTOMATION_RETRY_RESULT. DARK behind
+          // `site_automations` → a 404 translates to {ok:false,enabled:false}; a 409 (build already in
+          // flight) surfaces its human message so the editor can toast it.
+          const iframe = this.iframeEl;
+          const site = this.currentSite;
+          const cid = msg.correlationId;
+          const reply = (payload: Record<string, unknown>): void => {
+            iframe?.contentWindow?.postMessage(
+              { type: 'PS_RES_AUTOMATION_RETRY_RESULT', correlationId: cid, ...payload },
+              EDITOR_BASE,
+            );
+          };
+          if (!site) {
+            reply({ ok: false, error: 'No site selected' });
+            break;
+          }
+          const automationId = typeof msg.automationId === 'string' ? msg.automationId : '';
+          if (!automationId) {
+            reply({ ok: false, error: 'Missing automation id' });
+            break;
+          }
+          // Worker `.../retry` → `{ ok:true, status:'building' }` (200).
+          this.api
+            .post<{ ok?: boolean; status?: string }>(
+              `/sites/${site.id}/automations/${encodeURIComponent(automationId)}/retry`,
+              {},
+              { silent: true },
+            )
+            .subscribe({
+              next: (res) => reply({ ok: true, status: res?.status ?? 'building' }),
+              error: (err: unknown) => {
+                // 404 = dark/absent flag (friendly disabled, never a scary error). A 409 carries a
+                // human "build already in progress" message the editor surfaces verbatim.
+                if (err instanceof HttpErrorResponse && err.status === 404) {
+                  reply({ ok: false, enabled: false });
+                } else if (err instanceof HttpErrorResponse && err.status === 409) {
+                  const m =
+                    typeof err.error?.error?.message === 'string'
+                      ? err.error.error.message
+                      : 'A build is already in progress for this site.';
+                  reply({ ok: false, error: m });
+                } else {
+                  reply({ ok: false, error: 'Could not re-run this automation.' });
                 }
               },
             });

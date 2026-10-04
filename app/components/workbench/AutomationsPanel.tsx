@@ -25,7 +25,13 @@
 import React, { memo, useCallback, useEffect, useRef, useState } from 'react';
 import { classNames } from '~/utils/classNames';
 import { PanelShell, PanelHeader } from './panel';
-import { isEmbedded, requestAutomations, type AutomationEntry } from '~/lib/embed/embedded-mode';
+import {
+  isEmbedded,
+  postToastToParent,
+  requestAutomationRetry,
+  requestAutomations,
+  type AutomationEntry,
+} from '~/lib/embed/embedded-mode';
 
 // ── Brand accents (mirror BucketsPanel / ResourcesPanel) ──────────────────────
 const PURPLE = '#7C3AED';
@@ -200,6 +206,72 @@ export const AutomationsPanel = memo(() => {
   const [state, setState] = useState<AutomationsState>({ status: 'loading' });
   const [filter, setFilter] = useState<AutomationFilter>('all');
 
+  /**
+   * Ids currently mid-retry — the Re-run button shows a spinner + is disabled while the
+   * re-dispatch is in flight (idempotency guard against a double-click spawning two builds).
+   */
+  const [retryingIds, setRetryingIds] = useState<ReadonlySet<string>>(() => new Set());
+
+  /**
+   * Re-run a failed automation. Optimistically flips the row to `running` (the rebuild is
+   * dispatching), calls the parent bridge op, and on error reverts the row to `failed` +
+   * toasts the reason (per `embarrassingly-easy` — instant feedback, reversible, never a
+   * dead control). The visibility-aware poll reconciles the real status shortly after.
+   */
+  const retryAutomation = useCallback(async (id: string) => {
+    if (!isEmbedded) {
+      return;
+    }
+
+    setRetryingIds((cur) => new Set(cur).add(id));
+    // Optimistic: show the row as running immediately so the UI responds the instant it's clicked.
+    setState((cur) =>
+      cur.status === 'ready'
+        ? {
+            ...cur,
+            automations: cur.automations.map((a) => (a.id === id ? { ...a, status: 'running' } : a)),
+          }
+        : cur,
+    );
+
+    try {
+      const reply = await requestAutomationRetry(id);
+
+      if (reply.ok) {
+        postToastToParent('success', 'Re-running — rebuild pipeline queued.');
+        return;
+      }
+
+      // Revert the optimistic flip back to failed so the Re-run control stays available.
+      setState((cur) =>
+        cur.status === 'ready'
+          ? {
+              ...cur,
+              automations: cur.automations.map((a) => (a.id === id ? { ...a, status: 'failed' } : a)),
+            }
+          : cur,
+      );
+      postToastToParent('error', reply.error || 'Could not re-run this automation.');
+    } catch (err) {
+      setState((cur) =>
+        cur.status === 'ready'
+          ? {
+              ...cur,
+              automations: cur.automations.map((a) => (a.id === id ? { ...a, status: 'failed' } : a)),
+            }
+          : cur,
+      );
+      postToastToParent('error', err instanceof Error ? err.message : 'Could not re-run this automation.');
+    } finally {
+      setRetryingIds((cur) => {
+        const next = new Set(cur);
+        next.delete(id);
+
+        return next;
+      });
+    }
+  }, []);
+
   /** Load (or reload) the site's automations. */
   const loadAutomations = useCallback(async () => {
     setState({ status: 'loading' });
@@ -327,7 +399,12 @@ export const AutomationsPanel = memo(() => {
           ) : (
             <ul className="divide-y divide-bolt-elements-borderColor/25" data-testid="automations-list">
               {summary.visible.map((a) => (
-                <AutomationRow key={a.id} automation={a} />
+                <AutomationRow
+                  key={a.id}
+                  automation={a}
+                  retrying={retryingIds.has(a.id)}
+                  onRetry={() => void retryAutomation(a.id)}
+                />
               ))}
             </ul>
           ))}
@@ -445,53 +522,96 @@ AutomationsFilterBar.displayName = 'AutomationsPanel.FilterBar';
 
 // ── Row ──────────────────────────────────────────────────────────────────────
 
-const AutomationRow = memo(({ automation }: { automation: AutomationEntry }) => {
-  const sm = statusMeta(automation.status);
-  const created = formatRelativeTime(automation.created_at);
-  const finished = formatRelativeTime(automation.finished_at);
+const AutomationRow = memo(
+  ({
+    automation,
+    retrying,
+    onRetry,
+  }: {
+    automation: AutomationEntry;
+    retrying: boolean;
+    onRetry: () => void;
+  }) => {
+    const sm = statusMeta(automation.status);
+    const created = formatRelativeTime(automation.created_at);
+    const finished = formatRelativeTime(automation.finished_at);
+    // Only a FAILED automation can be re-run (per statusBucket — the triage grouping).
+    const canRetry = statusBucket(automation.status) === 'failed';
 
-  return (
-    <li
-      className="group flex items-center gap-2.5 px-4 py-2.5 hover:bg-bolt-elements-item-backgroundActive transition-colors motion-reduce:transition-none"
-      data-testid="automations-row"
-    >
-      <div
-        className={classNames(iconForType(automation.type), 'text-base text-bolt-elements-textTertiary shrink-0')}
-        aria-hidden
-      />
-      <div className="min-w-0 flex-1">
-        <p className="text-[12px] font-medium text-bolt-elements-textPrimary truncate" title={automation.type}>
-          {automation.type}
-        </p>
-        <p className="text-[10px] text-bolt-elements-textTertiary tabular-nums flex items-center gap-1">
-          {created && <span title={automation.created_at}>Started {created}</span>}
-          {finished && (
-            <>
-              <span className="text-bolt-elements-textTertiary/50" aria-hidden>
-                ·
-              </span>
-              <span title={automation.finished_at ?? undefined}>finished {finished}</span>
-            </>
-          )}
-          {!created && !finished && <span>{automation.id}</span>}
-        </p>
-      </div>
-
-      {/* Status badge — icon + label, color-coded, AA-contrast token colors. */}
-      <span
-        className="inline-flex items-center gap-1 rounded-md border px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide shrink-0"
-        style={{ borderColor: `color-mix(in oklch, ${sm.color} 45%, transparent)`, color: sm.color }}
-        title={`Status: ${automation.status}`}
+    return (
+      <li
+        className="group flex items-center gap-2.5 px-4 py-2.5 hover:bg-bolt-elements-item-backgroundActive transition-colors motion-reduce:transition-none"
+        data-testid="automations-row"
       >
         <div
-          className={classNames(sm.icon, 'text-[11px]', sm.spin && 'animate-spin motion-reduce:animate-none')}
+          className={classNames(iconForType(automation.type), 'text-base text-bolt-elements-textTertiary shrink-0')}
           aria-hidden
         />
-        {sm.label}
-      </span>
-    </li>
-  );
-});
+        <div className="min-w-0 flex-1">
+          <p className="text-[12px] font-medium text-bolt-elements-textPrimary truncate" title={automation.type}>
+            {automation.type}
+          </p>
+          <p className="text-[10px] text-bolt-elements-textTertiary tabular-nums flex items-center gap-1">
+            {created && <span title={automation.created_at}>Started {created}</span>}
+            {finished && (
+              <>
+                <span className="text-bolt-elements-textTertiary/50" aria-hidden>
+                  ·
+                </span>
+                <span title={automation.finished_at ?? undefined}>finished {finished}</span>
+              </>
+            )}
+            {!created && !finished && <span>{automation.id}</span>}
+          </p>
+        </div>
+
+        {/* Re-run — only on FAILED rows: turns the log into a managed surface (re-dispatch the build). */}
+        {canRetry && (
+          <button
+            type="button"
+            onClick={onRetry}
+            disabled={retrying}
+            data-testid="automation-retry"
+            aria-label={retrying ? 'Re-running automation' : 'Re-run this automation'}
+            title={retrying ? 'Re-running…' : 'Re-run this automation'}
+            className={classNames(
+              'inline-flex items-center justify-center gap-1 rounded-md border font-medium shrink-0 select-none',
+              'transition-colors duration-150 motion-reduce:transition-none',
+              'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-1 focus-visible:ring-offset-bolt-elements-background-depth-1 focus-visible:ring-bolt-elements-item-contentAccent',
+              'min-h-[24px] px-1.5 py-0.5 text-[10px]',
+              retrying
+                ? 'border-bolt-elements-borderColor/40 text-bolt-elements-textTertiary cursor-wait'
+                : 'border-bolt-elements-item-contentAccent/40 text-bolt-elements-item-contentAccent cursor-pointer hover:bg-bolt-elements-item-contentAccent/[0.12] hover:border-bolt-elements-item-contentAccent/60',
+            )}
+          >
+            <div
+              className={classNames(
+                retrying ? 'i-ph:circle-notch animate-spin motion-reduce:animate-none' : 'i-ph:arrow-clockwise',
+                'text-[11px]',
+              )}
+              aria-hidden
+            />
+            {/* Reserve the widest label ("Re-running…") so the button never resizes on toggle. */}
+            <span className="inline-block text-center min-w-[6.5ch]">{retrying ? 'Re-running…' : 'Re-run'}</span>
+          </button>
+        )}
+
+        {/* Status badge — icon + label, color-coded, AA-contrast token colors. */}
+        <span
+          className="inline-flex items-center gap-1 rounded-md border px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide shrink-0"
+          style={{ borderColor: `color-mix(in oklch, ${sm.color} 45%, transparent)`, color: sm.color }}
+          title={`Status: ${automation.status}`}
+        >
+          <div
+            className={classNames(sm.icon, 'text-[11px]', sm.spin && 'animate-spin motion-reduce:animate-none')}
+            aria-hidden
+          />
+          {sm.label}
+        </span>
+      </li>
+    );
+  },
+);
 
 AutomationRow.displayName = 'AutomationsPanel.Row';
 
