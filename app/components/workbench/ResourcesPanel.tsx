@@ -77,6 +77,38 @@ type FilesState =
   | { status: 'error'; message: string }
   | { status: 'ready'; files: SiteBuildFileEntry[]; prefix?: string };
 
+/**
+ * Append the next media page onto the current list, deduping by `id` (prev wins, order stable).
+ * The "Load more" path APPENDS — it never replaces — so earlier pages stay on screen as the user
+ * pages through the filtered total. Exported so the component and its test share one source of truth.
+ */
+export function mergeMediaAssets(prev: MediaAssetEntry[], next: MediaAssetEntry[]): MediaAssetEntry[] {
+  if (next.length === 0) {
+    return prev;
+  }
+
+  const seen = new Set(prev.map((a) => a.id));
+  const merged = [...prev];
+
+  for (const asset of next) {
+    if (!seen.has(asset.id)) {
+      seen.add(asset.id);
+      merged.push(asset);
+    }
+  }
+
+  return merged;
+}
+
+/**
+ * Is there another media page to fetch? True only when the known filtered total exceeds the number
+ * currently shown. Drives both the honest "N of total" affordance and the "Load more" control's
+ * visibility — so the control HIDES the instant `shown === total` (or when the total is unknown).
+ */
+export function hasMoreMedia(shown: number, total: number | undefined): boolean {
+  return typeof total === 'number' && total > shown;
+}
+
 /*
  * ── Branded control primitives (the button contract, one source of truth) ────────────────────────
  *
@@ -356,12 +388,19 @@ export const ResourcesPanel = memo(() => {
 
   // Media library state.
   const [media, setMedia] = useState<MediaState>({ status: 'loading' });
+  // Latest-ref so the "Load more" closure reads the current page without widening its deps
+  // (per the datapanel empty-deps-needs-latest-ref incident — never a stale snapshot).
+  const mediaRef = useRef<MediaState>(media);
+  mediaRef.current = media;
   const [kind, setKind] = useState<string>('');
   const [search, setSearch] = useState('');
   const [uploading, setUploading] = useState(false);
   const [uploadName, setUploadName] = useState<string | null>(null);
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  // True while a "Load more" page is in flight (disables the control + shows "Loading…").
+  const [loadingMore, setLoadingMore] = useState(false);
 
   // Build files state (lazy — loaded when the section is first opened).
   const [files, setFiles] = useState<FilesState>({ status: 'idle' });
@@ -408,6 +447,67 @@ export const ResourcesPanel = memo(() => {
       setMedia({ status: 'error', message: err instanceof Error ? err.message : 'Could not load your media.' });
     }
   }, [environment, kind, search]);
+
+  /**
+   * Load the NEXT media page and APPEND it (dedupe by id via {@link mergeMediaAssets}) — never replace.
+   * Requests `offset = assets.length` (the admin bridge clamps + forwards it to `/media/assets`), keeping
+   * the active filter, so "N of total" converges toward the filtered total as the user pages through.
+   */
+  const loadMoreMedia = useCallback(async () => {
+    if (loadingMore) {
+      return;
+    }
+
+    // Guard: only page when loaded AND there's genuinely more to fetch (same predicate the control uses).
+    const cur = mediaRef.current;
+
+    if (cur.status !== 'ready') {
+      return;
+    }
+
+    const total = cur.filteredTotal ?? cur.usage?.totalCount;
+
+    if (!hasMoreMedia(cur.assets.length, total)) {
+      return;
+    }
+
+    setLoadingMore(true);
+
+    try {
+      const reply = await requestResMedia({
+        action: 'list',
+        environment,
+        kind: kind || undefined,
+        search: search.trim() || undefined,
+        offset: cur.assets.length,
+      });
+
+      if (!reply.ok) {
+        postToastToParent('error', reply.error || 'Could not load more files.');
+
+        return;
+      }
+
+      const page = reply.assets ?? [];
+
+      setMedia((prev) =>
+        prev.status === 'ready'
+          ? {
+              ...prev,
+              assets: mergeMediaAssets(prev.assets, page),
+              // Prefer the freshest server totals if the page carried them.
+              usage: reply.usage ?? prev.usage,
+              cursor: reply.cursor,
+              filteredTotal: reply.filteredTotal ?? prev.filteredTotal,
+            }
+          : prev,
+      );
+    } catch (err) {
+      postToastToParent('error', err instanceof Error ? err.message : 'Could not load more files.');
+    } finally {
+      setLoadingMore(false);
+    }
+  }, [loadingMore, environment, kind, search]);
 
   /** Load (or reload) the site's build files for the current environment. */
   const loadFiles = useCallback(async () => {
@@ -640,11 +740,13 @@ export const ResourcesPanel = memo(() => {
             uploading={uploading}
             uploadName={uploadName}
             deletingId={deletingId}
+            loadingMore={loadingMore}
             onKind={setKind}
             onSearch={setSearch}
             onPickFile={onPickFile}
             onUploadFile={onUploadFile}
             onDelete={onDeleteAsset}
+            onLoadMore={() => void loadMoreMedia()}
             onRetry={() => void loadMedia()}
           />
         ) : section === 'files' ? (
@@ -929,11 +1031,13 @@ const MediaLibrary = memo(
     uploading,
     uploadName,
     deletingId,
+    loadingMore,
     onKind,
     onSearch,
     onPickFile,
     onUploadFile,
     onDelete,
+    onLoadMore,
     onRetry,
   }: {
     state: MediaState;
@@ -942,11 +1046,13 @@ const MediaLibrary = memo(
     uploading: boolean;
     uploadName: string | null;
     deletingId: string | null;
+    loadingMore: boolean;
     onKind: (k: string) => void;
     onSearch: (s: string) => void;
     onPickFile: () => void;
     onUploadFile: (file: File) => void;
     onDelete: (asset: MediaAssetEntry) => void;
+    onLoadMore: () => void;
     onRetry: () => void;
   }) => {
     const [dragging, setDragging] = useState(false);
@@ -1111,6 +1217,39 @@ const MediaLibrary = memo(
                   />
                 ))}
               </div>
+
+              {/* Load more — only when this page is a subset of the filtered total. Appends the
+                  next page (dedupe by id), so the grid grows + "N of total" converges. The label
+                  span reserves its widest state (`Loading…`) so the control never resizes. */}
+              {(() => {
+                const total = state.filteredTotal ?? state.usage?.totalCount;
+                if (!hasMoreMedia(state.assets.length, total)) {
+                  return null;
+                }
+                return (
+                  <div className="flex justify-center pt-3">
+                    <button
+                      type="button"
+                      onClick={onLoadMore}
+                      disabled={loadingMore}
+                      data-testid="resources-media-load-more"
+                      title={`Load more — showing ${state.assets.length} of ${total}`}
+                      className={classNames(BTN_SECONDARY, 'min-h-[26px] px-3 py-1 text-[11px]')}
+                    >
+                      <div
+                        className={classNames(
+                          loadingMore
+                            ? 'i-ph:circle-notch animate-spin motion-reduce:animate-none'
+                            : 'i-ph:arrow-down-bold',
+                          'text-sm shrink-0',
+                        )}
+                        aria-hidden
+                      />
+                      <span className="min-w-[9ch] text-center">{loadingMore ? 'Loading…' : 'Load more'}</span>
+                    </button>
+                  </div>
+                );
+              })()}
             </div>
           ))}
 

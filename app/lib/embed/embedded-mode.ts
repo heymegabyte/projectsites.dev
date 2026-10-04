@@ -2990,6 +2990,8 @@ export function requestResMedia(input: {
   search?: string;
   limit?: number;
   cursor?: string;
+  /** `list`: 0-based offset for "Load more" paging (the admin bridge clamps + forwards it to `/media/assets`). */
+  offset?: number;
   id?: string;
 }): Promise<ResMediaResponseMessage> {
   return requestFromParent<ResMediaResponseMessage>(
