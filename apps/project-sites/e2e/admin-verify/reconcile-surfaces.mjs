@@ -52,15 +52,20 @@
  *     right tool for a growing count. Ground-truthed both cases: vanta 0(D1)==0(UI),
  *     northstar 18(D1)==18(API)==uiShows. So forms IS covered, just not as a static row.
  *
- * Creds (get-secret): BROWSERBASE_API_KEY, BROWSERBASE_PROJECT_ID, E2E_TEST_PASSWORD.
- * Exits 0 (skip) if any unset. Usage: node e2e/admin-verify/reconcile-surfaces.mjs
+ * LOCAL headless Playwright (migrated off dead Browserbase, fire-126): Browserbase credit
+ * returned 402 (session create failed), so this deepest reconcile probe SKIPPED every fire —
+ * a standing coverage gap. fire-122 proved a cf_clearance'd local headless browser POSTs the
+ * test-login seam fine (load `/` first → in-page fetch carries the cookie). The Browserbase
+ * coupling is now isolated in the shared `_local-browser.mjs` helper.
+ *
+ * Creds (env → get-secret): E2E_TEST_PASSWORD. Exits 0 (skip) if unset.
+ * Usage: node e2e/admin-verify/reconcile-surfaces.mjs
  */
-import { chromium } from '@playwright/test';
-import { resolveBrowserbaseCreds } from './_browserbase-creds.mjs';
+import { launchLocalBrowser, getTestPassword, authSeedBrian } from './_local-browser.mjs';
 
-const { BB, PROJ, PW } = resolveBrowserbaseCreds();
-if (!BB || !PROJ || !PW) {
-  console.log('::notice:: reconcile-surfaces skipped — BROWSERBASE_API_KEY / BROWSERBASE_PROJECT_ID / E2E_TEST_PASSWORD unset');
+const PW = getTestPassword();
+if (!PW) {
+  console.log('::notice:: reconcile-surfaces skipped — E2E_TEST_PASSWORD unset');
   process.exit(0);
 }
 
@@ -127,29 +132,17 @@ function num(d, k) {
   return typeof v === 'number' ? v : Number(v ?? NaN);
 }
 
-const r = await fetch('https://api.browserbase.com/v1/sessions', {
-  method: 'POST', headers: { 'X-BB-API-Key': BB, 'Content-Type': 'application/json' },
-  body: JSON.stringify({ projectId: PROJ, timeout: 600 }),
-});
-if (!r.ok) { console.log('session create failed', r.status); process.exit(3); }
-const { id } = await r.json();
-const browser = await chromium.connectOverCDP(`wss://connect.browserbase.com?apiKey=${encodeURIComponent(BB)}&sessionId=${encodeURIComponent(id)}`);
+const browser = await launchLocalBrowser();
 try {
   const ctx = browser.contexts()[0] ?? await browser.newContext();
   const page = ctx.pages()[0] ?? await ctx.newPage();
-  await page.goto('https://projectsites.dev/', { waitUntil: 'domcontentloaded', timeout: 60000 });
-  await page.waitForTimeout(7000); // CF managed-challenge solve
 
-  // Log in as brian INSIDE the browser (CF-clean) and keep the token for authed fetches.
-  const token = await page.evaluate(async (pw) => {
-    const res = await fetch('/api/auth/test-login', {
-      method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ email: 'brian@megabyte.space', password: pw }),
-    });
-    const j = await res.json().catch(() => ({}));
-    return j?.data?.token ?? '';
-  }, PW);
-  if (!token) { console.log('::error:: test-login returned no token'); process.exit(4); }
+  // Log in as brian INSIDE the browser (CF-clean: goto('/') first for cf_clearance, then the
+  // in-page test-login POST). authSeedBrian seeds ps_session; read the token back for fetches.
+  const { ok } = await authSeedBrian(page, PW);
+  if (!ok) { console.log('::error:: test-login returned no token'); process.exit(4); }
+  const token = await page.evaluate(() => JSON.parse(localStorage.getItem('ps_session') || '{}').token || '');
+  if (!token) { console.log('::error:: ps_session has no token after auth'); process.exit(4); }
 
   const report = [];
   for (const s of SURFACES) {
