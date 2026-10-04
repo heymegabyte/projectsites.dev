@@ -859,14 +859,14 @@ export const FLAG_DOCS: Record<string, FlagDocs> = {
     checklist: [
       'Provider-independent Zod domain: CrawlRequest/Job/Page/Link/Coverage/Manifest + enums (z.infer types, never hand-duplicated)',
       'CrawlProvider port (start/status/results/cancel) — speaks ONLY domain types; no Cloudflare shape leaks through',
-      'CloudflareCrawlProvider STUB — every method throws "CRAWL-1: not yet implemented"',
+      'CloudflareCrawlProvider — wired to CF Browser-Run /crawl; every method is wired to CF Browser-Run /crawl (CRAWL-1); routes mounted CRAWL-2, flag-dark',
       'DARK: no route yet; CRAWL-1 routes 404 (never 403) while the flag is off. No workflow / persistence (CRAWL-1..4)',
     ],
     explanation:
       'CRAWL-0 is the provider-independent FOUNDATION of the whole-site-crawl feature — pure types (schemas.ts) + a CrawlProvider seam + a Cloudflare Browser-Run stub (provider.ts). It ships NO reachable surface; it exists so CRAWL-1..4 (engine wiring, routes, workflow, R2/D1 persistence) build against a stable vendor-free contract. The CF /crawl semantics (async job, cursor pagination that must be fully exhausted, source:all, crawlPurposes:["search"], contentUse:"reference", render:false fast path) live in the stub JSDoc and are the CRAWL-1 implementation concern, never in the domain types. When off, there is no surface and no state.',
     smoke_test: [
       'npm run validate:features passes (manifest 7 fields + flagKey present + colocated tests) + npx tsc --noEmit clean',
-      'new CloudflareCrawlProvider().start({url}) throws "CRAWL-1: not yet implemented" (stub, by design)',
+      'new CloudflareCrawlProvider().start({url}) is wired to CF Browser-Run /crawl (CRAWL-1); routes mounted CRAWL-2, flag-dark (stub, by design)',
       'Flag off (default) → no route reachable; CRAWL-1 will 404 (never 403) until the flag is promoted',
     ],
   },

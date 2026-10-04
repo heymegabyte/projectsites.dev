@@ -252,8 +252,15 @@ export class AdminComponent implements OnInit, OnDestroy {
    */
   readonly documentTitle = computed(() => {
     const section = this.currentSection();
+    const url = this.currentUrl();
+    // The Create overlay renders INSIDE the admin shell (child route `admin/create`, URL masked
+    // to `/create`), so without this guard it inherits the "Dashboard · ProjectSites" section
+    // title (fire-116 DEFECT-B — the money-path funnel top had the wrong <title>).
+    if (url === '/create' || url.endsWith('/create')) {
+      return 'Create · ProjectSites';
+    }
     const site = this.state.selectedSite();
-    if (isSiteDetailPath(this.currentUrl()) && site?.business_name) {
+    if (isSiteDetailPath(url) && site?.business_name) {
       return `${section} · ${site.business_name} · ProjectSites`;
     }
     return `${section} · ProjectSites`;
