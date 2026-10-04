@@ -8,6 +8,8 @@ import {
   mapNominatimResult,
   cleanNominatimAddress,
   searchBusinessesByName,
+  buildNominatimQueryVariants,
+  mapCategorySynonyms,
   type NominatimResult,
 } from '../services/nominatim_search.js';
 
@@ -176,5 +178,124 @@ describe('nominatim_search — searchBusinessesByName', () => {
     });
     const [url] = stub.mock.calls[0] as [string, RequestInit];
     expect(url).toContain('viewbox=');
+  });
+
+  // ── Category-query fallback (Google-Maps/Places repair 2026-10-03) ───────────────
+  // The #1 acquisition action sends a CATEGORY phrase ("coffee shop newark nj"); Nominatim's
+  // geocoder returns 0 for that but resolves the "… in …" special-phrase rewrite. The fallback
+  // engaged but returned [] before this fix, so the funnel dead-ended with Places billing-dead.
+  it('retries the colloquial→dictionary "… in …" rewrite when the literal category query returns nothing', async () => {
+    const stub = jest.fn();
+    // 1st call (literal "coffee shop newark nj") → empty array (Nominatim category miss).
+    stub.mockResolvedValueOnce({ ok: true, status: 200, json: () => Promise.resolve([]) });
+    // 2nd call (mapped+rewritten "cafe in newark nj") → a real cafe.
+    stub.mockResolvedValueOnce({
+      ok: true,
+      status: 200,
+      json: () => Promise.resolve([BLUE_BOTTLE]),
+    });
+    const out = await searchBusinessesByName('coffee shop newark nj', {
+      fetchImpl: stub as unknown as typeof fetch,
+    });
+    expect(out).toHaveLength(1);
+    expect(out[0].name).toBe('Blue Bottle Coffee');
+    // Exactly two requests: literal first, mapped rewrite second.
+    expect(stub).toHaveBeenCalledTimes(2);
+    // URLSearchParams encodes spaces as '+' — assert on the raw (encoded) query.
+    const firstUrl = (stub.mock.calls[0] as [string])[0];
+    const secondUrl = (stub.mock.calls[1] as [string])[0];
+    expect(firstUrl).toContain('q=coffee+shop+newark+nj');
+    // "coffee shop" → Nominatim dictionary word "cafe", with the "… in …" connector.
+    expect(secondUrl).toContain('q=cafe+in+newark+nj');
+  });
+
+  it('does NOT make a 2nd request when the literal query already has hits (name search)', async () => {
+    const stub = jest
+      .fn()
+      .mockResolvedValue({ ok: true, status: 200, json: () => Promise.resolve([BLUE_BOTTLE]) });
+    const out = await searchBusinessesByName('Blue Bottle Coffee Newark', {
+      fetchImpl: stub as unknown as typeof fetch,
+    });
+    expect(out).toHaveLength(1);
+    expect(stub).toHaveBeenCalledTimes(1); // literal hit → no rewrite retry
+  });
+
+  it('returns [] (and caps at 2 requests) when BOTH the literal and the rewrite miss', async () => {
+    const stub = jest
+      .fn()
+      .mockResolvedValue({ ok: true, status: 200, json: () => Promise.resolve([]) });
+    const out = await searchBusinessesByName('nonexistent widget shop zzz nj', {
+      fetchImpl: stub as unknown as typeof fetch,
+    });
+    expect(out).toEqual([]);
+    expect(stub).toHaveBeenCalledTimes(2); // literal + rewrite, then give up
+  });
+});
+
+describe('nominatim_search — mapCategorySynonyms', () => {
+  it('maps "coffee shop" → the Nominatim dictionary word "cafe"', () => {
+    expect(mapCategorySynonyms('coffee shop newark nj')).toBe('cafe newark nj');
+    expect(mapCategorySynonyms('coffee shop')).toBe('cafe');
+  });
+
+  it('maps barber/salon colloquialisms to Nominatim words', () => {
+    expect(mapCategorySynonyms('barber shop')).toBe('hairdresser');
+    expect(mapCategorySynonyms('nail salon')).toBe('beauty');
+    expect(mapCategorySynonyms('gym')).toBe('fitness centre');
+    expect(mapCategorySynonyms('auto repair')).toBe('car repair');
+  });
+
+  it('returns the query unchanged when no colloquial category matches', () => {
+    expect(mapCategorySynonyms('cafe newark nj')).toBe('cafe newark nj');
+    expect(mapCategorySynonyms('Blue Bottle Coffee')).toBe('Blue Bottle Coffee');
+  });
+});
+
+describe('nominatim_search — buildNominatimQueryVariants', () => {
+  it('returns [] for an empty/whitespace query', () => {
+    expect(buildNominatimQueryVariants('')).toEqual([]);
+    expect(buildNominatimQueryVariants('   ')).toEqual([]);
+  });
+
+  it('adds a colloquial→dictionary "… in …" variant, splitting a 2-token US-state tail', () => {
+    // "coffee shop" maps to Nominatim's "cafe"; state tail "nj" splits as the place.
+    expect(buildNominatimQueryVariants('coffee shop newark nj')).toEqual([
+      'coffee shop newark nj',
+      'cafe in newark nj',
+    ]);
+  });
+
+  it('splits a single trailing location token when the tail is not a state abbreviation', () => {
+    // 3 tokens, last token is not a 2-letter state → split off the single trailing location word.
+    expect(buildNominatimQueryVariants('plumbers downtown austin')).toEqual([
+      'plumbers downtown austin',
+      'plumbers downtown in austin',
+    ]);
+  });
+
+  it('maps the colloquial category even when the query already has a connector', () => {
+    expect(buildNominatimQueryVariants('coffee shop in newark')).toEqual([
+      'coffee shop in newark',
+      'cafe in newark',
+    ]);
+  });
+
+  it('does NOT add a duplicate when a connector query has no mappable colloquialism', () => {
+    expect(buildNominatimQueryVariants('Blue Bottle Coffee in San Francisco')).toEqual([
+      'Blue Bottle Coffee in San Francisco',
+    ]);
+    expect(buildNominatimQueryVariants('cafe near me')).toEqual(['cafe near me']);
+  });
+
+  it('does NOT rewrite a 1–2 token query (nothing to split into category + place)', () => {
+    expect(buildNominatimQueryVariants('cafe')).toEqual(['cafe']);
+    expect(buildNominatimQueryVariants('Blue Bottle')).toEqual(['Blue Bottle']);
+  });
+
+  it('collapses internal whitespace before building variants', () => {
+    expect(buildNominatimQueryVariants('  coffee   shop   newark  nj ')).toEqual([
+      'coffee shop newark nj',
+      'cafe in newark nj',
+    ]);
   });
 });
