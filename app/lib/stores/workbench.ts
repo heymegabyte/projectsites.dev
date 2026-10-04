@@ -51,7 +51,18 @@ type Artifacts = MapStore<Record<string, ArtifactState>>;
  * (`ProjectHub.tsx`, `PS_CODE_HISTORY` bridge); the Source-Control view shipped as `SourceControlPanel`
  * (a tab beside Files/Search/Locks in EditorPanel), sharing the `git-browser-logic` helpers.
  */
-export type WorkbenchViewType = 'chat' | 'code' | 'preview' | 'functions' | 'data' | 'database' | 'resources' | 'git';
+export type WorkbenchViewType =
+  | 'chat'
+  | 'code'
+  | 'preview'
+  | 'functions'
+  | 'data'
+  | 'database'
+  | 'resources'
+  | 'git'
+  // The embedded "Claude Code" tab (WLK-39 §75 flagship). Flag-gated default-OFF via
+  // `isClaudeCodePanelEnabled()`; the tab only renders when the gate is on.
+  | 'claude';
 
 export class WorkbenchStore {
   /**

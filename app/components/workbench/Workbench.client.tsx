@@ -16,6 +16,8 @@ import { cubicEasingFn } from '~/utils/easings';
 import { renderLogger } from '~/utils/logger';
 import { DatabasePanel } from './DatabasePanel';
 import { ResourcesPanel } from './ResourcesPanel';
+import { ClaudeCodePanel } from './ClaudeCodePanel';
+import { isClaudeCodePanelEnabled } from './claude-code-flag';
 import { CreateMenu } from './CreateMenu';
 import { EditorPanel } from './EditorPanel';
 import { Preview } from './Preview';
@@ -72,6 +74,14 @@ const TOP_TABS: TopTab[] = [
   { value: 'database', text: 'Database', icon: 'i-ph:database-duotone' },
   { value: 'resources', text: 'Resources', icon: 'i-ph:stack-duotone' },
 ];
+
+/**
+ * The embedded "Claude Code" tab (WLK-39 §75 flagship, slice S1) — a 5th top tab appended ONLY
+ * when `isClaudeCodePanelEnabled()` is on (default-OFF dark gate). Kept out of {@link TOP_TABS}
+ * so the gate is the single place that reveals it, and so a flag-off build renders the exact
+ * four-tab strip it always has.
+ */
+const CLAUDE_TAB: TopTab = { value: 'claude', text: 'Claude Code', icon: 'i-ph:sparkle-duotone' };
 
 /**
  * Shared style for the toolbar's icon controls (Open in StackBlitz + the ⋯
@@ -168,7 +178,10 @@ export const Workbench = memo(
     };
 
     // Chat tab is prepended ONLY on tablet/mobile; on desktop the chat docks left.
-    const visibleTabs = isSmallViewport ? [CHAT_TAB, ...TOP_TABS] : TOP_TABS;
+    // The Claude Code tab is appended ONLY when its default-OFF flag is enabled (WLK-39 S1).
+    const claudeEnabled = isClaudeCodePanelEnabled();
+    const baseTabs = claudeEnabled ? [...TOP_TABS, CLAUDE_TAB] : TOP_TABS;
+    const visibleTabs = isSmallViewport ? [CHAT_TAB, ...baseTabs] : baseTabs;
 
     useEffect(() => {
       if (hasPreview) {
@@ -202,8 +215,12 @@ export const Workbench = memo(
         setSelectedView('database');
       } else if (selectedView === 'functions' || selectedView === 'git') {
         setSelectedView('code');
+      } else if (selectedView === 'claude' && !claudeEnabled) {
+        // Claude Code tab is flag-gated default-OFF — a persisted `claude` view must not
+        // strand the user on a hidden tab when the flag is off (WLK-39 S1). Snap to Code.
+        setSelectedView('code');
       }
-    }, [selectedView]);
+    }, [selectedView, claudeEnabled]);
 
     useEffect(() => {
       workbenchStore.setDocuments(files);
@@ -579,6 +596,16 @@ export const Workbench = memo(
                     <PanelLayer active={selectedView === 'resources'}>
                       <ResourcesPanel />
                     </PanelLayer>
+                    {/* Claude Code panel — the embedded §75 flagship (WLK-39 S1). A 5th top tab,
+                        flag-gated default-OFF: the layer is active only when the gate is on AND the
+                        view is `claude`, so a flag-off build never mounts it. Composes the panel
+                        spine; the prompt streams via the existing /api/llmcall path and edits apply
+                        through the shared workbenchStore (the ONE WebContainer). */}
+                    {claudeEnabled && (
+                      <PanelLayer active={selectedView === 'claude'}>
+                        <ClaudeCodePanel />
+                      </PanelLayer>
+                    )}
                     {/* The Git panel's top-level TAB was retired (Promote release workflow) — the platform
                         presents one `main` line, so a standalone Git browser tab no longer earns a slot.
                         The Source-Control view shipped: `SourceControlPanel` (Preview diff + release history +
