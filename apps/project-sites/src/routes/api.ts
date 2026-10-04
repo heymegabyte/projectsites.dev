@@ -143,6 +143,7 @@ import { tryEmitEvent } from '../services/emit_event.js';
 import { buildSitePublishedEvent, sitePublishedScope } from '../services/site_publish_event.js';
 import { notifyOwnerSiteBuilt } from '../services/notify_site_built.js';
 import { requireOwnedSite } from '../services/site_ownership.js';
+import { isFlagOn } from '../modules/feature_flags/services.js';
 import {
   deploySiteFunctions,
   readFunctionsBundle,
@@ -1922,6 +1923,75 @@ api.get('/api/readiness', async (c) => {
   );
 
   return c.json({ data: out });
+});
+
+/**
+ * `GET /api/sites/:id/live-check` — a CORS-safe, SERVER-SIDE liveness probe for the
+ * money-path PUBLISH leg. After a publish/deploy the admin hosting UI polls this to reveal
+ * "View Live" ONLY once the site truly serves a 200 — a propagation guard against the
+ * `host:{slug}` KV cache (60s TTL) + CF edge warm-up briefly serving a dead/404 page the
+ * instant a deploy returns. A browser can't HEAD-probe `{slug}.projectsites.dev` itself
+ * (cross-origin opaque response hides the status), so the Worker does it and returns the
+ * boolean the FE needs.
+ *
+ * @route GET /api/sites/:id/live-check
+ * @auth Bearer token required — `orgId` MUST resolve. Anonymous = 401 (never probe for an
+ *   unauthenticated caller).
+ * @remarks
+ * - **IDOR** — `requireOwnedSite(..., 'id, slug')` 404s (never 403, never leaks existence) on a
+ *   foreign/missing id; the outbound probe is NEVER issued for a site the caller does not own.
+ * - **Flag** — default-OFF `publish_live_check`; OFF → 404 (NOT 403), indistinguishable from an
+ *   unknown route, and no probe fires.
+ * - **No SSRF** — the probed URL is SERVER-DERIVED from the OWNED slug
+ *   (`https://${slug}${DOMAINS.SITES_SUFFIX}`), NEVER a request param, so a caller can't point the
+ *   probe at an arbitrary/internal host.
+ * - **Never 500** — a `HEAD` fetch (short ~5s AbortController timeout, `redirect:'manual'` so a
+ *   301/302 is reported as-is, not silently followed) that throws/aborts degrades to
+ *   `{ live:false, status:0 }`. A dead probe is a datum, not a server fault.
+ *
+ * @returns `200 OK` `{ data: { live: boolean, status: number, url: string } }` — `live` is
+ *   strictly `status === 200`; `url` is the server-derived default hostname.
+ * @throws {AppError} `UNAUTHORIZED` 401 when `orgId` is unresolved.
+ * @throws {AppError} `NOT_FOUND` 404 on a foreign/missing site OR when the flag is off.
+ */
+api.get('/api/sites/:id/live-check', async (c) => {
+  const orgId = c.get('orgId');
+  if (!orgId) throw unauthorized('Must be authenticated');
+
+  const siteId = c.req.param('id');
+  // IDOR guard — 404 (never 403 / leak) on foreign/missing; returns the OWNED slug so the probed
+  // URL can NEVER be influenced by a request param (no SSRF).
+  const site = await requireOwnedSite<{ id: string; slug: string }>(
+    c.env,
+    orgId,
+    siteId,
+    'id, slug',
+  );
+
+  // Flag-gated DARK: 404 (NOT 403) when off — the endpoint does not exist until promoted.
+  if (!(await isFlagOn(c.env, 'publish_live_check', { orgId, siteId }))) {
+    throw notFound('Not found');
+  }
+
+  const url = `https://${site.slug}${DOMAINS.SITES_SUFFIX}`;
+
+  // Short, hard timeout so a hung origin can't stall the poll (the FE calls this on an interval).
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), 5000);
+  try {
+    const res = await fetch(url, {
+      method: 'HEAD',
+      redirect: 'manual', // report a 3xx as-is; never silently follow to a 200 elsewhere
+      signal: controller.signal,
+    });
+    return c.json({ data: { live: res.status === 200, status: res.status, url } });
+  } catch {
+    // Network error / DNS not yet propagated / abort — the site simply isn't live yet. A probe
+    // failure is a `live:false` datum, NEVER a 500 (a 500 would make the FE poll loop look broken).
+    return c.json({ data: { live: false, status: 0, url } });
+  } finally {
+    clearTimeout(timer);
+  }
 });
 
 /**

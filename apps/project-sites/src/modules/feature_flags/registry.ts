@@ -172,6 +172,15 @@ export const FLAG_REGISTRY: Record<string, FlagDefinition> = {
     owner_email: 'brian@megabyte.space',
     stage: 'experimental',
   },
+  publish_live_check: {
+    default_enabled: false,
+    default_rollout_percent: 0,
+    description:
+      'Money-path PUBLISH propagation guard (PUBLISH-1) — gates GET /api/sites/:id/live-check (src/routes/api.ts), a CORS-safe SERVER-SIDE liveness probe the admin hosting UI polls after publish/deploy so "View Live" unlocks ONLY once the site truly serves a 200.\n\n• Why: the `host:{slug}` KV cache (60s TTL) + CF edge warm-up can briefly serve a dead/404 page the instant a deploy returns; a naive "publish 200 → show link" sends the owner to a blank page — the worst first-impression bug on the paid path. A browser cannot HEAD-probe the cross-origin {slug}.projectsites.dev (opaque response hides the status), so the Worker probes and returns the boolean.\n• Isolation: auth (401) → requireOwnedSite (404, never 403/leak) → this flag (404, never 403). The URL is SERVER-DERIVED from the owned slug (https://{slug}.projectsites.dev), never a request param (no SSRF). A HEAD fetch (5s AbortController, redirect:manual) that throws degrades to {live:false,status:0} — never a 500.\n• Off (default, DARK) → the endpoint 404s (indistinguishable from an unknown route) + no outbound probe fires. On → the FE poll-then-reveal slice (separate) can unlock View Live on live:true.',
+    key: 'publish_live_check',
+    owner_email: 'brian@megabyte.space',
+    stage: 'experimental',
+  },
   r2_buckets: {
     default_enabled: true,
     default_rollout_percent: 100,

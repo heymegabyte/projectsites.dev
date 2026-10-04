@@ -202,6 +202,24 @@ export const FLAG_DOCS: Record<string, FlagDocs> = {
       'Off → every rebuild runs the full 5-call research pipeline',
     ],
   },
+  publish_live_check: {
+    checklist: [
+      'Money-path PUBLISH propagation guard (PUBLISH-1)',
+      'Gates GET /api/sites/:id/live-check — a CORS-safe server-side liveness probe',
+      'FE polls after publish/deploy; "View Live" unlocks only on a true 200',
+      'IDOR: requireOwnedSite → 404 (never 403); URL server-derived from the owned slug (no SSRF)',
+      'HEAD fetch (5s abort, redirect:manual); a throw → {live:false,status:0}, never 500',
+      'Off (default, DARK) → endpoint 404s + no outbound probe fires',
+    ],
+    explanation:
+      'The money-path PUBLISH leg\'s propagation guard. After a publish/deploy the `host:{slug}` KV cache (60s TTL) + CF edge warm-up can briefly serve a dead/404 page the instant the deploy returns, so a naive "publish 200 → show View Live" link sends the owner to a blank page — the worst first-impression bug on the paid path. A browser can\'t HEAD-probe the cross-origin {slug}.projectsites.dev (the opaque response hides the status), so GET /api/sites/:id/live-check has the Worker probe it and return `{ live, status, url }`. Gate order ships isolation before access: auth (401) → requireOwnedSite (404, never 403/leak) → this flag (404, never 403). The probed URL is SERVER-DERIVED from the owned slug (never a request param → no SSRF); a HEAD fetch with a 5s AbortController + redirect:manual that throws degrades to {live:false,status:0} (never a 500). Off (default) → the endpoint 404s dark and no probe fires. The FE poll-then-reveal that unlocks the link on live:true is a SEPARATE slice.',
+    smoke_test: [
+      'Enable + publish a site → poll GET /api/sites/:id/live-check (authed owner) until {data:{live:true,status:200}}',
+      'Off (default) → GET /api/sites/:id/live-check returns 404 (never 403)',
+      'Foreign/missing id (any flag state) → 404, and the server issues NO outbound probe',
+      'Unit: npm test -- live_check_route → 401 unauth · 404 foreign (no fetch) · 404 flag-off (no fetch) · 200 live · 200 not-live · fetch-throws → live:false (not 500)',
+    ],
+  },
   pricing_engine: {
     checklist: [
       'Cost-metering + pricing engine (PRICING-MODEL.md Wave 1)',
