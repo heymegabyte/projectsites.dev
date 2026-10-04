@@ -878,3 +878,91 @@ describe('DELETE /api/sites/:siteId/db/tables/:table/columns/:column (DROP COLUM
     expect(b.data.table).toBe('customers');
   });
 });
+
+/**
+ * The cross-table content search (`POST /db/search`) had ZERO route-layer tests before fire-167. Its
+ * load-bearing safety is the LIKE-WILDCARD guard: a user's `%` / `_` / `\` must be ESCAPED and bound
+ * with `ESCAPE '\'` so it matches LITERALLY — otherwise a search for "100%" becomes a match-everything
+ * scan of the owner's data (d1-like-wildcard-strip-not-escape). Plus the shared gate (flag/auth/IDOR)
+ * and the per-table/total caps. Identifiers (table + text columns) are quoteIdent'd; only the pattern
+ * is bound.
+ */
+describe('POST /api/sites/:siteId/db/search (cross-table search — LIKE-injection + gate safety)', () => {
+  const search = (q: string, limit?: number) => ({
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify(limit === undefined ? { q } : { q, limit }),
+  });
+
+  it('404 (DARK) when the flag is off — resolve never runs', async () => {
+    mockFlag.mockResolvedValue(false);
+    const res = await authed().request('/api/sites/s1/db/search', search('hi'), mockEnv());
+    expect(res.status).toBe(404);
+    expect(mockResolve).not.toHaveBeenCalled();
+  });
+
+  it('401 when unauthenticated', async () => {
+    mockFlag.mockResolvedValue(true);
+    const res = await app().request('/api/sites/s1/db/search', search('hi'), mockEnv());
+    expect(res.status).toBe(401);
+  });
+
+  it('404 for a foreign / unowned site (IDOR)', async () => {
+    mockFlag.mockResolvedValue(true);
+    const res = await authed().request('/api/sites/foreign/db/search', search('hi'), mockEnv({ owned: false }));
+    expect(res.status).toBe(404);
+    expect(mockResolve).not.toHaveBeenCalled();
+  });
+
+  it('400 for an empty query (schema requires q length ≥ 1)', async () => {
+    mockFlag.mockResolvedValue(true);
+    mockResolve.mockResolvedValue(dbStub(jest.fn()));
+    const res = await authed().request('/api/sites/s1/db/search', search(''), mockEnv());
+    expect(res.status).toBe(400);
+  });
+
+  it('ESCAPES LIKE wildcards so a user % / _ is matched LITERALLY (never a match-everything scan)', async () => {
+    mockFlag.mockResolvedValue(true);
+    const q = jest.fn(async () => ({ results: [] }));
+    mockResolve.mockResolvedValue(dbStub(q));
+    mockListTables.mockResolvedValue(['notes']);
+    mockIntrospect.mockResolvedValue([{ name: 'body', type: 'TEXT' }]);
+    const res = await authed().request('/api/sites/s1/db/search', search('50%_x'), mockEnv());
+    expect(res.status).toBe(200);
+    // The content scan binds the ESCAPED pattern (% → \%, _ → \_) and uses ESCAPE '\' — wildcards literal.
+    expect(q).toHaveBeenCalledWith(expect.stringContaining(`LIKE ? ESCAPE '\\'`), ['%50\\%\\_x%', 5]);
+    // Identifiers are quoted, never interpolated raw.
+    expect(q.mock.calls[0][0]).toContain('"notes"');
+    expect(q.mock.calls[0][0]).toContain('"body"');
+  });
+
+  it('returns table-NAME matches distinct from content matches', async () => {
+    mockFlag.mockResolvedValue(true);
+    mockResolve.mockResolvedValue(dbStub(jest.fn(async () => ({ results: [] }))));
+    mockListTables.mockResolvedValue(['customers', 'orders']);
+    mockIntrospect.mockResolvedValue([]); // no text cols → pure name-match, no content scan
+    const res = await authed().request('/api/sites/s1/db/search', search('cust'), mockEnv());
+    expect(res.status).toBe(200);
+    const b = (await res.json()) as { data: { nameMatches: string[]; contentMatches: unknown[] } };
+    expect(b.data.nameMatches).toContain('customers');
+    expect(b.data.contentMatches).toEqual([]);
+  });
+
+  it('caps content matches at the requested limit and flags truncated', async () => {
+    mockFlag.mockResolvedValue(true);
+    const q = jest.fn(async () => ({
+      results: [
+        { _rowid: 1, body: 'match a' },
+        { _rowid: 2, body: 'match b' },
+      ],
+    }));
+    mockResolve.mockResolvedValue(dbStub(q));
+    mockListTables.mockResolvedValue(['notes']);
+    mockIntrospect.mockResolvedValue([{ name: 'body', type: 'TEXT' }]);
+    const res = await authed().request('/api/sites/s1/db/search', search('match', 1), mockEnv());
+    expect(res.status).toBe(200);
+    const b = (await res.json()) as { data: { contentMatches: unknown[]; truncated: boolean } };
+    expect(b.data.contentMatches).toHaveLength(1);
+    expect(b.data.truncated).toBe(true);
+  });
+});
