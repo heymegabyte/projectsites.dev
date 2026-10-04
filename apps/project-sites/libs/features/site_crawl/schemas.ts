@@ -99,8 +99,13 @@ export type CrawlRequest = z.infer<typeof CrawlRequestSchema>;
  */
 export const CrawlJobSchema = z
   .object({
-    /** Domain job id (UUID). The provider adapter maps this to/from any vendor id. */
-    id: z.string().uuid(),
+    /**
+     * The provider job id — an OPAQUE handle (CF Browser Run returns a UUID today, but we do
+     * NOT force the format: a provider adapter must not fail-hard if an external id isn't a
+     * canonical UUID — fail-soft on external data per `fail-fast-build-fail-soft-prod`). The
+     * provider uses this id verbatim for status/results/cancel.
+     */
+    id: z.string().min(1),
     status: CrawlStatusSchema,
     /** The seed URL this job was started with. */
     url: z.string().url(),
