@@ -454,7 +454,7 @@ const FALLBACK_ENTRIES: readonly ChangelogEntry[] = [
 
       .entry-date {
         font-size: 0.76rem;
-        color: color-mix(in oklch, var(--ps-ink, #f4f4ff) 45%, transparent);
+        color: color-mix(in oklch, var(--ps-ink, #f4f4ff) 78%, var(--ps-bg, #060610));
         margin-left: auto;
         font-variant-numeric: tabular-nums;
       }
@@ -491,7 +491,7 @@ const FALLBACK_ENTRIES: readonly ChangelogEntry[] = [
         flex-wrap: wrap;
         gap: 12px;
         font-size: 0.8rem;
-        color: color-mix(in oklch, var(--ps-ink, #f4f4ff) 40%, transparent);
+        color: color-mix(in oklch, var(--ps-ink, #f4f4ff) 78%, var(--ps-bg, #060610));
       }
 
       .footer-bottom a {

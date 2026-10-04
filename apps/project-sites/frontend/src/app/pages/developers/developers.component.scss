@@ -344,7 +344,7 @@
 .dev-tools__roadmap {
   margin-top: 1rem;
   font-size: 0.8rem;
-  color: color-mix(in oklch, var(--ps-ink, #f4f4ff) 48%, transparent);
+  color: color-mix(in oklch, var(--ps-ink, #f4f4ff) 78%, var(--ps-bg, #060610));
 
   code {
     font-family: 'JetBrains Mono', ui-monospace, monospace;
@@ -604,7 +604,9 @@
 }
 
 .dev-footer__sep {
-  color: color-mix(in oklch, var(--ps-ink, #f4f4ff) 25%, transparent);
+  /* decorative aria-hidden "·" separator — solid-bg mix (never transparent) so it
+     clears the CONTRAST-GATE; 50% stays subdued vs the sibling links yet ≥4.5:1 AA. */
+  color: color-mix(in oklch, var(--ps-ink, #f4f4ff) 50%, var(--ps-bg, #060610));
 }
 
 /* ── responsive ─────────────────────────────────────────────────────────── */

@@ -542,7 +542,7 @@ const LOW_BALANCE_CENTS = 500;
         background: color-mix(in oklch, var(--ps-ink, #f4f4ff) 3%, transparent);
       }
       .dp-row--taken .dp-mono {
-        color: color-mix(in oklch, var(--ps-ink, #f4f4ff) 48%, transparent);
+        color: color-mix(in oklch, var(--ps-ink, #f4f4ff) 78%, var(--ps-bg, #060610));
         text-decoration: line-through;
         text-decoration-color: color-mix(in oklch, var(--ps-ink, #f4f4ff) 24%, transparent);
       }
@@ -569,7 +569,7 @@ const LOW_BALANCE_CENTS = 500;
         background: none;
         border: none;
         padding: 2px 0;
-        color: color-mix(in oklch, var(--ps-ink, #f4f4ff) 42%, transparent);
+        color: color-mix(in oklch, var(--ps-ink, #f4f4ff) 78%, var(--ps-bg, #060610));
         text-decoration: line-through;
         text-decoration-color: color-mix(in oklch, var(--ps-ink, #f4f4ff) 28%, transparent);
         font-weight: 500;

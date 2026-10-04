@@ -1002,7 +1002,7 @@ interface Faq {
         flex-wrap: wrap;
         gap: 0.75rem;
         font-size: 0.8rem;
-        color: color-mix(in oklch, var(--ps-ink, #f4f4ff) 40%, transparent);
+        color: color-mix(in oklch, var(--ps-ink, #f4f4ff) 78%, var(--ps-bg, #060610));
       }
 
       .footer-bottom a {

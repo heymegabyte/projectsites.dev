@@ -854,7 +854,7 @@ interface UserDetail {
     .sa-ops-msg { padding: 8px 0; }
     .sa-ops-err { color: #fca5a5; padding: 6px 0; }
     .sa-ops-ok { color: #6ee7b7; font-weight: 600; font-size: 0.82rem; padding: 6px 0; }
-    .sa-ops-subhead, .sa-ops-list + .sa-ops-subhead { font-size: 0.62rem; text-transform: uppercase; letter-spacing: 0.09em; color: color-mix(in oklch, var(--ps-ink, #f4f4ff) 45%, transparent); margin: 12px 0 6px; }
+    .sa-ops-subhead, .sa-ops-list + .sa-ops-subhead { font-size: 0.62rem; text-transform: uppercase; letter-spacing: 0.09em; color: color-mix(in oklch, var(--ps-ink, #f4f4ff) 78%, var(--ps-bg, #060610)); margin: 12px 0 6px; }
     .sa-ops-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 8px; }
     .sa-dot { width: 10px; height: 10px; border-radius: 999px; flex: 0 0 10px; margin-top: 5px; background: #64748b; box-shadow: 0 0 0 3px rgba(100,116,139,0.14); }
     .sa-dot[data-status="healthy"] { background: #22c55e; box-shadow: 0 0 0 3px rgba(34,197,94,0.18); }
@@ -932,9 +932,9 @@ interface UserDetail {
     .sa-drawer-badges { display: flex; flex-wrap: wrap; gap: 8px; }
     .sa-dl { margin: 0 0 18px; }
     .sa-dl > div { display: grid; grid-template-columns: 118px 1fr; gap: 12px; padding: 9px 0; border-bottom: 1px solid rgba(255,255,255,0.04); }
-    .sa-dl dt { font-size: 0.68rem; text-transform: uppercase; letter-spacing: 0.07em; color: color-mix(in oklch, var(--ps-ink, #f4f4ff) 45%, transparent); margin: 0; padding-top: 2px; }
+    .sa-dl dt { font-size: 0.68rem; text-transform: uppercase; letter-spacing: 0.07em; color: color-mix(in oklch, var(--ps-ink, #f4f4ff) 78%, var(--ps-bg, #060610)); margin: 0; padding-top: 2px; }
     .sa-dl dd { margin: 0; font-size: 0.86rem; overflow-wrap: anywhere; }
-    .sa-drawer-subhead { font-size: 0.64rem; text-transform: uppercase; letter-spacing: 0.1em; color: color-mix(in oklch, var(--ps-ink, #f4f4ff) 45%, transparent); margin: 4px 0 8px; }
+    .sa-drawer-subhead { font-size: 0.64rem; text-transform: uppercase; letter-spacing: 0.1em; color: color-mix(in oklch, var(--ps-ink, #f4f4ff) 78%, var(--ps-bg, #060610)); margin: 4px 0 8px; }
     .sa-drawer-orgs { list-style: none; margin: 0 0 18px; padding: 0; display: flex; flex-direction: column; gap: 6px; }
     .sa-drawer-orgs li { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 8px 12px; border-radius: 10px; background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.05); }
     .sa-drawer-org-name { overflow-wrap: anywhere; font-size: 0.84rem; }
