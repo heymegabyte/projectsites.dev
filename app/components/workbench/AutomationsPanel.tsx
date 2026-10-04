@@ -495,6 +495,7 @@ const AutomationsFilterBar = memo(
             type="button"
             role="tab"
             aria-selected={isActive}
+            data-filled-pill
             disabled={isEmptyBucket}
             data-testid={`automations-filter-${key}`}
             onClick={() => onChange(key)}
