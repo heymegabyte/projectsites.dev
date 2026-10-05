@@ -500,6 +500,15 @@ export const FLAG_REGISTRY: Record<string, FlagDefinition> = {
     owner_email: 'brian@megabyte.space',
     stage: 'experimental',
   },
+  resolution_engine: {
+    default_enabled: false,
+    default_rollout_percent: 0,
+    description:
+      'Resolution Engine — dual-provider heavy-research primitive (WLK-39 S6-a, directive §12-13 "dual heavy research" + §24/§76-D "provider outage"). Gates the FIRST backend leg of S6: runDualResearch (libs/features/resolution_engine/service.ts) fans out TWO INDEPENDENT provider research calls IN PARALLEL through the EXISTING Cloudflare AI Gateway (via services/external_llm.callExternalLLM) and returns BOTH results (each {provider, model, content}) for the later Claude synthesis step (S6-b, NOT in this slice).\n\n• Provider selection: two DISTINCT gateway-routed vendors, OpenAI + Anthropic by default (each passed as an explicit callExternalLLM provider so it rides gateway.ai.cloudflare.com/.../{provider}, independently key-gated). invariant #7: the two calls share NO conversation — each leg gets the same prompt as its OWN isolated call, fanned out with Promise.allSettled, so one leg can never observe the other.\n• Provider-outage fallback (§24/§76-D): one leg errors/unconfigured → return the OTHER + mark the failed {provider, ok:false, reason} (never throws, never 500); BOTH fail → an honest ResolutionEngineError carrying both secret-redacted reasons (a route in S6-b maps it to 502). No secrets ever reach a reason/log.\n• Off (default, DARK): runDualResearch throws ResolutionEngineDisabledError (a route in S6-b maps it to 404, never 403) and NO provider call fires. On → both legs run. Pure service primitive this slice — no HTTP route yet (S6-b adds the authed route + synthesis + panel).\n• Acceptance: flag off → disabled error, zero provider calls; flag on + both keys → two independent legs returned with provider+model provenance; one key missing/one leg erroring → the survivor returned + the failed leg marked down; both down → aggregate error with both reasons.',
+    key: 'resolution_engine',
+    owner_email: 'brian@megabyte.space',
+    stage: 'experimental',
+  },
   lead_notifications: {
     default_enabled: false,
     default_rollout_percent: 0,
