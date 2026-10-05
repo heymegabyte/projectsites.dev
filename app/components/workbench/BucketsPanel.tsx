@@ -604,8 +604,8 @@ const NeedsCredsBanner = memo(() => (
   >
     <div className="i-ph:key-duotone text-sm mt-px shrink-0" style={{ color: PURPLE_INK }} aria-hidden />
     <p className="text-[11px] text-bolt-elements-textTertiary leading-relaxed">
-      Your buckets are ready to manage. Uploading and browsing the files inside them is still being
-      enabled for your site — nothing to set up on your end.
+      Your buckets are ready to manage. Uploading and browsing the files inside them is still being enabled for your
+      site — nothing to set up on your end.
     </p>
   </div>
 ));
