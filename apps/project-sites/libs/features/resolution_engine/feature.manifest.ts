@@ -4,20 +4,22 @@ export default defineFeatureManifest({
   slug: 'resolution_engine',
   name: 'Resolution Engine',
   description:
-    'Dual-provider research primitive (WLK-39 S6-a): runDualResearch fans two INDEPENDENT provider calls (OpenAI+Anthropic) in parallel via the AI Gateway, returning both for S6-b synthesis.',
+    'Dual-provider research + synthesis (WLK-39 S6): runDualResearch fans two INDEPENDENT legs (OpenAI+Anthropic) via the AI Gateway; POST /api/resolve synthesizes both into one answer via premium Claude.',
   lifecycle: 'in-development',
   flagKey: 'resolution_engine',
   owner: 'brian@megabyte.space',
   createdAt: '2026-10-04',
   updatedAt: '2026-10-04',
+  // S6-b-i adds the authed synthesis route; S6-b-ii adds the consuming panel.
   routes: [],
-  // No HTTP route in this slice — pure service primitive (runDualResearch). The
-  // authed route + Claude synthesis + panel consumption are S6-b's concern.
-  apiRoutes: [],
+  apiRoutes: ['POST /api/resolve'],
   permissions: [],
   dependencies: ['model_registry'],
   e2eTests: [],
-  unitTests: ['../libs/features/resolution_engine/__tests__/resolution_engine.test.ts'],
+  unitTests: [
+    '../libs/features/resolution_engine/__tests__/resolution_engine.test.ts',
+    '../libs/features/resolution_engine/__tests__/resolve_route.test.ts',
+  ],
   integrationTests: [],
   testStatus: 'passing',
   zodSchemas: ['schemas.ts'],

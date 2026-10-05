@@ -41,3 +41,30 @@ export const DualResearchInputSchema = z
   .strict();
 
 export type DualResearchInput = z.input<typeof DualResearchInputSchema>;
+
+/**
+ * Input to the authed `POST /api/resolve` route (WLK-39 S6-b-i). Carries the
+ * dual-research `prompt` plus the dual-research passthroughs, and an OPTIONAL
+ * `siteId` — when present the route `assertSiteOwned`s it (404, never 403) so a
+ * resolution can be scoped to one of the caller's sites. `.strip()`'d (not
+ * `.strict()`) so a future panel can send extra UI-only fields without a 400.
+ */
+export const ResolveInputSchema = z
+  .object({
+    /** The research prompt both legs receive, then Claude synthesizes. */
+    prompt: z.string().min(1, 'prompt is required').max(20_000, 'prompt is too long'),
+    /** Optional system instruction prepended to each research leg's request. */
+    system: z.string().optional(),
+    /** Optional two DISTINCT research providers (default `['openai','anthropic']`). */
+    providers: DualResearchInputSchema.shape.providers,
+    /** Optional per-leg max tokens for the research legs (default 4096). */
+    maxTokens: DualResearchInputSchema.shape.maxTokens,
+    /**
+     * Optional site to scope the resolution to — ownership-checked (404 when the
+     * site is missing/deleted/foreign, never 403). Omit for an org-scoped resolve.
+     */
+    siteId: z.string().min(1).optional(),
+  })
+  .strip();
+
+export type ResolveInput = z.input<typeof ResolveInputSchema>;
