@@ -604,9 +604,8 @@ const NeedsCredsBanner = memo(() => (
   >
     <div className="i-ph:key-duotone text-sm mt-px shrink-0" style={{ color: PURPLE_INK }} aria-hidden />
     <p className="text-[11px] text-bolt-elements-textTertiary leading-relaxed">
-      Buckets are ready, but uploading + browsing objects needs R2 S3 credentials. Ask an admin to set{' '}
-      <code className="text-bolt-elements-textSecondary">R2_S3_ACCESS_KEY_ID</code> +{' '}
-      <code className="text-bolt-elements-textSecondary">R2_S3_SECRET_ACCESS_KEY</code>.
+      Your buckets are ready to manage. Uploading and browsing the files inside them is still being
+      enabled for your site — nothing to set up on your end.
     </p>
   </div>
 ));
