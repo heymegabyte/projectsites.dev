@@ -194,4 +194,179 @@ describe('ClaudeCodePanel', () => {
     expect(latest).toBeTruthy();
     expect(latest.getAttribute('data-state')).toBe('deployed');
   });
+
+  // ── S5 — the RUN LIFECYCLE: current-task header, stop/cancel, timeline ──
+
+  /**
+   * A tiny controllable stream fixture: `fetch` resolves with a body whose reader yields the
+   * queued chunks, then (optionally) blocks on a never-resolving read so the run stays `running`
+   * until the test either pushes a final chunk or aborts it. Drives the lifecycle deterministically
+   * without a real network.
+   */
+  function makeStreamResponse() {
+    let pushChunk!: (text: string) => void;
+    let closeStream!: () => void;
+    const pending: string[] = [];
+    let resolveRead: ((r: { value?: Uint8Array; done: boolean }) => void) | null = null;
+    let aborted = false;
+
+    const enc = new TextEncoder();
+    const deliver = () => {
+      if (resolveRead && (pending.length > 0 || aborted)) {
+        const fn = resolveRead;
+        resolveRead = null;
+
+        if (pending.length > 0) {
+          fn({ value: enc.encode(pending.shift()!), done: false });
+        } else {
+          fn({ value: undefined, done: true });
+        }
+      }
+    };
+
+    pushChunk = (text: string) => {
+      pending.push(text);
+      deliver();
+    };
+    closeStream = () => {
+      aborted = true;
+      deliver();
+    };
+
+    const reader = {
+      read: () =>
+        new Promise<{ value?: Uint8Array; done: boolean }>((resolve) => {
+          resolveRead = resolve;
+          deliver();
+        }),
+      cancel: vi.fn(),
+    };
+
+    const body = { getReader: () => reader };
+    const signalAbort = () => {
+      aborted = true;
+      deliver();
+    };
+
+    return { response: { ok: true, status: 200, body }, pushChunk, closeStream, signalAbort };
+  }
+
+  it('run: idle → running shows the current task in the header; → done on stream close (running→done)', async () => {
+    const fixture = makeStreamResponse();
+    const fetchSpy = vi.fn().mockResolvedValue(fixture.response);
+    vi.stubGlobal('fetch', fetchSpy);
+
+    render(<ClaudeCodePanel />);
+
+    const input = screen.getByTestId('cc-prompt-input') as HTMLTextAreaElement;
+    fireEvent.change(input, { target: { value: 'Add a bold hero headline' } });
+    fireEvent.click(screen.getByTestId('cc-run-button'));
+
+    // Current-task affordance appears in the header: the prompt summary + a RUNNING status.
+    const status = await screen.findByTestId('cc-run-status');
+    expect(status.getAttribute('data-status')).toBe('running');
+    expect(screen.getByTestId('cc-current-task-summary').textContent).toContain('Add a bold hero headline');
+    // The POST went to the existing streaming path.
+    expect(fetchSpy).toHaveBeenCalledWith('/api/llmcall', expect.objectContaining({ method: 'POST' }));
+
+    // Stream one event line then close → the machine finishes.
+    fixture.pushChunk('{"kind":"action","label":"Edited src/App.tsx"}\n');
+    fixture.closeStream();
+
+    await waitFor(() => expect(screen.getByTestId('cc-run-status').getAttribute('data-status')).toBe('done'));
+    // The finishing timeline beat is rendered in the Activity log.
+    expect(screen.getByTestId('cc-timeline-finished')).toBeTruthy();
+  });
+
+  it('run: running → error when the stream read rejects (running→error)', async () => {
+    const reader = { read: () => Promise.reject(new Error('stream exploded')), cancel: vi.fn() };
+    const fetchSpy = vi.fn().mockResolvedValue({ ok: true, status: 200, body: { getReader: () => reader } });
+    vi.stubGlobal('fetch', fetchSpy);
+
+    render(<ClaudeCodePanel />);
+
+    fireEvent.change(screen.getByTestId('cc-prompt-input'), { target: { value: 'break it' } });
+    fireEvent.click(screen.getByTestId('cc-run-button'));
+
+    await waitFor(() => expect(screen.getByTestId('cc-run-status').getAttribute('data-status')).toBe('error'));
+    expect(screen.getByTestId('cc-timeline-failed')).toBeTruthy();
+    // The error surfaces to the user.
+    expect(screen.getByTestId('cc-error').textContent).toContain('stream exploded');
+  });
+
+  it('stop: running → stop → cancelled, aborts the stream (AbortController called) and stops rendering', async () => {
+    const fixture = makeStreamResponse();
+    const abortSpy = vi.fn();
+    // Spy on AbortController.abort so we can PROVE the stop control aborts the in-flight fetch.
+    const realAbort = AbortController.prototype.abort;
+    AbortController.prototype.abort = function patchedAbort(this: AbortController, ...args: unknown[]) {
+      abortSpy();
+      fixture.signalAbort();
+      return (realAbort as (...a: unknown[]) => void).apply(this, args);
+    };
+
+    try {
+      const fetchSpy = vi.fn().mockResolvedValue(fixture.response);
+      vi.stubGlobal('fetch', fetchSpy);
+
+      render(<ClaudeCodePanel />);
+
+      fireEvent.change(screen.getByTestId('cc-prompt-input'), { target: { value: 'long task' } });
+      fireEvent.click(screen.getByTestId('cc-run-button'));
+
+      // Running → the Stop control is present.
+      const stop = await screen.findByTestId('cc-stop-button');
+      fireEvent.click(stop);
+
+      // The machine is cancelled ("Stopped") and the fetch was aborted.
+      await waitFor(() => expect(screen.getByTestId('cc-run-status').getAttribute('data-status')).toBe('cancelled'));
+      expect(abortSpy).toHaveBeenCalled();
+      // The cancelled timeline beat renders; the Stop control is gone (no longer running).
+      expect(screen.getByTestId('cc-timeline-cancelled')).toBeTruthy();
+      expect(screen.queryByTestId('cc-stop-button')).toBeNull();
+
+      // A late chunk arriving after the abort must NOT add an event row (rendering stopped).
+      const before = screen.queryAllByTestId(/^cc-event-/).length;
+      fixture.pushChunk('{"kind":"action","label":"should not render"}\n');
+      await Promise.resolve();
+      expect(screen.queryAllByTestId(/^cc-event-/).length).toBe(before);
+      expect(screen.queryByText('should not render')).toBeNull();
+    } finally {
+      AbortController.prototype.abort = realAbort;
+    }
+  });
+
+  it('timeline: the Activity tab interleaves lifecycle beats with event rows', async () => {
+    const fixture = makeStreamResponse();
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(fixture.response));
+
+    render(<ClaudeCodePanel />);
+
+    fireEvent.change(screen.getByTestId('cc-prompt-input'), { target: { value: 'do a thing' } });
+    fireEvent.click(screen.getByTestId('cc-run-button'));
+
+    // The opening `started` beat renders as soon as the run begins (before any event).
+    await screen.findByTestId('cc-timeline-started');
+
+    fixture.pushChunk('{"kind":"decision","label":"Chose the simplest edit"}\n');
+    fixture.closeStream();
+
+    await screen.findByTestId('cc-timeline-finished');
+
+    const list = screen.getByTestId('cc-activity-list');
+    const kinds = Array.from(list.children).map((el) => el.getAttribute('data-testid'));
+    // Order: started beat → the event row → finished beat (the run as a story).
+    expect(kinds[0]).toBe('cc-timeline-started');
+    expect(kinds.some((k) => k?.startsWith('cc-event-'))).toBe(true);
+    expect(kinds[kinds.length - 1]).toBe('cc-timeline-finished');
+  });
+
+  it('shows the idle launchpad ("Describe a change to start") and no current-task header when idle', () => {
+    render(<ClaudeCodePanel />);
+
+    expect(screen.getByText('Describe a change to start')).toBeTruthy();
+    // No run yet → the header current-task affordance is absent (clean header).
+    expect(screen.queryByTestId('cc-current-task')).toBeNull();
+    expect(screen.queryByTestId('cc-run-status')).toBeNull();
+  });
 });

@@ -38,7 +38,7 @@
  * (edit → Preview reflects) is browser follow-on S7; subagents (S5) and the dual-provider
  * research→synthesis core (S6) are later slices. This slice's bar is unit + build proof.
  */
-import { memo, useCallback, useMemo, useRef, useState, type FormEvent } from 'react';
+import { memo, useCallback, useMemo, useReducer, useRef, useState, type FormEvent } from 'react';
 import { DEFAULT_MODEL, DEFAULT_PROVIDER } from '~/utils/constants';
 import { workbenchStore } from '~/lib/stores/workbench';
 import { classNames } from '~/utils/classNames';
@@ -50,6 +50,17 @@ import {
   type ClaudeCodeTestResultEvent,
   type ClaudeCodeDeployStateEvent,
 } from './claude-code-stream';
+import {
+  runReducer,
+  initialRunState,
+  summarizePrompt,
+  formatRelative,
+  RUN_STATUS_META,
+  RUN_PHASE_META,
+  type RunState,
+  type RunStatus,
+  type RunTransition,
+} from './claude-code-run';
 import { ClaudeCodeFileDiff } from './ClaudeCodeFileDiff';
 
 /** The panel's sub-nav. Activity (S1) + Files/Tests/Deploy (S2-S4) are all wired. */
@@ -376,6 +387,104 @@ const DeployTab = memo(function DeployTab({ deploys }: { deploys: ClaudeCodeDepl
   );
 });
 
+/**
+ * S5 — the CURRENT-TASK affordance that lives in the {@link PanelHeader} `actions` slot
+ * (directive §25). While running it shows the active prompt summary + a live status (spinner /
+ * check / x / "stopped") and a Stop control; in a terminal state it shows the final status pill
+ * (no Stop). At idle it renders nothing — the header stays clean. The status line is
+ * `aria-live="polite"` so a screen reader hears "Running → Done" without a focus change, and the
+ * spinner is `motion-reduce:animate-none` (reduced-motion-safe, matching the panel spine).
+ */
+const CurrentTask = memo(function CurrentTask({ run, onStop }: { run: RunState; onStop: () => void }) {
+  if (run.status === 'idle') {
+    return null;
+  }
+
+  const meta = RUN_STATUS_META[run.status];
+  const isRunning = run.status === 'running';
+
+  return (
+    <div data-testid="cc-current-task" data-status={run.status} className="flex items-center gap-2">
+      {/* The active prompt summary — the "current task" (hidden on the narrowest widths). */}
+      {run.promptSummary != null && (
+        <span
+          data-testid="cc-current-task-summary"
+          title={run.promptSummary}
+          className="hidden max-w-[220px] truncate text-[11px] text-bolt-elements-textSecondary sm:inline"
+        >
+          {run.promptSummary}
+        </span>
+      )}
+
+      {/* Live status pill — announced politely; glyph spins only while running + motion is allowed. */}
+      <span
+        role="status"
+        aria-live="polite"
+        data-testid="cc-run-status"
+        data-status={run.status}
+        className={classNames(
+          'inline-flex items-center gap-1 rounded-md border px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide',
+          'border-current/25 bg-current/[0.08]',
+          meta.className,
+        )}
+      >
+        <span
+          className={classNames(meta.icon, 'text-sm', meta.spin && 'animate-spin motion-reduce:animate-none')}
+          aria-hidden="true"
+        />
+        {meta.label}
+      </span>
+
+      {/* Stop/cancel — only while in-flight. Aborts the stream via the panel's AbortController. */}
+      {isRunning && (
+        <button
+          type="button"
+          data-testid="cc-stop-button"
+          onClick={onStop}
+          aria-label="Stop the current Claude Code run"
+          className={classNames(
+            'inline-flex items-center gap-1 rounded-md px-2 py-1 text-[11px] font-semibold transition-colors',
+            'border border-bolt-elements-borderColor text-bolt-elements-textSecondary',
+            'hover:border-red-500/40 hover:bg-red-500/10 hover:text-red-500',
+            'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red-500/40',
+          )}
+        >
+          <span className="i-ph:stop-circle-bold text-sm" aria-hidden="true" />
+          Stop
+        </button>
+      )}
+    </div>
+  );
+});
+
+/**
+ * S5 — one Activity TIMELINE beat (started → streaming → finished/failed/cancelled), stamped with
+ * a relative time from the run's first beat. Interleaved with the event rows so the run reads as a
+ * living story (directive §29 — delightful coding activity), not a flat log.
+ */
+const TimelineRow = memo(function TimelineRow({ transition, startedAt }: { transition: RunTransition; startedAt: number }) {
+  const meta = RUN_PHASE_META[transition.phase];
+
+  return (
+    <li
+      data-testid={`cc-timeline-${transition.phase}`}
+      data-phase={transition.phase}
+      className="flex items-center gap-2.5 rounded-lg border border-dashed border-bolt-elements-borderColor/70 bg-bolt-elements-background-depth-1 px-3 py-1.5"
+    >
+      <span className={classNames(meta.icon, 'shrink-0 text-base', meta.className)} aria-hidden="true" />
+      <span className="min-w-0 flex-1 text-[12px] font-medium text-bolt-elements-textSecondary">
+        {meta.label}
+        {transition.detail != null && transition.detail !== '' && transition.phase !== 'started' && (
+          <span className="ml-1.5 font-normal text-bolt-elements-textTertiary">— {transition.detail}</span>
+        )}
+      </span>
+      <span className="shrink-0 text-[10px] tabular-nums text-bolt-elements-textTertiary">
+        {formatRelative(transition.at - startedAt)}
+      </span>
+    </li>
+  );
+});
+
 export interface ClaudeCodePanelProps {
   /** Override the panel root's `data-testid` (defaults to `claude-code-panel`). */
   testId?: string;
@@ -389,10 +498,14 @@ export const ClaudeCodePanel = memo(function ClaudeCodePanel({ testId }: ClaudeC
   const [activeTab, setActiveTab] = useState<NavId>('activity');
   const [prompt, setPrompt] = useState('');
   const [events, setEvents] = useState<ClaudeCodeEvent[]>([]);
-  const [running, setRunning] = useState(false);
-  const [error, setError] = useState<string | null>(null);
   const [selectedFileIndex, setSelectedFileIndex] = useState(0);
+  // The typed RUN-LIFECYCLE machine (idle → running → done | error | cancelled). Pure reducer in
+  // `claude-code-run.ts`; the panel only dispatches at the fetch/stream boundary.
+  const [run_, dispatch] = useReducer(runReducer, initialRunState);
   const abortRef = useRef<AbortController | null>(null);
+
+  const running = run_.status === 'running';
+  const error = run_.errorMessage;
 
   // Project the single event stream into the per-tab views (the brief's S2/S3/S4 render already-
   // defined events — no new fetches). Recomputed only when `events` changes.
@@ -409,7 +522,13 @@ export const ClaudeCodePanel = memo(function ClaudeCodePanel({ testId }: ClaudeC
     [events],
   );
 
-  /** POST the prompt to the existing /api/llmcall streaming path and map the stream to events. */
+  /**
+   * POST the prompt to the existing /api/llmcall streaming path, map the stream to events, and
+   * drive the run-lifecycle machine (start → streaming → finish | fail). A cancel is handled by the
+   * AbortController (see {@link stop}): an `AbortError` is swallowed here because the machine was
+   * ALREADY moved to `cancelled` by the stop handler, and — crucially — once aborted this loop
+   * stops pushing events, so nothing further renders.
+   */
   const run = useCallback(
     async (text: string) => {
       const trimmed = text.trim();
@@ -418,13 +537,12 @@ export const ClaudeCodePanel = memo(function ClaudeCodePanel({ testId }: ClaudeC
         return;
       }
 
-      setRunning(true);
-      setError(null);
       setEvents([]);
       setSelectedFileIndex(0);
 
       const controller = new AbortController();
       abortRef.current = controller;
+      dispatch({ type: 'start', summary: summarizePrompt(trimmed), at: Date.now() });
 
       try {
         const res = await fetch('/api/llmcall', {
@@ -457,6 +575,14 @@ export const ClaudeCodePanel = memo(function ClaudeCodePanel({ testId }: ClaudeC
             break;
           }
 
+          // A cancel aborts mid-read: stop consuming + rendering immediately (the machine is already
+          // in `cancelled`; pushing more events would contradict the "stopped" status the user sees).
+          if (controller.signal.aborted) {
+            return;
+          }
+
+          dispatch({ type: 'streaming', at: Date.now() });
+
           buffer += decoder.decode(value, { stream: true });
 
           const newlineIdx = buffer.lastIndexOf('\n');
@@ -483,19 +609,35 @@ export const ClaudeCodePanel = memo(function ClaudeCodePanel({ testId }: ClaudeC
           collected.push(...tail);
           setEvents([...collected]);
         }
+
+        dispatch({ type: 'finish', at: Date.now() });
       } catch (err) {
         if ((err as { name?: string })?.name === 'AbortError') {
+          // The stop handler already transitioned the machine to `cancelled`.
           return;
         }
 
-        setError(err instanceof Error ? err.message : 'Claude Code could not complete the run.');
+        dispatch({
+          type: 'fail',
+          message: err instanceof Error ? err.message : 'Claude Code could not complete the run.',
+          at: Date.now(),
+        });
       } finally {
-        setRunning(false);
         abortRef.current = null;
       }
     },
     [running],
   );
+
+  /**
+   * Stop/cancel the in-flight run: abort the `/api/llmcall` stream via the AbortController and move
+   * the machine to `cancelled`. The reducer makes `cancel` a no-op unless running, so a stray click
+   * is harmless; the `run` loop sees `signal.aborted` and stops rendering further events.
+   */
+  const stop = useCallback(() => {
+    dispatch({ type: 'cancel', at: Date.now() });
+    abortRef.current?.abort();
+  }, []);
 
   const onSubmit = useCallback(
     (e: FormEvent) => {
@@ -512,7 +654,7 @@ export const ClaudeCodePanel = memo(function ClaudeCodePanel({ testId }: ClaudeC
    * Activity log from the deterministic sample so the surface is never an empty demo.
    */
   const applySampleEdit = useCallback(async () => {
-    setError(null);
+    dispatch({ type: 'reset' });
     setSelectedFileIndex(0);
     setEvents(parseClaudeCodeStream(SAMPLE_ACTIVITY_STREAM));
 
@@ -521,12 +663,22 @@ export const ClaudeCodePanel = memo(function ClaudeCodePanel({ testId }: ClaudeC
         'CLAUDE_CODE_SAMPLE.md',
         '# Claude Code sample edit\n\nWritten by the embedded Claude Code panel through the shared workbench (one WebContainer).\n',
       );
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Could not apply the sample edit.');
+    } catch {
+      // The sample edit is a best-effort demo seed; a workbench hiccup shouldn't surface as a run
+      // error (the run machine is idle here). The Activity log still shows the seeded events.
     }
   }, []);
 
   const hasEvents = events.length > 0;
+  // The Activity tab is a launchpad ONLY when truly idle with nothing seeded; once a run starts (a
+  // timeline beat exists) OR events are seeded, it shows the living timeline + event rows.
+  const hasActivity = hasEvents || run_.timeline.length > 0;
+  const startedAt = run_.timeline[0]?.at ?? 0;
+
+  // Split the lifecycle beats: the opening `started` renders at the TOP of the Activity log; the
+  // later beats (streaming / finished / failed / cancelled) render at the BOTTOM, after the event
+  // rows — so the run reads as a story (started → what it did → how it ended).
+  const [openingBeat, ...laterBeats] = run_.timeline;
 
   return (
     <PanelShell testId={testId ?? 'claude-code-panel'}>
@@ -534,6 +686,7 @@ export const ClaudeCodePanel = memo(function ClaudeCodePanel({ testId }: ClaudeC
         icon="i-ph:sparkle-duotone"
         title="Claude Code"
         subtitle="Agentic edits in your workspace — actions, decisions, and evidence (never private reasoning)"
+        actions={<CurrentTask run={run_} onStop={stop} />}
         toolbar={
           <PanelSegmentedNav
             testId="cc-subnav"
@@ -607,20 +760,29 @@ export const ClaudeCodePanel = memo(function ClaudeCodePanel({ testId }: ClaudeC
           <div className="min-h-0 flex-1 overflow-y-auto">
             <DeployTab deploys={deployEvents} />
           </div>
-        ) : running && !hasEvents ? (
+        ) : running && !hasActivity ? (
           <PanelLoading testId="cc-loading" label="Claude Code is working…" />
-        ) : hasEvents ? (
+        ) : hasActivity ? (
           <ul data-testid="cc-activity-list" className="min-h-0 flex-1 overflow-y-auto flex flex-col gap-1.5 p-4">
+            {/* Opening lifecycle beat (Run started) — the top of the story. */}
+            {openingBeat != null && <TimelineRow transition={openingBeat} startedAt={startedAt} />}
+
+            {/* What Claude Code did — the stream's concrete event rows (never CoT). */}
             {events.map((event, index) => (
               <ActivityRow key={index} event={event} index={index} />
+            ))}
+
+            {/* Closing lifecycle beats (streaming / finished / failed / cancelled) — how it ended. */}
+            {laterBeats.map((transition) => (
+              <TimelineRow key={transition.phase} transition={transition} startedAt={startedAt} />
             ))}
           </ul>
         ) : (
           <PanelEmpty
             testId="cc-empty"
             icon="i-ph:sparkle-duotone"
-            title="Run Claude Code on your site"
-            description="Describe a change above and press Run. Its actions, decisions, and file edits stream here — never its private reasoning."
+            title="Describe a change to start"
+            description="Type what you want changed above and press Run. Its actions, decisions, and file edits stream here live — never its private reasoning."
             action={
               <button
                 type="button"
