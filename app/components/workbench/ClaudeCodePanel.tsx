@@ -34,9 +34,21 @@
  *   - **Tests** renders `test_result` events (pass/fail tally + a row per test, failing first).
  *   - **Deploy** renders `deploy_state` events (latest status hero + transition history).
  *
+ * ## S6-b-ii (this slice): Resolution mode
+ *   - A header "Single | Resolution" toggle (reduced-motion, `bolt-elements-*` tokens, WCAG AA,
+ *     radio semantics) chooses the run path. Single (the default) streams the existing
+ *     `/api/llmcall`; Resolution POSTs `/api/resolve` ONCE (dual-provider research → Claude
+ *     synthesis, S6-b-i) and reuses the SAME S5 run-lifecycle (running → done | error, Stop).
+ *   - On a Resolution response the Activity body renders a **Research** section (the two legs, each
+ *     collapsible + provider/model-labeled via {@link parseResolveResult}) and an emphasized
+ *     **Synthesis** section. A `synthesis.ok===false` marker shows the legs + a calm
+ *     "synthesis unavailable" note — NOT an error.
+ *   - Flag-off: `/api/resolve` 404 (the `resolution_engine` flag is dark) ⇒ "Resolution mode
+ *     unavailable" — the toggle is DISABLED with a tooltip (never an error toast), and the panel
+ *     stays on Single mode, which always works.
+ *
  * Deferred (per the WLK-39 plan in BACKLOG.md): the LIVE WebContainer end-to-end proof
- * (edit → Preview reflects) is browser follow-on S7; subagents (S5) and the dual-provider
- * research→synthesis core (S6) are later slices. This slice's bar is unit + build proof.
+ * (edit → Preview reflects) is browser follow-on S7. This slice's bar is unit + build proof.
  */
 import { memo, useCallback, useMemo, useReducer, useRef, useState, type FormEvent } from 'react';
 import { DEFAULT_MODEL, DEFAULT_PROVIDER } from '~/utils/constants';
@@ -62,6 +74,12 @@ import {
   type RunTransition,
 } from './claude-code-run';
 import { ClaudeCodeFileDiff } from './ClaudeCodeFileDiff';
+import {
+  parseResolveResult,
+  providerLabel,
+  type ResolveResult,
+  type ResolveResearchLeg,
+} from './claude-code-resolve';
 
 /** The panel's sub-nav. Activity (S1) + Files/Tests/Deploy (S2-S4) are all wired. */
 const NAV_ITEMS = [
@@ -502,6 +520,225 @@ const TimelineRow = memo(function TimelineRow({
   );
 });
 
+/** The run path: Single = stream `/api/llmcall`; Resolution = POST `/api/resolve` (dual research). */
+type RunMode = 'single' | 'resolution';
+
+/** Whether Resolution mode is reachable: unknown until first probed, then on (flag live) / off (404). */
+type ResolutionAvailability = 'unknown' | 'available' | 'unavailable';
+
+/** The two mode segments. Single is always first + the default; Resolution gates on the flag. */
+const MODE_ITEMS: ReadonlyArray<{ id: RunMode; label: string; icon: string; hint: string }> = [
+  {
+    id: 'single',
+    label: 'Single',
+    icon: 'i-ph:chat-circle-dots-duotone',
+    hint: 'One provider answers directly.',
+  },
+  {
+    id: 'resolution',
+    label: 'Resolution',
+    icon: 'i-ph:intersect-duotone',
+    hint: 'Two providers research in parallel, then Claude synthesizes the best combined answer.',
+  },
+];
+
+/**
+ * S6-b-ii — the "Single | Resolution" mode toggle in the {@link PanelHeader} `toolbar` slot. A
+ * real radio group (`role="radiogroup"` + `role="radio"` + `aria-checked`) so a screen reader
+ * announces the choice; black+cyan, AA, and reduced-motion-safe (`motion-reduce:transition-none`,
+ * matching the panel spine). When Resolution is `unavailable` (the `resolution_engine` flag is
+ * dark → `/api/resolve` 404) the Resolution segment is DISABLED with an explanatory `title`
+ * tooltip + `aria-disabled` — never an error, never a doomed control that errors on click.
+ */
+const ModeToggle = memo(function ModeToggle({
+  mode,
+  onSelect,
+  resolutionAvailability,
+  disabled,
+}: {
+  mode: RunMode;
+  onSelect: (mode: RunMode) => void;
+  resolutionAvailability: ResolutionAvailability;
+  /** True while a run is in flight — the mode can't change mid-run. */
+  disabled: boolean;
+}) {
+  return (
+    <div
+      role="radiogroup"
+      aria-label="Claude Code run mode"
+      data-testid="cc-mode-toggle"
+      data-mode={mode}
+      className="inline-flex items-center gap-0.5 rounded-lg border border-bolt-elements-borderColor bg-bolt-elements-background-depth-1 p-0.5"
+    >
+      {MODE_ITEMS.map((item) => {
+        const isActive = item.id === mode;
+        // Resolution is only clickable once PROVEN available; `unknown` stays clickable (optimistic —
+        // the probe happens on first run and downgrades to Single + disabled if it 404s).
+        const modeUnavailable = item.id === 'resolution' && resolutionAvailability === 'unavailable';
+        const isDisabled = disabled || modeUnavailable;
+        const title = modeUnavailable
+          ? 'Resolution mode is unavailable right now. Single mode is ready to use.'
+          : item.hint;
+
+        return (
+          <button
+            key={item.id}
+            type="button"
+            role="radio"
+            aria-checked={isActive}
+            aria-disabled={isDisabled || undefined}
+            disabled={isDisabled}
+            title={title}
+            data-testid={`cc-mode-${item.id}`}
+            data-active={isActive}
+            onClick={() => {
+              if (!isDisabled) {
+                onSelect(item.id);
+              }
+            }}
+            className={classNames(
+              'inline-flex min-h-[24px] items-center gap-1.5 rounded-md px-2.5 py-1 text-[11px] font-semibold transition-colors duration-150 motion-reduce:transition-none',
+              'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-bolt-elements-item-contentAccent/50',
+              isActive
+                ? 'bg-bolt-elements-item-contentAccent/[0.14] text-bolt-elements-item-contentAccent ring-1 ring-bolt-elements-item-contentAccent/30'
+                : 'text-bolt-elements-textSecondary hover:text-bolt-elements-textPrimary',
+              isDisabled && 'cursor-not-allowed opacity-50 hover:text-bolt-elements-textSecondary',
+            )}
+          >
+            <span className={classNames(item.icon, 'text-sm')} aria-hidden="true" />
+            {item.label}
+          </button>
+        );
+      })}
+    </div>
+  );
+});
+
+/**
+ * One Research leg — a collapsible `<details>` labelled with its provider + model. An OK leg opens
+ * by default (the reviewer should see the research); a DOWN leg (provider errored/unconfigured)
+ * renders a calm "unavailable" note with its safe reason instead of content — NOT an error row.
+ * Native `<details>`/`<summary>` keeps it keyboard + screen-reader accessible for free.
+ */
+const ResearchLeg = memo(function ResearchLeg({ leg, index }: { leg: ResolveResearchLeg; index: number }) {
+  const label = providerLabel(leg.provider);
+
+  return (
+    <details
+      data-testid={`cc-research-leg-${index}`}
+      data-provider={leg.provider}
+      data-ok={leg.ok}
+      open={leg.ok}
+      className="group rounded-lg border border-bolt-elements-borderColor/60 bg-bolt-elements-background-depth-2"
+    >
+      <summary className="flex cursor-pointer list-none items-center gap-2 rounded-lg px-3 py-2 text-[12px] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-bolt-elements-item-contentAccent/40">
+        <span
+          className="i-ph:caret-right-bold shrink-0 text-[11px] text-bolt-elements-textTertiary transition-transform duration-150 group-open:rotate-90 motion-reduce:transition-none"
+          aria-hidden="true"
+        />
+        <span className="inline-flex items-center gap-1.5 rounded-md border border-bolt-elements-item-contentAccent/25 bg-bolt-elements-item-contentAccent/[0.08] px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-bolt-elements-item-contentAccent">
+          <span className="i-ph:flask-duotone text-sm" aria-hidden="true" />
+          Research {index + 1}
+        </span>
+        <span className="min-w-0 flex-1 truncate font-medium text-bolt-elements-textPrimary">{label}</span>
+        {leg.ok ? (
+          leg.model !== '' && (
+            <code className="shrink-0 truncate text-[10px] text-bolt-elements-textTertiary">{leg.model}</code>
+          )
+        ) : (
+          <span className="shrink-0 rounded-md border border-bolt-elements-textTertiary/30 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-bolt-elements-textTertiary">
+            Unavailable
+          </span>
+        )}
+      </summary>
+      <div className="border-t border-bolt-elements-borderColor/60 px-3 py-2.5">
+        {leg.ok ? (
+          <p className="whitespace-pre-wrap break-words text-[12px] leading-relaxed text-bolt-elements-textSecondary">
+            {leg.content}
+          </p>
+        ) : (
+          <p className="text-[12px] leading-relaxed text-bolt-elements-textTertiary">
+            This provider was unavailable for this run. {leg.reason}
+          </p>
+        )}
+      </div>
+    </details>
+  );
+});
+
+/**
+ * The Resolution render — the two Research legs (collapsible) above an emphasized Synthesis card.
+ * When `synthesis.ok === false` the legs still render and the Synthesis slot shows a CALM
+ * "synthesis unavailable" note (reason included) — the research is valuable and the panel invites a
+ * retry, so this is NEVER an error state (directive: a down synthesis is non-fatal).
+ */
+const ResolutionView = memo(function ResolutionView({ result }: { result: ResolveResult }) {
+  return (
+    <div data-testid="cc-resolution" className="flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto p-4">
+      {/* Research — the two independent legs. */}
+      <section aria-label="Research" className="flex flex-col gap-2">
+        <h3 className="text-[11px] font-semibold uppercase tracking-wide text-bolt-elements-textTertiary">Research</h3>
+        {result.research.length === 0 ? (
+          <p data-testid="cc-research-empty" className="text-[12px] text-bolt-elements-textTertiary">
+            No research legs were returned for this run.
+          </p>
+        ) : (
+          <div data-testid="cc-research-legs" className="flex flex-col gap-2">
+            {result.research.map((leg, index) => (
+              <ResearchLeg key={`${leg.provider}-${index}`} leg={leg} index={index} />
+            ))}
+          </div>
+        )}
+      </section>
+
+      {/* Synthesis — the emphasized combined answer, or a calm unavailable note. */}
+      <section aria-label="Synthesis" className="flex flex-col gap-2">
+        <h3 className="text-[11px] font-semibold uppercase tracking-wide text-bolt-elements-item-contentAccent">
+          Synthesis
+        </h3>
+        {result.synthesis.ok ? (
+          <div
+            data-testid="cc-synthesis"
+            data-ok="true"
+            className="rounded-xl border border-bolt-elements-item-contentAccent/30 bg-bolt-elements-item-contentAccent/[0.06] px-4 py-3"
+          >
+            <div className="mb-1.5 flex items-center gap-2 text-[11px] text-bolt-elements-textTertiary">
+              <span className="i-ph:sparkle-duotone text-sm text-bolt-elements-item-contentAccent" aria-hidden="true" />
+              <span className="font-semibold text-bolt-elements-item-contentAccent">
+                {providerLabel(result.synthesis.provider)}
+              </span>
+              {result.synthesis.model !== '' && <code className="truncate">{result.synthesis.model}</code>}
+            </div>
+            <p className="whitespace-pre-wrap break-words text-[13px] leading-relaxed text-bolt-elements-textPrimary">
+              {result.synthesis.content}
+            </p>
+          </div>
+        ) : (
+          <div
+            data-testid="cc-synthesis-unavailable"
+            data-ok="false"
+            className="flex items-start gap-2.5 rounded-xl border border-dashed border-bolt-elements-borderColor bg-bolt-elements-background-depth-2 px-4 py-3"
+          >
+            <span
+              className="i-ph:info-duotone mt-0.5 shrink-0 text-base text-bolt-elements-textSecondary"
+              aria-hidden="true"
+            />
+            <span className="min-w-0 flex-1">
+              <span className="block text-[12px] font-semibold text-bolt-elements-textSecondary">
+                Synthesis unavailable
+              </span>
+              <span className="mt-0.5 block break-words text-[11px] leading-snug text-bolt-elements-textTertiary">
+                The research above is ready — combining it into one answer didn't complete this time. You can run it
+                again. {result.synthesis.reason}
+              </span>
+            </span>
+          </div>
+        )}
+      </section>
+    </div>
+  );
+});
+
 export interface ClaudeCodePanelProps {
   /** Override the panel root's `data-testid` (defaults to `claude-code-panel`). */
   testId?: string;
@@ -513,9 +750,16 @@ export interface ClaudeCodePanelProps {
  */
 export const ClaudeCodePanel = memo(function ClaudeCodePanel({ testId }: ClaudeCodePanelProps) {
   const [activeTab, setActiveTab] = useState<NavId>('activity');
+  const [mode, setMode] = useState<RunMode>('single');
   const [prompt, setPrompt] = useState('');
   const [events, setEvents] = useState<ClaudeCodeEvent[]>([]);
   const [selectedFileIndex, setSelectedFileIndex] = useState(0);
+  // Resolution mode availability — `unknown` until first probed; a `/api/resolve` 404 (the
+  // `resolution_engine` flag is dark) downgrades it to `unavailable` → the toggle disables.
+  const [resolutionAvailability, setResolutionAvailability] = useState<ResolutionAvailability>('unknown');
+  // The parsed `/api/resolve` result (two research legs + a synthesis) for Resolution mode. `null`
+  // until a Resolution run completes; cleared when a new run starts.
+  const [resolution, setResolution] = useState<ResolveResult | null>(null);
   // The typed RUN-LIFECYCLE machine (idle → running → done | error | cancelled). Pure reducer in
   // `claude-code-run.ts`; the panel only dispatches at the fetch/stream boundary.
   const [run_, dispatch] = useReducer(runReducer, initialRunState);
@@ -555,6 +799,7 @@ export const ClaudeCodePanel = memo(function ClaudeCodePanel({ testId }: ClaudeC
       }
 
       setEvents([]);
+      setResolution(null);
       setSelectedFileIndex(0);
 
       const controller = new AbortController();
@@ -647,9 +892,100 @@ export const ClaudeCodePanel = memo(function ClaudeCodePanel({ testId }: ClaudeC
   );
 
   /**
-   * Stop/cancel the in-flight run: abort the `/api/llmcall` stream via the AbortController and move
-   * the machine to `cancelled`. The reducer makes `cancel` a no-op unless running, so a stray click
-   * is harmless; the `run` loop sees `signal.aborted` and stops rendering further events.
+   * S6-b-ii — the RESOLUTION run. POSTs `/api/resolve {prompt}` ONCE (dual-provider research →
+   * Claude synthesis) and reuses the SAME S5 run-lifecycle machine (start → finish | fail) and the
+   * SAME AbortController/Stop wiring as Single mode. Not a stream: one request, one structured body.
+   *
+   * Flag-off handling: a **404** means the `resolution_engine` flag is dark → Resolution mode is
+   * unavailable. We mark it `unavailable` (the toggle disables with a tooltip), snap back to Single
+   * mode, and `reset` the lifecycle to idle — NEVER an error toast (a dark feature isn't a failure).
+   * A `synthesis.ok===false` body is NON-fatal: the research legs still render with a calm note.
+   */
+  const runResolution = useCallback(
+    async (text: string) => {
+      const trimmed = text.trim();
+
+      if (trimmed === '' || running) {
+        return;
+      }
+
+      setEvents([]);
+      setResolution(null);
+      setSelectedFileIndex(0);
+
+      const controller = new AbortController();
+      abortRef.current = controller;
+      dispatch({ type: 'start', summary: summarizePrompt(trimmed), at: Date.now() });
+
+      try {
+        const res = await fetch('/api/resolve', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          signal: controller.signal,
+          body: JSON.stringify({ prompt: trimmed }),
+        });
+
+        // Flag-off (DARK): 404 → Resolution unavailable. Downgrade calmly, drop back to Single, and
+        // return the machine to idle — this is NOT an error the user should see as a failure.
+        if (res.status === 404) {
+          setResolutionAvailability('unavailable');
+          setMode('single');
+          dispatch({ type: 'reset' });
+
+          return;
+        }
+
+        if (!res.ok) {
+          throw new Error(`Resolution is unavailable (HTTP ${res.status}).`);
+        }
+
+        // Reaching a 200 proves the flag is live — mark it available for the toggle.
+        setResolutionAvailability('available');
+
+        const body = (await res.json()) as unknown;
+
+        // A cancel may have landed while awaiting the body — don't render a stale result.
+        if (controller.signal.aborted) {
+          return;
+        }
+
+        setResolution(parseResolveResult(body));
+        dispatch({ type: 'finish', at: Date.now() });
+      } catch (err) {
+        if ((err as { name?: string })?.name === 'AbortError') {
+          // The stop handler already transitioned the machine to `cancelled`.
+          return;
+        }
+
+        dispatch({
+          type: 'fail',
+          message: err instanceof Error ? err.message : 'Resolution could not complete the run.',
+          at: Date.now(),
+        });
+      } finally {
+        abortRef.current = null;
+      }
+    },
+    [running],
+  );
+
+  /** Route a submit to the active mode's runner (Single streams `/api/llmcall`; Resolution POSTs `/api/resolve`). */
+  const start = useCallback(
+    (text: string) => {
+      if (mode === 'resolution') {
+        void runResolution(text);
+      } else {
+        void run(text);
+      }
+    },
+    [mode, run, runResolution],
+  );
+
+  /**
+   * Stop/cancel the in-flight run: abort the active request via the AbortController and move the
+   * machine to `cancelled`. The reducer makes `cancel` a no-op unless running, so a stray click is
+   * harmless; the Single `run` loop sees `signal.aborted` and stops rendering further events, and
+   * the Resolution run bails before setting a stale result.
    */
   const stop = useCallback(() => {
     dispatch({ type: 'cancel', at: Date.now() });
@@ -659,9 +995,9 @@ export const ClaudeCodePanel = memo(function ClaudeCodePanel({ testId }: ClaudeC
   const onSubmit = useCallback(
     (e: FormEvent) => {
       e.preventDefault();
-      void run(prompt);
+      start(prompt);
     },
-    [run, prompt],
+    [start, prompt],
   );
 
   /**
@@ -705,13 +1041,22 @@ export const ClaudeCodePanel = memo(function ClaudeCodePanel({ testId }: ClaudeC
         subtitle="Agentic edits in your workspace — actions, decisions, and evidence (never private reasoning)"
         actions={<CurrentTask run={run_} onStop={stop} />}
         toolbar={
-          <PanelSegmentedNav
-            testId="cc-subnav"
-            ariaLabel="Claude Code views"
-            activeId={activeTab}
-            onSelect={(id) => setActiveTab(id as NavId)}
-            items={NAV_ITEMS.map((i) => ({ id: i.id, label: i.label, icon: i.icon }))}
-          />
+          <div className="flex flex-wrap items-center gap-2">
+            <PanelSegmentedNav
+              testId="cc-subnav"
+              ariaLabel="Claude Code views"
+              activeId={activeTab}
+              onSelect={(id) => setActiveTab(id as NavId)}
+              items={NAV_ITEMS.map((i) => ({ id: i.id, label: i.label, icon: i.icon }))}
+            />
+            {/* Single | Resolution mode toggle — disabled for Resolution when the flag is dark. */}
+            <ModeToggle
+              mode={mode}
+              onSelect={setMode}
+              resolutionAvailability={resolutionAvailability}
+              disabled={running}
+            />
+          </div>
         }
       />
 
@@ -723,7 +1068,9 @@ export const ClaudeCodePanel = memo(function ClaudeCodePanel({ testId }: ClaudeC
         data-testid="cc-prompt-form"
       >
         <label htmlFor="cc-prompt" className="mb-1.5 block text-[11px] font-medium text-bolt-elements-textSecondary">
-          Ask Claude Code to change your site
+          {mode === 'resolution'
+            ? 'Ask a research question — two providers research it, then Claude synthesizes'
+            : 'Ask Claude Code to change your site'}
         </label>
         <div className="flex items-end gap-2">
           <textarea
@@ -734,7 +1081,7 @@ export const ClaudeCodePanel = memo(function ClaudeCodePanel({ testId }: ClaudeC
             onKeyDown={(e) => {
               if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) {
                 e.preventDefault();
-                void run(prompt);
+                start(prompt);
               }
             }}
             rows={2}
@@ -777,8 +1124,15 @@ export const ClaudeCodePanel = memo(function ClaudeCodePanel({ testId }: ClaudeC
           <div className="min-h-0 flex-1 overflow-y-auto">
             <DeployTab deploys={deployEvents} />
           </div>
+        ) : mode === 'resolution' && resolution != null ? (
+          // Resolution mode finished — the two research legs + the emphasized synthesis (reusing the
+          // same Activity surface Single mode uses). A down synthesis renders a calm note, not an error.
+          <ResolutionView result={resolution} />
         ) : running && !hasActivity ? (
-          <PanelLoading testId="cc-loading" label="Claude Code is working…" />
+          <PanelLoading
+            testId="cc-loading"
+            label={mode === 'resolution' ? 'Researching with two providers, then synthesizing…' : 'Claude Code is working…'}
+          />
         ) : hasActivity ? (
           <ul data-testid="cc-activity-list" className="min-h-0 flex-1 overflow-y-auto flex flex-col gap-1.5 p-4">
             {/* Opening lifecycle beat (Run started) — the top of the story. */}

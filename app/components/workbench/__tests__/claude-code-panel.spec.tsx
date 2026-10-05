@@ -369,4 +369,189 @@ describe('ClaudeCodePanel', () => {
     expect(screen.queryByTestId('cc-current-task')).toBeNull();
     expect(screen.queryByTestId('cc-run-status')).toBeNull();
   });
+
+  // ── S6-b-ii — RESOLUTION mode: the "Single | Resolution" toggle + the /api/resolve render ──
+
+  /** A one-shot JSON response (NOT a stream) — Resolution POSTs /api/resolve ONCE and reads a body. */
+  function jsonResponse(status: number, body: unknown) {
+    return {
+      ok: status >= 200 && status < 300,
+      status,
+      body: {}, // truthy so the `!res.body` guard never trips for the non-404 branches
+      json: () => Promise.resolve(body),
+    };
+  }
+
+  /** A canonical success body: two OK research legs + a combined synthesis. */
+  const RESOLVE_OK = {
+    research: [
+      { provider: 'openai', ok: true, model: 'gpt-5', content: 'OpenAI research briefing on the subject.' },
+      { provider: 'anthropic', ok: true, model: 'claude-fable-5', content: 'Anthropic research briefing on the subject.' },
+    ],
+    synthesis: {
+      provider: 'anthropic',
+      model: 'claude-fable-5',
+      content: 'The combined, synthesized answer reconciling both briefings.',
+    },
+  };
+
+  it('renders the Single | Resolution mode toggle, Single active by default', () => {
+    render(<ClaudeCodePanel />);
+
+    const toggle = screen.getByTestId('cc-mode-toggle');
+    expect(toggle).toBeTruthy();
+    expect(toggle.getAttribute('role')).toBe('radiogroup');
+
+    const single = screen.getByTestId('cc-mode-single');
+    const resolution = screen.getByTestId('cc-mode-resolution');
+    expect(single.getAttribute('aria-checked')).toBe('true');
+    expect(resolution.getAttribute('aria-checked')).toBe('false');
+    // Resolution starts optimistically enabled (availability is probed on first run).
+    expect((resolution as HTMLButtonElement).disabled).toBe(false);
+  });
+
+  it('Resolution run: POSTs /api/resolve and renders BOTH research legs + the synthesis', async () => {
+    const fetchSpy = vi.fn().mockResolvedValue(jsonResponse(200, RESOLVE_OK));
+    vi.stubGlobal('fetch', fetchSpy);
+
+    render(<ClaudeCodePanel />);
+
+    // Switch to Resolution mode, then run.
+    fireEvent.click(screen.getByTestId('cc-mode-resolution'));
+    expect(screen.getByTestId('cc-mode-resolution').getAttribute('aria-checked')).toBe('true');
+
+    fireEvent.change(screen.getByTestId('cc-prompt-input'), { target: { value: 'research Acme Co' } });
+    fireEvent.click(screen.getByTestId('cc-run-button'));
+
+    // The POST hit /api/resolve (NOT /api/llmcall) with the prompt.
+    await waitFor(() => expect(fetchSpy).toHaveBeenCalled());
+    expect(fetchSpy).toHaveBeenCalledWith('/api/resolve', expect.objectContaining({ method: 'POST' }));
+    const sentBody = JSON.parse((fetchSpy.mock.calls[0][1] as { body: string }).body);
+    expect(sentBody.prompt).toBe('research Acme Co');
+
+    // Both research legs render, provider-labelled, with their models. (Scope to the legs
+    // container — "Anthropic" also appears in the synthesis card, so `screen.getByText` would be
+    // ambiguous.)
+    const legs = await screen.findByTestId('cc-research-legs');
+    expect(legs.querySelectorAll('[data-testid^="cc-research-leg-"]').length).toBe(2);
+    expect(legs.textContent).toContain('OpenAI');
+    expect(legs.textContent).toContain('Anthropic');
+    expect(legs.textContent).toContain('OpenAI research briefing on the subject.');
+    expect(legs.textContent).toContain('Anthropic research briefing on the subject.');
+
+    // The emphasized synthesis renders the combined answer; the machine is done.
+    const synthesis = screen.getByTestId('cc-synthesis');
+    expect(synthesis.getAttribute('data-ok')).toBe('true');
+    expect(screen.getByText('The combined, synthesized answer reconciling both briefings.')).toBeTruthy();
+    expect(screen.getByTestId('cc-run-status').getAttribute('data-status')).toBe('done');
+  });
+
+  it('synthesis-failed marker: renders the legs + a calm "unavailable" note, NOT an error', async () => {
+    const body = {
+      research: RESOLVE_OK.research,
+      synthesis: { ok: false, reason: 'the synthesis model timed out' },
+    };
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(jsonResponse(200, body)));
+
+    render(<ClaudeCodePanel />);
+
+    fireEvent.click(screen.getByTestId('cc-mode-resolution'));
+    fireEvent.change(screen.getByTestId('cc-prompt-input'), { target: { value: 'research with bad synth' } });
+    fireEvent.click(screen.getByTestId('cc-run-button'));
+
+    // The legs still render (research is valuable).
+    const legs = await screen.findByTestId('cc-research-legs');
+    expect(legs.querySelectorAll('[data-testid^="cc-research-leg-"]').length).toBe(2);
+
+    // A calm synthesis-unavailable note shows — the success synthesis card does NOT.
+    const note = screen.getByTestId('cc-synthesis-unavailable');
+    expect(note).toBeTruthy();
+    expect(note.getAttribute('data-ok')).toBe('false');
+    expect(screen.getByText(/Synthesis unavailable/i)).toBeTruthy();
+    expect(screen.queryByTestId('cc-synthesis')).toBeNull();
+
+    // Crucially NOT an error: the run finished `done`, and there's no error alert.
+    expect(screen.getByTestId('cc-run-status').getAttribute('data-status')).toBe('done');
+    expect(screen.queryByTestId('cc-error')).toBeNull();
+  });
+
+  it('renders a DOWN research leg (one provider unavailable) with its reason, not an error', async () => {
+    const body = {
+      research: [
+        RESOLVE_OK.research[0],
+        { provider: 'anthropic', ok: false, reason: 'anthropic is not configured (no API key)' },
+      ],
+      synthesis: RESOLVE_OK.synthesis,
+    };
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(jsonResponse(200, body)));
+
+    render(<ClaudeCodePanel />);
+
+    fireEvent.click(screen.getByTestId('cc-mode-resolution'));
+    fireEvent.change(screen.getByTestId('cc-prompt-input'), { target: { value: 'one leg down' } });
+    fireEvent.click(screen.getByTestId('cc-run-button'));
+
+    const legs = await screen.findByTestId('cc-research-legs');
+    expect(legs.querySelectorAll('[data-testid^="cc-research-leg-"]').length).toBe(2);
+
+    // The down leg is marked unavailable and surfaces its (safe) reason — still a `done` run.
+    const downLeg = screen.getByTestId('cc-research-leg-1');
+    expect(downLeg.getAttribute('data-ok')).toBe('false');
+    expect(screen.getByText(/anthropic is not configured/i)).toBeTruthy();
+    expect(screen.getByTestId('cc-run-status').getAttribute('data-status')).toBe('done');
+  });
+
+  it('flag-off: /api/resolve 404 → Resolution unavailable (toggle disabled, snaps to Single, NO error)', async () => {
+    const fetchSpy = vi.fn().mockResolvedValue(jsonResponse(404, { error: { code: 'NOT_FOUND' } }));
+    vi.stubGlobal('fetch', fetchSpy);
+
+    render(<ClaudeCodePanel />);
+
+    // Choose Resolution and run — the probe lands on the 404.
+    fireEvent.click(screen.getByTestId('cc-mode-resolution'));
+    fireEvent.change(screen.getByTestId('cc-prompt-input'), { target: { value: 'try when dark' } });
+    fireEvent.click(screen.getByTestId('cc-run-button'));
+
+    await waitFor(() => expect(fetchSpy).toHaveBeenCalledWith('/api/resolve', expect.anything()));
+
+    // The toggle's Resolution segment becomes disabled with an explanatory tooltip…
+    await waitFor(() => {
+      const resolution = screen.getByTestId('cc-mode-resolution') as HTMLButtonElement;
+      expect(resolution.disabled).toBe(true);
+    });
+    const resolution = screen.getByTestId('cc-mode-resolution') as HTMLButtonElement;
+    expect(resolution.getAttribute('aria-disabled')).toBe('true');
+    expect((resolution.getAttribute('title') ?? '').toLowerCase()).toContain('unavailable');
+
+    // …the panel snapped back to Single (always works)…
+    expect(screen.getByTestId('cc-mode-single').getAttribute('aria-checked')).toBe('true');
+    expect(screen.getByTestId('cc-mode-toggle').getAttribute('data-mode')).toBe('single');
+
+    // …and there is NO error toast/alert + NO resolution render (a dark feature isn't a failure).
+    expect(screen.queryByTestId('cc-error')).toBeNull();
+    expect(screen.queryByTestId('cc-resolution')).toBeNull();
+    expect(screen.queryByTestId('cc-run-status')).toBeNull();
+  });
+
+  it('Single mode still streams /api/llmcall and is unaffected by Resolution', async () => {
+    const fixture = makeStreamResponse();
+    const fetchSpy = vi.fn().mockResolvedValue(fixture.response);
+    vi.stubGlobal('fetch', fetchSpy);
+
+    render(<ClaudeCodePanel />);
+
+    // Default is Single — run without touching the toggle.
+    fireEvent.change(screen.getByTestId('cc-prompt-input'), { target: { value: 'add a hero' } });
+    fireEvent.click(screen.getByTestId('cc-run-button'));
+
+    await waitFor(() => expect(fetchSpy).toHaveBeenCalledWith('/api/llmcall', expect.objectContaining({ method: 'POST' })));
+
+    fixture.pushChunk('{"kind":"action","label":"Edited src/App.tsx"}\n');
+    fixture.closeStream();
+
+    await waitFor(() => expect(screen.getByTestId('cc-run-status').getAttribute('data-status')).toBe('done'));
+    // Single renders the Activity list (no resolution view).
+    expect(screen.getByTestId('cc-activity-list')).toBeTruthy();
+    expect(screen.queryByTestId('cc-resolution')).toBeNull();
+  });
 });
