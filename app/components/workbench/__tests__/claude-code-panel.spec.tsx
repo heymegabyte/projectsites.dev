@@ -31,12 +31,21 @@ vi.mock('~/lib/stores/workbench', () => ({
   workbenchStore: { createFile: createFileSpy },
 }));
 
+// Stub the embed bridge — Resolution mode runs `/api/resolve` through the admin PS_RESOLVE bridge
+// (WLK-39 S7), NOT a relative `fetch` (which 404s from the editor origin). Mocking at THIS boundary
+// is the fix: the panel awaits `requestResolve(prompt)` and branches on the bridge reply.
+const { requestResolveSpy } = vi.hoisted(() => ({ requestResolveSpy: vi.fn() }));
+vi.mock('~/lib/embed/embedded-mode', () => ({
+  requestResolve: requestResolveSpy,
+}));
+
 import { ClaudeCodePanel, SAMPLE_ACTIVITY_STREAM } from '../ClaudeCodePanel';
 import { parseClaudeCodeStream, FORBIDDEN_EVENT_KINDS } from '../claude-code-stream';
 
 beforeEach(() => {
   createFileSpy.mockReset();
   createFileSpy.mockResolvedValue(true);
+  requestResolveSpy.mockReset();
 });
 
 afterEach(() => {
@@ -370,19 +379,14 @@ describe('ClaudeCodePanel', () => {
     expect(screen.queryByTestId('cc-run-status')).toBeNull();
   });
 
-  // ── S6-b-ii — RESOLUTION mode: the "Single | Resolution" toggle + the /api/resolve render ──
+  // ── S6-b-ii / S7 — RESOLUTION mode: the "Single | Resolution" toggle + the PS_RESOLVE bridge ──
+  //
+  // S7 live-fix: Resolution runs `/api/resolve` THROUGH the admin `PS_RESOLVE` bridge
+  // (`requestResolve`), NOT a relative `fetch` (which 404s from the editor origin). These tests mock
+  // `requestResolve` at that boundary and assert the panel renders legs+synthesis on a success reply,
+  // and the calm "unavailable → Single" state on a `dark` reply (never an error).
 
-  /** A one-shot JSON response (NOT a stream) — Resolution POSTs /api/resolve ONCE and reads a body. */
-  function jsonResponse(status: number, body: unknown) {
-    return {
-      ok: status >= 200 && status < 300,
-      status,
-      body: {}, // truthy so the `!res.body` guard never trips for the non-404 branches
-      json: () => Promise.resolve(body),
-    };
-  }
-
-  /** A canonical success body: two OK research legs + a combined synthesis. */
+  /** The admin bridge reply for a successful resolve: `ok:true` + the worker's top-level body. */
   const RESOLVE_OK = {
     research: [
       { provider: 'openai', ok: true, model: 'gpt-5', content: 'OpenAI research briefing on the subject.' },
@@ -400,6 +404,11 @@ describe('ClaudeCodePanel', () => {
     },
   };
 
+  /** Build the admin's `PS_RESOLVE_RESPONSE` reply shape `requestResolve` resolves with. */
+  function resolveReply(body: { research?: unknown; synthesis?: unknown }) {
+    return { type: 'PS_RESOLVE_RESPONSE', ok: true, research: body.research, synthesis: body.synthesis };
+  }
+
   it('renders the Single | Resolution mode toggle, Single active by default', () => {
     render(<ClaudeCodePanel />);
 
@@ -415,9 +424,8 @@ describe('ClaudeCodePanel', () => {
     expect((resolution as HTMLButtonElement).disabled).toBe(false);
   });
 
-  it('Resolution run: POSTs /api/resolve and renders BOTH research legs + the synthesis', async () => {
-    const fetchSpy = vi.fn().mockResolvedValue(jsonResponse(200, RESOLVE_OK));
-    vi.stubGlobal('fetch', fetchSpy);
+  it('Resolution run: calls requestResolve (the admin bridge) and renders BOTH research legs + the synthesis', async () => {
+    requestResolveSpy.mockResolvedValue(resolveReply(RESOLVE_OK));
 
     render(<ClaudeCodePanel />);
 
@@ -428,11 +436,9 @@ describe('ClaudeCodePanel', () => {
     fireEvent.change(screen.getByTestId('cc-prompt-input'), { target: { value: 'research Acme Co' } });
     fireEvent.click(screen.getByTestId('cc-run-button'));
 
-    // The POST hit /api/resolve (NOT /api/llmcall) with the prompt.
-    await waitFor(() => expect(fetchSpy).toHaveBeenCalled());
-    expect(fetchSpy).toHaveBeenCalledWith('/api/resolve', expect.objectContaining({ method: 'POST' }));
-    const sentBody = JSON.parse((fetchSpy.mock.calls[0][1] as { body: string }).body);
-    expect(sentBody.prompt).toBe('research Acme Co');
+    // The run went THROUGH the admin bridge (NOT a relative fetch) with the trimmed prompt.
+    await waitFor(() => expect(requestResolveSpy).toHaveBeenCalled());
+    expect(requestResolveSpy).toHaveBeenCalledWith('research Acme Co');
 
     // Both research legs render, provider-labelled, with their models. (Scope to the legs
     // container — "Anthropic" also appears in the synthesis card, so `screen.getByText` would be
@@ -452,11 +458,12 @@ describe('ClaudeCodePanel', () => {
   });
 
   it('synthesis-failed marker: renders the legs + a calm "unavailable" note, NOT an error', async () => {
-    const body = {
-      research: RESOLVE_OK.research,
-      synthesis: { ok: false, reason: 'the synthesis model timed out' },
-    };
-    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(jsonResponse(200, body)));
+    requestResolveSpy.mockResolvedValue(
+      resolveReply({
+        research: RESOLVE_OK.research,
+        synthesis: { ok: false, reason: 'the synthesis model timed out' },
+      }),
+    );
 
     render(<ClaudeCodePanel />);
 
@@ -481,14 +488,15 @@ describe('ClaudeCodePanel', () => {
   });
 
   it('renders a DOWN research leg (one provider unavailable) with its reason, not an error', async () => {
-    const body = {
-      research: [
-        RESOLVE_OK.research[0],
-        { provider: 'anthropic', ok: false, reason: 'anthropic is not configured (no API key)' },
-      ],
-      synthesis: RESOLVE_OK.synthesis,
-    };
-    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(jsonResponse(200, body)));
+    requestResolveSpy.mockResolvedValue(
+      resolveReply({
+        research: [
+          RESOLVE_OK.research[0],
+          { provider: 'anthropic', ok: false, reason: 'anthropic is not configured (no API key)' },
+        ],
+        synthesis: RESOLVE_OK.synthesis,
+      }),
+    );
 
     render(<ClaudeCodePanel />);
 
@@ -506,18 +514,19 @@ describe('ClaudeCodePanel', () => {
     expect(screen.getByTestId('cc-run-status').getAttribute('data-status')).toBe('done');
   });
 
-  it('flag-off: /api/resolve 404 → Resolution unavailable (toggle disabled, snaps to Single, NO error)', async () => {
-    const fetchSpy = vi.fn().mockResolvedValue(jsonResponse(404, { error: { code: 'NOT_FOUND' } }));
-    vi.stubGlobal('fetch', fetchSpy);
+  it('dark reply (worker 404 relayed as dark:true) → Resolution unavailable (toggle disabled, snaps to Single, NO error)', async () => {
+    // The admin bridge translates the worker's `resolution_engine` DARK-flag / foreign-site 404 into
+    // `{ ok:false, dark:true }` — the panel must snap to Single CALMLY, never show an error.
+    requestResolveSpy.mockResolvedValue({ type: 'PS_RESOLVE_RESPONSE', ok: false, dark: true });
 
     render(<ClaudeCodePanel />);
 
-    // Choose Resolution and run — the probe lands on the 404.
+    // Choose Resolution and run — the bridge reply says dark.
     fireEvent.click(screen.getByTestId('cc-mode-resolution'));
     fireEvent.change(screen.getByTestId('cc-prompt-input'), { target: { value: 'try when dark' } });
     fireEvent.click(screen.getByTestId('cc-run-button'));
 
-    await waitFor(() => expect(fetchSpy).toHaveBeenCalledWith('/api/resolve', expect.anything()));
+    await waitFor(() => expect(requestResolveSpy).toHaveBeenCalledWith('try when dark'));
 
     // The toggle's Resolution segment becomes disabled with an explanatory tooltip…
     await waitFor(() => {
@@ -536,6 +545,24 @@ describe('ClaudeCodePanel', () => {
     expect(screen.queryByTestId('cc-error')).toBeNull();
     expect(screen.queryByTestId('cc-resolution')).toBeNull();
     expect(screen.queryByTestId('cc-run-status')).toBeNull();
+  });
+
+  it('a genuine transport failure (ok:false, no dark) surfaces as a run error — NOT a silent snap', async () => {
+    // Distinct from `dark`: a no-site / network / non-404 failure IS a real run failure. The panel
+    // must show the error (not snap to Single), so the user knows the run did not complete.
+    requestResolveSpy.mockResolvedValue({ type: 'PS_RESOLVE_RESPONSE', ok: false, error: 'No site selected' });
+
+    render(<ClaudeCodePanel />);
+
+    fireEvent.click(screen.getByTestId('cc-mode-resolution'));
+    fireEvent.change(screen.getByTestId('cc-prompt-input'), { target: { value: 'no site' } });
+    fireEvent.click(screen.getByTestId('cc-run-button'));
+
+    await waitFor(() => expect(screen.getByTestId('cc-run-status').getAttribute('data-status')).toBe('error'));
+    expect(screen.getByTestId('cc-timeline-failed')).toBeTruthy();
+    expect(screen.getByTestId('cc-error').textContent).toContain('No site selected');
+    // It did NOT snap to Single or mark Resolution unavailable (that's reserved for `dark`).
+    expect(screen.getByTestId('cc-mode-toggle').getAttribute('data-mode')).toBe('resolution');
   });
 
   it('Single mode still streams /api/llmcall and is unaffected by Resolution', async () => {

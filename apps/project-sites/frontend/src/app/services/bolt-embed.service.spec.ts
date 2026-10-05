@@ -1,6 +1,7 @@
 import { TestBed } from '@angular/core/testing';
 import { signal } from '@angular/core';
-import { of } from 'rxjs';
+import { of, throwError } from 'rxjs';
+import { HttpErrorResponse } from '@angular/common/http';
 import { DomSanitizer } from '@angular/platform-browser';
 import { BoltEmbedService } from './bolt-embed.service';
 import { ApiService } from './api.service';
@@ -432,6 +433,142 @@ describe('BoltEmbedService (bridge response-shape parity — editor is the contr
     expect(reply['error'])
       .withContext('must NOT be the "Failed to load resource" short-circuit')
       .toBeUndefined();
+  });
+});
+
+/**
+ * PS_RESOLVE_REQUEST bridge (WLK-39 S7): the embedded editor's Resolution mode runs `/api/resolve`
+ * THROUGH the admin (the editor origin has no cross-origin session + CORS blocks a direct worker
+ * call; a relative `fetch('/api/resolve')` from the editor 404s). The admin POSTs
+ * `/api/resolve {prompt, siteId}` and replies `PS_RESOLVE_RESPONSE` — the worker's TOP-LEVEL
+ * `{research, synthesis}` on a 200, `{ok:false, dark:true}` on a 404 (DARK flag / foreign site),
+ * `{ok:false}` on any other failure. Mirrors the PS_CLAUDE_FLAG_REQUEST failure translation.
+ */
+describe('BoltEmbedService (PS_RESOLVE_REQUEST bridge — Resolution mode goes through the admin)', () => {
+  afterEach(() => TestBed.resetTestingModule());
+
+  const TRUSTED = 'https://editor.projectsites.dev';
+  const last = (posted: Array<Record<string, unknown>>, type: string): Record<string, unknown> | undefined =>
+    [...posted].reverse().find((m) => m['type'] === type);
+
+  interface ResolveSetup {
+    fire: (origin: string, data: unknown) => void;
+    posted: Array<Record<string, unknown>>;
+    calls: Array<{ path: string; body: unknown }>;
+  }
+
+  /** Boot site `s1` + capture both the worker POSTs and every message posted back to the iframe. */
+  function resolveSetup(post: (path: string, body: unknown) => unknown, bootSite = true): ResolveSetup {
+    const posted: Array<Record<string, unknown>> = [];
+    const calls: Array<{ path: string; body: unknown }> = [];
+    TestBed.configureTestingModule({
+      providers: [
+        BoltEmbedService,
+        { provide: DomSanitizer, useValue: { bypassSecurityTrustResourceUrl: (u: string) => u } },
+        {
+          provide: ApiService,
+          useValue: {
+            get: () => of({}),
+            post: (path: string, body: unknown) => {
+              calls.push({ path, body });
+              return post(path, body);
+            },
+          },
+        },
+        { provide: ToastService, useValue: { toasts: signal([]), error: jasmine.createSpy('error'), success: jasmine.createSpy('success') } },
+      ],
+    });
+    const svc = TestBed.inject(BoltEmbedService) as unknown as {
+      registerIframe: (el: unknown) => void;
+      bootForSite: (s: unknown) => void;
+      attachMessageListener: () => void;
+      messageHandler: (e: MessageEvent) => void;
+    };
+    svc.registerIframe({ contentWindow: { postMessage: (m: Record<string, unknown>) => posted.push(m) } });
+    if (bootSite) {
+      svc.bootForSite({ id: 's1', slug: 'acme', business_name: 'Acme', status: 'published', current_build_version: 'v1' });
+    }
+    svc.attachMessageListener();
+    const fire = (origin: string, data: unknown): void =>
+      svc.messageHandler(new MessageEvent('message', { origin, data }));
+    return { fire, posted, calls };
+  }
+
+  it('POSTs /api/resolve with {prompt, siteId} and replies PS_RESOLVE_RESPONSE with the worker body on 200', async () => {
+    const body = {
+      research: [
+        { provider: 'openai', ok: true, model: 'gpt-5', content: 'leg A' },
+        { provider: 'anthropic', ok: true, model: 'claude-fable-5', content: 'leg B' },
+      ],
+      synthesis: { provider: 'anthropic', model: 'claude-fable-5', content: 'the combined answer' },
+    };
+    const { fire, posted, calls } = resolveSetup(() => of(body));
+
+    fire(TRUSTED, { type: 'PS_RESOLVE_REQUEST', correlationId: 'r1', prompt: 'research Acme Co' });
+    await new Promise((r) => setTimeout(r, 0));
+
+    // The worker POST carried {prompt, siteId} to the authed /resolve route.
+    const call = calls.find((c) => c.path === '/resolve');
+    expect(call).withContext('POST /resolve was called').toBeDefined();
+    expect(call!.body).toEqual({ prompt: 'research Acme Co', siteId: 's1' });
+
+    // The reply carries the worker's TOP-LEVEL research + synthesis (not a nested data envelope).
+    const reply = last(posted, 'PS_RESOLVE_RESPONSE')!;
+    expect(reply).toBeDefined();
+    expect(reply['ok']).toBeTrue();
+    expect(reply['research']).toEqual(body.research);
+    expect(reply['synthesis']).toEqual(body.synthesis);
+    expect(reply['dark']).toBeUndefined();
+    expect(reply['data']).toBeUndefined();
+  });
+
+  it('replies {ok:false, dark:true} on a worker 404 (resolution_engine DARK flag / foreign site) — not an error', async () => {
+    const err = new HttpErrorResponse({ status: 404, error: { error: { code: 'NOT_FOUND', message: 'Resource not found.' } } });
+    const { fire, posted } = resolveSetup(() => throwError(() => err));
+
+    fire(TRUSTED, { type: 'PS_RESOLVE_REQUEST', correlationId: 'r2', prompt: 'try when dark' });
+    await new Promise((r) => setTimeout(r, 0));
+
+    const reply = last(posted, 'PS_RESOLVE_RESPONSE')!;
+    expect(reply['ok']).toBeFalse();
+    expect(reply['dark']).withContext('404 → dark so the panel snaps to Single, not an error').toBeTrue();
+    expect(reply['error']).toBeUndefined();
+  });
+
+  it('replies {ok:false} (NOT dark) on a non-404 transport failure (a real run failure)', async () => {
+    const err = new HttpErrorResponse({ status: 502, error: { error: { code: 'ALL_PROVIDERS_FAILED' } } });
+    const { fire, posted } = resolveSetup(() => throwError(() => err));
+
+    fire(TRUSTED, { type: 'PS_RESOLVE_REQUEST', correlationId: 'r3', prompt: 'both legs down' });
+    await new Promise((r) => setTimeout(r, 0));
+
+    const reply = last(posted, 'PS_RESOLVE_RESPONSE')!;
+    expect(reply['ok']).toBeFalse();
+    expect(reply['dark']).withContext('a 502 is a genuine failure, not the dark flag').toBeUndefined();
+    expect(reply['error']).toBeTruthy();
+  });
+
+  it('replies {ok:false} with no worker call when no site is selected (cannot scope the resolve)', async () => {
+    const { fire, posted, calls } = resolveSetup(() => of({}), /* bootSite */ false);
+
+    fire(TRUSTED, { type: 'PS_RESOLVE_REQUEST', correlationId: 'r4', prompt: 'no site' });
+    await new Promise((r) => setTimeout(r, 0));
+
+    expect(calls.some((c) => c.path === '/resolve')).withContext('no site → never calls the worker').toBeFalse();
+    const reply = last(posted, 'PS_RESOLVE_RESPONSE')!;
+    expect(reply['ok']).toBeFalse();
+    expect(reply['error']).toBeTruthy();
+    expect(reply['dark']).withContext('no-site is a plain failure, not the dark flag').toBeUndefined();
+  });
+
+  it('IGNORES a PS_RESOLVE_REQUEST from an untrusted origin (cross-frame injection guard)', async () => {
+    const { fire, posted, calls } = resolveSetup(() => of({ research: [], synthesis: {} }));
+
+    fire('https://evil.example.com', { type: 'PS_RESOLVE_REQUEST', correlationId: 'r5', prompt: 'inject' });
+    await new Promise((r) => setTimeout(r, 0));
+
+    expect(calls.some((c) => c.path === '/resolve')).withContext('untrusted origin → handler no-ops').toBeFalse();
+    expect(last(posted, 'PS_RESOLVE_RESPONSE')).toBeUndefined();
   });
 });
 

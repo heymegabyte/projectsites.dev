@@ -2304,6 +2304,53 @@ export interface ClaudeFlagResponseMessage {
   error?: string;
 }
 
+// ── Resolution-mode bridge (WLK-39 §75 flagship, S6-b-ii → S7 live-fix) ─────────
+
+/**
+ * Child → Parent (Claude Code tab — Resolution mode): run the Resolution Engine for the selected
+ * site. The embedded editor has NO cross-origin session and CORS blocks a direct worker call, so —
+ * exactly like {@link ClaudeFlagRequestMessage} — it asks the admin (which holds `selectedSite` +
+ * the bearer) to `POST /api/resolve {prompt, siteId}` (dual-provider research → Claude synthesis).
+ * The admin replies with {@link ResolveResponseMessage}. A relative `fetch('/api/resolve')` from the
+ * editor origin 404s (the authed route lives on the WORKER), which is why this MUST go through the
+ * bridge. Carries the `prompt` + a correlation id; the admin supplies the owned site's id.
+ */
+export interface ResolveRequestMessage {
+  type: 'PS_RESOLVE_REQUEST';
+  correlationId: string;
+
+  /** The research prompt both legs receive, then Claude synthesizes (worker schema: 1–20000 chars). */
+  prompt: string;
+}
+
+/**
+ * Parent → Child (Claude Code tab — Resolution mode): the admin's reply to {@link ResolveRequestMessage}.
+ * On a worker 200 `ok:true` + the worker's TOP-LEVEL `{research, synthesis}` body ride along (the panel
+ * feeds it to `parseResolveResult`). `dark:true` is the `resolution_engine` DARK-flag 404 (and the
+ * foreign-site 404) → the panel shows its calm "Resolution unavailable → snap to Single" state (NEVER
+ * an error). Any other failure (no selected site, network, non-404) is `ok:false` with no `dark` → the
+ * panel's run-lifecycle `fail`. Mirrors {@link ClaudeFlagResponseMessage}'s failure translation.
+ */
+export interface ResolveResponseMessage {
+  type: 'PS_RESOLVE_RESPONSE';
+  correlationId?: string;
+  ok: boolean;
+
+  /** The worker's two research legs (top-level `research`) on a 200 — passed to `parseResolveResult`. */
+  research?: unknown;
+
+  /** The worker's synthesis section (top-level `synthesis`) on a 200 — passed to `parseResolveResult`. */
+  synthesis?: unknown;
+
+  /**
+   * `true` when the worker returned 404 — the `resolution_engine` flag is dark OR the site is
+   * foreign/missing. The panel treats this as "Resolution unavailable" (disable the toggle, snap to
+   * Single), NOT a failure. Absent on success + on a genuine transport error.
+   */
+  dark?: boolean;
+  error?: string;
+}
+
 export type ParentToChildMessage =
   | SubmitPromptMessage
   | ImportFilesMessage
@@ -2350,6 +2397,7 @@ export type ParentToChildMessage =
   | BucketUploadResponseMessage
   | BucketDownloadResponseMessage
   | ClaudeFlagResponseMessage
+  | ResolveResponseMessage
   | PSToastMessage;
 export type ChildToParentMessage =
   | BoltReadyMessage
@@ -2395,6 +2443,7 @@ export type ChildToParentMessage =
   | BucketUploadRequestMessage
   | BucketDownloadRequestMessage
   | ClaudeFlagRequestMessage
+  | ResolveRequestMessage
   | PSErrorMessage
   | PSTelemetryMessage
   | PSToastMessage;
@@ -2883,6 +2932,27 @@ export function requestClaudeCodeFlag(): Promise<ClaudeFlagResponseMessage> {
   return requestFromParent<ClaudeFlagResponseMessage>(
     { type: 'PS_CLAUDE_FLAG_REQUEST', correlationId: nextBridgeCorrelationId() },
     'PS_CLAUDE_FLAG_RESPONSE',
+  );
+}
+
+/**
+ * Run the Resolution Engine for the selected site (WLK-39 S7 live-fix). Asks the admin (over the
+ * PS_RESOLVE bridge) to `POST /api/resolve {prompt, siteId}` — the embedded editor has no cross-origin
+ * session and CORS blocks a direct worker call, so Resolution MUST go through the admin bridge exactly
+ * like {@link requestClaudeCodeFlag}'s flag probe. Resolves with the parent's {@link ResolveResponseMessage}:
+ * `ok:true` + the worker's `{research, synthesis}` on a 200; `ok:false, dark:true` on the
+ * `resolution_engine` DARK-flag 404 / foreign-site 404 (the panel snaps to Single, NOT an error); and a
+ * plain `ok:false` on any genuine transport failure (the panel's run-lifecycle `fail`). The `prompt` is
+ * the only payload the editor sends — the admin supplies the owned site's id, so no bearer ever crosses
+ * the postMessage boundary.
+ *
+ * @param prompt - the research prompt (the panel already trims it before calling).
+ * @returns the parent's reply (resolved value; the panel branches on `dark`/`ok`).
+ */
+export function requestResolve(prompt: string): Promise<ResolveResponseMessage> {
+  return requestFromParent<ResolveResponseMessage>(
+    { type: 'PS_RESOLVE_REQUEST', correlationId: nextBridgeCorrelationId(), prompt },
+    'PS_RESOLVE_RESPONSE',
   );
 }
 

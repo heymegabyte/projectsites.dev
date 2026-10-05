@@ -1785,6 +1785,58 @@ export class BoltEmbedService {
             });
           break;
         }
+        case 'PS_RESOLVE_REQUEST': {
+          /*
+           * WLK-39 S7 live-fix — the embedded editor's Resolution mode runs /api/resolve through US
+           * (we hold currentSite + the ApiService bearer; the editor has no cross-origin session and
+           * CORS blocks a direct worker call, so a relative fetch('/api/resolve') from the editor
+           * origin 404s). We POST /api/resolve { prompt, siteId } (worker schema: {prompt:
+           * string(1..20000), siteId?: string} → {research, synthesis} at the TOP level). A 404 is the
+           * `resolution_engine` DARK flag (or a foreign/missing site) → reply { ok:false, dark:true }
+           * so the editor shows its calm "Resolution unavailable → snap to Single" state, NOT an error.
+           * Any other failure (no site, network, non-404) → a plain { ok:false } the panel treats as a
+           * run failure. Mirrors PS_CLAUDE_FLAG_REQUEST's failure translation.
+           */
+          const iframe = this.iframeEl;
+          const site = this.currentSite;
+          const cid = msg.correlationId;
+          const prompt = typeof msg.prompt === 'string' ? msg.prompt : '';
+          const reply = (payload: Record<string, unknown>): void => {
+            iframe?.contentWindow?.postMessage({ type: 'PS_RESOLVE_RESPONSE', correlationId: cid, ...payload }, EDITOR_BASE);
+          };
+
+          if (!site) {
+            /*
+             * No selected site → can't resolve; a plain failure (not dark — the feature isn't off,
+             * there's just no site to scope to). The panel surfaces this as a run failure, not a snap.
+             */
+            reply({ ok: false, error: 'No site selected' });
+            break;
+          }
+
+          /*
+           * The worker returns `{ research, synthesis }` at the TOP level (NOT a `{ data }` envelope) —
+           * forward both verbatim for the editor's parseResolveResult.
+           */
+          this.api
+            .post<{ research?: unknown; synthesis?: unknown }>('/resolve', { prompt, siteId: site.id }, { silent: true })
+            .subscribe({
+              next: (res) => reply({ ok: true, research: res?.research, synthesis: res?.synthesis }),
+              /*
+               * 404 = the `resolution_engine` DARK flag OR a foreign/missing site → `dark:true` so the
+               * panel disables Resolution + snaps to Single (NEVER an error toast). Anything else is a
+               * genuine transport failure the panel shows as a run failure.
+               */
+              error: (err: unknown) => {
+                if (err instanceof HttpErrorResponse && err.status === 404) {
+                  reply({ ok: false, dark: true });
+                } else {
+                  reply({ ok: false, error: 'Resolution failed' });
+                }
+              },
+            });
+          break;
+        }
         case 'PS_SITEDB_ROWS_REQUEST': {
           // Data Platform (per-site D1) — browse ONE table's rows in the site's OWN dedicated D1 via
           // GET /api/sites/:id/db/tables/:table?limit&offset. Same server-side isolation + lazy provisioning

@@ -75,6 +75,7 @@ import {
 } from './claude-code-run';
 import { ClaudeCodeFileDiff } from './ClaudeCodeFileDiff';
 import { parseResolveResult, providerLabel, type ResolveResult, type ResolveResearchLeg } from './claude-code-resolve';
+import { requestResolve } from '~/lib/embed/embedded-mode';
 
 /** The panel's sub-nav. Activity (S1) + Files/Tests/Deploy (S2-S4) are all wired. */
 const NAV_ITEMS = [
@@ -887,14 +888,19 @@ export const ClaudeCodePanel = memo(function ClaudeCodePanel({ testId }: ClaudeC
   );
 
   /**
-   * S6-b-ii — the RESOLUTION run. POSTs `/api/resolve {prompt}` ONCE (dual-provider research →
-   * Claude synthesis) and reuses the SAME S5 run-lifecycle machine (start → finish | fail) and the
-   * SAME AbortController/Stop wiring as Single mode. Not a stream: one request, one structured body.
+   * S6-b-ii / S7 — the RESOLUTION run. Runs `/api/resolve {prompt, siteId}` ONCE (dual-provider
+   * research → Claude synthesis) THROUGH THE ADMIN `PS_RESOLVE` BRIDGE ({@link requestResolve}) — a
+   * relative `fetch('/api/resolve')` from the embedded editor origin 404s (the authed route lives on
+   * the WORKER, `projectsites.dev`), and the editor has no cross-origin session + CORS blocks a direct
+   * worker call, so Resolution MUST go through the bridge exactly like the flag probe. Reuses the SAME
+   * S5 run-lifecycle machine (start → finish | fail) and the SAME AbortController/Stop wiring as Single.
    *
-   * Flag-off handling: a **404** means the `resolution_engine` flag is dark → Resolution mode is
-   * unavailable. We mark it `unavailable` (the toggle disables with a tooltip), snap back to Single
-   * mode, and `reset` the lifecycle to idle — NEVER an error toast (a dark feature isn't a failure).
-   * A `synthesis.ok===false` body is NON-fatal: the research legs still render with a calm note.
+   * Flag-off / foreign-site handling: the bridge reply's **`dark:true`** (the worker's 404 — the
+   * `resolution_engine` flag is dark OR the site is foreign) means Resolution is unavailable. We mark it
+   * `unavailable` (the toggle disables with a tooltip), snap back to Single mode, and `reset` the
+   * lifecycle to idle — NEVER an error (a dark feature isn't a failure). A genuine transport failure
+   * (`ok:false` without `dark`) is a run `fail`. A `synthesis.ok===false` body is NON-fatal: the
+   * research legs still render with a calm note.
    */
   const runResolution = useCallback(
     async (text: string) => {
@@ -908,21 +914,23 @@ export const ClaudeCodePanel = memo(function ClaudeCodePanel({ testId }: ClaudeC
       setResolution(null);
       setSelectedFileIndex(0);
 
+      // Keep the AbortController/abortRef wiring so Stop still transitions the machine to `cancelled`
+      // and the aborted-guard below prevents a stale render — identical to Single mode's lifecycle.
       const controller = new AbortController();
       abortRef.current = controller;
       dispatch({ type: 'start', summary: summarizePrompt(trimmed), at: Date.now() });
 
       try {
-        const res = await fetch('/api/resolve', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          signal: controller.signal,
-          body: JSON.stringify({ prompt: trimmed }),
-        });
+        const reply = await requestResolve(trimmed);
 
-        // Flag-off (DARK): 404 → Resolution unavailable. Downgrade calmly, drop back to Single, and
-        // return the machine to idle — this is NOT an error the user should see as a failure.
-        if (res.status === 404) {
+        // A cancel may have landed while awaiting the reply — don't render a stale result.
+        if (controller.signal.aborted) {
+          return;
+        }
+
+        // DARK (the worker 404 → `resolution_engine` off or a foreign site): Resolution unavailable.
+        // Downgrade calmly, drop back to Single, and return the machine to idle — NOT a failure.
+        if (reply.dark) {
           setResolutionAvailability('unavailable');
           setMode('single');
           dispatch({ type: 'reset' });
@@ -930,21 +938,15 @@ export const ClaudeCodePanel = memo(function ClaudeCodePanel({ testId }: ClaudeC
           return;
         }
 
-        if (!res.ok) {
-          throw new Error(`Resolution is unavailable (HTTP ${res.status}).`);
+        // A genuine transport failure (no selected site / network / non-404) — surface as a run fail.
+        if (!reply.ok) {
+          throw new Error(reply.error ?? 'Resolution could not complete the run.');
         }
 
-        // Reaching a 200 proves the flag is live — mark it available for the toggle.
+        // A successful reply proves the flag is live — mark it available for the toggle. The worker's
+        // top-level `{research, synthesis}` rode the reply; feed it to the same defensive parser.
         setResolutionAvailability('available');
-
-        const body = (await res.json()) as unknown;
-
-        // A cancel may have landed while awaiting the body — don't render a stale result.
-        if (controller.signal.aborted) {
-          return;
-        }
-
-        setResolution(parseResolveResult(body));
+        setResolution(parseResolveResult({ research: reply.research, synthesis: reply.synthesis }));
         dispatch({ type: 'finish', at: Date.now() });
       } catch (err) {
         if ((err as { name?: string })?.name === 'AbortError') {

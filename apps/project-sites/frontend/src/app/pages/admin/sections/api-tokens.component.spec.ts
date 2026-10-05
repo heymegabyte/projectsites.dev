@@ -349,10 +349,18 @@ describe('AdminApiTokensComponent (flag-disabled banner link is underlined)', ()
     // Settle the constructor auto-load FIRST: loadTokens() clears flagDisabled at the start of each
     // fetch and only re-sets it from the async 404 — forcing the flag before the load settles is
     // clobbered the moment Karma's execution order shifts (fire-80: a new sibling spec shifted the
-    // order and flaked this at `link === null`). Settle, THEN force the banner state. (CLAUDE.md §9.)
+    // order and flaked this at `link === null`; fire-100: the WLK-39 PS_RESOLVE spec shifted it
+    // again). Settle, force the banner state, then settle ONCE MORE so any late async leg of the
+    // real ApiService pipeline (timeout operator over the mocked HttpClient 404) can no longer
+    // re-run loadTokens and clobber the forced flag AFTER we render. (CLAUDE.md §9.)
     fx.detectChanges();
     await fx.whenStable();
     fx.componentInstance.flagDisabled.set(true); // force the flag-disabled banner to render
+    fx.detectChanges();
+    await fx.whenStable();
+    // Re-assert the forced state + re-render as the LAST act before the query, so nothing async can
+    // have cleared it between the settle and the DOM read (the root-cause of the order-fragile null).
+    fx.componentInstance.flagDisabled.set(true);
     fx.detectChanges();
     const link = (fx.nativeElement as HTMLElement).querySelector('[data-testid="api-tokens-flag-gate"] a[routerLink="/admin/feature-flags"]') as HTMLAnchorElement | null;
     expect(link).not.toBeNull();
