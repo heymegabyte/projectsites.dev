@@ -44,13 +44,23 @@ function* walk(dir) {
  */
 function findViolations(source) {
   const violations = [];
+  // Blank out COMMENT CONTENT (JSDoc/block `/* … */` + HTML `<!-- … -->`) before scanning, so a
+  // prose/documentation mention of a tag — e.g. a JSDoc describing "a cross-origin <img> in the
+  // editor iframe" — isn't flagged as a real missing-alt image. This mirrors the `.spec.ts`
+  // exclusion in walk() (non-production markup must not trip the shipped-HTML gate); a commented-out
+  // <img> never renders, so skipping it is correct. Each non-newline char → a space so byte offsets
+  // (and therefore reported line numbers) are preserved exactly.
+  const blankComment = (m) => m.replace(/[^\n]/g, ' ');
+  const scanned = source
+    .replace(/\/\*[\s\S]*?\*\//g, blankComment)
+    .replace(/<!--[\s\S]*?-->/g, blankComment);
   const rx = /<img\b[^>]*>/g;
   let match;
-  while ((match = rx.exec(source)) !== null) {
+  while ((match = rx.exec(scanned)) !== null) {
     const tag = match[0];
     if (/\salt\s*=/.test(tag)) continue;
     if (/\[alt\]\s*=/.test(tag)) continue;
-    const before = source.slice(0, match.index);
+    const before = scanned.slice(0, match.index);
     const line = before.split('\n').length;
     violations.push({ tag, line });
   }
