@@ -250,9 +250,12 @@ NOVU_WORKFLOW_ID = "ps-notify-eiz1pyxe"
 # Route every external LLM call through Cloudflare AI Gateway when "true"
 # (universal cache + fallback + rate-limit + structured logs + cost
 # attribution). Set to "false" to bypass during incident response. Requires
-# AI Gateway named "projectsites" provisioned at:
+# AI Gateway named "projectsites-dev" provisioned at:
 #   https://dash.cloudflare.com/?to=/:account/ai/ai-gateway
 AI_GATEWAY_ENABLED = "true"
+# Gateway name — domain-derived (projectsites.dev → projectsites-dev). The code
+# defaults to "projectsites" when unset; set explicitly after the gateway rename.
+AI_GATEWAY_NAME = "projectsites-dev"
 # Unified Analytics ingestion beacon (Plane H). When "true", served sites inject
 # the tracker → POST /api/events → durable analytics_events D1 store → the admin
 # Analytics tab. Dark-launched OFF; flip to "true" + redeploy to go live (a normal
