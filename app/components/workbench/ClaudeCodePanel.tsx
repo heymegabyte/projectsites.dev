@@ -74,12 +74,7 @@ import {
   type RunTransition,
 } from './claude-code-run';
 import { ClaudeCodeFileDiff } from './ClaudeCodeFileDiff';
-import {
-  parseResolveResult,
-  providerLabel,
-  type ResolveResult,
-  type ResolveResearchLeg,
-} from './claude-code-resolve';
+import { parseResolveResult, providerLabel, type ResolveResult, type ResolveResearchLeg } from './claude-code-resolve';
 
 /** The panel's sub-nav. Activity (S1) + Files/Tests/Deploy (S2-S4) are all wired. */
 const NAV_ITEMS = [
@@ -1131,7 +1126,9 @@ export const ClaudeCodePanel = memo(function ClaudeCodePanel({ testId }: ClaudeC
         ) : running && !hasActivity ? (
           <PanelLoading
             testId="cc-loading"
-            label={mode === 'resolution' ? 'Researching with two providers, then synthesizing…' : 'Claude Code is working…'}
+            label={
+              mode === 'resolution' ? 'Researching with two providers, then synthesizing…' : 'Claude Code is working…'
+            }
           />
         ) : hasActivity ? (
           <ul data-testid="cc-activity-list" className="min-h-0 flex-1 overflow-y-auto flex flex-col gap-1.5 p-4">

@@ -82,10 +82,9 @@ describe('GET /api/sites/:siteId/claude-code/status', () => {
     const body = (await res.json()) as { data?: { enabled?: boolean } };
     expect(body.data).toEqual({ enabled: true });
     // Flag resolved with the owned-site scope so an org/tenant override can promote it per-tenant.
-    expect(mockIsFlagOn).toHaveBeenCalledWith(
-      expect.anything(),
-      'claude_code_panel',
-      { orgId: 'org-1', siteId: 'site-1' },
-    );
+    expect(mockIsFlagOn).toHaveBeenCalledWith(expect.anything(), 'claude_code_panel', {
+      orgId: 'org-1',
+      siteId: 'site-1',
+    });
   });
 });

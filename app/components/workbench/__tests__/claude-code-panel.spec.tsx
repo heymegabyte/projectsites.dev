@@ -386,7 +386,12 @@ describe('ClaudeCodePanel', () => {
   const RESOLVE_OK = {
     research: [
       { provider: 'openai', ok: true, model: 'gpt-5', content: 'OpenAI research briefing on the subject.' },
-      { provider: 'anthropic', ok: true, model: 'claude-fable-5', content: 'Anthropic research briefing on the subject.' },
+      {
+        provider: 'anthropic',
+        ok: true,
+        model: 'claude-fable-5',
+        content: 'Anthropic research briefing on the subject.',
+      },
     ],
     synthesis: {
       provider: 'anthropic',
@@ -544,7 +549,9 @@ describe('ClaudeCodePanel', () => {
     fireEvent.change(screen.getByTestId('cc-prompt-input'), { target: { value: 'add a hero' } });
     fireEvent.click(screen.getByTestId('cc-run-button'));
 
-    await waitFor(() => expect(fetchSpy).toHaveBeenCalledWith('/api/llmcall', expect.objectContaining({ method: 'POST' })));
+    await waitFor(() =>
+      expect(fetchSpy).toHaveBeenCalledWith('/api/llmcall', expect.objectContaining({ method: 'POST' })),
+    );
 
     fixture.pushChunk('{"kind":"action","label":"Edited src/App.tsx"}\n');
     fixture.closeStream();

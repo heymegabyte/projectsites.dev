@@ -92,9 +92,7 @@ export function providerLabel(provider: string): string {
     return 'Provider';
   }
 
-  return key
-    .replace(/[-_]+/g, ' ')
-    .replace(/\b\w/g, (m) => m.toUpperCase());
+  return key.replace(/[-_]+/g, ' ').replace(/\b\w/g, (m) => m.toUpperCase());
 }
 
 function asString(value: unknown): string {
