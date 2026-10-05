@@ -132,10 +132,11 @@ function safeReason(err: unknown): string {
  * with THIS leg's own provider label, so each leg's reason unambiguously names the
  * provider the leg was dispatched to — never the internal fallback vendor.
  *
- * NOTE: the same internal fallback means an `openai` leg could in principle return
- * anthropic CONTENT if openai fails but anthropic succeeds inside that one call — a
- * latent independence (invariant #7) concern. Closing it requires a "no cross-vendor
- * fallback" option on `callExternalLLM`; tracked as TODO(resolution-engine-leg-isolation).
+ * RESOLVED (fire-188): each leg now passes `lockProvider: true` to `callExternalLLM`, so
+ * there is NO cross-vendor fallback INSIDE a leg — an `openai` leg rides openai only and can
+ * never return anthropic content or an anthropic error. This closes the invariant-#7 leg
+ * independence gap. The prefix handling below is retained as defense-in-depth (and for any
+ * legacy error text), but a locked leg's error already names its own provider.
  */
 function legReason(provider: ResearchProvider, err: unknown): string {
   const label = PROVIDER_LABEL[provider];
@@ -171,6 +172,12 @@ async function runLeg(
       // Gateway (never a tier ladder that could collapse both legs onto one
       // vendor and defeat independence). Each leg is its own isolated call.
       provider,
+      // lockProvider → NO cross-vendor fallback inside this one call (fire-188). Without
+      // it, callExternalLLM(provider:'openai') would silently retry anthropic on failure,
+      // so an `openai` leg could return Anthropic content/errors — violating invariant #7
+      // independence, double-billing, and crossing attribution. Locked, the leg rides ONLY
+      // its assigned vendor; a failure throws naming its OWN provider.
+      lockProvider: true,
       system: input.system,
       user: input.user,
       maxTokens: input.maxTokens,
@@ -186,8 +193,9 @@ async function runLeg(
       latencyMs: result.latency_ms,
     };
   } catch (err) {
-    // The leg's OWN provider is authoritative — never the internal fallback vendor
-    // named in the rethrown error text (fire-186 cross-label fix). See legReason.
+    // The leg is provider-LOCKED (lockProvider:true above), so callExternalLLM threw this
+    // leg's OWN provider error — no cross-vendor fallback happened inside the call (fire-188).
+    // legReason still governs by THIS leg's provider as defense-in-depth. See legReason.
     return { provider, ok: false, reason: legReason(provider, err) };
   }
 }

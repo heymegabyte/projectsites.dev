@@ -142,6 +142,24 @@ export interface ExternalLLMOptions {
   }>;
   /** @see {@link TraceContext} */
   traceContext?: TraceContext;
+  /**
+   * Lock the call to its resolved PRIMARY provider — opt OUT of the cross-vendor fallback.
+   *
+   * @remarks
+   * **Default `false`/`undefined` = EXACTLY the historical behavior**: the call tries
+   * `[primary, otherVendor]` in sequence, so a failing openai primary silently retries
+   * anthropic (and vice-versa). Every pre-existing caller omits this field and is therefore
+   * unaffected.
+   *
+   * When `true`, the provider list is `[primary]` ONLY — a primary-provider failure throws
+   * (its error naming the primary's OWN vendor), NEVER a second attempt on the other vendor.
+   *
+   * Required for the Resolution Engine's dual-provider INDEPENDENCE (invariant #7): each
+   * research leg must ride ONLY its assigned provider, so an `openai` leg can never return
+   * Anthropic content / an Anthropic error, which would double-bill + muddy attribution
+   * (fire-186/fire-188). Does NOT alter the circuit breaker, gateway path, or model resolution.
+   */
+  lockProvider?: boolean;
 }
 
 export interface ExternalLLMResult {
@@ -789,7 +807,16 @@ export async function callExternalLLM(
   const fallback: 'openai' | 'anthropic' | 'deepseek' =
     usablePrimary === 'openai' ? 'anthropic' : 'openai';
 
-  const providers: Array<'openai' | 'anthropic' | 'deepseek'> = [usablePrimary, fallback];
+  // DEFAULT (lockProvider falsy) = EXACTLY the historical behavior: try [primary, fallback].
+  // When lockProvider is true, ride the PRIMARY provider ONLY (no cross-vendor fallback) so a
+  // caller that needs provider independence — the Resolution Engine's dual-research legs,
+  // invariant #7 — can never silently return the other vendor's content/error (fire-188).
+  const providers: Array<'openai' | 'anthropic' | 'deepseek'> = options.lockProvider
+    ? [usablePrimary]
+    : [usablePrimary, fallback];
+  // The LAST provider in the list is the one whose failure rethrows (so a locked
+  // single-provider call still surfaces its own error instead of silently returning).
+  const rethrowProvider = providers[providers.length - 1];
 
   const distinctId = resolveDistinctId(options.traceContext);
   const traceId = options.traceContext?.traceId;
@@ -927,8 +954,10 @@ export async function callExternalLLM(
         traceId,
       });
 
-      // If this is the fallback too, rethrow
-      if (provider === fallback) throw err;
+      // If this is the LAST provider in the list, rethrow. In default mode this is the
+      // cross-vendor fallback; in lockProvider mode it is the primary itself (so a locked
+      // single-provider failure surfaces its own error, naming its OWN vendor — fire-188).
+      if (provider === rethrowProvider) throw err;
     }
   }
 

@@ -488,6 +488,88 @@ describe('error + fallback', () => {
   });
 });
 
+// ─── lockProvider — additive, DEFAULT-OFF cross-vendor fallback opt-out (fire-188) ──
+//
+// The Resolution Engine requires dual-provider INDEPENDENCE (invariant #7): an
+// `openai` leg must ride openai ONLY. The default cross-vendor fallback silently
+// retried the OTHER vendor on a primary failure (an `openai` leg returned an
+// *Anthropic* error in prod), crossing providers + double-billing. `lockProvider`
+// makes the fallback opt-out so a locked call rides its ONE provider.
+//
+// CRITICAL: the two ABSENT/false tests below prove the ~15 existing callers are
+// unaffected — the full cross-vendor fallback STILL happens by default.
+describe('error + fallback — lockProvider opt-out (default-off)', () => {
+  it('ABSENT: cross-vendor fallback STILL happens (unchanged for the ~15 existing callers)', async () => {
+    // No lockProvider → exactly the current behavior: openai fails, loop falls to anthropic.
+    mockGatewayFetch
+      .mockResolvedValueOnce(gwErr(500, 'openai down'))
+      .mockResolvedValueOnce(gwOk(anthropicBody('fallback-ok')));
+    const res = await callExternalLLM(makeEnv(), { system: 's', user: 'u', provider: 'openai' });
+    expect(res.provider).toBe('anthropic');
+    expect(res.output).toBe('fallback-ok');
+    expect(mockGatewayFetch).toHaveBeenCalledTimes(2); // primary + cross-vendor fallback
+  });
+
+  it('false: cross-vendor fallback STILL happens (explicit false === absent)', async () => {
+    mockGatewayFetch
+      .mockResolvedValueOnce(gwErr(500, 'openai down'))
+      .mockResolvedValueOnce(gwOk(anthropicBody('fallback-ok')));
+    const res = await callExternalLLM(makeEnv(), {
+      system: 's',
+      user: 'u',
+      provider: 'openai',
+      lockProvider: false,
+    });
+    expect(res.provider).toBe('anthropic');
+    expect(mockGatewayFetch).toHaveBeenCalledTimes(2);
+  });
+
+  it('TRUE: a failing openai primary does NOT fall back to anthropic (locked to its vendor)', async () => {
+    // Only the openai attempt fires; the anthropic fallback is never tried. The
+    // thrown error names openai (its OWN provider), never the crossed vendor.
+    mockGatewayFetch.mockResolvedValueOnce(gwErr(401, 'unauthorized'));
+    await expect(
+      callExternalLLM(makeEnv(), {
+        system: 's',
+        user: 'u',
+        provider: 'openai',
+        lockProvider: true,
+      }),
+    ).rejects.toThrow(/OpenAI API error 401/);
+    expect(mockGatewayFetch).toHaveBeenCalledTimes(1); // NO cross-vendor second attempt
+    const providersCalled = mockGatewayFetch.mock.calls.map((c) => c[1]);
+    expect(providersCalled).not.toContain('anthropic');
+  });
+
+  it('TRUE: a failing anthropic primary does NOT fall back to openai (symmetric)', async () => {
+    mockGatewayFetch.mockResolvedValueOnce(gwErr(401, 'unauthorized'));
+    await expect(
+      callExternalLLM(makeEnv(), {
+        system: 's',
+        user: 'u',
+        provider: 'anthropic',
+        lockProvider: true,
+      }),
+    ).rejects.toThrow(/Anthropic API error 401/);
+    expect(mockGatewayFetch).toHaveBeenCalledTimes(1);
+    const providersCalled = mockGatewayFetch.mock.calls.map((c) => c[1]);
+    expect(providersCalled).not.toContain('openai');
+  });
+
+  it('TRUE: a locked primary that SUCCEEDS returns normally (lock is a no-op on success)', async () => {
+    mockGatewayFetch.mockResolvedValueOnce(gwOk(openAIBody('locked-ok')));
+    const res = await callExternalLLM(makeEnv(), {
+      system: 's',
+      user: 'u',
+      provider: 'openai',
+      lockProvider: true,
+    });
+    expect(res.provider).toBe('openai');
+    expect(res.output).toBe('locked-ok');
+    expect(mockGatewayFetch).toHaveBeenCalledTimes(1);
+  });
+});
+
 // ─── Telemetry capture on success ──────────────────────────────────────────────
 
 describe('telemetry capture', () => {

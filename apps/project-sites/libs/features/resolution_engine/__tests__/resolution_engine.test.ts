@@ -175,6 +175,86 @@ describe('runDualResearch — both legs succeed', () => {
   });
 });
 
+// fire-188: TRUE independence (invariant #7). The prior fire-186 cross-label fix only
+// RELABELED a crossed error; the leg could still return the OTHER vendor's CONTENT because
+// callExternalLLM(provider:'openai') internally fell back to anthropic. Each leg must now
+// pass `lockProvider: true` so callExternalLLM rides its ONE assigned provider — a leg
+// failure throws naming its OWN provider, never silently retries the other vendor.
+describe('runDualResearch — each leg is provider-LOCKED (no cross-vendor fallback inside a leg)', () => {
+  it('passes lockProvider:true for EVERY leg (both openai + anthropic)', async () => {
+    mockCallExternalLLM.mockImplementation(async (_env, opts: { provider: string }) =>
+      llmResult(opts.provider as 'openai' | 'anthropic', 'ok'),
+    );
+
+    await runDualResearch(keyEnv(), { prompt: 'p' });
+
+    expect(mockCallExternalLLM).toHaveBeenCalledTimes(2);
+    for (const call of mockCallExternalLLM.mock.calls) {
+      const opts = call[1] as { provider: string; lockProvider?: boolean };
+      // Each leg forbids the internal cross-vendor fallback → true independence.
+      expect(opts.lockProvider).toBe(true);
+    }
+    // And the two legs STILL use DISTINCT providers in the happy path.
+    const providersCalled = mockCallExternalLLM.mock.calls.map(
+      (c) => (c[1] as { provider: string }).provider,
+    );
+    expect(new Set(providersCalled)).toEqual(new Set(['openai', 'anthropic']));
+  });
+
+  it('the openai leg passes provider=openai WITH lockProvider:true (cannot cross to anthropic)', async () => {
+    mockCallExternalLLM.mockImplementation(async (_env, opts: { provider: string }) =>
+      llmResult(opts.provider as 'openai' | 'anthropic', 'ok'),
+    );
+
+    await runDualResearch(keyEnv(), { prompt: 'p' });
+
+    const openaiCall = mockCallExternalLLM.mock.calls.find(
+      (c) => (c[1] as { provider: string }).provider === 'openai',
+    );
+    expect(openaiCall).toBeDefined();
+    expect((openaiCall![1] as { lockProvider?: boolean }).lockProvider).toBe(true);
+  });
+
+  it('the anthropic leg passes provider=anthropic WITH lockProvider:true (symmetric)', async () => {
+    mockCallExternalLLM.mockImplementation(async (_env, opts: { provider: string }) =>
+      llmResult(opts.provider as 'openai' | 'anthropic', 'ok'),
+    );
+
+    await runDualResearch(keyEnv(), { prompt: 'p' });
+
+    const anthropicCall = mockCallExternalLLM.mock.calls.find(
+      (c) => (c[1] as { provider: string }).provider === 'anthropic',
+    );
+    expect(anthropicCall).toBeDefined();
+    expect((anthropicCall![1] as { lockProvider?: boolean }).lockProvider).toBe(true);
+  });
+
+  it('when the openai leg fails, callExternalLLM is NOT re-invoked with anthropic for that leg (leg FAILS, reason names openai)', async () => {
+    // With lockProvider the leg can no longer cross vendors INSIDE callExternalLLM, so a
+    // failed openai leg surfaces as a down leg whose reason names openai — and there is no
+    // second callExternalLLM invocation substituting anthropic FOR the openai leg (exactly
+    // two calls total: one per provider).
+    mockCallExternalLLM.mockImplementation(async (_env, opts: { provider: string }) => {
+      if (opts.provider === 'openai') throw new Error('OpenAI API error 401: unauthorized');
+      return llmResult('anthropic', 'anthropic findings');
+    });
+
+    const res = await runDualResearch(keyEnv(), { prompt: 'p' });
+
+    // Exactly one call per provider — the openai leg was NOT retried as anthropic.
+    expect(mockCallExternalLLM).toHaveBeenCalledTimes(2);
+    const providersCalled = mockCallExternalLLM.mock.calls.map(
+      (c) => (c[1] as { provider: string }).provider,
+    );
+    expect(providersCalled.filter((p) => p === 'openai')).toHaveLength(1);
+    expect(providersCalled.filter((p) => p === 'anthropic')).toHaveLength(1);
+
+    const openai = res.legs.find((l) => l.provider === 'openai');
+    expect(openai?.ok).toBe(false);
+    expect(openai && 'reason' in openai && openai.reason).toMatch(/openai/i);
+  });
+});
+
 describe('runDualResearch — one leg down (fallback §24/§76-D)', () => {
   it('returns the OTHER leg and marks the failed one {ok:false, reason} — NEVER throws', async () => {
     mockCallExternalLLM.mockImplementation(async (_env, opts: { provider: string }) => {
