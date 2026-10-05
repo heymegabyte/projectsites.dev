@@ -50,7 +50,18 @@ working). (3) **Promote** both flags (reversible) → **WLK-39 CLOSES**.
 - Latest HEAD: `134901116`. Milestone commits: S7-prep `4c55c773d` · admin deploy + alt-text fix `755fee004` · Resolution bridge `e9cbe2da4` · gateway-401 fix `316f3ef7a` + deploy `77eed6f5`.
 - Memories: `[[admin-frontend-needs-explicit-r2-deploy-not-auto-on-push]]` · `[[editor-dark-flag-resolves-via-admin-bridge-not-direct-fetch]]` · `[[cf-ai-gateway-authenticated-401-needs-cf-aig-authorization-or-fallback]]`.
 
-## Cron
-The Editor-focus cron (`a2c2e412`) keeps firing "finish the Editor panel" — but it's DONE (implemented +
-proven). **Recommend repointing it to `/loop`** so it stops chasing a completed target; the remaining
-work is billing (Brian) + the fresh-session independence refinement, neither of which is panel implementation.
+## Cron + fresh-session guidance (READ if you're continuing this loop)
+The Editor-focus cron (`a2c2e412`) keeps firing "finish the Editor panel" — but **BOTH its clauses are
+DONE + verified**: the Resources-screen tabs (fire-193, observed live) AND the WLK-39 panel
+(engineering-complete fire-188, incl. the dual-provider independence fix `5feab3cee`). The only open
+items are platform-secret provisions — **LLM credits (Anthropic+OpenAI)** + **R2 S3 creds** — which are
+Brian's, not code.
+
+**If you are a FRESH session and billing is STILL blocked (poll `/api/resolve` per the recipe above, or
+ask Brian): DO NOT idle on WLK-39.** The focus-cron's specific target is complete, so the `[[cronE]]`
+pin is RELEASED — **pivot to the broader loop frontier in `BACKLOG.md`** (general P2 work: WLK-38 Apps
+catalog, WLK-40 Full IDE, WLK-45 Super-Admin ideas, + whatever else is ready) and advance it with fresh
+context. Keep an ~hourly billing poll as a BACKGROUND safety net so WLK-39 auto-closes the instant
+credits land. Idling on this completed target was only correct within a SATURATED session (fires
+187-200); a fresh session should make real progress elsewhere. (Repointing the cron to `/loop` is still
+a fine option for Brian, but this guidance keeps a fresh session productive regardless.)
