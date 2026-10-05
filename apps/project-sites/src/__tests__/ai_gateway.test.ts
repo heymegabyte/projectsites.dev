@@ -255,8 +255,15 @@ describe('gatewayFetch fallback', () => {
     expect((directInit.headers as Headers).get('cf-aig-cache-ttl')).toBeNull();
   });
 
-  it('does NOT fall back on a 4xx (real vendor error passes through)', async () => {
-    mockFetch.mockResolvedValueOnce(new Response('bad key', { status: 401 }));
+  it('does NOT fall back on a genuine VENDOR 4xx (real vendor error passes through)', async () => {
+    // A VENDOR-origin 401 (OpenAI/Anthropic rejecting a bad key) has the vendor's
+    // own error shape — NOT the gateway's `code: 2009`. The direct URL would reject
+    // it identically, so surface it (no wasted second request).
+    mockFetch.mockResolvedValueOnce(
+      new Response(JSON.stringify({ error: { type: 'authentication_error', message: 'bad key' } }), {
+        status: 401,
+      }),
+    );
 
     const { response, gatewayUsed } = await gatewayFetch(makeEnv(), 'anthropic', '/v1/messages', {
       method: 'POST',
@@ -280,6 +287,158 @@ describe('gatewayFetch fallback', () => {
     );
 
     expect(gatewayUsed).toBe(false);
+    expect(mockFetch).toHaveBeenCalledTimes(1);
+  });
+});
+
+// ─── gatewayFetch — fallback on gateway-ORIGIN auth 401/403 (fire-186) ────────
+
+describe('gatewayFetch gateway-auth fallback', () => {
+  /**
+   * The Cloudflare AI Gateway in AUTHENTICATED mode rejects every request lacking
+   * `cf-aig-authorization` with its OWN 401 body carrying `code: 2009`
+   * (`AiGatewayError`). That is NOT a vendor rejection — the gateway never forwarded
+   * to the vendor — so the valid vendor key still works against the direct URL.
+   */
+  function gatewayAuth401(): Response {
+    return new Response(
+      JSON.stringify({ error: { code: 2009, message: 'Unauthorized' } }),
+      { status: 401, headers: { 'content-type': 'application/json' } },
+    );
+  }
+  function gatewayAuth403(): Response {
+    return new Response(
+      JSON.stringify({ error: { code: 2009, message: 'Forbidden' } }),
+      { status: 403, headers: { 'content-type': 'application/json' } },
+    );
+  }
+
+  it('(a) falls back to the direct vendor URL on a gateway-origin 401 → gatewayUsed=false', async () => {
+    mockFetch.mockResolvedValueOnce(gatewayAuth401()).mockResolvedValueOnce(okResponse());
+
+    const { response, gatewayUsed } = await gatewayFetch(
+      makeEnv(),
+      'openai',
+      '/v1/chat/completions',
+      { method: 'POST', headers: { Authorization: 'Bearer valid-key' }, body: '{}' },
+    );
+
+    expect(response.status).toBe(200);
+    expect(gatewayUsed).toBe(false);
+    expect(mockFetch).toHaveBeenCalledTimes(2);
+
+    expect(mockFetch.mock.calls[0][0]).toContain('gateway.ai.cloudflare.com');
+    const [directUrl, directInit] = mockFetch.mock.calls[1];
+    expect(directUrl).toBe('https://api.openai.com/v1/chat/completions');
+    // Reuses the valid vendor auth header against the direct URL.
+    expect((directInit.headers as Headers).get('Authorization')).toBe('Bearer valid-key');
+    // Marks the fallback + strips cf-aig-* headers.
+    expect((directInit.headers as Headers).get('X-PS-Gateway-Fallback')).toBe('true');
+    expect((directInit.headers as Headers).get('cf-aig-cache-ttl')).toBeNull();
+  });
+
+  it('(b) falls back to the direct vendor URL on a gateway-origin 403 → gatewayUsed=false', async () => {
+    mockFetch.mockResolvedValueOnce(gatewayAuth403()).mockResolvedValueOnce(okResponse());
+
+    const { response, gatewayUsed } = await gatewayFetch(makeEnv(), 'anthropic', '/v1/messages', {
+      method: 'POST',
+      headers: { 'x-api-key': 'valid-key' },
+      body: '{}',
+    });
+
+    expect(response.status).toBe(200);
+    expect(gatewayUsed).toBe(false);
+    expect(mockFetch).toHaveBeenCalledTimes(2);
+    const [directUrl, directInit] = mockFetch.mock.calls[1];
+    expect(directUrl).toBe('https://api.anthropic.com/v1/messages');
+    expect((directInit.headers as Headers).get('x-api-key')).toBe('valid-key');
+  });
+
+  it('(e) surfaces the status when the gateway 401s AND the direct vendor ALSO 401s (no infinite retry)', async () => {
+    // Gateway-auth 401 → one fallback to direct → direct ALSO rejects (genuinely bad
+    // key). The fallback result is returned verbatim; there is no third attempt.
+    mockFetch
+      .mockResolvedValueOnce(gatewayAuth401())
+      .mockResolvedValueOnce(new Response('bad key', { status: 401 }));
+
+    const { response, gatewayUsed } = await gatewayFetch(
+      makeEnv(),
+      'openai',
+      '/v1/chat/completions',
+      { method: 'POST', headers: { Authorization: 'Bearer bad' }, body: '{}' },
+    );
+
+    expect(response.status).toBe(401);
+    expect(gatewayUsed).toBe(false);
+    expect(mockFetch).toHaveBeenCalledTimes(2);
+  });
+
+  it('does NOT fall back when gateway is inactive even on a 401 (no double-call)', async () => {
+    mockFetch.mockResolvedValueOnce(gatewayAuth401());
+
+    const { response, gatewayUsed } = await gatewayFetch(
+      makeEnv({ AI_GATEWAY_ENABLED: 'false' }),
+      'openai',
+      '/v1/chat/completions',
+      { method: 'POST', headers: { Authorization: 'Bearer k' }, body: '{}' },
+    );
+
+    // Gateway inactive → the 401 came straight from the direct vendor; surface it.
+    expect(response.status).toBe(401);
+    expect(gatewayUsed).toBe(false);
+    expect(mockFetch).toHaveBeenCalledTimes(1);
+  });
+
+  it('does NOT consume the response body of a passed-through gateway 200 (clone-safe)', async () => {
+    // The gateway-origin probe clones before reading — a happy-path 200 body must
+    // still be readable by the caller.
+    mockFetch.mockResolvedValueOnce(new Response(JSON.stringify({ hello: 'world' }), { status: 200 }));
+
+    const { response, gatewayUsed } = await gatewayFetch(
+      makeEnv(),
+      'openai',
+      '/v1/chat/completions',
+      { method: 'POST', headers: { Authorization: 'Bearer k' }, body: '{}' },
+    );
+
+    expect(gatewayUsed).toBe(true);
+    expect(mockFetch).toHaveBeenCalledTimes(1);
+    await expect(response.json()).resolves.toEqual({ hello: 'world' });
+  });
+
+  it('(f) does NOT fall back on a genuine vendor 401 (vendor error shape, not code 2009)', async () => {
+    // OpenAI's own invalid-key rejection — no gateway `code: 2009`. Surface it
+    // directly; the direct URL would reject it identically (no wasted request).
+    mockFetch.mockResolvedValueOnce(
+      new Response(
+        JSON.stringify({ error: { code: 'invalid_api_key', type: 'invalid_request_error' } }),
+        { status: 401, headers: { 'content-type': 'application/json' } },
+      ),
+    );
+
+    const { response, gatewayUsed } = await gatewayFetch(
+      makeEnv(),
+      'openai',
+      '/v1/chat/completions',
+      { method: 'POST', headers: { Authorization: 'Bearer bad' }, body: '{}' },
+    );
+
+    expect(response.status).toBe(401);
+    expect(gatewayUsed).toBe(true);
+    expect(mockFetch).toHaveBeenCalledTimes(1);
+  });
+
+  it('(f) does NOT fall back on a genuine vendor 429 rate-limit (not an auth status)', async () => {
+    mockFetch.mockResolvedValueOnce(new Response('rate limited', { status: 429 }));
+
+    const { response, gatewayUsed } = await gatewayFetch(makeEnv(), 'openai', '/v1/chat/completions', {
+      method: 'POST',
+      headers: { Authorization: 'Bearer k' },
+      body: '{}',
+    });
+
+    expect(response.status).toBe(429);
+    expect(gatewayUsed).toBe(true);
     expect(mockFetch).toHaveBeenCalledTimes(1);
   });
 });

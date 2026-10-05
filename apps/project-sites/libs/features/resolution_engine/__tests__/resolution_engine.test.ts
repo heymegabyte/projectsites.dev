@@ -250,4 +250,49 @@ describe('runDualResearch — both legs down (honest 502)', () => {
     expect(err).toBeInstanceOf(ResolutionEngineError);
     expect(mockCallExternalLLM).not.toHaveBeenCalled();
   });
+
+  // fire-186: the 502 `reasons[]` must label each leg with its OWN provider — a
+  // crossed map (openai's reason tagged "anthropic" and vice-versa) misdirects the
+  // operator reading the aggregate. Give each provider a DISTINCT failure so a
+  // crossing would be unmissable.
+  it('pairs each down leg with its OWN provider reason — never crossed', async () => {
+    mockCallExternalLLM.mockImplementation(async (_env, opts: { provider: string }) => {
+      if (opts.provider === 'openai') throw new Error('OPENAI_DISTINCT_FAILURE 500');
+      throw new Error('ANTHROPIC_DISTINCT_FAILURE 529');
+    });
+
+    const err = (await runDualResearch(keyEnv(), { prompt: 'p' }).catch(
+      (e) => e,
+    )) as ResolutionEngineError;
+    expect(err).toBeInstanceOf(ResolutionEngineError);
+
+    const openai = err.legs.find((l) => l.provider === 'openai');
+    const anthropic = err.legs.find((l) => l.provider === 'anthropic');
+
+    // Each reason names its OWN provider's failure, not the other's.
+    expect(openai?.reason).toContain('OPENAI_DISTINCT_FAILURE');
+    expect(openai?.reason).not.toContain('ANTHROPIC_DISTINCT_FAILURE');
+    expect(anthropic?.reason).toContain('ANTHROPIC_DISTINCT_FAILURE');
+    expect(anthropic?.reason).not.toContain('OPENAI_DISTINCT_FAILURE');
+  });
+
+  // Order independence: when the caller reverses the provider order, the leg→reason
+  // pairing must STILL follow the provider, not the array index.
+  it('keeps leg→reason pairing correct when provider order is reversed', async () => {
+    mockCallExternalLLM.mockImplementation(async (_env, opts: { provider: string }) => {
+      if (opts.provider === 'openai') throw new Error('OPENAI_DISTINCT_FAILURE 500');
+      throw new Error('ANTHROPIC_DISTINCT_FAILURE 529');
+    });
+
+    const err = (await runDualResearch(keyEnv(), {
+      prompt: 'p',
+      providers: ['anthropic', 'openai'],
+    }).catch((e) => e)) as ResolutionEngineError;
+    expect(err).toBeInstanceOf(ResolutionEngineError);
+
+    const openai = err.legs.find((l) => l.provider === 'openai');
+    const anthropic = err.legs.find((l) => l.provider === 'anthropic');
+    expect(openai?.reason).toContain('OPENAI_DISTINCT_FAILURE');
+    expect(anthropic?.reason).toContain('ANTHROPIC_DISTINCT_FAILURE');
+  });
 });

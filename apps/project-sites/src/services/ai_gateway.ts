@@ -119,6 +119,14 @@ export function buildGatewayHeaders(
   const headers = new Headers(baseHeaders);
   if (!isGatewayActive(env)) return headers;
 
+  // TODO(cf-aig-authorization): when the AI Gateway is configured in AUTHENTICATED
+  // mode it rejects every request lacking `cf-aig-authorization: Bearer <token>`
+  // with its own 401 (`internalCode: 2009`). The proper fix is to set that header
+  // here from a `CF_AIG_TOKEN`-style secret (CF dashboard → AI Gateway → Settings →
+  // Authenticated Gateway token). We deliberately do NOT add it yet — provisioning
+  // that secret is a separate follow-up. Until it lands, `gatewayFetch` self-heals by
+  // falling back to the direct vendor URL on a gateway-origin 401/403 (see below); the
+  // moment this header is set the gateway stops 401'ing and the fallback stops firing.
   if (options.skipCache) {
     headers.set('cf-aig-skip-cache', 'true');
   } else {
@@ -133,6 +141,64 @@ export function buildGatewayHeaders(
   return headers;
 }
 
+/**
+ * The Cloudflare AI Gateway's own internal error code for an AUTHENTICATED-mode
+ * rejection (missing/invalid `cf-aig-authorization`). This is the discriminator
+ * between a GATEWAY-origin auth failure (the gateway never forwarded to the vendor,
+ * so the valid vendor key still works on the direct URL) and a genuine VENDOR 4xx
+ * (which the direct URL would reject identically).
+ *
+ * @see the memory `cf-ai-gateway-authenticated-401-needs-cf-aig-authorization-or-fallback`
+ */
+const AI_GATEWAY_AUTH_INTERNAL_CODE = 2009;
+
+/**
+ * Decide whether a gateway 401/403 originated from the AI GATEWAY ITSELF (an
+ * authenticated-mode rejection) versus the upstream VENDOR passed through.
+ *
+ * @remarks
+ * CF AI Gateway errors carry `{ error: { code: 2009 } }` (sometimes a top-level
+ * `code`); they also tag themselves `AiGatewayError`. A vendor rejection instead
+ * carries the vendor's shape (OpenAI `code:"invalid_api_key"`, Anthropic
+ * `type:"authentication_error"`) — never the numeric `2009`. We CLONE the response
+ * before reading so the caller's body is never consumed. On ANY ambiguity (body
+ * unreadable / non-JSON / missing marker) we return `false` — i.e. we treat it as a
+ * genuine vendor error and do NOT fall back. That conservative default means we
+ * never trade a crisp vendor error for a wasted second request on a true bad key;
+ * the only cost of a mis-classified gateway 401 is that it surfaces as a 401
+ * (which is still strictly better than the pre-fix all-502).
+ */
+async function isGatewayOriginAuthError(response: Response): Promise<boolean> {
+  if (response.status !== 401 && response.status !== 403) return false;
+  // A CF-set header is the cheapest tell when present (some gateway errors set it).
+  if (response.headers.get('cf-aig-error') || response.headers.get('cf-aig-internal-code')) {
+    return true;
+  }
+  try {
+    // Clone so the ORIGINAL body stream stays intact for the caller / the surfaced error.
+    const body = (await response.clone().json()) as {
+      code?: unknown;
+      error?: { code?: unknown; type?: unknown; message?: unknown } | string;
+    };
+    const topCode = body?.code;
+    const errObj = typeof body?.error === 'object' && body.error !== null ? body.error : undefined;
+    const nestedCode = errObj?.code;
+    if (topCode === AI_GATEWAY_AUTH_INTERNAL_CODE || nestedCode === AI_GATEWAY_AUTH_INTERNAL_CODE) {
+      return true;
+    }
+    // Belt: the gateway stringifies itself as `AiGatewayError` in some error surfaces.
+    const message =
+      (typeof body?.error === 'string' ? body.error : undefined) ??
+      (typeof errObj?.message === 'string' ? errObj.message : undefined) ??
+      '';
+    if (/AiGatewayError/i.test(message)) return true;
+  } catch {
+    // Unreadable / non-JSON body → cannot prove gateway origin → treat as vendor.
+    return false;
+  }
+  return false;
+}
+
 export interface GatewayFetchResult {
   response: Response;
   /** `true` when the successful response came through the gateway, not the direct fallback. */
@@ -141,14 +207,25 @@ export interface GatewayFetchResult {
 
 /**
  * Fetch a provider endpoint through the AI Gateway with cache headers + a
- * direct-vendor fallback on gateway 5xx.
+ * direct-vendor fallback on gateway 5xx OR a gateway-origin auth 401/403.
  *
  * @remarks
- * On a 5xx from the gateway (its OWN error, not a vendor 4xx passed through), retry
- * ONCE against the direct vendor URL with `X-PS-Gateway-Fallback: true` for log
- * filtering, stripping the `cf-aig-*` headers. The vendor auth headers in
- * `init.headers` are reused for the fallback — valid against the direct URL because
- * the gateway proxies them verbatim.
+ * Retry ONCE against the direct vendor URL (with `X-PS-Gateway-Fallback: true` for
+ * log filtering, stripping the `cf-aig-*` headers) when the gateway failure is the
+ * gateway's OWN, not a vendor error passed through:
+ * - a **5xx** (gateway down / transient); OR
+ * - a **gateway-origin 401/403** — an AUTHENTICATED-mode rejection
+ *   (`internalCode: 2009`, missing `cf-aig-authorization`). The gateway rejected
+ *   BEFORE forwarding, so the valid vendor key still works on the direct URL.
+ *   (A genuine VENDOR 401/403 — bad key — is NOT a gateway-origin error, so it
+ *   surfaces as-is; the direct URL would reject it identically.)
+ *
+ * The vendor auth headers in `init.headers` are reused for the fallback — valid
+ * against the direct URL because the gateway proxies them verbatim. This is
+ * SELF-HEALING: once `cf-aig-authorization` is provisioned (see the
+ * `TODO(cf-aig-authorization)` in {@link buildGatewayHeaders}) the gateway stops
+ * 401'ing, the auth-fallback stops firing, and the gateway is used again — no
+ * manual step.
  *
  * @throws ZodError when `options` fails validation.
  */
@@ -168,15 +245,29 @@ export async function gatewayFetch(
   const primaryUrl = gatewayUrl(env, provider, pathSuffix);
   const response = await fetch(primaryUrl, { ...init, headers: mergedHeaders });
 
-  // Only fall back when the gateway ITSELF 5xx'd. A 4xx is a real vendor error
-  // (bad key, malformed body) that the direct URL would also reject — surface it.
-  if (active && response.status >= 500 && response.status < 600) {
-    gatewayLog.warn('gateway_5xx_fallback', { provider, status: response.status });
-    const directUrl = `${DIRECT_BASE_URLS[provider]}${pathSuffix}`;
-    const fallbackHeaders = new Headers(baseHeaders);
-    fallbackHeaders.set('X-PS-Gateway-Fallback', 'true');
-    const fallbackRes = await fetch(directUrl, { ...init, headers: fallbackHeaders });
-    return { response: fallbackRes, gatewayUsed: false };
+  // Fallback is ONLY meaningful when the gateway is actually in the path.
+  if (active) {
+    const isGateway5xx = response.status >= 500 && response.status < 600;
+    // A gateway-ORIGIN 401/403 (authenticated-mode rejection) is NOT a real vendor
+    // error — the gateway rejected before forwarding, so the valid vendor key still
+    // works on the direct URL. A genuine vendor 4xx is surfaced (the direct URL would
+    // reject it identically). We distinguish the two by the gateway's own error shape.
+    const isGatewayAuthFailure = await isGatewayOriginAuthError(response);
+
+    if (isGateway5xx || isGatewayAuthFailure) {
+      gatewayLog.warn(isGatewayAuthFailure ? 'gateway_auth_fallback' : 'gateway_5xx_fallback', {
+        provider,
+        status: response.status,
+      });
+      const directUrl = `${DIRECT_BASE_URLS[provider]}${pathSuffix}`;
+      const fallbackHeaders = new Headers(baseHeaders);
+      fallbackHeaders.set('X-PS-Gateway-Fallback', 'true');
+      // ONE retry only — the fallback response is returned verbatim even if it also
+      // fails (e.g. gateway 401 then direct 401 = genuinely bad key), so there is no
+      // infinite retry.
+      const fallbackRes = await fetch(directUrl, { ...init, headers: fallbackHeaders });
+      return { response: fallbackRes, gatewayUsed: false };
+    }
   }
 
   return { response, gatewayUsed: active };
