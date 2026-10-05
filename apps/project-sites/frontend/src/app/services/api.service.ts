@@ -679,6 +679,45 @@ export class ApiService {
     return this.get(`/sites/${siteId}/workflow`);
   }
 
+  /**
+   * Money-path PUBLISH propagation guard (PUBLISH-1). Server-side liveness probe
+   * for a PUBLISHED site: `GET /api/sites/:id/live-check` has the Worker HEAD-probe
+   * the site's server-derived default hostname (a browser can't — the cross-origin
+   * `{slug}.projectsites.dev` response is opaque) and return `{ live, status, url }`,
+   * where `live === (status === 200)`. The hosting UI polls this after a deploy so
+   * the "View Live" affordance reveals ONLY once the site truly serves 200 — never a
+   * doomed link during the `host:{slug}` KV (60s TTL) + CF edge warm-up window.
+   *
+   * @remarks
+   * Flag-gated `publish_live_check` → the endpoint **404s DARK when off**
+   * (indistinguishable from an unknown route). We map that 404 to a `null`
+   * **sentinel** — "feature unavailable" — so a flag-OFF worker degrades gracefully
+   * (the caller keeps its always-shown behaviour) with NO error toast. `silent: true`
+   * suppresses the generic toast; a network blip resolves to `null` too (fail-safe —
+   * the poll simply doesn't gate the link rather than nagging the owner). Only a real
+   * `200` with a parseable body unwraps to the typed `{ live, status, url }`.
+   *
+   * @param siteId - The owned site id (server IDOR-guards; a foreign id is a 404 → `null`).
+   * @returns the probe result, or `null` when the feature is unavailable / unreachable.
+   * @example
+   * ```ts
+   * this.api.liveCheck(siteId).subscribe((r) => {
+   *   if (r === null) return;            // flag off → keep showing the link
+   *   if (r.live) this.revealLiveLink(); // status === 200 → safe to reveal
+   * });
+   * ```
+   */
+  liveCheck(siteId: string): Observable<LiveCheckResult | null> {
+    return this.get<{ data: LiveCheckResult }>(`/sites/${siteId}/live-check`, undefined, {
+      silent: true,
+    }).pipe(
+      map((res) => res?.data ?? null),
+      // 404 (flag off / foreign site) OR any transport error → the sentinel. Never
+      // surface as an error to the caller: "unavailable" must look identical to "off".
+      catchError(() => of(null)),
+    );
+  }
+
   deleteSiteWithOptions(id: string, cancelSubscription: boolean): Observable<void> {
     return this.http
       .request<void>('DELETE', `/api/sites/${id}`, {
@@ -1228,6 +1267,19 @@ export interface UserInfo {
   org_name?: string | null;
   /** True when the user is a platform super-admin (gates super-admin-only fetches). */
   is_super_admin?: boolean;
+}
+
+/**
+ * Result of the PUBLISH-1 server-side liveness probe (`GET /api/sites/:id/live-check`,
+ * unwrapped from `{ data }`). `live` is strictly `status === 200`; `url` is the
+ * server-derived default hostname the Worker probed (never a client-supplied value).
+ * The service maps a flag-OFF 404 / transport error to `null` instead of this shape.
+ * @see {@link ApiService.liveCheck}
+ */
+export interface LiveCheckResult {
+  live: boolean;
+  status: number;
+  url: string;
 }
 
 export interface Site {

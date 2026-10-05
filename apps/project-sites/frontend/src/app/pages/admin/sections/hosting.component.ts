@@ -35,8 +35,10 @@
 import {
   ChangeDetectionStrategy,
   Component,
+  type OnDestroy,
   type OnInit,
   computed,
+  effect,
   inject,
   signal,
 } from '@angular/core';
@@ -44,13 +46,37 @@ import { RouterLink } from '@angular/router';
 import { firstValueFrom } from 'rxjs';
 
 import { AdminStateService } from '../admin-state.service';
-import { ApiService, type Site } from '../../../services/api.service';
+import { ApiService, type LiveCheckResult, type Site } from '../../../services/api.service';
 import { ToastService } from '../../../services/toast.service';
 import { RevealDirective } from '../../../directives/reveal.directive';
 import { CmdGlyphComponent } from '../../../components/cmd-glyph/cmd-glyph.component';
 
 /** The feature-flag key this surface is gated behind (Unit 1 reserved it DARK). */
 const WFP_FLAG_KEY = 'site_wfp_hosting';
+
+/**
+ * PUBLISH-1 poll cadence — the money-path propagation guard. After a publish/deploy
+ * the production card shows a calm "finishing deployment…" state (never a doomed link)
+ * until the Worker's `GET /api/sites/:id/live-check` reports `live:true` (HTTP 200).
+ * We poll ~every 12s, at most 5× (~60s) — the `host:{slug}` KV cache (60s TTL) + CF
+ * edge warm-up almost always resolve inside that window. Visibility-gated (mirrors
+ * `AdminStateService`): paused while `document.hidden`, resumes + fires an immediate
+ * check on foreground. The link reveals on live:true; polling stops on live:true or
+ * after the cap. A **404 sentinel** (flag off) means the feature is unavailable → we
+ * keep the CURRENT always-shown link behaviour (zero regression).
+ */
+const LIVE_POLL_INTERVAL_MS = 12_000;
+const LIVE_POLL_MAX_ATTEMPTS = 5;
+
+/**
+ * Propagation state for the production URL card.
+ * - `off`        — the 404 sentinel (flag off / unavailable) OR site not published →
+ *                  keep the always-shown link (no poll, no gating).
+ * - `checking`   — a published site, probe available, not yet `live:true` →
+ *                  "finishing deployment…", NO clickable link.
+ * - `live`       — probe reported `live:true` (HTTP 200) → reveal the "open" link.
+ */
+type LiveState = 'off' | 'checking' | 'live';
 
 /** Where the selected site is (or will be) served from. */
 type ServeMode = 'r2' | 'wfp' | 'provisioning';
@@ -179,30 +205,69 @@ interface CopyTarget {
                   <span class="url-label">{{ t.label }}</span>
                   <span class="url-hint">{{ t.hint }}</span>
                 </div>
-                <div class="url-row">
-                  <a
-                    class="url-link"
-                    [href]="'https://' + t.url"
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    [attr.data-testid]="'hosting-open-' + t.id"
-                  >
-                    <app-cmd-glyph name="globe" aria-hidden="true" />
-                    <span class="url-text">{{ t.url }}</span>
-                  </a>
-                  <button
-                    class="copy-btn"
-                    type="button"
-                    (click)="copy(t)"
-                    [attr.aria-label]="'Copy ' + t.label + ' URL'"
-                    [attr.data-testid]="'hosting-copy-' + t.id"
-                  >
-                    <span class="copy-inner">{{ copied() === t.id ? 'Copied!' : 'Copy' }}</span>
-                  </button>
-                </div>
+                <!--
+                  PUBLISH-1 propagation guard: ONLY the production card gates on the live
+                  probe. While a just-published site is still propagating (liveState ===
+                  'checking') we show a calm "finishing deployment…" strip + a DISABLED copy
+                  button instead of a doomed "open" link — the link reveals the moment the
+                  Worker reports live:true. The preview card, and ANY card when the feature is
+                  off/unavailable (liveState === 'off'), keeps the always-shown link.
+                -->
+                @if (t.id === 'production' && liveState() === 'checking') {
+                  <div class="url-row">
+                    <span
+                      class="url-link url-link--pending"
+                      [attr.data-testid]="'hosting-pending-' + t.id"
+                    >
+                      <span class="pending-dot" aria-hidden="true"></span>
+                      <span class="url-text">Finishing deployment…</span>
+                    </span>
+                    <button
+                      class="copy-btn"
+                      type="button"
+                      disabled
+                      aria-disabled="true"
+                      title="Your site goes live the moment deployment finishes."
+                      [attr.aria-label]="'Copy ' + t.label + ' URL (available once live)'"
+                      [attr.data-testid]="'hosting-copy-' + t.id"
+                    >
+                      <span class="copy-inner">Copy</span>
+                    </button>
+                  </div>
+                } @else {
+                  <div class="url-row">
+                    <a
+                      class="url-link"
+                      [href]="'https://' + t.url"
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      [attr.data-testid]="'hosting-open-' + t.id"
+                    >
+                      <app-cmd-glyph name="globe" aria-hidden="true" />
+                      <span class="url-text">{{ t.url }}</span>
+                    </a>
+                    <button
+                      class="copy-btn"
+                      type="button"
+                      (click)="copy(t)"
+                      [attr.aria-label]="'Copy ' + t.label + ' URL'"
+                      [attr.data-testid]="'hosting-copy-' + t.id"
+                    >
+                      <span class="copy-inner">{{ copied() === t.id ? 'Copied!' : 'Copy' }}</span>
+                    </button>
+                  </div>
+                }
               </li>
             }
           </ul>
+
+          <!-- Polite status for the propagation guard — announced only while checking. -->
+          @if (liveState() === 'checking') {
+            <p class="sr-only" role="status" aria-live="polite" data-testid="hosting-live-status">
+              Your production site is finishing deployment. The live link appears the moment it
+              responds.
+            </p>
+          }
 
           <!-- ── Primary action: Publish / Promote (ONE obvious CTA) ── -->
           <!--
@@ -495,6 +560,25 @@ interface CopyTarget {
         outline: 2px solid var(--ps-accent, #00e5ff);
         outline-offset: 2px;
       }
+      /* PUBLISH-1 propagating state — a calm, NON-interactive strip (no href, no hover-lift). */
+      .url-link--pending {
+        cursor: default;
+        color: color-mix(in oklch, var(--ps-ink, #f4f4ff) 64%, transparent);
+        border-color: rgba(255, 196, 77, 0.32);
+        background: color-mix(in oklch, var(--ps-bg, #060610) 76%, transparent);
+      }
+      .url-link--pending:hover {
+        border-color: rgba(255, 196, 77, 0.32);
+        background: color-mix(in oklch, var(--ps-bg, #060610) 76%, transparent);
+      }
+      .pending-dot {
+        width: 8px;
+        height: 8px;
+        flex-shrink: 0;
+        border-radius: 50%;
+        background: #ffc44d;
+        animation: pulse 2.4s ease-out infinite;
+      }
       .copy-btn {
         flex-shrink: 0;
         min-height: 38px;
@@ -714,6 +798,7 @@ interface CopyTarget {
       @media (prefers-reduced-motion: reduce) {
         .live-dot,
         .pill-dot.is-live,
+        .pending-dot,
         .skel-pill,
         .skel-row,
         .skel-cta,
@@ -727,7 +812,7 @@ interface CopyTarget {
     `,
   ],
 })
-export class AdminHostingComponent implements OnInit {
+export class AdminHostingComponent implements OnInit, OnDestroy {
   private readonly state = inject(AdminStateService);
   private readonly api = inject(ApiService);
   private readonly toast = inject(ToastService);
@@ -744,8 +829,153 @@ export class AdminHostingComponent implements OnInit {
   readonly copied = signal<'preview' | 'production' | null>(null);
   private copyTimer: ReturnType<typeof setTimeout> | null = null;
 
+  // ── PUBLISH-1 money-path propagation guard ──────────────────────────────────
+  /**
+   * The latest `liveCheck` probe result for the current published site:
+   * - `undefined` — not probed yet (no verdict → keep the link shown, no flicker);
+   * - `null`      — the 404 **sentinel** (flag off / unavailable) → feature off;
+   * - `{...}`     — a real probe (`live === (status === 200)`).
+   */
+  private readonly liveProbe = signal<LiveCheckResult | null | undefined>(undefined);
+  /** True once a 404 sentinel proves the feature is unavailable (freezes `off`, no re-poll). */
+  private readonly liveUnavailable = signal(false);
+  /** Poll bookkeeping (≤5 attempts / ~60s), visibility-gated like `AdminStateService`. */
+  private liveAttempts = 0;
+  private livePollTimer: ReturnType<typeof setInterval> | null = null;
+  private liveSiteId: string | null = null;
+  private liveListenerBound = false;
+  /** Bound so `removeEventListener` matches on teardown (mirrors AdminStateService). */
+  private readonly liveVisibilityHandler = (): void => {
+    if (typeof document === 'undefined') return;
+    if (document.hidden) {
+      this.pauseLivePoll();
+    } else {
+      // Resume + fire one immediate check so the owner sees the link reveal on tab-return.
+      this.resumeLivePoll();
+    }
+  };
+
+  /**
+   * Production-card propagation state (drives the "finishing deployment…" vs live link):
+   * - `off`      — feature unavailable (404 sentinel), not published, or no verdict yet →
+   *                keep the CURRENT always-shown link (zero regression);
+   * - `checking` — published + feature available + probe not yet `live:true`;
+   * - `live`     — probe reported `live:true` (HTTP 200) → reveal the open link.
+   */
+  readonly liveState = computed<LiveState>(() => {
+    if (this.liveUnavailable()) return 'off';
+    const probe = this.liveProbe();
+    if (probe === null) return 'off'; // sentinel — feature off / unavailable
+    if (probe === undefined) return 'off'; // no verdict yet → never hide an otherwise-live link
+    return probe.live ? 'live' : 'checking';
+  });
+
+  constructor() {
+    // Start / restart the propagation poll whenever the SELECTED PUBLISHED site changes
+    // (site switch, or a draft finishing its first build). Reactive to the shared shell signal.
+    effect(() => {
+      const s = this.site();
+      const target = s && s.status === 'published' ? s.id : null;
+      if (target === this.liveSiteId) return; // same target — poll already running/settled
+      this.resetLivePoll();
+      this.liveSiteId = target;
+      if (target) this.startLivePoll(target);
+    });
+  }
+
   ngOnInit(): void {
     void this.loadFlag();
+  }
+
+  ngOnDestroy(): void {
+    this.resetLivePoll();
+    if (this.copyTimer) clearTimeout(this.copyTimer);
+  }
+
+  // ── Live-poll lifecycle ─────────────────────────────────────────────────────
+
+  /**
+   * Begin the propagation poll for a published site: an immediate probe, then at most
+   * {@link LIVE_POLL_MAX_ATTEMPTS} checks every {@link LIVE_POLL_INTERVAL_MS}. Stops on
+   * `live:true`, on the 404 sentinel (feature off), or after the cap. Visibility-gated.
+   */
+  private startLivePoll(siteId: string): void {
+    this.liveAttempts = 0;
+    this.liveProbe.set(undefined);
+    this.liveUnavailable.set(false);
+    if (typeof document !== 'undefined' && !this.liveListenerBound) {
+      document.addEventListener('visibilitychange', this.liveVisibilityHandler);
+      this.liveListenerBound = true;
+    }
+    // Immediate first check (unless the tab is already backgrounded).
+    if (typeof document === 'undefined' || !document.hidden) {
+      this.probeLiveOnce(siteId);
+      this.armLiveInterval(siteId);
+    }
+  }
+
+  /** (Re)arm the repeating interval — guarded so we never stack two timers. */
+  private armLiveInterval(siteId: string): void {
+    this.clearLiveInterval();
+    this.livePollTimer = setInterval(() => this.probeLiveOnce(siteId), LIVE_POLL_INTERVAL_MS);
+  }
+
+  /** One probe + the stop conditions (live / sentinel / attempt cap). */
+  private probeLiveOnce(siteId: string): void {
+    if (this.liveAttempts >= LIVE_POLL_MAX_ATTEMPTS) {
+      this.clearLiveInterval();
+      return;
+    }
+    this.liveAttempts += 1;
+    this.api.liveCheck(siteId).subscribe((res) => {
+      // Guard against a late response after the site switched away.
+      if (this.liveSiteId !== siteId) return;
+      if (res === null) {
+        // 404 sentinel — feature off/unavailable. Freeze `off` (current link stays) + stop.
+        this.liveUnavailable.set(true);
+        this.clearLiveInterval();
+        return;
+      }
+      this.liveProbe.set(res);
+      if (res.live || this.liveAttempts >= LIVE_POLL_MAX_ATTEMPTS) {
+        this.clearLiveInterval(); // revealed, or out of attempts — stop polling
+      }
+    });
+  }
+
+  /** Pause on `document.hidden` — stop the interval but keep the current verdict. */
+  private pauseLivePoll(): void {
+    this.clearLiveInterval();
+  }
+
+  /** Resume on foreground — immediate check + re-arm, if still unsettled. */
+  private resumeLivePoll(): void {
+    const siteId = this.liveSiteId;
+    if (!siteId) return;
+    if (this.liveUnavailable()) return; // feature off — nothing to resume
+    if (this.liveProbe()?.live) return; // already live — settled
+    if (this.liveAttempts >= LIVE_POLL_MAX_ATTEMPTS) return; // out of attempts
+    this.probeLiveOnce(siteId);
+    this.armLiveInterval(siteId);
+  }
+
+  private clearLiveInterval(): void {
+    if (this.livePollTimer) {
+      clearInterval(this.livePollTimer);
+      this.livePollTimer = null;
+    }
+  }
+
+  /** Full teardown — interval + visibility listener + verdict (for site switch / destroy). */
+  private resetLivePoll(): void {
+    this.clearLiveInterval();
+    this.liveAttempts = 0;
+    this.liveProbe.set(undefined);
+    this.liveUnavailable.set(false);
+    if (this.liveListenerBound && typeof document !== 'undefined') {
+      document.removeEventListener('visibilitychange', this.liveVisibilityHandler);
+      this.liveListenerBound = false;
+    }
   }
 
   /**
