@@ -18,8 +18,9 @@ SATISFIED; what remains is a billing top-up (Brian) + one platform-touching refi
 - Flags `claude_code_panel` + `resolution_engine` are DARK (default-off). Every verify-override reverted clean.
 
 ## 🔑 THE blocker to LAUNCH — NOT code (Brian/ops action)
-**The Anthropic account is OUT OF CREDITS** ("Your credit balance is too low to access the Anthropic
-API"). Top it up — AND/OR mint the CF AI Gateway auth token → a NEW `CF_AIG_TOKEN` secret + send
+**BOTH external LLM providers are short on credits/quota** (re-checked fire-189, 2026-10-05 — STILL
+blocked): Anthropic `"Your credit balance is too low to access the Anthropic API"`; OpenAI now also
+shows quota/`insufficient` markers. Top up BOTH accounts — AND/OR mint the CF AI Gateway auth token → a NEW `CF_AIG_TOKEN` secret + send
 `cf-aig-authorization` (CF dashboard → AI Gateway → settings) so calls flow THROUGH the gateway (cache/
 cost controls) instead of the direct-vendor fallback. This also blocks the **editor AI chat's premium/
 Claude tier** — so it's a real operational item beyond WLK-39.
