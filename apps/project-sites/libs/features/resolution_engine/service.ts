@@ -99,6 +99,13 @@ export class ResolutionEngineError extends Error {
   }
 }
 
+/** Human label for a provider inside a leg's failure reason. */
+const PROVIDER_LABEL: Record<ResearchProvider, string> = {
+  openai: 'OpenAI',
+  anthropic: 'Anthropic',
+  deepseek: 'DeepSeek',
+};
+
 /**
  * Redact anything that looks like a provider API key from a failure reason so a
  * leaked key in an upstream error message can never reach a response/log. Covers
@@ -110,6 +117,34 @@ function safeReason(err: unknown): string {
     .replace(/\b(sk|psk|pk|rk)[-_][A-Za-z0-9-_]{8,}/g, '[redacted]')
     .replace(/Bearer\s+[A-Za-z0-9-_.]+/gi, 'Bearer [redacted]')
     .slice(0, 300);
+}
+
+/**
+ * Build a leg's failure reason with the LEG'S OWN provider authoritative.
+ *
+ * @remarks
+ * CROSS-LABEL FIX (fire-186): `callExternalLLM(provider:'openai')` internally tries
+ * openai, FALLS BACK to anthropic on failure, and on total failure rethrows the
+ * FALLBACK (anthropic) error — so the raw message TEXT names the WRONG vendor
+ * ("Anthropic API error 401…" surfaced on the `openai` leg, and vice-versa). In prod
+ * this crossed the 502 `reasons[]`. We therefore (1) strip a leading, now-misleading
+ * `"<Vendor> API error"` prefix from the underlying text, and (2) prefix the reason
+ * with THIS leg's own provider label, so each leg's reason unambiguously names the
+ * provider the leg was dispatched to — never the internal fallback vendor.
+ *
+ * NOTE: the same internal fallback means an `openai` leg could in principle return
+ * anthropic CONTENT if openai fails but anthropic succeeds inside that one call — a
+ * latent independence (invariant #7) concern. Closing it requires a "no cross-vendor
+ * fallback" option on `callExternalLLM`; tracked as TODO(resolution-engine-leg-isolation).
+ */
+function legReason(provider: ResearchProvider, err: unknown): string {
+  const label = PROVIDER_LABEL[provider];
+  // Strip a leading "<AnyVendor> API error[ NNN][:]" — it names the internal fallback
+  // vendor, not this leg's provider, so it is misleading on this leg.
+  const stripped = safeReason(err)
+    .replace(/^\s*(OpenAI|Anthropic|DeepSeek)\s+API\s+error\s*\d*\s*:?\s*/i, '')
+    .trim();
+  return `${label} research failed: ${stripped || 'upstream error'}`.slice(0, 300);
 }
 
 /** The system instruction each leg gets when the caller doesn't supply one. */
@@ -151,7 +186,9 @@ async function runLeg(
       latencyMs: result.latency_ms,
     };
   } catch (err) {
-    return { provider, ok: false, reason: safeReason(err) };
+    // The leg's OWN provider is authoritative — never the internal fallback vendor
+    // named in the rethrown error text (fire-186 cross-label fix). See legReason.
+    return { provider, ok: false, reason: legReason(provider, err) };
   }
 }
 
@@ -198,7 +235,8 @@ export async function runDualResearch(
     const provider = (i === 0 ? p1 : p2) as ResearchProvider;
     if (s.status === 'fulfilled') return s.value;
     // runLeg never throws, but belt-and-suspenders: a settled rejection is a down leg.
-    return { provider, ok: false, reason: safeReason(s.reason) };
+    // Use legReason so THIS leg's provider governs (not a crossed fallback vendor).
+    return { provider, ok: false, reason: legReason(provider, s.reason) };
   });
 
   const okLegs = legs.filter((l): l is ResearchLegOk => l.ok);

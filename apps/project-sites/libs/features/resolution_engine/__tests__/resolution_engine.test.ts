@@ -251,14 +251,21 @@ describe('runDualResearch — both legs down (honest 502)', () => {
     expect(mockCallExternalLLM).not.toHaveBeenCalled();
   });
 
-  // fire-186: the 502 `reasons[]` must label each leg with its OWN provider — a
-  // crossed map (openai's reason tagged "anthropic" and vice-versa) misdirects the
-  // operator reading the aggregate. Give each provider a DISTINCT failure so a
-  // crossing would be unmissable.
-  it('pairs each down leg with its OWN provider reason — never crossed', async () => {
+  // fire-186: the 502 `reasons[]` leg labels were CROSSED in prod — the leg labeled
+  // `openai` reported "Anthropic API error 401…" and vice-versa. ROOT CAUSE: runLeg
+  // calls callExternalLLM(provider:'openai'), which internally tries openai then FALLS
+  // BACK to anthropic, and on total failure rethrows the FALLBACK (anthropic) error.
+  // So the error TEXT names the WRONG vendor. The leg's OWN provider must govern the
+  // reason, never the vendor string in the rethrown message.
+  //
+  // This mock reproduces the REAL cross: the error thrown for provider:'openai' names
+  // "Anthropic" (the internal fallback vendor) and vice-versa.
+  it('names each leg by its OWN provider even when the error text names the fallback vendor (prod cross)', async () => {
     mockCallExternalLLM.mockImplementation(async (_env, opts: { provider: string }) => {
-      if (opts.provider === 'openai') throw new Error('OPENAI_DISTINCT_FAILURE 500');
-      throw new Error('ANTHROPIC_DISTINCT_FAILURE 529');
+      // The requested provider failed, external_llm fell back to the OTHER vendor,
+      // and rethrew THAT vendor's error — so the text names the opposite provider.
+      if (opts.provider === 'openai') throw new Error('Anthropic API error 401: unauthorized');
+      throw new Error('OpenAI API error 401: unauthorized');
     });
 
     const err = (await runDualResearch(keyEnv(), { prompt: 'p' }).catch(
@@ -269,19 +276,23 @@ describe('runDualResearch — both legs down (honest 502)', () => {
     const openai = err.legs.find((l) => l.provider === 'openai');
     const anthropic = err.legs.find((l) => l.provider === 'anthropic');
 
-    // Each reason names its OWN provider's failure, not the other's.
-    expect(openai?.reason).toContain('OPENAI_DISTINCT_FAILURE');
-    expect(openai?.reason).not.toContain('ANTHROPIC_DISTINCT_FAILURE');
-    expect(anthropic?.reason).toContain('ANTHROPIC_DISTINCT_FAILURE');
-    expect(anthropic?.reason).not.toContain('OPENAI_DISTINCT_FAILURE');
+    // The leg's provider is authoritative: the `openai` leg's reason must NAME openai,
+    // and must NOT lead with the crossed "Anthropic API error" vendor string.
+    expect(openai?.provider).toBe('openai');
+    expect(openai?.reason).toMatch(/openai/i);
+    expect(openai?.reason).not.toMatch(/^Anthropic API error/i);
+
+    expect(anthropic?.provider).toBe('anthropic');
+    expect(anthropic?.reason).toMatch(/anthropic/i);
+    expect(anthropic?.reason).not.toMatch(/^OpenAI API error/i);
   });
 
   // Order independence: when the caller reverses the provider order, the leg→reason
   // pairing must STILL follow the provider, not the array index.
-  it('keeps leg→reason pairing correct when provider order is reversed', async () => {
+  it('keeps leg→provider pairing correct when provider order is reversed', async () => {
     mockCallExternalLLM.mockImplementation(async (_env, opts: { provider: string }) => {
-      if (opts.provider === 'openai') throw new Error('OPENAI_DISTINCT_FAILURE 500');
-      throw new Error('ANTHROPIC_DISTINCT_FAILURE 529');
+      if (opts.provider === 'openai') throw new Error('Anthropic API error 401: unauthorized');
+      throw new Error('OpenAI API error 401: unauthorized');
     });
 
     const err = (await runDualResearch(keyEnv(), {
@@ -292,7 +303,9 @@ describe('runDualResearch — both legs down (honest 502)', () => {
 
     const openai = err.legs.find((l) => l.provider === 'openai');
     const anthropic = err.legs.find((l) => l.provider === 'anthropic');
-    expect(openai?.reason).toContain('OPENAI_DISTINCT_FAILURE');
-    expect(anthropic?.reason).toContain('ANTHROPIC_DISTINCT_FAILURE');
+    expect(openai?.reason).toMatch(/openai/i);
+    expect(openai?.reason).not.toMatch(/^Anthropic API error/i);
+    expect(anthropic?.reason).toMatch(/anthropic/i);
+    expect(anthropic?.reason).not.toMatch(/^OpenAI API error/i);
   });
 });

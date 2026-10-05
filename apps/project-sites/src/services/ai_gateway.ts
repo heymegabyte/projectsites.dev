@@ -157,16 +157,29 @@ const AI_GATEWAY_AUTH_INTERNAL_CODE = 2009;
  * authenticated-mode rejection) versus the upstream VENDOR passed through.
  *
  * @remarks
- * CF AI Gateway errors carry `{ error: { code: 2009 } }` (sometimes a top-level
- * `code`); they also tag themselves `AiGatewayError`. A vendor rejection instead
- * carries the vendor's shape (OpenAI `code:"invalid_api_key"`, Anthropic
- * `type:"authentication_error"`) — never the numeric `2009`. We CLONE the response
- * before reading so the caller's body is never consumed. On ANY ambiguity (body
- * unreadable / non-JSON / missing marker) we return `false` — i.e. we treat it as a
- * genuine vendor error and do NOT fall back. That conservative default means we
- * never trade a crisp vendor error for a wasted second request on a true bad key;
- * the only cost of a mis-classified gateway 401 is that it surfaces as a 401
- * (which is still strictly better than the pre-fix all-502).
+ * The REAL authenticated-mode 401 body (captured live from prod `POST /api/resolve`)
+ * is:
+ * ```json
+ * {"success":false,"result":[],"messages":[],
+ *  "error":[{"code":2009,"message":"Unauthorized"}],
+ *  "name":"AiGatewayError","httpCode":401,"internalCode":2009,
+ *  "message":"Unauthorized","description":"Unauthorized"}
+ * ```
+ * Note `error` is an ARRAY `[{code:2009}]` (NOT an object `{code:2009}`), and `2009`
+ * lives in the TOP-LEVEL `internalCode` + `name:"AiGatewayError"` — NOT a top-level
+ * `code`. So we treat ANY of these as a gateway-origin auth error: `name` is
+ * `AiGatewayError` · top-level `internalCode === 2009` · `error` is an array with a
+ * `{code:2009}` entry · object-nested `error.code === 2009` · top-level `code === 2009`
+ * · a CF `cf-aig-*` error header. A genuine VENDOR rejection carries the vendor's shape
+ * (OpenAI `code:"invalid_api_key"`, Anthropic `type:"authentication_error"`) — never
+ * the numeric `2009` and never `name:"AiGatewayError"`.
+ *
+ * We CLONE the response before reading so the caller's body is never consumed. On ANY
+ * ambiguity (body unreadable / non-JSON / no marker) we return `false` — i.e. treat it
+ * as a genuine vendor error and do NOT fall back. That conservative default means we
+ * never trade a crisp vendor error for a wasted second request on a true bad key; the
+ * only cost of a mis-classified gateway 401 is that it surfaces as a 401 (still
+ * strictly better than the pre-fix all-502).
  */
 async function isGatewayOriginAuthError(response: Response): Promise<boolean> {
   if (response.status !== 401 && response.status !== 403) return false;
@@ -177,19 +190,34 @@ async function isGatewayOriginAuthError(response: Response): Promise<boolean> {
   try {
     // Clone so the ORIGINAL body stream stays intact for the caller / the surfaced error.
     const body = (await response.clone().json()) as {
+      name?: unknown;
       code?: unknown;
-      error?: { code?: unknown; type?: unknown; message?: unknown } | string;
+      internalCode?: unknown;
+      message?: unknown;
+      error?:
+        | { code?: unknown; type?: unknown; message?: unknown }
+        | Array<{ code?: unknown; message?: unknown }>
+        | string;
     };
-    const topCode = body?.code;
-    const errObj = typeof body?.error === 'object' && body.error !== null ? body.error : undefined;
-    const nestedCode = errObj?.code;
-    if (topCode === AI_GATEWAY_AUTH_INTERNAL_CODE || nestedCode === AI_GATEWAY_AUTH_INTERNAL_CODE) {
-      return true;
+    // Primary tells (the real prod shape): gateway self-identifies by name + internalCode.
+    if (body?.name === 'AiGatewayError') return true;
+    if (body?.internalCode === AI_GATEWAY_AUTH_INTERNAL_CODE) return true;
+    if (body?.code === AI_GATEWAY_AUTH_INTERNAL_CODE) return true;
+    // `error` is an ARRAY of `{code}` entries in the real body.
+    if (Array.isArray(body?.error)) {
+      if (body.error.some((e) => e?.code === AI_GATEWAY_AUTH_INTERNAL_CODE)) return true;
+    } else if (typeof body?.error === 'object' && body.error !== null) {
+      if ((body.error as { code?: unknown }).code === AI_GATEWAY_AUTH_INTERNAL_CODE) return true;
     }
     // Belt: the gateway stringifies itself as `AiGatewayError` in some error surfaces.
+    const errObj =
+      typeof body?.error === 'object' && body.error !== null && !Array.isArray(body.error)
+        ? (body.error as { message?: unknown })
+        : undefined;
     const message =
       (typeof body?.error === 'string' ? body.error : undefined) ??
       (typeof errObj?.message === 'string' ? errObj.message : undefined) ??
+      (typeof body?.message === 'string' ? body.message : undefined) ??
       '';
     if (/AiGatewayError/i.test(message)) return true;
   } catch {

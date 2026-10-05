@@ -299,22 +299,56 @@ describe('gatewayFetch fallback', () => {
 describe('gatewayFetch gateway-auth fallback', () => {
   /**
    * The Cloudflare AI Gateway in AUTHENTICATED mode rejects every request lacking
-   * `cf-aig-authorization` with its OWN 401 body carrying `code: 2009`
-   * (`AiGatewayError`). That is NOT a vendor rejection — the gateway never forwarded
-   * to the vendor — so the valid vendor key still works against the direct URL.
+   * `cf-aig-authorization` with its OWN 401 (`name:"AiGatewayError"`,
+   * `internalCode:2009`). That is NOT a vendor rejection — the gateway never
+   * forwarded to the vendor — so the valid vendor key still works against the
+   * direct URL.
+   *
+   * This is the EXACT body prod returned (captured live from POST /api/resolve):
+   * `error` is an ARRAY `[{code:2009}]`, and `2009` lives in the top-level
+   * `internalCode` + `name:"AiGatewayError"` — NOT a top-level `code`.
    */
+  const REAL_GATEWAY_401_BODY = {
+    success: false,
+    result: [],
+    messages: [],
+    error: [{ code: 2009, message: 'Unauthorized' }],
+    name: 'AiGatewayError',
+    httpCode: 401,
+    internalCode: 2009,
+    message: 'Unauthorized',
+    description: 'Unauthorized',
+  };
   function gatewayAuth401(): Response {
-    return new Response(JSON.stringify({ error: { code: 2009, message: 'Unauthorized' } }), {
+    return new Response(JSON.stringify(REAL_GATEWAY_401_BODY), {
       status: 401,
       headers: { 'content-type': 'application/json' },
     });
   }
   function gatewayAuth403(): Response {
-    return new Response(JSON.stringify({ error: { code: 2009, message: 'Forbidden' } }), {
-      status: 403,
-      headers: { 'content-type': 'application/json' },
-    });
+    return new Response(
+      JSON.stringify({ ...REAL_GATEWAY_401_BODY, httpCode: 403, message: 'Forbidden' }),
+      { status: 403, headers: { 'content-type': 'application/json' } },
+    );
   }
+
+  it('(a0) falls back on the EXACT real prod gateway-401 body (error is an ARRAY, code in internalCode)', async () => {
+    // This literal body is why the first fix missed: `error:[{code:2009}]` (array,
+    // not object) + `internalCode:2009`/`name:"AiGatewayError"` at top level.
+    mockFetch.mockResolvedValueOnce(gatewayAuth401()).mockResolvedValueOnce(okResponse());
+
+    const { response, gatewayUsed } = await gatewayFetch(
+      makeEnv(),
+      'openai',
+      '/v1/chat/completions',
+      { method: 'POST', headers: { Authorization: 'Bearer valid-key' }, body: '{}' },
+    );
+
+    expect(response.status).toBe(200);
+    expect(gatewayUsed).toBe(false);
+    expect(mockFetch).toHaveBeenCalledTimes(2);
+    expect(mockFetch.mock.calls[1][0]).toBe('https://api.openai.com/v1/chat/completions');
+  });
 
   it('(a) falls back to the direct vendor URL on a gateway-origin 401 → gatewayUsed=false', async () => {
     mockFetch.mockResolvedValueOnce(gatewayAuth401()).mockResolvedValueOnce(okResponse());
