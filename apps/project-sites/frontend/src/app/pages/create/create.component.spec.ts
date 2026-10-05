@@ -9,6 +9,25 @@ import { ToastService } from '../../services/toast.service';
 import { TelemetryService } from '../../services/telemetry.service';
 
 /**
+ * Query root for the rendered create overlay.
+ *
+ * CREATE-POLISH-1 (commit 6043b166e): `CreateComponent.ngAfterViewInit()` HOISTS its
+ * single root `.ps-create-overlay` node out of the component host and appends it to
+ * `document.body` — a deliberate, browser-verified fix for the flex paint-order trap
+ * that let the admin topbar's avatar paint over the close button. After the first
+ * `fx.detectChanges()` the entire rendered template therefore lives under `document.body`,
+ * NOT under `fx.nativeElement`. DOM assertions must query from `document` so they inspect
+ * the overlay where it actually renders; the node is torn down by the component's
+ * `ngOnDestroy` (fired on `TestBed.resetTestingModule()` in each `afterEach`), so no
+ * stale overlay leaks between tests. `fx.nativeElement` is retained as a defensive
+ * fallback for the (untaken) path where portaling is skipped.
+ */
+function overlayRoot(fx: ComponentFixture<CreateComponent>): HTMLElement {
+  const portaled = document.querySelector<HTMLElement>('.ps-create-overlay');
+  return portaled ?? (fx.nativeElement as HTMLElement);
+}
+
+/**
  * Create-wizard input constraints. The `#create-address` field must enforce the
  * SAME client-side cap as the Settings page business-address input
  * (`maxlength="500"` in `admin/sections/settings.component.ts`) so the server
@@ -60,9 +79,7 @@ describe('CreateComponent — address input constraints', () => {
 
   it('caps the business address input at the 500 char settings limit', () => {
     const fx = render();
-    const input = (fx.nativeElement as HTMLElement).querySelector<HTMLInputElement>(
-      '#create-address',
-    );
+    const input = overlayRoot(fx).querySelector<HTMLInputElement>('#create-address');
     expect(input).withContext('the #create-address input must render').not.toBeNull();
     expect(input?.getAttribute('maxlength'))
       .withContext('mirrors the 500-char address cap on the Settings page')
@@ -117,7 +134,7 @@ describe('CreateComponent — invalid claim-link notice (AL-700)', () => {
   it('shows a FRIENDLY notice (not a dead-end) when redirected from an invalid claim link', () => {
     // The worker 302s an expired/invalid claim link → /create?claim_invalid=1 instead of raw JSON.
     const fx = render({ claim_invalid: '1' });
-    const notice = (fx.nativeElement as HTMLElement).querySelector('[data-testid="claim-invalid-notice"]');
+    const notice = overlayRoot(fx).querySelector('[data-testid="claim-invalid-notice"]');
     expect(notice).withContext('the friendly invalid-claim notice must render').not.toBeNull();
     expect(notice?.getAttribute('role')).toBe('status'); // announced to AT, not an alarming error
     expect((notice?.textContent || '').toLowerCase()).toContain('expired');
@@ -126,9 +143,7 @@ describe('CreateComponent — invalid claim-link notice (AL-700)', () => {
 
   it('does NOT show the notice on a normal /create visit (no false alarm)', () => {
     const fx = render({});
-    expect(
-      (fx.nativeElement as HTMLElement).querySelector('[data-testid="claim-invalid-notice"]'),
-    ).toBeNull();
+    expect(overlayRoot(fx).querySelector('[data-testid="claim-invalid-notice"]')).toBeNull();
   });
 });
 
@@ -197,9 +212,7 @@ describe('CreateComponent — search-unavailable nudge', () => {
     tick(350); // clear the 300ms debounce
     fx.detectChanges();
     expect(c.searchUnavailable()).withContext('provider _error must set the signal').toBe(true);
-    const notice = (fx.nativeElement as HTMLElement).querySelector(
-      '[data-testid="business-search-unavailable"]',
-    );
+    const notice = overlayRoot(fx).querySelector('[data-testid="business-search-unavailable"]');
     expect(notice)
       .withContext('the "enter manually" nudge must render on provider error')
       .not.toBeNull();
@@ -213,9 +226,7 @@ describe('CreateComponent — search-unavailable nudge', () => {
     tick(350);
     fx.detectChanges();
     expect(c.searchUnavailable()).withContext('no _error means honest-empty').toBe(false);
-    const notice = (fx.nativeElement as HTMLElement).querySelector(
-      '[data-testid="business-search-unavailable"]',
-    );
+    const notice = overlayRoot(fx).querySelector('[data-testid="business-search-unavailable"]');
     expect(notice).withContext('no nudge on an honest empty result').toBeNull();
   }));
 });
@@ -283,9 +294,7 @@ describe('CreateComponent — address-search-unavailable nudge', () => {
     tick(350); // clear the 300ms debounce
     fx.detectChanges();
     expect(c.addressUnavailable()).withContext('provider _error must set the signal').toBe(true);
-    const notice = (fx.nativeElement as HTMLElement).querySelector(
-      '[data-testid="address-search-unavailable"]',
-    );
+    const notice = overlayRoot(fx).querySelector('[data-testid="address-search-unavailable"]');
     expect(notice)
       .withContext('the address "type it manually" nudge must render on provider error')
       .not.toBeNull();
@@ -299,9 +308,7 @@ describe('CreateComponent — address-search-unavailable nudge', () => {
     tick(350);
     fx.detectChanges();
     expect(c.addressUnavailable()).withContext('no _error means honest-empty').toBe(false);
-    const notice = (fx.nativeElement as HTMLElement).querySelector(
-      '[data-testid="address-search-unavailable"]',
-    );
+    const notice = overlayRoot(fx).querySelector('[data-testid="address-search-unavailable"]');
     expect(notice).withContext('no nudge on an honest empty result').toBeNull();
   }));
 });
@@ -358,7 +365,7 @@ describe('CreateComponent — all inputs optional, submit never blocks on empty 
 
   /** The full-width primary submit button is the only `button.w-full` in the form. */
   function submitBtn(fx: ComponentFixture<CreateComponent>): HTMLButtonElement | null {
-    return (fx.nativeElement as HTMLElement).querySelector<HTMLButtonElement>('button.w-full');
+    return overlayRoot(fx).querySelector<HTMLButtonElement>('button.w-full');
   }
 
   it('is ENABLED (and carries no disabled-reason aria-label) with BOTH fields empty', () => {
@@ -471,7 +478,7 @@ describe('CreateComponent — optional fields never nag on blur-empty', () => {
     c.closeBusinessDropdown();
     fx.detectChanges();
     expect(c.nameError).withContext('name is optional — no required nag on blur').toBeNull();
-    const input = (fx.nativeElement as HTMLElement).querySelector<HTMLInputElement>('#create-name');
+    const input = overlayRoot(fx).querySelector<HTMLInputElement>('#create-name');
     expect(input?.getAttribute('aria-invalid'))
       .withContext('optional field must not report invalid')
       .toBe('false');
@@ -486,9 +493,7 @@ describe('CreateComponent — optional fields never nag on blur-empty', () => {
     c.closeAddressDropdown();
     fx.detectChanges();
     expect(c.addressError).withContext('address is optional — no required nag').toBeNull();
-    const input = (fx.nativeElement as HTMLElement).querySelector<HTMLInputElement>(
-      '#create-address',
-    );
+    const input = overlayRoot(fx).querySelector<HTMLInputElement>('#create-address');
     expect(input?.getAttribute('aria-invalid')).toBe('false');
   });
 
@@ -559,8 +564,8 @@ describe('CreateComponent — full-screen overlay + white close button', () => {
 
   it('renders a dialog overlay labelled "Create autonomous website" with the bold phrase', () => {
     const fx = render();
-    const el = fx.nativeElement as HTMLElement;
-    const overlay = el.querySelector<HTMLElement>('.ps-create-overlay');
+    const el = overlayRoot(fx);
+    const overlay = el.querySelector<HTMLElement>('.ps-create-overlay') ?? el;
     expect(overlay).withContext('the full-screen overlay must render').not.toBeNull();
     expect(overlay?.getAttribute('role')).toBe('dialog');
     expect(overlay?.getAttribute('aria-label')).toBe('Create autonomous website');
@@ -571,9 +576,7 @@ describe('CreateComponent — full-screen overlay + white close button', () => {
 
   it('close button carries aria-label="Close" and routes to /admin on click', () => {
     const fx = render();
-    const btn = (fx.nativeElement as HTMLElement).querySelector<HTMLButtonElement>(
-      '.ps-create-close',
-    );
+    const btn = overlayRoot(fx).querySelector<HTMLButtonElement>('.ps-create-close');
     expect(btn).withContext('the white close button must render').not.toBeNull();
     expect(btn?.getAttribute('aria-label')).toBe('Close');
     btn?.click();
