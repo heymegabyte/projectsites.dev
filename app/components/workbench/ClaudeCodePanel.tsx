@@ -164,7 +164,8 @@ const CHANGE_META: Record<ClaudeCodeFileTouchedEvent['change'], { label: string;
   create: { label: 'Added', className: 'border-green-500/30 bg-green-500/10 text-green-500' },
   edit: {
     label: 'Modified',
-    className: 'border-bolt-elements-item-contentAccent/30 bg-bolt-elements-item-contentAccent/[0.08] text-bolt-elements-item-contentAccent',
+    className:
+      'border-bolt-elements-item-contentAccent/30 bg-bolt-elements-item-contentAccent/[0.08] text-bolt-elements-item-contentAccent',
   },
   delete: { label: 'Deleted', className: 'border-red-500/30 bg-red-500/10 text-red-500' },
 };
@@ -200,7 +201,10 @@ const FilesTab = memo(function FilesTab({
 
   return (
     <div className="flex min-h-0 flex-1 flex-col">
-      <ul data-testid="cc-files-list" className="shrink-0 max-h-[40%] overflow-y-auto border-b border-bolt-elements-borderColor p-2">
+      <ul
+        data-testid="cc-files-list"
+        className="shrink-0 max-h-[40%] overflow-y-auto border-b border-bolt-elements-borderColor p-2"
+      >
         {files.map((file, index) => {
           const meta = CHANGE_META[file.change];
           const isActive = index === activeIndex;
@@ -220,7 +224,10 @@ const FilesTab = memo(function FilesTab({
                     : 'hover:bg-bolt-elements-background-depth-2',
                 )}
               >
-                <span className="i-ph:file-duotone shrink-0 text-sm text-bolt-elements-textTertiary" aria-hidden="true" />
+                <span
+                  className="i-ph:file-duotone shrink-0 text-sm text-bolt-elements-textTertiary"
+                  aria-hidden="true"
+                />
                 <code className="min-w-0 flex-1 truncate text-[12px] text-bolt-elements-textPrimary">{file.path}</code>
                 <span
                   className={classNames(
@@ -315,7 +322,11 @@ const TestsTab = memo(function TestsTab({ tests }: { tests: ClaudeCodeTestResult
 /** Per-deploy-state glyph + tint for the Deploy tab's latest-status hero. */
 const DEPLOY_META: Record<ClaudeCodeDeployStateEvent['state'], { label: string; icon: string; className: string }> = {
   idle: { label: 'Idle', icon: 'i-ph:circle-dashed-duotone', className: 'text-bolt-elements-textTertiary' },
-  building: { label: 'Building', icon: 'i-ph:circle-notch-duotone', className: 'text-bolt-elements-item-contentAccent' },
+  building: {
+    label: 'Building',
+    icon: 'i-ph:circle-notch-duotone',
+    className: 'text-bolt-elements-item-contentAccent',
+  },
   deploying: {
     label: 'Deploying',
     icon: 'i-ph:cloud-arrow-up-duotone',
@@ -462,7 +473,13 @@ const CurrentTask = memo(function CurrentTask({ run, onStop }: { run: RunState; 
  * a relative time from the run's first beat. Interleaved with the event rows so the run reads as a
  * living story (directive §29 — delightful coding activity), not a flat log.
  */
-const TimelineRow = memo(function TimelineRow({ transition, startedAt }: { transition: RunTransition; startedAt: number }) {
+const TimelineRow = memo(function TimelineRow({
+  transition,
+  startedAt,
+}: {
+  transition: RunTransition;
+  startedAt: number;
+}) {
   const meta = RUN_PHASE_META[transition.phase];
 
   return (

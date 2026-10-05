@@ -167,7 +167,8 @@ export function runReducer(state: RunState, action: RunAction): RunState {
         return state;
       }
 
-      const message = typeof action.message === 'string' && action.message.trim() !== '' ? action.message : 'Run failed';
+      const message =
+        typeof action.message === 'string' && action.message.trim() !== '' ? action.message : 'Run failed';
 
       return withTransition(
         state,
@@ -205,12 +206,21 @@ export const RUN_STATUS_META: Record<
   },
   done: { label: 'Done', icon: 'i-ph:check-circle-bold', className: 'text-green-500', spin: false },
   error: { label: 'Error', icon: 'i-ph:x-circle-bold', className: 'text-red-500', spin: false },
-  cancelled: { label: 'Stopped', icon: 'i-ph:stop-circle-bold', className: 'text-bolt-elements-textTertiary', spin: false },
+  cancelled: {
+    label: 'Stopped',
+    icon: 'i-ph:stop-circle-bold',
+    className: 'text-bolt-elements-textTertiary',
+    spin: false,
+  },
 };
 
 /** Per-phase label + glyph for the Activity timeline beats. */
 export const RUN_PHASE_META: Record<RunPhase, { label: string; icon: string; className: string }> = {
-  started: { label: 'Run started', icon: 'i-ph:play-circle-duotone', className: 'text-bolt-elements-item-contentAccent' },
+  started: {
+    label: 'Run started',
+    icon: 'i-ph:play-circle-duotone',
+    className: 'text-bolt-elements-item-contentAccent',
+  },
   streaming: { label: 'Streaming', icon: 'i-ph:waveform-duotone', className: 'text-bolt-elements-item-contentAccent' },
   finished: { label: 'Run finished', icon: 'i-ph:check-circle-duotone', className: 'text-green-500' },
   failed: { label: 'Run failed', icon: 'i-ph:warning-circle-duotone', className: 'text-red-500' },

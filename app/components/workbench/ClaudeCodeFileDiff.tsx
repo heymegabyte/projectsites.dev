@@ -165,8 +165,7 @@ export const ClaudeCodeFileDiff = memo(function ClaudeCodeFileDiff({ event, test
           data-testid="cc-file-diff-nocontent"
           className="flex-1 px-3 py-3 text-[11px] text-bolt-elements-textTertiary"
         >
-          No diff content for this file — Claude Code reported the change but didn't attach its
-          contents.
+          No diff content for this file — Claude Code reported the change but didn't attach its contents.
         </div>
       )}
     </div>
