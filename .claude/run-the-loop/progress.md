@@ -24,17 +24,22 @@ API"). Top it up — AND/OR mint the CF AI Gateway auth token → a NEW `CF_AIG_
 cost controls) instead of the direct-vendor fallback. This also blocks the **editor AI chat's premium/
 Claude tier** — so it's a real operational item beyond WLK-39.
 
-## Fresh-session engineering task (do with FRESH context — platform-touching, NON-urgent/dark)
-**Dual-provider INDEPENDENCE fix.** `callExternalLLM('openai')` internally falls back to anthropic (and
-rethrows its error) → undermines invariant #7 (the two Resolution legs must use DISTINCT providers) +
-crossed the leg labels (labels already relabeled in `316f3ef7a`). Make `runDualResearch`'s per-leg calls
-provider-LOCKED (no intra-leg cross-provider fallback). Anchors: `libs/features/resolution_engine/
-service.ts` `runLeg`/`runDualResearch` + `src/services/external_llm.ts` `callExternalLLM` (the internal
-fallback). **`callExternalLLM` has ~15 callers** → careful TDD; confirm other callers that rely on the
-fallback aren't regressed (scope the provider-lock to the Resolution legs, don't rip out the general fallback).
+## Dual-provider INDEPENDENCE fix — ✅ DONE (fire-188, commit `5feab3cee`, NOT yet deployed)
+Added an ADDITIVE `lockProvider?: boolean` opt-out to `callExternalLLM` (`src/services/external_llm.ts`
+L162 + the `providers` gate L810-814): default off = EXACTLY the historical `[primary, fallback]`
+behavior (proven unchanged for the ~15 other callers by 2 default-behavior tests); when true,
+`providers = [usablePrimary]` only. `runDualResearch`'s legs now pass `lockProvider: true`
+(`libs/features/resolution_engine/service.ts:180`) so each leg rides ONLY its assigned provider — no
+intra-leg cross-vendor fallback → invariant #7 enforced (a leg's failure now names its OWN provider).
+jest 72 green, tsc 0, validate:features PASS. Committed but NOT deployed (dark + billing-blocked; its
+prod-verify needs working LLM credits → rides the billing-unblock fire below). **WLK-39 is now
+ENGINEERING-COMPLETE** (implementation + gateway auth + dual-provider independence).
 
-## Then: re-verify + promote (billing-gated — only after a provider has credits)
-Re-verify `POST /api/resolve` → **200** via the PROVEN recipe, then promote both flags (reversible) → WLK-39 CLOSES.
+## Then: deploy + re-verify + promote (billing-gated — only after Anthropic has credits)
+(1) **Deploy** `wrangler deploy --env production` — ships the committed independence fix `5feab3cee`
+(currently undeployed; prod worker is `77eed6f5`). (2) **Re-verify** `POST /api/resolve` → **200** via the
+PROVEN override→curl recipe (also confirm each leg's reason names its OWN provider = independence
+working). (3) **Promote** both flags (reversible) → **WLK-39 CLOSES**.
 
 ## Proven recipes / key facts
 - Worker deploy: `cd apps/project-sites && CLOUDFLARE_EMAIL=blzalewski@gmail.com CLOUDFLARE_API_KEY=$(/Users/Apple/.local/bin/get-secret CLOUDFLARE_API_KEY) npx wrangler deploy --env production` (needs Docker up).
