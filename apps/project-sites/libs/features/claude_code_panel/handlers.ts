@@ -40,8 +40,10 @@ export const claudeCodePanel = new Hono<AppContext>();
 /**
  * GET /api/sites/:siteId/claude-code/status — resolve the `claude_code_panel` flag for the owned
  * site. The editor probes this once on mount: a 200 `{ data: { enabled:true } }` reveals the tab, a
- * 404 "not enabled" (the dark-flag path) keeps it hidden. Gate order mirrors `per_site_data`:
- * flag-dark-404 → auth-401 → ownership-404.
+ * 404 "not enabled" (the dark-flag path) keeps it hidden. Gate order: auth-401 → flag-dark-404 →
+ * ownership-404 — auth MUST come first because `claude_code_panel` is a per-org flag, so the caller's
+ * org has to be known before `isFlagOn({ orgId, siteId })` can resolve (an unauthenticated probe can't
+ * resolve a per-tenant flag). Authed-but-unentitled still gets a 404 "not enabled", never 403/200.
  */
 claudeCodePanel.get('/api/sites/:siteId/claude-code/status', async (c) => {
   // ── Auth ─────────────────────────────────────────────────────────────────
