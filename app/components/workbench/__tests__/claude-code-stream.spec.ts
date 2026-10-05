@@ -55,6 +55,34 @@ describe('parseClaudeCodeStream', () => {
     ]);
   });
 
+  it('carries the optional file_touched diff payload (diff / before / after) through to the event', () => {
+    const [event] = parseClaudeCodeStream(
+      JSON.stringify({
+        kind: 'file_touched',
+        path: 'src/App.tsx',
+        change: 'edit',
+        before: 'old\n',
+        after: 'new\n',
+        diff: '@@ -1 +1 @@\n-old\n+new',
+      }),
+    );
+    expect(event).toEqual({
+      kind: 'file_touched',
+      path: 'src/App.tsx',
+      change: 'edit',
+      before: 'old\n',
+      after: 'new\n',
+      diff: '@@ -1 +1 @@\n-old\n+new',
+    });
+  });
+
+  it('keeps an empty-string before/after (a created/deleted file) rather than dropping it', () => {
+    const [event] = parseClaudeCodeStream(
+      JSON.stringify({ kind: 'file_touched', path: 'new.ts', change: 'create', before: '', after: 'hello\n' }),
+    );
+    expect(event).toEqual({ kind: 'file_touched', path: 'new.ts', change: 'create', before: '', after: 'hello\n' });
+  });
+
   it('coerces an unknown file-change to `edit` and an unknown deploy-state to `idle`', () => {
     const events = parseClaudeCodeStream(
       ['{"kind":"file_touched","path":"a.ts","change":"frobnicate"}', '{"kind":"deploy_state","state":"warp"}'].join(

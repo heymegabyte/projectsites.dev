@@ -77,11 +77,22 @@ export interface ClaudeCodeEvidenceEvent {
   source?: string;
 }
 
-/** A file Claude Code created/edited/deleted (metadata only — the diff is a later slice). */
+/** A file Claude Code created/edited/deleted. */
 export interface ClaudeCodeFileTouchedEvent {
   kind: 'file_touched';
   path: string;
   change: 'create' | 'edit' | 'delete';
+  /**
+   * The change's content, carried so the Files tab can render a reviewable per-file DIFF
+   * (WLK-39 S2) through the editor's existing `diffLines` renderer. Either a pre-rendered
+   * unified diff ({@link diff}) OR the raw `before`/`after` content the diff is computed from.
+   * All optional — a bare `{path, change}` still renders as a metadata-only row.
+   */
+  diff?: string;
+  /** The file's content BEFORE the change (used to compute a diff when {@link diff} is absent). */
+  before?: string;
+  /** The file's content AFTER the change (used to compute a diff when {@link diff} is absent). */
+  after?: string;
 }
 
 /** A test result. `passed` drives the chip color; `name`/`summary` describe it. */
@@ -181,7 +192,26 @@ function toEvent(record: Record<string, unknown>): ClaudeCodeEvent | null {
     }
     case 'file_touched': {
       const path = optionalString(record.path);
-      return path ? { kind, path, change: coerceChange(record.change) } : null;
+
+      if (!path) {
+        return null;
+      }
+
+      // Carry the optional diff payload through so S2's Files tab can render a reviewable diff.
+      // `before`/`after` may be the empty string (a created/deleted file) — keep them when present
+      // as strings, so `optionalString` (which drops '') is the wrong gate here.
+      const diff = optionalString(record.diff);
+      const before = typeof record.before === 'string' ? record.before : undefined;
+      const after = typeof record.after === 'string' ? record.after : undefined;
+
+      return {
+        kind,
+        path,
+        change: coerceChange(record.change),
+        ...(diff !== undefined && { diff }),
+        ...(before !== undefined && { before }),
+        ...(after !== undefined && { after }),
+      };
     }
     case 'test_result': {
       const name = optionalString(record.name);

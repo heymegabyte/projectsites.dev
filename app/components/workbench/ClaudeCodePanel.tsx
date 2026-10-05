@@ -26,19 +26,33 @@
  * could display reasoning. The firewall is enforced twice — in the parser (drops CoT lines) and
  * here (no type to render).
  *
+ * ## S2-S4 (this slice): the read-surface review tabs
+ *   - **Files** lists the run's `file_touched` events (path + add/mod/del badge); selecting one opens
+ *     a reviewable per-file DIFF via {@link ClaudeCodeFileDiff}, which REUSES the editor's existing
+ *     `diffLines` renderer (the same green-add/red-remove/context row language as EditorPanel's inline
+ *     diff) — NOT a new diff engine.
+ *   - **Tests** renders `test_result` events (pass/fail tally + a row per test, failing first).
+ *   - **Deploy** renders `deploy_state` events (latest status hero + transition history).
+ *
  * Deferred (per the WLK-39 plan in BACKLOG.md): the LIVE WebContainer end-to-end proof
- * (edit → Preview reflects) is browser follow-on S7; files-touched diff (S2), tests (S3),
- * deploy-state (S4), subagents (S5), and the dual-provider research→synthesis core (S6) are later
- * slices. This slice's bar is unit + build proof.
+ * (edit → Preview reflects) is browser follow-on S7; subagents (S5) and the dual-provider
+ * research→synthesis core (S6) are later slices. This slice's bar is unit + build proof.
  */
-import { memo, useCallback, useRef, useState, type FormEvent } from 'react';
+import { memo, useCallback, useMemo, useRef, useState, type FormEvent } from 'react';
 import { DEFAULT_MODEL, DEFAULT_PROVIDER } from '~/utils/constants';
 import { workbenchStore } from '~/lib/stores/workbench';
 import { classNames } from '~/utils/classNames';
 import { PanelShell, PanelHeader, PanelLoading, PanelEmpty, PanelSegmentedNav } from './panel';
-import { parseClaudeCodeStream, type ClaudeCodeEvent } from './claude-code-stream';
+import {
+  parseClaudeCodeStream,
+  type ClaudeCodeEvent,
+  type ClaudeCodeFileTouchedEvent,
+  type ClaudeCodeTestResultEvent,
+  type ClaudeCodeDeployStateEvent,
+} from './claude-code-stream';
+import { ClaudeCodeFileDiff } from './ClaudeCodeFileDiff';
 
-/** The panel's sub-nav. Activity ships first (S1); Files/Tests/Deploy arrive in S2-S4. */
+/** The panel's sub-nav. Activity (S1) + Files/Tests/Deploy (S2-S4) are all wired. */
 const NAV_ITEMS = [
   { id: 'activity', label: 'Activity', icon: 'i-ph:list-bullets-duotone' },
   { id: 'files', label: 'Files', icon: 'i-ph:file-dashed-duotone' },
@@ -63,7 +77,16 @@ export const SAMPLE_ACTIVITY_STREAM = [
   '{"kind":"decision","label":"Add a greeting to the homepage","rationale":"The brief asks for a hero line"}',
   '{"kind":"action","label":"Read src/App.tsx"}',
   '{"kind":"thought","label":"this private reasoning MUST be stripped"}',
-  '{"kind":"file_touched","path":"src/App.tsx","change":"edit"}',
+  // Carries before/after so the Files tab renders a REAL reviewable diff (not just metadata).
+  JSON.stringify({
+    kind: 'file_touched',
+    path: 'src/App.tsx',
+    change: 'edit',
+    before: 'export function App() {\n  return <main>Welcome</main>;\n}\n',
+    after: 'export function App() {\n  return <main><h1>Welcome home</h1></main>;\n}\n',
+  }),
+  '{"kind":"test_result","name":"homepage renders","passed":true,"summary":"1 passed"}',
+  '{"kind":"deploy_state","state":"deployed","detail":"v128 live at editor.projectsites.dev"}',
   'Edited the hero copy.',
 ].join('\n');
 
@@ -125,6 +148,234 @@ const ActivityRow = memo(function ActivityRow({ event, index }: { event: ClaudeC
   );
 });
 
+/** Per-change badge copy + tint for the Files list (create=add-green, edit=accent, delete=red). */
+const CHANGE_META: Record<ClaudeCodeFileTouchedEvent['change'], { label: string; className: string }> = {
+  create: { label: 'Added', className: 'border-green-500/30 bg-green-500/10 text-green-500' },
+  edit: {
+    label: 'Modified',
+    className: 'border-bolt-elements-item-contentAccent/30 bg-bolt-elements-item-contentAccent/[0.08] text-bolt-elements-item-contentAccent',
+  },
+  delete: { label: 'Deleted', className: 'border-red-500/30 bg-red-500/10 text-red-500' },
+};
+
+/**
+ * S2 — the Files tab. Lists every `file_touched` event (path + add/mod/del badge); selecting one
+ * opens a reviewable per-file DIFF via {@link ClaudeCodeFileDiff} (which REUSES the editor's
+ * `diffLines` renderer). Master/detail: the list is always visible, the diff fills the rest.
+ */
+const FilesTab = memo(function FilesTab({
+  files,
+  selectedIndex,
+  onSelect,
+}: {
+  files: ClaudeCodeFileTouchedEvent[];
+  selectedIndex: number;
+  onSelect: (index: number) => void;
+}) {
+  if (files.length === 0) {
+    return (
+      <PanelEmpty
+        testId="cc-files-empty"
+        icon="i-ph:file-dashed-duotone"
+        title="No files changed yet"
+        description="When Claude Code edits your site, every file it touches appears here with a reviewable diff."
+      />
+    );
+  }
+
+  // Clamp the selection so a shrinking list never points past the end.
+  const activeIndex = selectedIndex >= 0 && selectedIndex < files.length ? selectedIndex : 0;
+  const active = files[activeIndex];
+
+  return (
+    <div className="flex min-h-0 flex-1 flex-col">
+      <ul data-testid="cc-files-list" className="shrink-0 max-h-[40%] overflow-y-auto border-b border-bolt-elements-borderColor p-2">
+        {files.map((file, index) => {
+          const meta = CHANGE_META[file.change];
+          const isActive = index === activeIndex;
+
+          return (
+            <li key={`${file.path}-${index}`}>
+              <button
+                type="button"
+                data-testid={`cc-file-${index}`}
+                data-change={file.change}
+                aria-pressed={isActive}
+                onClick={() => onSelect(index)}
+                className={classNames(
+                  'flex w-full items-center gap-2 rounded-lg px-2.5 py-1.5 text-left transition-colors',
+                  isActive
+                    ? 'bg-bolt-elements-item-contentAccent/[0.1] ring-1 ring-bolt-elements-item-contentAccent/30'
+                    : 'hover:bg-bolt-elements-background-depth-2',
+                )}
+              >
+                <span className="i-ph:file-duotone shrink-0 text-sm text-bolt-elements-textTertiary" aria-hidden="true" />
+                <code className="min-w-0 flex-1 truncate text-[12px] text-bolt-elements-textPrimary">{file.path}</code>
+                <span
+                  className={classNames(
+                    'shrink-0 rounded-md border px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide',
+                    meta.className,
+                  )}
+                >
+                  {meta.label}
+                </span>
+              </button>
+            </li>
+          );
+        })}
+      </ul>
+
+      {active != null && <ClaudeCodeFileDiff event={active} />}
+    </div>
+  );
+});
+
+/**
+ * S3 — the Tests tab. Renders `test_result` events: a pass/fail tally header + a row per test
+ * (green check / red x), failing names first so a reviewer sees breakage immediately.
+ */
+const TestsTab = memo(function TestsTab({ tests }: { tests: ClaudeCodeTestResultEvent[] }) {
+  if (tests.length === 0) {
+    return (
+      <PanelEmpty
+        testId="cc-tests-empty"
+        icon="i-ph:test-tube-duotone"
+        title="No test results yet"
+        description="Test runs from Claude Code — pass/fail counts and any failing names — appear here."
+      />
+    );
+  }
+
+  const passed = tests.filter((t) => t.passed).length;
+  const failed = tests.length - passed;
+  // Failing tests first — the reviewer's eye should land on breakage.
+  const ordered = [...tests].sort((a, b) => Number(a.passed) - Number(b.passed));
+
+  return (
+    <div className="flex flex-col gap-2 p-4">
+      <div data-testid="cc-tests-summary" className="flex items-center gap-3 text-[12px]">
+        <span className="font-semibold text-bolt-elements-textPrimary">
+          {tests.length} {tests.length === 1 ? 'test' : 'tests'}
+        </span>
+        <span className="inline-flex items-center gap-1 text-green-500">
+          <span className="i-ph:check-circle-duotone" aria-hidden="true" />
+          {passed} passed
+        </span>
+        {failed > 0 && (
+          <span className="inline-flex items-center gap-1 text-red-500">
+            <span className="i-ph:x-circle-duotone" aria-hidden="true" />
+            {failed} failed
+          </span>
+        )}
+      </div>
+
+      <ul data-testid="cc-tests-list" className="flex flex-col gap-1.5">
+        {ordered.map((test, index) => (
+          <li
+            key={`${test.name}-${index}`}
+            data-testid={`cc-test-${index}`}
+            data-passed={test.passed}
+            className="flex items-start gap-2.5 rounded-lg border border-bolt-elements-borderColor/60 bg-bolt-elements-background-depth-2 px-3 py-2"
+          >
+            <span
+              className={classNames(
+                'mt-0.5 text-base',
+                test.passed ? 'i-ph:check-circle-duotone text-green-500' : 'i-ph:x-circle-duotone text-red-500',
+              )}
+              aria-hidden="true"
+            />
+            <span className="min-w-0 flex-1">
+              <span className="block break-words text-[13px] leading-snug text-bolt-elements-textPrimary">
+                {test.name}
+              </span>
+              {test.summary != null && test.summary !== '' && (
+                <span className="mt-0.5 block break-words text-[11px] leading-snug text-bolt-elements-textTertiary">
+                  {test.summary}
+                </span>
+              )}
+            </span>
+          </li>
+        ))}
+      </ul>
+    </div>
+  );
+});
+
+/** Per-deploy-state glyph + tint for the Deploy tab's latest-status hero. */
+const DEPLOY_META: Record<ClaudeCodeDeployStateEvent['state'], { label: string; icon: string; className: string }> = {
+  idle: { label: 'Idle', icon: 'i-ph:circle-dashed-duotone', className: 'text-bolt-elements-textTertiary' },
+  building: { label: 'Building', icon: 'i-ph:circle-notch-duotone', className: 'text-bolt-elements-item-contentAccent' },
+  deploying: {
+    label: 'Deploying',
+    icon: 'i-ph:cloud-arrow-up-duotone',
+    className: 'text-bolt-elements-item-contentAccent',
+  },
+  deployed: { label: 'Deployed', icon: 'i-ph:check-circle-duotone', className: 'text-green-500' },
+  failed: { label: 'Failed', icon: 'i-ph:warning-circle-duotone', className: 'text-red-500' },
+};
+
+/**
+ * S4 — the Deploy tab. Shows the LATEST `deploy_state` as a status hero, plus the transition
+ * history beneath it (most-recent first) so a reviewer sees how the pipeline got here.
+ */
+const DeployTab = memo(function DeployTab({ deploys }: { deploys: ClaudeCodeDeployStateEvent[] }) {
+  if (deploys.length === 0) {
+    return (
+      <PanelEmpty
+        testId="cc-deploy-empty"
+        icon="i-ph:rocket-launch-duotone"
+        title="No deploys yet"
+        description="When Claude Code ships your change, the live deploy status appears here."
+      />
+    );
+  }
+
+  const latest = deploys[deploys.length - 1];
+  const latestMeta = DEPLOY_META[latest.state];
+  const history = [...deploys].reverse();
+
+  return (
+    <div className="flex flex-col gap-3 p-4">
+      <div
+        data-testid="cc-deploy-latest"
+        data-state={latest.state}
+        className="flex items-center gap-3 rounded-xl border border-bolt-elements-borderColor bg-bolt-elements-background-depth-2 px-4 py-3"
+      >
+        <span className={classNames(latestMeta.icon, 'text-2xl', latestMeta.className)} aria-hidden="true" />
+        <span className="min-w-0 flex-1">
+          <span className={classNames('block text-sm font-semibold', latestMeta.className)}>{latestMeta.label}</span>
+          {latest.detail != null && latest.detail !== '' && (
+            <span className="mt-0.5 block break-words text-[11px] text-bolt-elements-textTertiary">
+              {latest.detail}
+            </span>
+          )}
+        </span>
+      </div>
+
+      {history.length > 1 && (
+        <ul data-testid="cc-deploy-history" className="flex flex-col gap-1">
+          {history.map((deploy, index) => {
+            const meta = DEPLOY_META[deploy.state];
+
+            return (
+              <li
+                key={index}
+                className="flex items-center gap-2 rounded-lg px-2.5 py-1.5 text-[11px] text-bolt-elements-textSecondary"
+              >
+                <span className={classNames(meta.icon, 'text-sm', meta.className)} aria-hidden="true" />
+                <span className="font-medium text-bolt-elements-textPrimary">{meta.label}</span>
+                {deploy.detail != null && deploy.detail !== '' && (
+                  <span className="truncate text-bolt-elements-textTertiary">{deploy.detail}</span>
+                )}
+              </li>
+            );
+          })}
+        </ul>
+      )}
+    </div>
+  );
+});
+
 export interface ClaudeCodePanelProps {
   /** Override the panel root's `data-testid` (defaults to `claude-code-panel`). */
   testId?: string;
@@ -140,7 +391,23 @@ export const ClaudeCodePanel = memo(function ClaudeCodePanel({ testId }: ClaudeC
   const [events, setEvents] = useState<ClaudeCodeEvent[]>([]);
   const [running, setRunning] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [selectedFileIndex, setSelectedFileIndex] = useState(0);
   const abortRef = useRef<AbortController | null>(null);
+
+  // Project the single event stream into the per-tab views (the brief's S2/S3/S4 render already-
+  // defined events — no new fetches). Recomputed only when `events` changes.
+  const fileEvents = useMemo(
+    () => events.filter((e): e is ClaudeCodeFileTouchedEvent => e.kind === 'file_touched'),
+    [events],
+  );
+  const testEvents = useMemo(
+    () => events.filter((e): e is ClaudeCodeTestResultEvent => e.kind === 'test_result'),
+    [events],
+  );
+  const deployEvents = useMemo(
+    () => events.filter((e): e is ClaudeCodeDeployStateEvent => e.kind === 'deploy_state'),
+    [events],
+  );
 
   /** POST the prompt to the existing /api/llmcall streaming path and map the stream to events. */
   const run = useCallback(
@@ -154,6 +421,7 @@ export const ClaudeCodePanel = memo(function ClaudeCodePanel({ testId }: ClaudeC
       setRunning(true);
       setError(null);
       setEvents([]);
+      setSelectedFileIndex(0);
 
       const controller = new AbortController();
       abortRef.current = controller;
@@ -245,6 +513,7 @@ export const ClaudeCodePanel = memo(function ClaudeCodePanel({ testId }: ClaudeC
    */
   const applySampleEdit = useCallback(async () => {
     setError(null);
+    setSelectedFileIndex(0);
     setEvents(parseClaudeCodeStream(SAMPLE_ACTIVITY_STREAM));
 
     try {
@@ -326,19 +595,22 @@ export const ClaudeCodePanel = memo(function ClaudeCodePanel({ testId }: ClaudeC
         )}
       </form>
 
-      {/* Body — Activity is the only wired tab this slice; the rest preview the roadmap. */}
-      <div className="min-h-0 flex-1 overflow-y-auto">
-        {activeTab !== 'activity' ? (
-          <PanelEmpty
-            testId="cc-tab-coming-soon"
-            icon="i-ph:traffic-cone-duotone"
-            title={`${NAV_ITEMS.find((i) => i.id === activeTab)?.label ?? 'This view'} is coming soon`}
-            description="Files diff, test results, and deploy state land in the next slices. Use Activity to run Claude Code now."
-          />
+      {/* Body — Activity runs Claude Code; Files/Tests/Deploy project the stream into review views. */}
+      <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
+        {activeTab === 'files' ? (
+          <FilesTab files={fileEvents} selectedIndex={selectedFileIndex} onSelect={setSelectedFileIndex} />
+        ) : activeTab === 'tests' ? (
+          <div className="min-h-0 flex-1 overflow-y-auto">
+            <TestsTab tests={testEvents} />
+          </div>
+        ) : activeTab === 'deploy' ? (
+          <div className="min-h-0 flex-1 overflow-y-auto">
+            <DeployTab deploys={deployEvents} />
+          </div>
         ) : running && !hasEvents ? (
           <PanelLoading testId="cc-loading" label="Claude Code is working…" />
         ) : hasEvents ? (
-          <ul data-testid="cc-activity-list" className="flex flex-col gap-1.5 p-4">
+          <ul data-testid="cc-activity-list" className="min-h-0 flex-1 overflow-y-auto flex flex-col gap-1.5 p-4">
             {events.map((event, index) => (
               <ActivityRow key={index} event={event} index={index} />
             ))}

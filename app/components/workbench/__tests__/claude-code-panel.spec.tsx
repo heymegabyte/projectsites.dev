@@ -112,10 +112,86 @@ describe('ClaudeCodePanel', () => {
     expect(String(content)).toContain('one WebContainer');
   });
 
-  it('switches to a roadmap tab and shows a coming-soon launchpad (never a blank body)', () => {
+  it('shows the Files empty launchpad before any file is touched (never a blank body)', () => {
     render(<ClaudeCodePanel />);
 
     fireEvent.click(screen.getByTestId('panel-segnav-files'));
-    expect(screen.getByTestId('cc-tab-coming-soon')).toBeTruthy();
+    expect(screen.getByTestId('cc-files-empty')).toBeTruthy();
+    expect(screen.getByText('No files changed yet')).toBeTruthy();
+  });
+
+  // ── S2 — Files tab: list the touched files + open a reviewable diff for a selected file ──
+
+  it('Files tab lists the file_touched events with a change badge', async () => {
+    render(<ClaudeCodePanel />);
+
+    // Seed the stream (the sample carries a `file_touched` event with before/after content).
+    fireEvent.click(screen.getByTestId('cc-apply-sample'));
+    await screen.findByTestId('cc-activity-list');
+
+    fireEvent.click(screen.getByTestId('panel-segnav-files'));
+
+    const list = screen.getByTestId('cc-files-list');
+    expect(list).toBeTruthy();
+
+    // Every file_touched event in the parsed sample appears as a row.
+    const files = parseClaudeCodeStream(SAMPLE_ACTIVITY_STREAM).filter((e) => e.kind === 'file_touched');
+    const rows = list.querySelectorAll('[data-testid^="cc-file-"]');
+    expect(rows.length).toBe(files.length);
+    expect(rows.length).toBeGreaterThan(0);
+
+    // The first touched file's path + its change badge render.
+    expect(screen.getAllByText('src/App.tsx').length).toBeGreaterThan(0);
+    expect(screen.getByTestId('cc-file-0').getAttribute('data-change')).toBe('edit');
+  });
+
+  it('opens a reviewable per-file DIFF (reusing the editor diff renderer) for the selected file', async () => {
+    render(<ClaudeCodePanel />);
+
+    fireEvent.click(screen.getByTestId('cc-apply-sample'));
+    await screen.findByTestId('cc-activity-list');
+
+    fireEvent.click(screen.getByTestId('panel-segnav-files'));
+    // Select the first file.
+    fireEvent.click(screen.getByTestId('cc-file-0'));
+
+    const diff = screen.getByTestId('cc-file-diff');
+    expect(diff).toBeTruthy();
+    expect(screen.getByTestId('cc-file-diff-path').textContent).toBe('src/App.tsx');
+
+    // The sample's before/after differ, so the reused diffLines renderer emits add + remove rows.
+    const addRows = diff.querySelectorAll('[data-diff-kind="add"]');
+    const removeRows = diff.querySelectorAll('[data-diff-kind="remove"]');
+    expect(addRows.length).toBeGreaterThan(0);
+    expect(removeRows.length).toBeGreaterThan(0);
+    // The new hero copy is on an added line.
+    expect(diff.textContent).toContain('Welcome home');
+  });
+
+  // ── S3/S4 — Tests + Deploy tabs render their already-defined events ──
+
+  it('Tests tab renders test_result events with a pass/fail summary', async () => {
+    render(<ClaudeCodePanel />);
+
+    fireEvent.click(screen.getByTestId('cc-apply-sample'));
+    await screen.findByTestId('cc-activity-list');
+
+    fireEvent.click(screen.getByTestId('panel-segnav-tests'));
+
+    expect(screen.getByTestId('cc-tests-summary')).toBeTruthy();
+    expect(screen.getByText('homepage renders')).toBeTruthy();
+  });
+
+  it('Deploy tab renders the latest deploy_state', async () => {
+    render(<ClaudeCodePanel />);
+
+    fireEvent.click(screen.getByTestId('cc-apply-sample'));
+    await screen.findByTestId('cc-activity-list');
+
+    fireEvent.click(screen.getByTestId('panel-segnav-deploy'));
+
+    const latest = screen.getByTestId('cc-deploy-latest');
+    expect(latest).toBeTruthy();
+    expect(latest.getAttribute('data-state')).toBe('deployed');
   });
 });
