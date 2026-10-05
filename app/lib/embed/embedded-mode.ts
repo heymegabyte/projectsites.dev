@@ -2273,6 +2273,37 @@ export interface BucketDownloadResponseMessage {
   error?: string;
 }
 
+// ── Claude Code panel dark-flag bridge (WLK-39 §75 flagship, S7-prep) ───────────
+
+/**
+ * Child → Parent (Claude Code tab): resolve the `claude_code_panel` dark-flag for the selected
+ * site. The embedded editor has no cross-origin session, so the admin (which holds `selectedSite` +
+ * the bearer) calls `GET /api/sites/:siteId/claude-code/status` and replies with
+ * {@link ClaudeFlagResponseMessage}. Resolved ONCE on mount — the Claude Code top tab renders only
+ * when the reply says `enabled:true`. DARK behind the `per_site_data`-style 404 ("not enabled" →
+ * `enabled:false`). Carries no payload beyond the correlation id.
+ */
+export interface ClaudeFlagRequestMessage {
+  type: 'PS_CLAUDE_FLAG_REQUEST';
+  correlationId: string;
+}
+
+/**
+ * Parent → Child (Claude Code tab): the admin's reply to {@link ClaudeFlagRequestMessage}. `enabled`
+ * is `true` ONLY when the `claude_code_panel` flag resolves on for the owned site (a 200 from the
+ * status endpoint); it is `false` for the dark-flag 404, no selected site, or any transport failure
+ * — so the flagship tab defaults OFF and only ever appears on an explicit ON (fail-safe).
+ */
+export interface ClaudeFlagResponseMessage {
+  type: 'PS_CLAUDE_FLAG_RESPONSE';
+  correlationId?: string;
+  ok: boolean;
+
+  /** `true` only when the flag resolved ON for the owned site; `false` (default) keeps the tab hidden. */
+  enabled?: boolean;
+  error?: string;
+}
+
 export type ParentToChildMessage =
   | SubmitPromptMessage
   | ImportFilesMessage
@@ -2318,6 +2349,7 @@ export type ParentToChildMessage =
   | R2ResponseMessage
   | BucketUploadResponseMessage
   | BucketDownloadResponseMessage
+  | ClaudeFlagResponseMessage
   | PSToastMessage;
 export type ChildToParentMessage =
   | BoltReadyMessage
@@ -2362,6 +2394,7 @@ export type ChildToParentMessage =
   | R2RequestMessage
   | BucketUploadRequestMessage
   | BucketDownloadRequestMessage
+  | ClaudeFlagRequestMessage
   | PSErrorMessage
   | PSTelemetryMessage
   | PSToastMessage;
@@ -2837,6 +2870,20 @@ export function requestFromParent<R extends ParentToChildMessage>(
 
     postToParent(message);
   });
+}
+
+/**
+ * Resolve the `claude_code_panel` dark-flag for the selected site (WLK-39 S7-prep). Asks the admin
+ * (over the PS_CLAUDE_FLAG bridge) to probe `GET /api/sites/:siteId/claude-code/status`; the editor
+ * calls this ONCE on mount to decide whether to render the Claude Code top tab. Resolves with the
+ * parent's {@link ClaudeFlagResponseMessage} — `enabled:true` ONLY on an explicit flag-on 200; the
+ * dark-flag 404 / no-site / any failure resolves `enabled:false` (the tab stays hidden, fail-safe).
+ */
+export function requestClaudeCodeFlag(): Promise<ClaudeFlagResponseMessage> {
+  return requestFromParent<ClaudeFlagResponseMessage>(
+    { type: 'PS_CLAUDE_FLAG_REQUEST', correlationId: nextBridgeCorrelationId() },
+    'PS_CLAUDE_FLAG_RESPONSE',
+  );
 }
 
 /**

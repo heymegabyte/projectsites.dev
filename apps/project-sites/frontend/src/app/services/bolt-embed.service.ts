@@ -1740,6 +1740,51 @@ export class BoltEmbedService {
             });
           break;
         }
+        case 'PS_CLAUDE_FLAG_REQUEST': {
+          // WLK-39 S7-prep — the embedded editor resolves the `claude_code_panel` dark-flag through US
+          // (we hold currentSite + the ApiService bearer; the editor has no cross-origin session). We
+          // GET /api/sites/:id/claude-code/status: a 200 means the flag is ON for this tenant → the
+          // editor reveals the Claude Code tab; a 404 whose body says "not enabled" is the dark-flag
+          // (NOT a failure) → `{enabled:false}` so the tab stays hidden. Mirrors the PS_SITEDB bridge's
+          // `per_site_data` killswitch translation EXACTLY. Reply with PS_CLAUDE_FLAG_RESPONSE.
+          const iframe = this.iframeEl;
+          const site = this.currentSite;
+          const cid = msg.correlationId;
+          const reply = (payload: Record<string, unknown>): void => {
+            iframe?.contentWindow?.postMessage(
+              { type: 'PS_CLAUDE_FLAG_RESPONSE', correlationId: cid, ...payload },
+              EDITOR_BASE,
+            );
+          };
+          if (!site) {
+            // No selected site → can't resolve; default OFF (the editor keeps the tab hidden).
+            reply({ ok: false, enabled: false });
+            break;
+          }
+          this.api
+            .get<{ data?: { enabled?: boolean } }>(`/sites/${site.id}/claude-code/status`, undefined, {
+              silent: true,
+            })
+            .subscribe({
+              next: (res) => reply({ ok: true, enabled: res?.data?.enabled === true }),
+              // Dark-flag: a real 404 whose body says "not enabled" is the killswitch, not an error —
+              // tell the editor to keep the tab hidden. Any other failure also defaults OFF (fail-safe:
+              // the flagship never shows spuriously on a transport hiccup).
+              error: (err: unknown) => {
+                if (
+                  err instanceof HttpErrorResponse &&
+                  err.status === 404 &&
+                  typeof err.error?.error?.message === 'string' &&
+                  err.error.error.message.includes('not enabled')
+                ) {
+                  reply({ ok: false, enabled: false });
+                } else {
+                  reply({ ok: false, enabled: false });
+                }
+              },
+            });
+          break;
+        }
         case 'PS_SITEDB_ROWS_REQUEST': {
           // Data Platform (per-site D1) — browse ONE table's rows in the site's OWN dedicated D1 via
           // GET /api/sites/:id/db/tables/:table?limit&offset. Same server-side isolation + lazy provisioning

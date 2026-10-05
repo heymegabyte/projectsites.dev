@@ -154,6 +154,15 @@ export const FLAG_REGISTRY: Record<string, FlagDefinition> = {
     owner_email: 'brian@megabyte.space',
     stage: 'experimental',
   },
+  claude_code_panel: {
+    default_enabled: false,
+    default_rollout_percent: 0,
+    description:
+      'Embedded "Claude Code" editor tab (WLK-39 §75 flagship). Gates whether the bolt.diy editor renders the Claude Code top tab, promotable per-tenant WITHOUT a code change — the real dark-flag that replaces the S0 default-OFF client constant (app/components/workbench/claude-code-flag.ts).\n\n• Worker: libs/features/claude_code_panel/handlers.ts serves GET /api/sites/:siteId/claude-code/status — flag-dark-404 ("Claude Code panel is not enabled", never 403) → auth-401 → assertSiteOwned-404 (IDOR) → 200 {data:{enabled:true}}. Resolution-only (a single boolean for the OWNED site); exposes no site data.\n• Transport: the embedded editor has no cross-origin session, so it asks the admin (BoltEmbedService) over the PS_CLAUDE_FLAG_REQUEST→PS_CLAUDE_FLAG_RESPONSE bridge; the admin proxies to the endpoint and a 404 whose body says "not enabled" is translated to {enabled:false} (mirrors the per_site_data bridge).\n• Editor: claude-code-flag.ts resolves the flag ONCE on mount into a module-scope store (default OFF); isClaudeCodePanelEnabled() reads it + the Workbench renders the `claude` tab only when it resolves ON. Standalone editor (no bridge) stays OFF/dark.\n• Off (default, DARK) → the endpoint 404s for everyone + the tab stays hidden. On → the tab renders for that tenant. Reversible: promotion is a flag override, S7 flips it ON + proves it live.',
+    key: 'claude_code_panel',
+    owner_email: 'brian@megabyte.space',
+    stage: 'experimental',
+  },
   eager_site_d1: {
     default_enabled: false,
     default_rollout_percent: 0,

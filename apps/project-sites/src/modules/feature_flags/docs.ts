@@ -103,6 +103,25 @@ export const FLAG_DOCS: Record<string, FlagDocs> = {
     ],
     e2e_tests: [],
   },
+  claude_code_panel: {
+    checklist: [
+      'Dark-flag for the embedded "Claude Code" editor tab (WLK-39 §75 flagship)',
+      'Gates GET /api/sites/:siteId/claude-code/status — the editor probes it ONCE on mount',
+      'Gate order: flag-dark-404 ("not enabled", never 403) → auth-401 → assertSiteOwned-404 (IDOR)',
+      'Transport: editor ⇄ admin PS_CLAUDE_FLAG bridge (no cross-origin session); 404 → {enabled:false}',
+      'Editor renders the Claude Code tab only when it resolves ON; defaults OFF until it resolves',
+      'Replaces the S0 default-OFF client constant — now promotable per-tenant with NO code change',
+      'Off (default, DARK) → endpoint 404s for everyone + the tab stays hidden',
+    ],
+    explanation:
+      'The embedded "Claude Code" editor tab (WLK-39 §75 flagship) is the bolt.diy editor\'s 5th top tab. Its visibility was a hardcoded default-OFF module constant (app/components/workbench/claude-code-flag.ts); this flag makes it promotable per-tenant without a code change, mirroring the per_site_data dark-flag path. The worker serves GET /api/sites/:siteId/claude-code/status — a resolution-only endpoint (a single boolean for the OWNED site, no site data) whose gate order is flag-dark-404 ("Claude Code panel is not enabled", never 403, so existence is never leaked) → auth-401 → assertSiteOwned-404 (IDOR). The embedded editor has no cross-origin session, so it asks the admin (BoltEmbedService) over the PS_CLAUDE_FLAG_REQUEST→PS_CLAUDE_FLAG_RESPONSE bridge; a 404 "not enabled" is translated to {enabled:false}. The editor resolves it once on mount into a module-scope store (default OFF) and renders the tab only when it resolves ON — a transport failure or dark flag keeps the flagship hidden (fail-safe). Reversible: promotion is a flag override; S7 flips it ON and proves it live.',
+    smoke_test: [
+      'Enable the flag (optionally org/tenant-scoped) → as a site owner: curl https://projectsites.dev/api/sites/<siteId>/claude-code/status -H "Authorization: Bearer $TOKEN" → 200 { data: { enabled: true } }',
+      'Open the admin editor for that site → the "Claude Code" top tab appears beside Code/Preview/Database/Resources',
+      'Off → the same GET 404s ("not enabled") and the tab is absent',
+    ],
+    e2e_tests: [],
+  },
   cinematic_scroll_reveals: {
     checklist: [
       'Native CSS scroll-driven homepage section reveals (animation-timeline: view())',

@@ -17,7 +17,7 @@ import { renderLogger } from '~/utils/logger';
 import { DatabasePanel } from './DatabasePanel';
 import { ResourcesPanel } from './ResourcesPanel';
 import { ClaudeCodePanel } from './ClaudeCodePanel';
-import { isClaudeCodePanelEnabled } from './claude-code-flag';
+import { claudeCodePanelEnabled, resolveClaudeCodePanelFlag } from './claude-code-flag';
 import { CreateMenu } from './CreateMenu';
 import { EditorPanel } from './EditorPanel';
 import { Preview } from './Preview';
@@ -178,10 +178,18 @@ export const Workbench = memo(
     };
 
     // Chat tab is prepended ONLY on tablet/mobile; on desktop the chat docks left.
-    // The Claude Code tab is appended ONLY when its default-OFF flag is enabled (WLK-39 S1).
-    const claudeEnabled = isClaudeCodePanelEnabled();
+    // The Claude Code tab is appended ONLY when the real `claude_code_panel` worker flag resolves ON
+    // for this tenant (WLK-39 S7-prep — replaces the S0 default-OFF constant). `useStore` subscribes
+    // to the resolved atom, so the tab appears the instant the mount-time bridge probe flips it ON;
+    // it stays hidden (DARK default) until then and forever in the standalone editor (no bridge).
+    const claudeEnabled = useStore(claudeCodePanelEnabled);
     const baseTabs = claudeEnabled ? [...TOP_TABS, CLAUDE_TAB] : TOP_TABS;
     const visibleTabs = isSmallViewport ? [CHAT_TAB, ...baseTabs] : baseTabs;
+
+    // Resolve the `claude_code_panel` dark-flag ONCE on mount (idempotent; no-op in standalone mode).
+    useEffect(() => {
+      void resolveClaudeCodePanelFlag();
+    }, []);
 
     useEffect(() => {
       if (hasPreview) {
