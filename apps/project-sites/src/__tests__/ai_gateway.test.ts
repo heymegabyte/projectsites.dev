@@ -260,9 +260,12 @@ describe('gatewayFetch fallback', () => {
     // own error shape — NOT the gateway's `code: 2009`. The direct URL would reject
     // it identically, so surface it (no wasted second request).
     mockFetch.mockResolvedValueOnce(
-      new Response(JSON.stringify({ error: { type: 'authentication_error', message: 'bad key' } }), {
-        status: 401,
-      }),
+      new Response(
+        JSON.stringify({ error: { type: 'authentication_error', message: 'bad key' } }),
+        {
+          status: 401,
+        },
+      ),
     );
 
     const { response, gatewayUsed } = await gatewayFetch(makeEnv(), 'anthropic', '/v1/messages', {
@@ -301,16 +304,16 @@ describe('gatewayFetch gateway-auth fallback', () => {
    * to the vendor — so the valid vendor key still works against the direct URL.
    */
   function gatewayAuth401(): Response {
-    return new Response(
-      JSON.stringify({ error: { code: 2009, message: 'Unauthorized' } }),
-      { status: 401, headers: { 'content-type': 'application/json' } },
-    );
+    return new Response(JSON.stringify({ error: { code: 2009, message: 'Unauthorized' } }), {
+      status: 401,
+      headers: { 'content-type': 'application/json' },
+    });
   }
   function gatewayAuth403(): Response {
-    return new Response(
-      JSON.stringify({ error: { code: 2009, message: 'Forbidden' } }),
-      { status: 403, headers: { 'content-type': 'application/json' } },
-    );
+    return new Response(JSON.stringify({ error: { code: 2009, message: 'Forbidden' } }), {
+      status: 403,
+      headers: { 'content-type': 'application/json' },
+    });
   }
 
   it('(a) falls back to the direct vendor URL on a gateway-origin 401 → gatewayUsed=false', async () => {
@@ -392,7 +395,9 @@ describe('gatewayFetch gateway-auth fallback', () => {
   it('does NOT consume the response body of a passed-through gateway 200 (clone-safe)', async () => {
     // The gateway-origin probe clones before reading — a happy-path 200 body must
     // still be readable by the caller.
-    mockFetch.mockResolvedValueOnce(new Response(JSON.stringify({ hello: 'world' }), { status: 200 }));
+    mockFetch.mockResolvedValueOnce(
+      new Response(JSON.stringify({ hello: 'world' }), { status: 200 }),
+    );
 
     const { response, gatewayUsed } = await gatewayFetch(
       makeEnv(),
@@ -431,11 +436,16 @@ describe('gatewayFetch gateway-auth fallback', () => {
   it('(f) does NOT fall back on a genuine vendor 429 rate-limit (not an auth status)', async () => {
     mockFetch.mockResolvedValueOnce(new Response('rate limited', { status: 429 }));
 
-    const { response, gatewayUsed } = await gatewayFetch(makeEnv(), 'openai', '/v1/chat/completions', {
-      method: 'POST',
-      headers: { Authorization: 'Bearer k' },
-      body: '{}',
-    });
+    const { response, gatewayUsed } = await gatewayFetch(
+      makeEnv(),
+      'openai',
+      '/v1/chat/completions',
+      {
+        method: 'POST',
+        headers: { Authorization: 'Bearer k' },
+        body: '{}',
+      },
+    );
 
     expect(response.status).toBe(429);
     expect(gatewayUsed).toBe(true);
