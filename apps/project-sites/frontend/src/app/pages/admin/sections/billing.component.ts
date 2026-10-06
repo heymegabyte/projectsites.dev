@@ -312,7 +312,7 @@ interface ForecastBar {
                 class="btn-primary w-full"
                 [disabled]="toppingUp()"
                 (click)="topupWallet()">
-                {{ toppingUp() ? 'Redirecting to Stripe…' : 'Add credit' }}
+                {{ toppingUp() ? 'Adding credit…' : 'Add credit' }}
               </button>
               @if (topupRedirecting()) {
                 <div class="text-center text-[0.78rem] text-cyan-300 mt-2">Redirecting to Stripe…</div>
@@ -1761,19 +1761,53 @@ export class AdminBillingComponent implements OnInit {
     });
   }
 
+  /**
+   * Add wallet credit. The LIVE worker (`domain_purchase.ts`) charges the stored
+   * payment method IMMEDIATELY and returns `{ data: { ok, charged_cents, state } }`
+   * — NO `checkout_url`. We must NOT leave that path silent (the customer is
+   * charged): show a success toast naming the amount, refresh the balance, clear
+   * the input, and reset the in-flight state. The `checkout_url` branch is kept
+   * as a fallback (hosted-checkout) so the regression is covered either way.
+   * `toppingUp` resets on EVERY path so the button can never stick → no re-click
+   * double-charge. (Money-path trust fix — WALLET-TOPUP-SILENT.)
+   */
   topupWallet(): void {
     if (this.toppingUp()) return;
     const amount = this.topupAmount();
     if (!amount || amount <= 0) { this.toast.error('Enter an amount to top up.'); return; }
     this.toppingUp.set(true);
-    this.api.post<{ checkout_url: string }>('/billing/checkout/topup', { amount_cents: Math.round(amount * 100) }).subscribe({
-      next: (r) => {
-        this.toppingUp.set(false);
-        const url = (r as unknown as { data?: { checkout_url: string } }).data?.checkout_url ?? (r as { checkout_url?: string }).checkout_url;
-        if (this.openStripeUrl(url)) this.topupRedirecting.set(true);
-      },
-      error: () => { this.toppingUp.set(false); },
-    });
+    this.api
+      .post<{ ok?: boolean; charged_cents?: number; state?: unknown; checkout_url?: string }>(
+        '/billing/checkout/topup',
+        { amount_cents: Math.round(amount * 100) },
+      )
+      .subscribe({
+        next: (r) => {
+          this.toppingUp.set(false);
+          const body = (r as unknown as { data?: { ok?: boolean; charged_cents?: number; checkout_url?: string } }).data
+            ?? (r as { ok?: boolean; charged_cents?: number; checkout_url?: string });
+          const chargedCents = body?.charged_cents;
+          const checkoutUrl = body?.checkout_url;
+
+          // (1) Immediate-charge (the live path): charged now, no redirect.
+          // `formatUsd` takes DOLLARS → convert cents (`$25.00`).
+          if (body?.ok && chargedCents != null) {
+            this.toast.success(`Added ${this.formatUsd(chargedCents / 100)} to your wallet.`);
+            this.topupAmount.set(null);
+            this.loadWallet(); // existing balance-refresh → updates walletBalanceCents
+            return;
+          }
+          // (2) Hosted-checkout fallback: a real redirect URL was returned.
+          if (checkoutUrl) {
+            if (this.openStripeUrl(checkoutUrl)) this.topupRedirecting.set(true);
+            return;
+          }
+          // (3) Neither shape — never leave the button stuck; nudge, don't alarm.
+          this.toast.info('Top-up submitted. Your balance will update shortly.');
+          this.loadWallet();
+        },
+        error: () => { this.toppingUp.set(false); },
+      });
   }
 
   reportSampleUsage(): void {

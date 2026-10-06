@@ -815,3 +815,122 @@ describe('AdminBillingComponent (deep-linkable tabs)', () => {
     expect(opts.queryParamsHandling).toBe('merge');
   });
 });
+
+/**
+ * MONEY-PATH TRUST GUARD — wallet top-up ("Add credit").
+ *
+ * The LIVE worker handler (domain_purchase.ts POST /api/billing/checkout/topup)
+ * charges the stored PM IMMEDIATELY and returns
+ *   { data: { ok: true, charged_cents, state } }   — NO checkout_url.
+ * The old topupWallet() only acted on res.data.checkout_url → on the real
+ * response it showed NOTHING: no success toast, no balance refresh, no input
+ * clear, and left the "Redirecting to Stripe…" label stuck → the customer was
+ * charged and saw nothing, and could re-click → double-charge.
+ *
+ * These guard BOTH response shapes:
+ *  (1) immediate-charge (live): success toast naming the $ amount + balance
+ *      reload + input cleared + toppingUp reset + NO redirect.
+ *  (2) checkout_url (legacy/fallback): still redirects via openStripeUrl.
+ * Plus the double-submit guard: toppingUp resets in every path so the button
+ * never sticks.
+ */
+describe('AdminBillingComponent (wallet top-up money-path trust)', () => {
+  afterEach(() => TestBed.resetTestingModule());
+
+  function setup(postSpy: jasmine.Spy, toast: { success: jasmine.Spy; error: jasmine.Spy }): AdminBillingComponent {
+    const apiStub = {
+      get: () => of({ data: {} }),
+      post: postSpy,
+      put: () => of({ data: {} }),
+      delete: () => of({ ok: true }),
+      getCostForecast: () => of({ data: { projected_usd: 0, current_period_usd: 0, rolling_daily_avg: 0, days_until_cap_hit: null, plan_cap_usd: 0, percent_of_cap: 0, daily: [], breakdown: [] } }),
+    };
+    TestBed.configureTestingModule({
+      imports: [AdminBillingComponent],
+      providers: [
+        { provide: Router, useValue: { navigate: jasmine.createSpy('navigate').and.resolveTo(true) } },
+        { provide: ActivatedRoute, useValue: { snapshot: { queryParamMap: { get: () => null } } } },
+        { provide: ApiService, useValue: apiStub },
+        { provide: AdminStateService, useValue: { sites: signal([]) } },
+        { provide: ToastService, useValue: { info: () => 0, success: toast.success, warning: () => 0, error: toast.error, dismiss: () => undefined } },
+        { provide: TelemetryService, useValue: { track: () => undefined } },
+        { provide: ConfirmService, useValue: { confirm: () => Promise.resolve(true) } },
+      ],
+    });
+    // Minimal template: these are logic assertions on signals/spies, not render.
+    TestBed.overrideComponent(AdminBillingComponent, { set: { template: '<div></div>', imports: [] } });
+    const c = TestBed.createComponent(AdminBillingComponent).componentInstance;
+    c.ngOnInit();
+    return c;
+  }
+
+  it('immediate-charge response → success toast with $ amount + balance reload + input cleared + toppingUp reset + NO redirect', () => {
+    const success = jasmine.createSpy('success');
+    const error = jasmine.createSpy('error');
+    // The live shape: charged, no checkout_url.
+    const post = jasmine.createSpy('post').and.returnValue(of({ data: { ok: true, charged_cents: 2500, state: 'active' } }));
+    const c = setup(post, { success, error });
+    // openStripeUrl must NOT be called on the immediate path (no redirect).
+    const openSpy = spyOn(c as unknown as { openStripeUrl(u: string | undefined | null): boolean }, 'openStripeUrl').and.returnValue(true);
+    // loadWallet is the EXISTING balance-refresh method — assert it's re-invoked.
+    const reloadSpy = spyOn(c, 'loadWallet').and.callThrough();
+
+    c.topupAmount.set(25);
+    c.topupWallet();
+
+    const call = post.calls.all().find((x) => x.args[0] === '/billing/checkout/topup');
+    expect(call).withContext('POSTs to /billing/checkout/topup').toBeTruthy();
+    expect((call!.args[1] as Record<string, unknown>)['amount_cents']).withContext('dollars → cents').toBe(2500);
+    expect(openSpy).withContext('immediate charge → NO Stripe redirect').not.toHaveBeenCalled();
+    expect(success).withContext('a success toast fires (the charge is not silent)').toHaveBeenCalled();
+    expect(success.calls.mostRecent().args[0] as string).withContext('toast names the $ amount added').toContain('$25.00');
+    expect(reloadSpy).withContext('refreshes the wallet balance after the charge').toHaveBeenCalled();
+    expect(c.topupAmount()).withContext('clears the amount input after a successful top-up').toBeNull();
+    expect(c.toppingUp()).withContext('in-flight state reset — button never sticks').toBeFalse();
+    expect(c.topupRedirecting()).withContext('never shows the "Redirecting…" banner on the immediate path').toBeFalse();
+  });
+
+  it('checkout_url response → still redirects via openStripeUrl (legacy/fallback regression)', () => {
+    const success = jasmine.createSpy('success');
+    const error = jasmine.createSpy('error');
+    const post = jasmine.createSpy('post').and.returnValue(of({ data: { checkout_url: 'https://checkout.stripe.com/c/pay/topup' } }));
+    const c = setup(post, { success, error });
+    const openSpy = spyOn(c as unknown as { openStripeUrl(u: string | undefined | null): boolean }, 'openStripeUrl').and.returnValue(true);
+
+    c.topupAmount.set(25);
+    c.topupWallet();
+
+    expect(openSpy).withContext('the checkout_url path still opens Stripe').toHaveBeenCalledWith('https://checkout.stripe.com/c/pay/topup');
+    expect(c.topupRedirecting()).withContext('the real redirect sets the "Redirecting…" banner').toBeTrue();
+    expect(c.toppingUp()).withContext('in-flight reset on the checkout path too').toBeFalse();
+  });
+
+  it('neither shape → resets in-flight state (button never sticks), no alarming error', () => {
+    const success = jasmine.createSpy('success');
+    const error = jasmine.createSpy('error');
+    const post = jasmine.createSpy('post').and.returnValue(of({ data: {} }));
+    const c = setup(post, { success, error });
+    spyOn(c as unknown as { openStripeUrl(u: string | undefined | null): boolean }, 'openStripeUrl').and.returnValue(false);
+
+    c.topupAmount.set(25);
+    c.topupWallet();
+
+    expect(c.toppingUp()).withContext('reset even when the response is neither shape').toBeFalse();
+    expect(c.topupRedirecting()).toBeFalse();
+  });
+
+  it('double-submit guard: a second click while in-flight is ignored (no duplicate POST → no double charge)', () => {
+    const success = jasmine.createSpy('success');
+    const error = jasmine.createSpy('error');
+    // Pending (never-completing) response keeps toppingUp true → second call must no-op.
+    const post = jasmine.createSpy('post').and.returnValue(new Subject());
+    const c = setup(post, { success, error });
+
+    c.topupAmount.set(25);
+    c.topupWallet();
+    c.topupWallet(); // re-click while the first is still in flight
+
+    const topupCalls = post.calls.all().filter((x) => x.args[0] === '/billing/checkout/topup');
+    expect(topupCalls.length).withContext('the in-flight guard blocks the duplicate charge').toBe(1);
+  });
+});

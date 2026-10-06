@@ -1,8 +1,10 @@
 import { ComponentFixture, TestBed } from '@angular/core/testing';
+import { signal } from '@angular/core';
 import { ActivatedRoute, RouterModule } from '@angular/router';
 import { of, throwError, Subject } from 'rxjs';
 import { AdminSiteDnaComponent } from './site-dna.component';
 import { ApiService } from '../../../services/api.service';
+import { AuthService } from '../../../services/auth.service';
 import { FeatureFlagService } from '../../../services/feature-flag.service';
 
 /**
@@ -25,6 +27,16 @@ describe('AdminSiteDnaComponent (taste pulse + a11y)', () => {
       providers: [
         { provide: ApiService, useValue: { get: apiGet, post: jasmine.createSpy('post').and.returnValue(of({ id: 'x' })) } },
         { provide: FeatureFlagService, useValue: { isOn } },
+        // Pin the operator-view precondition so the flag-gate "Feature Flags"
+        // RouterLink assertion is order-INDEPENDENT. `FlagGateNoticeComponent`
+        // only renders that link when `isOperator()` is true, which it derives
+        // from the ROOT AuthService's `email()` (empty email ⇒ operator view).
+        // Left unstubbed, this spec read the real root AuthService whose session
+        // is localStorage-backed — a prior test in Karma's shuffled order could
+        // leave a non-operator email there, hiding the link → "Expected null to
+        // be truthy" (frontend gotcha #9: pin the SPEC's preconditions). Empty
+        // identifier = the primitive's documented operator default.
+        { provide: AuthService, useValue: { email: signal('') } },
         {
           provide: ActivatedRoute,
           useValue: { snapshot: { paramMap: { get: () => 'site-dna-1' } } },
