@@ -50,6 +50,20 @@ import {
 } from './analytics.fixture';
 import { auditFixture } from './audit.fixture';
 import { siteHostnamesFixture, adminDomainsFixture } from './domains.fixture';
+import {
+  voiceInsightsFixture,
+  voiceNumbersFixture,
+  voiceNumberSearchFixture,
+  voiceVanitySuggestionsFixture,
+  voiceConversationsFixture,
+  voiceConversationDetailFixture,
+  voiceAgentSettingsFixture,
+  voiceMetaPromptFixture,
+  voiceMcpAttachmentsFixture,
+  voiceMcpConnectionsFixture,
+} from './voice.fixture';
+import { mcpTokensFixture, mcpToolsFixture, mcpToolUsageFixture } from './site-mcp-server.fixture';
+import { featureFlagsFixture, liveCheckFixture } from './hosting.fixture';
 
 /** The demo-state knob from `?mock=1&state=…`. `populated` is the default. */
 export type MockState = 'empty' | 'loading' | 'error' | 'populated';
@@ -117,6 +131,24 @@ export const FIXTURES: Readonly<Record<RoutePattern, FixtureFactory>> = {
   // P2 — domains section (per-site hostnames :param + org-wide aggregator)
   'GET /sites/:id/hostnames': siteHostnamesFixture as FixtureFactory,
   'GET /admin/domains': adminDomainsFixture as FixtureFactory,
+  // P2b — voice section (org-level + per-site conversation detail :param)
+  'GET /voice/insights': voiceInsightsFixture as FixtureFactory,
+  'GET /voice/numbers': voiceNumbersFixture as FixtureFactory,
+  'GET /voice/numbers/search': voiceNumberSearchFixture as FixtureFactory,
+  'GET /voice/vanity-suggestions': voiceVanitySuggestionsFixture as FixtureFactory,
+  'GET /voice/conversations': voiceConversationsFixture as FixtureFactory,
+  'GET /voice/conversations/:id': voiceConversationDetailFixture as FixtureFactory,
+  'GET /voice/agent-settings': voiceAgentSettingsFixture as FixtureFactory,
+  'GET /voice/meta-prompt': voiceMetaPromptFixture as FixtureFactory,
+  'GET /voice/mcp-attachments': voiceMcpAttachmentsFixture as FixtureFactory,
+  'GET /mcp/connections': voiceMcpConnectionsFixture as FixtureFactory,
+  // P2b — site MCP-server section (per-site :param; mcp/connections already fixtured above)
+  'GET /sites/:id/mcp/tokens': mcpTokensFixture as FixtureFactory,
+  'GET /sites/:id/mcp/tools': mcpToolsFixture as FixtureFactory,
+  'GET /sites/:id/mcp/tool-usage': mcpToolUsageFixture as FixtureFactory,
+  // P2b — hosting section
+  'GET /feature-flags': featureFlagsFixture as FixtureFactory,
+  'GET /sites/:id/live-check': liveCheckFixture as FixtureFactory,
 };
 
 /**
