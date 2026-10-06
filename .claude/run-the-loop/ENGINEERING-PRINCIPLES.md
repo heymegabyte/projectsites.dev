@@ -94,3 +94,72 @@ the 80% from the 20%), but never expose orchestration complexity to the user.
 prod-E2E) is the done-gate; feature modules + flags are the unit of capability. These principles are the
 *doctrine layer* above them — when a fire has a choice, prefer the principle here. The runnable
 implementation of the compiler/graph/engine/grower is tracked in `agent-skills/_PCC_UPGRADE.md`.
+
+## Design-first doctrine — design is an executable contract (not disposable inspiration)
+For significant greenfield work, major redesigns, and new app areas (the admin/editor SPA **and** the
+generated-site pipeline), represent the product visually + structurally BEFORE most deep implementation,
+and keep a traceable contract graph:
+`USER INTENT → REQUIREMENTS → FIGMA DESIGN → PROTOTYPE FLOW → DESIGN TOKENS → STORYBOOK STATE → SOURCE
+COMPONENT → PLAYWRIGHT TEST → PRODUCTION GOLDEN PATH`. Every important screen/interaction/journey
+increasingly participates in it. (Distilled from the Design-First Resolution Addendum; full runnable
+system → `agent-skills/_PCC_UPGRADE.md` § Design-Contract subsystem.)
+
+- **Intelligence Question Gate + reaction-over-interrogation (= the ⭐ "AI does the work, the user
+  confirms" SUPREME mandate).** Inspect ALL known context first (memory · prior convos · existing site ·
+  repo · research · analytics), then ask only **0-5 high-information questions** whose answers materially
+  change success — never what the AI can reasonably decide itself. Default loop: research → infer →
+  design → **SHOW** → let the user **REACT** ("yes, that's it" beats specifying a product up front).
+  Resolve subjective ambiguity with a visual proposal, not an interrogation transcript.
+- **Two-stage visual approval.** Stage A: 2-3 *materially different* directions (cinematic / minimal /
+  dense-professional / editorial — not color swaps) showing visual language · type · density · motion ·
+  nav · brand; user picks/combines. Stage B: expand ONLY the chosen direction. Never spend heavily on one
+  direction before taste is validated.
+- **Technical-feasibility pass before visual commitment.** UI-first ≠ naïve: check proposed features vs
+  CF architecture · APIs · data availability · auth/permissions · provider · cost · latency · mobile;
+  spike one high-risk assumption before approving. No fantasy UI.
+- **Design the whole VISIBLE product before most invisible implementation, with REAL content.** Route
+  map · screen map · flows · dialogs · empty/error states · responsive shell · design system — walkable
+  via fixtures/MSW/fake providers BEFORE big backend work (learn the workflow is wrong *before* building
+  it). Realistic content (customer site · business info · competitor research · representative records),
+  never lorem ipsum — content drives layout.
+- **Design tokens = the single interchange authority (DTCG) + Code Connect.** projectsites already has
+  `--ps-*` tokens (`frontend/src/styles/_polish.scss`: `--ps-bg:#060610`, `--ps-accent:#00e5ff`,
+  `--ps-radius-xl`…) + ONE dialog primitive (`DialogShellComponent`). **STRENGTHEN:** make the token
+  package the SOLE source (CSS vars ← app theme ← Figma vars ← Storybook — audits already flag hardcoded
+  brand colors as drift); map Figma components ↔ the real Spartan/`packages/ui` components so agents
+  reuse the right primitive instead of rebuilding a button.
+- **Storybook + MSW + API-contracts-first.** Decompose the UI into independently-renderable STATES (not
+  just happy: default/empty/loading/error/success/permission/overflow/mobile/edge); generate stories from
+  the design contract. Define MSW handlers ONCE, reuse across dev/Storybook/tests/Playwright. **Typed API
+  contracts precede API implementation** (request/response/error schemas → mock → the Worker implements
+  the already-observed contract) — reverses backend-designed-in-isolation.
+- **Visual + semantic TDD on ONE canonical environment.** Approved states → visual baselines;
+  implementation converges to them (don't auto-approve drift). Generate baselines in ONE stable env
+  (Browser Run / container — NOT local macOS; fonts/OS differ). Keep **ARIA/semantic snapshots** beside
+  pixels (they catch different defects). Three-tier visual evidence: **T0** deterministic (DOM/ARIA/
+  geometry/pixel-diff/console/network — cheap, most coverage) · **T1** one AI-vision triage · **T2**
+  independent OpenAI+Anthropic critique for high-value surfaces (homepage/editor/primitives/release) →
+  Claude synthesizes. Spend vision tokens where they add information.
+- **The Design Contract Graph + the three truths.** A `DesignContract` binds `revision` ↔
+  `requirementIds` ↔ `figmaFrame/flowIds` ↔ `tokenRevision` ↔ `storyIds` ↔ `componentPaths` ↔
+  `e2eTestIds` ↔ `goldenPathIds` ↔ `approval(draft→review→changes-requested→approved→changed→implemented)`.
+  Approval is PER-ARTIFACT (approve-all-except-Settings); feedback ("make this less busy") becomes a
+  linked design requirement, never stranded in chat; Figma review comments are high-relevance Context
+  Compiler sources. When Figma changes: APPROVED→CHANGED + **targeted invalidation** (only the affected
+  contract/stories/baselines/E2E — mirror the Resolution Engine's dependency-aware invalidation).
+  Continuously reconcile the **THREE TRUTHS** — REQUIREMENT (must do) · DESIGN (approved intent) ·
+  RUNTIME (production actual); quality lives where they agree. Figma↔code is **bidirectional**: when code
+  reveals a better interaction, prove it → update Figma → update the contract (never leave Figma showing
+  an obsolete product).
+- **Prototype flows seed golden paths.** Give important Figma prototype journeys stable IDs (e.g.
+  `FLOW-SITE-CREATE-001`) mapping → Playwright E2E → production golden path — so the money-path is
+  designed, prototyped, AND tested as one artifact (don't re-discover journeys post-implementation).
+- **Design-first ≠ design-only.** After approval, build VERTICALLY (approved shell → golden-path-1 e2e →
+  2 → 3), replacing mocks one contract at a time (`MOCK→IMPLEMENTING→REAL→VERIFIED`); an
+  architecture-fitness check must prevent shipping a dev mock as a real capability.
+- **Primitives get disproportionate resolution** (buttons/inputs/menus/dialogs/cards/tabs/nav/tables/
+  command-palette/editor-chrome multiply across pages) — rank by usage×prominence×interaction×defect-rate
+  + run focused improvement cycles. (projectsites' one-`DialogShell` rule is this principle already.)
+- **Performance + accessibility are design-STATE concerns, in the contract** — not a cleanup project:
+  reduced-motion, mobile-GPU/WebGL fallback, asset-weight budgets, semantic HTML + keyboard/focus +
+  contrast, decided while designing components/states (fixing a primitive once beats repairing 50 screens).
