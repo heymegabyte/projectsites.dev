@@ -16,7 +16,7 @@
  * (jest-dom matchers are not globally registered here).
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { render, screen, cleanup, fireEvent, waitFor } from '@testing-library/react';
+import { render, screen, cleanup, fireEvent, waitFor, act } from '@testing-library/react';
 import React from 'react';
 
 // Stub the constants module — it builds LLMManager at import time (not needed for render).
@@ -589,3 +589,193 @@ describe('ClaudeCodePanel', () => {
     expect(screen.queryByTestId('cc-resolution')).toBeNull();
   });
 });
+
+// ── STREAM-RESOLVE — the CINEMATIC in-flight staged progress (kills the dead 24s spinner) ──
+//
+// While `requestResolve` is awaiting the ~24-27s bridge reply, the panel shows the staged-progress
+// view instead of a dead spinner. These tests hold `requestResolve` on a DEFERRED promise (so the run
+// stays `running`), then use fake timers to advance elapsed and PROVE the phases advance on schedule,
+// the final phase HOLDS on a slow return (never claiming completion), and reduced-motion renders the
+// static branch. Fake timers also fake `Date.now()`, so the component's `Date.now() - startedAt`
+// elapsed tracks the advanced time exactly. Isolated in its own describe so the timer setup is scoped.
+
+describe('ClaudeCodePanel — Resolution staged progress (STREAM-RESOLVE)', () => {
+  /** A hand-resolved promise so we can keep the Resolution run in-flight for as long as the test wants. */
+  function deferred<T>() {
+    let resolve!: (v: T) => void;
+    const promise = new Promise<T>((r) => {
+      resolve = r;
+    });
+
+    return { promise, resolve };
+  }
+
+  /** Install a matchMedia stub reporting the given reduced-motion preference (jsdom lacks it). */
+  function stubReducedMotion(reduce: boolean) {
+    vi.stubGlobal(
+      'matchMedia',
+      vi.fn().mockImplementation((query: string) => ({
+        matches: query.includes('prefers-reduced-motion') ? reduce : false,
+        media: query,
+        addEventListener: vi.fn(),
+        removeEventListener: vi.fn(),
+        addListener: vi.fn(),
+        removeListener: vi.fn(),
+        dispatchEvent: vi.fn(),
+      })),
+    );
+  }
+
+  beforeEach(() => {
+    createFileSpy.mockReset().mockResolvedValue(true);
+    requestResolveSpy.mockReset();
+    vi.useFakeTimers({ shouldAdvanceTime: false });
+  });
+
+  afterEach(() => {
+    vi.runOnlyPendingTimers();
+    vi.useRealTimers();
+    cleanup();
+    vi.unstubAllGlobals();
+  });
+
+  /** Enter Resolution mode + submit a prompt; the deferred keeps the run in-flight. */
+  function startResolution() {
+    fireEvent.click(screen.getByTestId('cc-mode-resolution'));
+    fireEvent.change(screen.getByTestId('cc-prompt-input'), { target: { value: 'research Acme Co' } });
+    fireEvent.click(screen.getByTestId('cc-run-button'));
+  }
+
+  it('shows the cinematic staged-progress view (NOT a bare spinner) while the bridge call is in flight', () => {
+    stubReducedMotion(false);
+    requestResolveSpy.mockReturnValue(deferred().promise);
+
+    render(<ClaudeCodePanel />);
+    startResolution();
+
+    // The staged-progress view is up — the old static "cc-loading" spinner is NOT used for Resolution.
+    const progress = screen.getByTestId('cc-resolution-progress');
+    expect(progress).toBeTruthy();
+    expect(progress.getAttribute('role')).toBe('status');
+    expect(screen.queryByTestId('cc-loading')).toBeNull();
+
+    // Phase 1 is active at t=0, with the live elapsed clock + an honest step rail.
+    expect(progress.getAttribute('data-phase-index')).toBe('0');
+    expect(screen.getByTestId('cc-resolution-phase-label').textContent).toMatch(/pass 1/i);
+    expect(screen.getByTestId('cc-resolution-steps').children.length).toBeGreaterThanOrEqual(3);
+  });
+
+  it('advances the phase labels on the ~24s schedule as time elapses', () => {
+    stubReducedMotion(false);
+    requestResolveSpy.mockReturnValue(deferred().promise);
+
+    render(<ClaudeCodePanel />);
+    startResolution();
+
+    const progress = screen.getByTestId('cc-resolution-progress');
+    const label = () => screen.getByTestId('cc-resolution-phase-label').textContent ?? '';
+
+    // t≈0 → pass 1.
+    expect(label()).toMatch(/pass 1/i);
+
+    // Advance past the pass-2 boundary (8s) → pass 2.
+    act(() => {
+      vi.advanceTimersByTime(9_000);
+    });
+    expect(progress.getAttribute('data-phase-index')).toBe('1');
+    expect(label()).toMatch(/pass 2/i);
+
+    // Advance past the synthesis boundary (16s) → synthesizing.
+    act(() => {
+      vi.advanceTimersByTime(8_000);
+    });
+    expect(progress.getAttribute('data-phase-index')).toBe('2');
+    expect(label()).toMatch(/synthesi/i);
+  });
+
+  it('HOLDS on the final "Synthesizing…" phase for a SLOW return — elapsed keeps ticking, never claims completion', () => {
+    stubReducedMotion(false);
+    // The promise NEVER resolves within the test window → simulate a call slower than the ~24s cadence.
+    requestResolveSpy.mockReturnValue(deferred().promise);
+
+    render(<ClaudeCodePanel />);
+    startResolution();
+
+    const progress = screen.getByTestId('cc-resolution-progress');
+    const label = () => screen.getByTestId('cc-resolution-phase-label').textContent ?? '';
+
+    // Advance WELL past the ~24s expected cadence (e.g. a slow fallback or premium dual-frontier path).
+    act(() => {
+      vi.advanceTimersByTime(45_000);
+    });
+
+    // Still on the LAST phase — held, not advanced past, and NOT claiming the run finished.
+    expect(progress.getAttribute('data-phase-index')).toBe('2');
+    expect(label()).toMatch(/synthesi/i);
+    expect(label().toLowerCase()).not.toMatch(/done|complete|finished|ready/);
+    // The run machine is STILL running (the deferred never resolved) — no false "done".
+    expect(screen.getByTestId('cc-run-status').getAttribute('data-status')).toBe('running');
+    // The staged view is still mounted (no premature switch to the result view).
+    expect(screen.queryByTestId('cc-resolution')).toBeNull();
+  });
+
+  it('reduced-motion: renders the static current-phase text + elapsed, NO pulsing step animation', () => {
+    stubReducedMotion(true);
+    requestResolveSpy.mockReturnValue(deferred().promise);
+
+    render(<ClaudeCodePanel />);
+    startResolution();
+
+    const progress = screen.getByTestId('cc-resolution-progress');
+    // The resolved preference is reflected for audits + the static branch is chosen.
+    expect(progress.getAttribute('data-reduced-motion')).toBe('true');
+
+    // The phase text + step rail still render (information is never animation-gated)…
+    expect(screen.getByTestId('cc-resolution-phase-label').textContent).toMatch(/pass 1/i);
+
+    // …but NO step dot carries the pulse animation class (static under reduced-motion).
+    const steps = screen.getByTestId('cc-resolution-steps');
+    for (const dot of Array.from(steps.children)) {
+      expect(dot.className).not.toContain('animate-pulse');
+    }
+
+    // Phases STILL advance (the clock/text is information, not decoration) — just without motion.
+    act(() => {
+      vi.advanceTimersByTime(9_000);
+    });
+    expect(progress.getAttribute('data-phase-index')).toBe('1');
+    expect(screen.getByTestId('cc-resolution-phase-label').textContent).toMatch(/pass 2/i);
+  });
+
+  it('a successful reply still swaps the staged view for the resolution result (fast-return safe)', async () => {
+    stubReducedMotion(false);
+    const d = deferred<ReturnType<typeof resolveReplyOk>>();
+    requestResolveSpy.mockReturnValue(d.promise);
+
+    render(<ClaudeCodePanel />);
+    startResolution();
+
+    // In-flight → staged progress is up.
+    expect(screen.getByTestId('cc-resolution-progress')).toBeTruthy();
+
+    // Resolve the bridge call → the staged view is REPLACED by the legs+synthesis (never stuck).
+    await act(async () => {
+      d.resolve(resolveReplyOk());
+      await Promise.resolve();
+    });
+
+    expect(screen.queryByTestId('cc-resolution-progress')).toBeNull();
+    expect(screen.getByTestId('cc-resolution')).toBeTruthy();
+    expect(screen.getByTestId('cc-run-status').getAttribute('data-status')).toBe('done');
+  });
+});
+
+/** A standalone success reply (the module-scope RESOLVE_OK lives inside the other describe). */
+function resolveReplyOk() {
+  return {
+    type: 'PS_RESOLVE_RESPONSE' as const,
+    ok: true as const,
+    research: [{ provider: 'openai', ok: true, model: 'gpt-5', content: 'A briefing.' }],
+    synthesis: { provider: 'anthropic', model: 'claude-fable-5', content: 'The synthesized answer.' },
+  };
+}

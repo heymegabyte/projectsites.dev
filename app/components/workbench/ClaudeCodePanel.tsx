@@ -50,11 +50,12 @@
  * Deferred (per the WLK-39 plan in BACKLOG.md): the LIVE WebContainer end-to-end proof
  * (edit → Preview reflects) is browser follow-on S7. This slice's bar is unit + build proof.
  */
-import { memo, useCallback, useMemo, useReducer, useRef, useState, type FormEvent } from 'react';
+import { memo, useCallback, useEffect, useMemo, useReducer, useRef, useState, type FormEvent } from 'react';
 import { DEFAULT_MODEL, DEFAULT_PROVIDER } from '~/utils/constants';
 import { workbenchStore } from '~/lib/stores/workbench';
 import { classNames } from '~/utils/classNames';
 import { PanelShell, PanelHeader, PanelLoading, PanelEmpty, PanelSegmentedNav } from './panel';
+import { NebulaLoader } from '../chat/NebulaLoader';
 import {
   parseClaudeCodeStream,
   type ClaudeCodeEvent,
@@ -75,6 +76,11 @@ import {
 } from './claude-code-run';
 import { ClaudeCodeFileDiff } from './ClaudeCodeFileDiff';
 import { parseResolveResult, providerLabel, type ResolveResult, type ResolveResearchLeg } from './claude-code-resolve';
+import {
+  resolutionProgressPhase,
+  formatElapsedClock,
+  RESOLUTION_PROGRESS_PHASES,
+} from './claude-code-resolution-progress';
 import { requestResolve } from '~/lib/embed/embedded-mode';
 
 /** The panel's sub-nav. Activity (S1) + Files/Tests/Deploy (S2-S4) are all wired. */
@@ -735,6 +741,128 @@ const ResolutionView = memo(function ResolutionView({ result }: { result: Resolv
   );
 });
 
+/**
+ * STREAM-RESOLVE — the CINEMATIC in-flight experience for a Resolution run (kills the dead 24s
+ * spinner). While {@link requestResolve} is awaiting the ~24-27s dual-research → synthesis reply,
+ * this renders the shared Nebula atmosphere PLUS a staged story: a live `m:ss` elapsed clock, the
+ * active phase headline + calm detail (from the PURE {@link resolutionProgressPhase} schedule), and
+ * a step-dot rail so the user sees the engine working, not a frozen stare.
+ *
+ * How the phases advance: a 1s interval bumps a tick → `elapsed = now - startedAt` →
+ * {@link resolutionProgressPhase} re-derives the active phase. The schedule is tuned to the real
+ * cadence (pass 1 → pass 2 → synthesize). The LAST phase HOLDS for any elapsed past its start, so a
+ * SLOW return keeps a calm "Synthesizing…" with the clock still climbing — it NEVER claims completion
+ * (the reducer flips to `done`/`error` and the PARENT unmounts this view; a FAST return is simply
+ * replaced by the result). The failure path is untouched: a `fail` flips `running` false, so the
+ * parent unmounts this and the error renders in the composer — this view swallows nothing.
+ *
+ * Reduced motion: `prefers-reduced-motion: reduce` → NO animation (no pulsing dots; the Nebula
+ * freezes to its calm static frame internally), and we show ONLY the static current-phase text + the
+ * elapsed clock (still ticking — a clock is information, not decoration). `data-reduced-motion`
+ * reflects the resolved preference so the spec + visual audits can assert the static branch.
+ */
+const ResolutionProgress = memo(function ResolutionProgress({ startedAt }: { startedAt: number }) {
+  // Reduced-motion preference, read once + kept live (matches NebulaLoader's own media-query read).
+  const [reducedMotion, setReducedMotion] = useState(() => {
+    if (typeof window === 'undefined' || typeof window.matchMedia !== 'function') {
+      return false;
+    }
+
+    return window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+  });
+
+  // A tick counter — the value is unused; bumping it re-renders so the elapsed clock + phase advance.
+  const [, setTick] = useState(0);
+
+  useEffect(() => {
+    if (typeof window === 'undefined' || typeof window.matchMedia !== 'function') {
+      return undefined;
+    }
+
+    const mq = window.matchMedia('(prefers-reduced-motion: reduce)');
+    const onChange = () => setReducedMotion(mq.matches);
+    mq.addEventListener('change', onChange);
+
+    return () => mq.removeEventListener('change', onChange);
+  }, []);
+
+  useEffect(() => {
+    // One calm 1s beat — enough to tick the clock + cross phase boundaries, cheap under reduced-motion.
+    const id = setInterval(() => setTick((t) => t + 1), 1000);
+
+    return () => clearInterval(id);
+  }, []);
+
+  const elapsed = startedAt > 0 ? Date.now() - startedAt : 0;
+  const phase = resolutionProgressPhase(elapsed, reducedMotion);
+  const clock = formatElapsedClock(elapsed);
+
+  return (
+    <div
+      data-testid="cc-resolution-progress"
+      data-phase-index={phase.index}
+      data-reduced-motion={reducedMotion}
+      role="status"
+      aria-live="polite"
+      aria-busy="true"
+      className="flex min-h-0 flex-1 flex-col items-center justify-center gap-5 p-6"
+    >
+      {/* The living Nebula atmosphere — sized, on-brand (black + cyan), reduced-motion-safe internally.
+          A faint cyan ring shows through if WebGL never paints (graceful, never a gray spinner). */}
+      <div
+        className="relative h-[168px] w-[168px] overflow-hidden rounded-2xl border border-bolt-elements-item-contentAccent/20 bg-[color:var(--ps-bg,#060610)] shadow-lg shadow-bolt-elements-item-contentAccent/10"
+        aria-hidden="true"
+      >
+        <span className="absolute inset-0 grid place-items-center">
+          <span className="relative grid h-12 w-12 place-items-center">
+            <span className="absolute inset-0 rounded-full border-2 border-bolt-elements-item-contentAccent/30" />
+            <span className="h-2.5 w-2.5 rounded-full bg-bolt-elements-item-contentAccent animate-pulse motion-reduce:animate-none" />
+          </span>
+        </span>
+        <NebulaLoader />
+        {/* Elapsed clock, overlaid on the atmosphere — tabular so the digits never jitter. */}
+        <span className="pointer-events-none absolute inset-x-0 bottom-2 text-center text-[11px] font-semibold tabular-nums tracking-wide text-bolt-elements-item-contentAccent/90">
+          {clock}
+        </span>
+      </div>
+
+      {/* The staged story — the active phase headline + a calm supporting line. */}
+      <div className="flex max-w-[280px] flex-col items-center gap-1 text-center">
+        <span
+          data-testid="cc-resolution-phase-label"
+          className="text-[13px] font-semibold text-bolt-elements-textPrimary"
+        >
+          {phase.label}
+        </span>
+        <span className="text-[11px] leading-snug text-bolt-elements-textTertiary">{phase.detail}</span>
+      </div>
+
+      {/* Step-dot rail — an honest "stage N of M". Past/active dots are cyan; the active one shimmers
+          (motion allowed only). Under reduced-motion every dot is static (no pulse). */}
+      <ol data-testid="cc-resolution-steps" className="flex items-center gap-2" aria-hidden="true">
+        {RESOLUTION_PROGRESS_PHASES.map((_, i) => {
+          const isDone = i < phase.index;
+          const isActive = i === phase.index;
+
+          return (
+            <li
+              key={i}
+              data-step-state={isActive ? 'active' : isDone ? 'done' : 'upcoming'}
+              className={classNames(
+                'h-1.5 rounded-full transition-all duration-500 motion-reduce:transition-none',
+                isActive ? 'w-6 bg-bolt-elements-item-contentAccent' : 'w-1.5',
+                isActive && !reducedMotion && 'animate-pulse',
+                isDone && 'bg-bolt-elements-item-contentAccent/60',
+                !isActive && !isDone && 'bg-bolt-elements-borderColor',
+              )}
+            />
+          );
+        })}
+      </ol>
+    </div>
+  );
+});
+
 export interface ClaudeCodePanelProps {
   /** Override the panel root's `data-testid` (defaults to `claude-code-panel`). */
   testId?: string;
@@ -1125,13 +1253,13 @@ export const ClaudeCodePanel = memo(function ClaudeCodePanel({ testId }: ClaudeC
           // Resolution mode finished — the two research legs + the emphasized synthesis (reusing the
           // same Activity surface Single mode uses). A down synthesis renders a calm note, not an error.
           <ResolutionView result={resolution} />
+        ) : running && mode === 'resolution' ? (
+          // Resolution is a single ~24-27s bridge call (no stream to seed the Activity log), so the
+          // whole in-flight window shows the CINEMATIC staged progress — never a dead spinner. It
+          // unmounts the instant the reply lands (`resolution` set → done, or `fail` → error above).
+          <ResolutionProgress startedAt={startedAt} />
         ) : running && !hasActivity ? (
-          <PanelLoading
-            testId="cc-loading"
-            label={
-              mode === 'resolution' ? 'Researching with two providers, then synthesizing…' : 'Claude Code is working…'
-            }
-          />
+          <PanelLoading testId="cc-loading" label="Claude Code is working…" />
         ) : hasActivity ? (
           <ul data-testid="cc-activity-list" className="min-h-0 flex-1 overflow-y-auto flex flex-col gap-1.5 p-4">
             {/* Opening lifecycle beat (Run started) — the top of the story. */}
