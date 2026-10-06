@@ -80,10 +80,13 @@ export class ApiService {
    * 30s timeout to prevent indefinite hangs; user-friendly toast on failure;
    * re-throws so callers can add their own handling.
    */
-  private handleError<T>(silent = false): (source: Observable<T>) => Observable<T> {
+  private handleError<T>(
+    silent = false,
+    timeoutMs: number = ApiService.REQUEST_TIMEOUT_MS,
+  ): (source: Observable<T>) => Observable<T> {
     return (source: Observable<T>) =>
       source.pipe(
-        timeout(ApiService.REQUEST_TIMEOUT_MS),
+        timeout(timeoutMs),
         catchError((error: HttpErrorResponse | TimeoutError) => {
           if (error instanceof TimeoutError) {
             if (!silent) this.toast.error('Request timed out. Please try again.');
@@ -255,10 +258,14 @@ export class ApiService {
    * Pass `{ silent: true }` to suppress the user-facing error toast (telemetry
    * + 401 handling still run) — for fire-and-forget syncs.
    */
-  post<T>(path: string, body?: unknown, opts?: { silent?: boolean }): Observable<T> {
+  post<T>(
+    path: string,
+    body?: unknown,
+    opts?: { silent?: boolean; timeoutMs?: number },
+  ): Observable<T> {
     return this.http
       .post<T>(`/api${path}`, body, { headers: this.headers() })
-      .pipe(this.handleError(opts?.silent));
+      .pipe(this.handleError(opts?.silent, opts?.timeoutMs));
   }
 
   /** `{ silent: true }` suppresses the generic error toast (telemetry + 401-redirect still run). */

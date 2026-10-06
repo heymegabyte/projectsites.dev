@@ -2874,6 +2874,16 @@ export function nextBridgeCorrelationId(): string {
 const BRIDGE_REQUEST_TIMEOUT_MS = 20_000;
 
 /**
+ * Resolution ({@link requestResolve}) is inherently a MULTI-LLM-call path (two research legs + a Claude
+ * synthesis). Even the degraded Workers-AI fallback runs ~24-27s end-to-end, and the premium
+ * dual-frontier path (when the external providers are funded) can be longer — well past the 20s default,
+ * which made a SUCCEEDING `/api/resolve` 200 surface in the panel as a false "Run failed — timed out"
+ * (WLK-39 live-proof, fire-264). Give the Resolution bridge call a generous ceiling so the UI never fails
+ * a call that the worker actually answered. (Longer-term UX: stream partial legs; see the panel TODO.)
+ */
+const RESOLVE_REQUEST_TIMEOUT_MS = 90_000;
+
+/**
  * Send ONE child→parent request + resolve with the parent's reply whose `type` is `expectType` AND whose
  * `correlationId` matches. Rejects on timeout so a dropped/unhandled parent never hangs the caller. Mirrors
  * the ad-hoc `request()` closures in SiteTablesPanel/ResourceOverviewPanel, extracted so the new Database
@@ -2953,6 +2963,7 @@ export function requestResolve(prompt: string): Promise<ResolveResponseMessage> 
   return requestFromParent<ResolveResponseMessage>(
     { type: 'PS_RESOLVE_REQUEST', correlationId: nextBridgeCorrelationId(), prompt },
     'PS_RESOLVE_RESPONSE',
+    RESOLVE_REQUEST_TIMEOUT_MS,
   );
 }
 

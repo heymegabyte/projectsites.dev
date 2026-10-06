@@ -1819,7 +1819,7 @@ export class BoltEmbedService {
            * forward both verbatim for the editor's parseResolveResult.
            */
           this.api
-            .post<{ research?: unknown; synthesis?: unknown }>('/resolve', { prompt, siteId: site.id }, { silent: true })
+            .post<{ research?: unknown; synthesis?: unknown }>('/resolve', { prompt, siteId: site.id }, { silent: true, timeoutMs: 90_000 })
             .subscribe({
               next: (res) => reply({ ok: true, research: res?.research, synthesis: res?.synthesis }),
               /*
