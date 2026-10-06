@@ -29,6 +29,27 @@ import { subscriptionFixture, entitlementsFixture, walletFixture } from './billi
 import { domainsSummaryFixture } from './domains-summary.fixture';
 import { meFixture } from './admin-me.fixture';
 import { mcpConnectionsFixture, snapshotMetricsFixture } from './per-site.fixture';
+import {
+  multiUrlAnalyticsFixture,
+  siteAnalyticsFixture,
+  analyticsDailyFixture,
+  analyticsWeekdayFixture,
+  analyticsVisitorsFixture,
+  analyticsEntryPagesFixture,
+  analyticsExitPagesFixture,
+  analyticsClicksFixture,
+  analyticsSessionDurationFixture,
+  analyticsConciergeFixture,
+  analyticsReferrersFixture,
+  analyticsSectionsFixture,
+  analyticsFormsFixture,
+  analyticsFunnelFixture,
+  cloudflareRumFixture,
+  siteUrlsFixture,
+  cloudflareCredentialsFixture,
+} from './analytics.fixture';
+import { auditFixture } from './audit.fixture';
+import { siteHostnamesFixture, adminDomainsFixture } from './domains.fixture';
 
 /** The demo-state knob from `?mock=1&state=…`. `populated` is the default. */
 export type MockState = 'empty' | 'loading' | 'error' | 'populated';
@@ -73,6 +94,29 @@ export const FIXTURES: Readonly<Record<RoutePattern, FixtureFactory>> = {
   // patterns so one fixture serves EVERY fixture-site id (prod-nonexistent → 404 before).
   'GET /sites/:id/mcp/connections': mcpConnectionsFixture as FixtureFactory,
   'GET /sites/:id/snapshots/metrics': snapshotMetricsFixture as FixtureFactory,
+  // P2 — analytics section (per-site :param reads + admin cloudflare-credentials)
+  'GET /sites/:id/multi-url-analytics': multiUrlAnalyticsFixture as FixtureFactory,
+  'GET /sites/:id/analytics': siteAnalyticsFixture as FixtureFactory,
+  'GET /sites/:id/analytics/daily': analyticsDailyFixture as FixtureFactory,
+  'GET /sites/:id/analytics/weekday': analyticsWeekdayFixture as FixtureFactory,
+  'GET /sites/:id/analytics/visitors': analyticsVisitorsFixture as FixtureFactory,
+  'GET /sites/:id/analytics/entry-pages': analyticsEntryPagesFixture as FixtureFactory,
+  'GET /sites/:id/analytics/exit-pages': analyticsExitPagesFixture as FixtureFactory,
+  'GET /sites/:id/analytics/clicks': analyticsClicksFixture as FixtureFactory,
+  'GET /sites/:id/analytics/session-duration': analyticsSessionDurationFixture as FixtureFactory,
+  'GET /sites/:id/analytics/concierge': analyticsConciergeFixture as FixtureFactory,
+  'GET /sites/:id/analytics/referrers': analyticsReferrersFixture as FixtureFactory,
+  'GET /sites/:id/analytics/sections': analyticsSectionsFixture as FixtureFactory,
+  'GET /sites/:id/analytics/forms': analyticsFormsFixture as FixtureFactory,
+  'GET /sites/:id/analytics/funnel': analyticsFunnelFixture as FixtureFactory,
+  'GET /sites/:id/cloudflare-rum': cloudflareRumFixture as FixtureFactory,
+  'GET /sites/:id/urls': siteUrlsFixture as FixtureFactory,
+  'GET /admin/cloudflare-credentials': cloudflareCredentialsFixture as FixtureFactory,
+  // P2 — audit section
+  'GET /audit-logs': auditFixture as FixtureFactory,
+  // P2 — domains section (per-site hostnames :param + org-wide aggregator)
+  'GET /sites/:id/hostnames': siteHostnamesFixture as FixtureFactory,
+  'GET /admin/domains': adminDomainsFixture as FixtureFactory,
 };
 
 /**
