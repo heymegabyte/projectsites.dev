@@ -715,3 +715,97 @@ describe('CreateComponent — over-limit surfaces an Upgrade CTA (BUILD_LIMIT_RE
       .toBeUndefined();
   }));
 });
+
+/**
+ * WAITING-RETRY, claim funnel (#27) — when a claim-link background build reaches `'failed'` the
+ * poll stops; the banner must NOT be silent. It renders an actionable "try again" that re-triggers
+ * the build (submitBuild path) + optimistically flips the banner back to in-progress.
+ */
+describe('CreateComponent — claim build FAILED branch offers a retry (WAITING-RETRY #27)', () => {
+  afterEach(() => {
+    localStorage.clear();
+    sessionStorage.clear();
+    TestBed.resetTestingModule();
+  });
+
+  function render(buildStatus: string): {
+    fx: ComponentFixture<CreateComponent>;
+    setPendingBuild: jasmine.Spy;
+    navigate: jasmine.Spy;
+  } {
+    const api = {
+      searchBusinesses: jasmine.createSpy('searchBusinesses').and.returnValue(of({ data: [] })),
+      searchAddress: jasmine.createSpy('searchAddress').and.returnValue(of({ data: [] })),
+      // The claim profile fetch — buildStatus drives the banner branch; previewUrl only on completed.
+      get: jasmine
+        .createSpy('get')
+        .and.returnValue(of({ data: { prefill: { businessName: 'Acme Co' }, buildStatus } })),
+    };
+    const setPendingBuild = jasmine.createSpy('setPendingBuild');
+    const auth = {
+      isLoggedIn: jasmine.createSpy('isLoggedIn').and.returnValue(false),
+      getAutoCreate: jasmine.createSpy().and.returnValue(false),
+      setAutoCreate: jasmine.createSpy(),
+      getPendingBuild: jasmine.createSpy().and.returnValue(false),
+      setPendingBuild,
+      getSelectedBusiness: jasmine.createSpy().and.returnValue(null),
+      getMode: jasmine.createSpy().and.returnValue('build'),
+      setMode: jasmine.createSpy(),
+      setSelectedBusiness: jasmine.createSpy(),
+    };
+    TestBed.configureTestingModule({
+      imports: [CreateComponent],
+      providers: [
+        provideRouter([]),
+        { provide: ApiService, useValue: api },
+        { provide: AuthService, useValue: auth },
+        { provide: GeolocationService, useValue: { lat: () => null, lng: () => null } },
+        {
+          provide: ToastService,
+          useValue: { error: () => undefined, success: () => undefined, info: () => undefined },
+        },
+        { provide: TelemetryService, useValue: { track: () => undefined } },
+        {
+          provide: ActivatedRoute,
+          useValue: { snapshot: { queryParams: { claim: 'short-abc' }, queryParamMap: { get: () => null } } },
+        },
+      ],
+    });
+    const navigate = spyOn(TestBed.inject(Router), 'navigate').and.resolveTo(true);
+    const fx = TestBed.createComponent(CreateComponent);
+    fx.detectChanges();
+    return { fx, setPendingBuild, navigate };
+  }
+
+  it('renders a retry ACTION (not a silent stopped poll) on a failed claim build', () => {
+    const { fx } = render('failed');
+    const el = overlayRoot(fx);
+    const banner = el.querySelector('[data-testid="claim-build-failed"]');
+    expect(banner).withContext('the failed claim banner must render').not.toBeNull();
+    expect(banner?.getAttribute('role')).toBe('alert'); // announced, not hidden
+    const retry = el.querySelector<HTMLButtonElement>('[data-testid="claim-build-retry"]');
+    expect(retry).withContext('a Try again action must render in the failed branch').not.toBeNull();
+    expect((retry?.textContent || '').toLowerCase()).toContain('try again');
+  });
+
+  it('does NOT render the failed retry on a building claim (no false alarm)', () => {
+    const { fx } = render('building');
+    expect(overlayRoot(fx).querySelector('[data-testid="claim-build-failed"]')).toBeNull();
+  });
+
+  it('clicking retry re-triggers the build (submitBuild) and flips the banner back to in-progress', () => {
+    const { fx, setPendingBuild, navigate } = render('failed');
+    const retry = overlayRoot(fx).querySelector<HTMLButtonElement>(
+      '[data-testid="claim-build-retry"]',
+    );
+    retry!.click();
+    fx.detectChanges();
+
+    // Banner optimistically back to the in-progress state — a stopped poll is never left silent.
+    expect(fx.componentInstance.claimBuildStatus()).toBe('building');
+    // submitBuild ran its signed-out branch (store pending build + route to sign-in) — the retry
+    // genuinely re-triggers the build rather than being a no-op label.
+    expect(setPendingBuild).toHaveBeenCalledWith(true);
+    expect(navigate).toHaveBeenCalledWith(['/signin']);
+  });
+});

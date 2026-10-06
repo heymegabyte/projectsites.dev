@@ -158,12 +158,42 @@
           </div>
         </div>
       } @else if (cbs === 'failed') {
+        <!-- WAITING-RETRY, claim funnel (#27): a stopped poll is NEVER silent. A clear "didn't
+             finish — try again" message + an actionable retry (re-triggers the build + resumes),
+             so the owner can recover without wondering what happened. -->
         <div
-          class="mb-8 rounded-2xl border border-amber-500/30 bg-amber-500/[0.08] px-4 py-3.5 text-sm text-amber-200 [text-wrap:pretty] animate-fade-in-up"
-          role="status"
-          aria-live="polite"
+          class="mb-8 flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-amber-500/30 bg-amber-500/[0.08] px-4 py-3.5 text-sm animate-fade-in-up"
+          role="alert"
+          aria-live="assertive"
+          data-testid="claim-build-failed"
         >
-          We hit a snag building your site — nothing was lost. Adjust the details below and rebuild.
+          <span class="text-amber-200 [text-wrap:pretty]">
+            Your site didn't finish building — nothing was lost. Try again and we'll pick straight
+            back up.
+          </span>
+          <button
+            type="button"
+            data-testid="claim-build-retry"
+            (click)="retryClaimBuild()"
+            [disabled]="submitting()"
+            class="inline-flex shrink-0 items-center gap-1.5 rounded-full bg-amber-500/20 px-3.5 py-1.5 font-semibold text-amber-100 transition-all hover:bg-amber-500/30 disabled:opacity-60 disabled:cursor-not-allowed focus-visible:outline focus-visible:outline-2 focus-visible:outline-amber-300 focus-visible:outline-offset-2"
+          >
+            <svg
+              width="15"
+              height="15"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="2"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+              aria-hidden="true"
+            >
+              <polyline points="23 4 23 10 17 10" />
+              <path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10" />
+            </svg>
+            {{ submitting() ? 'Retrying…' : 'Try again' }}
+          </button>
         </div>
       }
     }

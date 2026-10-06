@@ -237,28 +237,67 @@
       </details>
 
       @if (status() === 'error') {
-        <div class="mt-5 text-center" role="alert">
-          <p class="text-red-500 text-[0.9rem] mb-3">
-            Something went wrong while building your site. Your details are saved — try again and
-            we'll pick straight back up.
+        <!-- WAITING-RETRY (#27): a FAILED first build is NEVER a dead end. The PRIMARY action
+             re-triggers the build in place (resetSite → resume the cinematic poll); dashboard/home
+             stay SECONDARY. Reassuring copy so the owner feels they can recover, not stuck. -->
+        <div
+          class="mt-5 text-center"
+          role="alert"
+          data-testid="waiting-build-failed"
+        >
+          <p class="text-red-500 text-[0.9rem] mb-4 [text-wrap:pretty]">
+            Something went wrong while building your site — nothing was lost. Your details are saved,
+            so you can try again right here and we'll pick straight back up.
           </p>
+          <div class="flex flex-wrap gap-3 justify-center">
+            <button
+              data-testid="waiting-rebuild"
+              class="inline-flex items-center gap-2 rounded-xl px-6 py-3 font-semibold bg-primary text-dark transition-all hover:-translate-y-0.5 disabled:opacity-60 disabled:translate-y-0 disabled:cursor-not-allowed focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/70 focus-visible:ring-offset-2 focus-visible:ring-offset-[#060610]"
+              [disabled]="retrying()"
+              (click)="rebuildSite()"
+            >
+              @if (retrying()) {
+                <span
+                  class="h-4 w-4 shrink-0 rounded-full border-2 border-dark/30 border-t-dark animate-spin motion-reduce:animate-none"
+                  aria-hidden="true"
+                ></span>
+                Restarting…
+              } @else {
+                <svg
+                  width="16"
+                  height="16"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  stroke-width="2"
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                  aria-hidden="true"
+                >
+                  <polyline points="23 4 23 10 17 10" />
+                  <path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10" />
+                </svg>
+                Try again
+              }
+            </button>
+            <button
+              class="border border-white/[0.08] bg-transparent text-text-secondary rounded-xl px-6 py-3 font-semibold transition-all hover:border-primary hover:text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/60"
+              (click)="goAdmin()"
+            >
+              Go to Dashboard
+            </button>
+          </div>
+        </div>
+      } @else {
+        <div class="mt-6 text-center">
           <button
-            class="border border-white/[0.08] bg-transparent text-text-secondary rounded-xl px-6 py-3 font-semibold transition-all hover:border-primary hover:text-primary"
-            (click)="goHome()"
+            class="border border-white/[0.08] bg-transparent text-text-secondary rounded-xl px-6 py-3 font-semibold transition-all hover:border-primary hover:text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/60"
+            (click)="goAdmin()"
           >
-            Try Again
+            Go to Dashboard
           </button>
         </div>
       }
-
-      <div class="mt-6 text-center">
-        <button
-          class="border border-white/[0.08] bg-transparent text-text-secondary rounded-xl px-6 py-3 font-semibold transition-all hover:border-primary hover:text-primary"
-          (click)="goAdmin()"
-        >
-          Go to Dashboard
-        </button>
-      </div>
     </div>
   }
 </section>

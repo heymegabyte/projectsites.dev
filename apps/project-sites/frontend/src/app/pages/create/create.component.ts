@@ -1742,6 +1742,23 @@ export class CreateComponent implements OnInit, AfterViewInit, OnDestroy {
       });
   }
 
+  /**
+   * WAITING-RETRY, claim funnel (#27) — recover from a claim build that reached `'failed'`. Before
+   * this the poll simply STOPPED on `terminal` with only a passive "adjust the details and rebuild"
+   * line, so a visitor whose background build failed had no actionable, non-silent way forward. The
+   * form is already prefilled with the researched profile, so the retry re-triggers the build
+   * through the normal {@link submitBuild} path (signed-out → sign-in with a returnUrl, signed-in →
+   * create-from-search → /waiting) and OPTIMISTICALLY flips the banner back to `'building'` so the
+   * owner sees instant progress rather than a stopped, silent failure.
+   */
+  retryClaimBuild(): void {
+    // Optimistically re-enter the in-progress banner; submitBuild drives the actual re-trigger
+    // (and routes an anonymous visitor to sign-in first, preserving the claim shortlink).
+    this.claimBuildStatus.set('building');
+    this.cdr.detectChanges();
+    this.submitBuild();
+  }
+
   onLogoSelected(event: Event): void {
     const input = event.target as HTMLInputElement;
     const file = input.files?.[0];

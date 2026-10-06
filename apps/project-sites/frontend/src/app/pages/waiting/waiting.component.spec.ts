@@ -1,3 +1,6 @@
+import { TestBed, type ComponentFixture, fakeAsync, tick } from '@angular/core/testing';
+import { provideRouter, ActivatedRoute } from '@angular/router';
+import { of, throwError, type Observable } from 'rxjs';
 import {
   redactBuildLogSecrets,
   stripControlChars,
@@ -11,8 +14,10 @@ import {
   formatHeartbeat,
   mapStatusToPhase,
   OWNER_PHASES,
+  WaitingComponent,
 } from './waiting.component';
-import type { LogEntry } from '../../services/api.service';
+import { ApiService, type LogEntry, type Site } from '../../services/api.service';
+import { ToastService } from '../../services/toast.service';
 
 const ESC = String.fromCharCode(27);
 const CR = String.fromCharCode(13);
@@ -341,4 +346,138 @@ describe('deriveBuildStep + monotonic progress (windowed logs must not regress t
     expect(deriveBuildStep(floodOnly, 'generating').step).toBe(5); // status map, not step 1
     expect(deriveBuildStep(floodOnly, 'building').step).toBe(1); // still building, no map → step 1
   });
+});
+
+/**
+ * WAITING-RETRY (#27) — a FAILED first build must never be a dead end. The component-level
+ * contract: on `status()==='error'` the UI renders a PRIMARY "Try again" action that calls
+ * `resetSite` (reusing the loaded business details) + RESUMES the poll (status flips back to a
+ * live in-progress state); a reset-call error keeps the failed state + re-enables the button.
+ */
+const mkSite = (over: Partial<Site> = {}): Site =>
+  ({
+    id: 'site-27',
+    slug: 'vitos',
+    business_name: "Vito's Mens Salon",
+    business_address: '74 N Beverwyck Rd, Lake Hiawatha, NJ 07034',
+    place_id: 'place-vitos',
+    status: 'error',
+    created_at: '2026-10-06T00:00:00Z',
+    updated_at: '2026-10-06T00:00:00Z',
+    ...over,
+  }) as Site;
+
+describe('WaitingComponent — failed-build retry (WAITING-RETRY #27)', () => {
+  afterEach(() => {
+    TestBed.resetTestingModule();
+  });
+
+  /**
+   * Render the component with a scripted ApiService. `getSite` reads a mutable `current` ref and
+   * returns a FRESH completing `of(...)` per poll tick (forkJoin needs each source to COMPLETE),
+   * so the test drives the status by assigning `ref.current` before each `tick()`. `resetSite` is
+   * a spy whose return is set per-test. The 3s `timer(0, …)` poll fires immediately (tick 0).
+   */
+  function setup(opts: { resetReturn: Observable<{ data: Site }> }): {
+    fx: ComponentFixture<WaitingComponent>;
+    resetSite: jasmine.Spy;
+    toastSuccess: jasmine.Spy;
+    toastError: jasmine.Spy;
+    ref: { current: Site };
+  } {
+    const ref: { current: Site } = { current: mkSite({ status: 'error' }) };
+    const resetSite = jasmine.createSpy('resetSite').and.returnValue(opts.resetReturn);
+    const api = {
+      getSite: jasmine.createSpy('getSite').and.callFake(() => of({ data: ref.current })),
+      getSiteLogs: jasmine.createSpy('getSiteLogs').and.returnValue(of({ data: [] })),
+      resetSite,
+    };
+    const toastSuccess = jasmine.createSpy('success');
+    const toastError = jasmine.createSpy('error');
+    TestBed.configureTestingModule({
+      imports: [WaitingComponent],
+      providers: [
+        provideRouter([]),
+        { provide: ApiService, useValue: api },
+        {
+          provide: ToastService,
+          useValue: { success: toastSuccess, error: toastError, info: () => undefined },
+        },
+        {
+          provide: ActivatedRoute,
+          useValue: { snapshot: { queryParams: { id: 'site-27', slug: 'vitos' } } },
+        },
+      ],
+    });
+    const fx = TestBed.createComponent(WaitingComponent);
+    return { fx, resetSite, toastSuccess, toastError, ref };
+  }
+
+  it('renders a PRIMARY "Try again" action on the failed state (never a dead end)', fakeAsync(() => {
+    const { fx } = setup({ resetReturn: of({ data: mkSite() }) });
+    fx.detectChanges(); // ngOnInit → startPolling (timer fires tick 0 immediately with status=error)
+    tick(); // deliver the first poll → component sees status=error
+    fx.componentInstance.alive = false; // stop the recurring timers before asserting
+    fx.detectChanges();
+
+    const el = fx.nativeElement as HTMLElement;
+    const failed = el.querySelector('[data-testid="waiting-build-failed"]');
+    expect(failed).withContext('the failed-state panel must render on status=error').not.toBeNull();
+    const retry = el.querySelector<HTMLButtonElement>('[data-testid="waiting-rebuild"]');
+    expect(retry).withContext('a Try again / Rebuild action must render').not.toBeNull();
+    expect((retry?.textContent || '').toLowerCase()).toContain('try again');
+  }));
+
+  it('clicking "Try again" calls resetSite with the loaded business details + resumes polling (status flips back to in-progress)', fakeAsync(() => {
+    const { fx, resetSite, toastSuccess, ref } = setup({ resetReturn: of({ data: mkSite() }) });
+    fx.detectChanges();
+    tick(); // first poll → status=error, site record loaded
+    fx.detectChanges(); // render the failed state so the retry button exists
+    expect(fx.componentInstance.status()).toBe('error');
+
+    const retry = (fx.nativeElement as HTMLElement).querySelector<HTMLButtonElement>(
+      '[data-testid="waiting-rebuild"]',
+    );
+    // After a successful reset the poll RESUMES; make the next poll report an in-progress status.
+    ref.current = mkSite({ status: 'generating' });
+    retry!.click(); // resetSite resolves synchronously (of) → resumePolling → startPolling
+    tick(); // deliver the resumed poll tick (status=generating)
+    fx.componentInstance.alive = false;
+
+    // reset is called with the SAME business name/address/place_id the poll loaded (no re-typing).
+    expect(resetSite).toHaveBeenCalledTimes(1);
+    const [id, body] = resetSite.calls.mostRecent().args;
+    expect(id).toBe('site-27');
+    expect(body.business.name).toBe("Vito's Mens Salon");
+    expect(body.business.address).toBe('74 N Beverwyck Rd, Lake Hiawatha, NJ 07034');
+    expect(body.business.place_id).toBe('place-vitos');
+
+    // Poll RESUMED → the cinematic in-progress arc is back (status is no longer the terminal error).
+    expect(fx.componentInstance.status()).not.toBe('error');
+    expect(fx.componentInstance.retrying()).toBe(false);
+    expect(toastSuccess).toHaveBeenCalled();
+  }));
+
+  it('a reset-call ERROR keeps the failed state and re-enables the button (owner can retry again)', fakeAsync(() => {
+    const { fx, toastSuccess } = setup({ resetReturn: throwError(() => ({ status: 500 })) });
+    fx.detectChanges();
+    tick(); // first poll → status=error
+    fx.componentInstance.alive = false; // stop the recurring poll; the click path is synchronous
+    fx.detectChanges(); // render the failed state so the retry button exists
+
+    const retry = (fx.nativeElement as HTMLElement).querySelector<HTMLButtonElement>(
+      '[data-testid="waiting-rebuild"]',
+    );
+    retry!.click(); // resetSite errors synchronously (throwError)
+    fx.detectChanges();
+
+    // Still on the failed state; button re-enabled; no false success toast.
+    expect(fx.componentInstance.status()).toBe('error');
+    expect(fx.componentInstance.retrying()).toBe(false);
+    expect(toastSuccess).not.toHaveBeenCalled();
+    const retryAfter = (fx.nativeElement as HTMLElement).querySelector<HTMLButtonElement>(
+      '[data-testid="waiting-rebuild"]',
+    );
+    expect(retryAfter?.disabled).toBe(false);
+  }));
 });

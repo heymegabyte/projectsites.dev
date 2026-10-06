@@ -11,7 +11,7 @@ import {
 } from '@angular/core';
 import { Router, ActivatedRoute } from '@angular/router';
 import { timer, takeWhile, switchMap, forkJoin, catchError, of } from 'rxjs';
-import { ApiService, type LogEntry } from '../../services/api.service';
+import { ApiService, type LogEntry, type Site } from '../../services/api.service';
 import { ToastService } from '../../services/toast.service';
 
 /** Ordered pipeline steps for progress display */
@@ -462,6 +462,23 @@ export class WaitingComponent implements OnInit, OnDestroy {
   /** Consecutive poll failures with no successful load yet. */
   private consecutiveErrors = 0;
 
+  /**
+   * The most recent site record a poll tick loaded — the source of the business
+   * name/address/place_id a {@link rebuildSite} re-build needs (the {@link ResetSitePayload}
+   * requires them, and the owner never re-types what we already know). Null until the first
+   * successful poll; a build that FAILS still populated this on the ticks before it failed.
+   */
+  private site = signal<Site | null>(null);
+
+  /**
+   * In-flight guard for the WAITING-RETRY rebuild (#27). When the owner's FIRST build FAILED at the
+   * highest-emotion activation moment, the failed state offers a prominent "Try again" that
+   * re-triggers the build via `resetSite` + RESUMES the cinematic poll — never a dead end. True
+   * while that reset request is outstanding so the button disables (double-submit safe) and shows
+   * a reassuring "Restarting…".
+   */
+  readonly retrying = signal(false);
+
   /** Raw build events, newest last — rendered live in the terminal widget. */
   logs = signal<LogEntry[]>([]);
 
@@ -625,6 +642,9 @@ export class WaitingComponent implements OnInit, OnDestroy {
         this.everLoaded = true;
         this.consecutiveErrors = 0;
         const site = res.site.data;
+        // Remember the loaded record so a rebuild (WAITING-RETRY) can reuse the business
+        // name/address/place_id without the owner re-typing what we already know.
+        this.site.set(site);
         this.status.set(site.status);
         // Advance the MONOTONIC owner-phase floor from the REAL status (the honesty seam). A stale
         // poll reporting an earlier status can never pull the cinematic arc backward — the floor only
@@ -665,6 +685,75 @@ export class WaitingComponent implements OnInit, OnDestroy {
   signIn(): void {
     const returnUrl = `/waiting?id=${encodeURIComponent(this.siteId)}${this.slug ? `&slug=${encodeURIComponent(this.slug)}` : ''}`;
     this.router.navigate(['/signin'], { queryParams: { returnUrl } });
+  }
+
+  /**
+   * WAITING-RETRY (#27) — recover from a FAILED first build RIGHT HERE, instead of a dead end. A
+   * non-technical owner whose very first site build errored is at the highest-emotion activation
+   * moment; the failed state must let them recover without leaving, re-typing anything, or asking a
+   * question (embarrassingly-easy-to-use). Re-triggers the build via `resetSite` (reusing the
+   * business name/address/place_id we already loaded) then RESUMES the cinematic poll so the UI
+   * re-enters the in-progress phase arc from the top.
+   *
+   * On the reset call's OWN error we stay on the failed state and re-enable the button — ApiService
+   * has already surfaced the human-readable server message as a toast, so the owner can simply try
+   * again. Double-submit-guarded via {@link retrying}.
+   */
+  rebuildSite(): void {
+    if (this.retrying()) return;
+    const site = this.site();
+    if (!this.siteId || !site) {
+      // We never loaded the record (so we lack the business details reset needs) — the most helpful
+      // recovery is to send them to the dashboard where the site + its Rebuild control live.
+      this.toast.error('We could not load your site details — opening your dashboard to retry.');
+      this.goAdmin();
+      return;
+    }
+
+    this.retrying.set(true);
+    this.api
+      .resetSite(this.siteId, {
+        business: {
+          name: site.business_name,
+          address: site.business_address,
+          place_id: site.place_id,
+        },
+      })
+      .subscribe({
+        next: () => {
+          this.retrying.set(false);
+          this.toast.success("Rebuilding your site — we'll pick straight back up.");
+          this.resumePolling();
+        },
+        error: () => {
+          // Stay on the failed state so the owner sees their options; re-enable the button. The
+          // ApiService error pipe already toasted the server's human-readable reason.
+          this.retrying.set(false);
+        },
+      });
+  }
+
+  /**
+   * Re-enter the in-progress cinematic state after a successful rebuild: clear the terminal/failure
+   * signals, reset the monotonic floors + heartbeat clocks to a fresh build, and restart the 3s
+   * status poll + 1s heartbeat. Idempotent-safe because the prior poll/heartbeat timers already
+   * completed when the build went terminal (`alive` was flipped false).
+   */
+  private resumePolling(): void {
+    this.alive = true;
+    this.status.set('building');
+    this.statusMessage.set('Preparing your project...');
+    this.currentStep.set(1);
+    this.ownerPhaseIndex.set(0);
+    this.logs.set([]);
+    this.loadError.set(false);
+    this.everLoaded = false;
+    this.consecutiveErrors = 0;
+    this.lastLogCount = 0;
+    this.buildStartedAt = Date.now();
+    this.lastActivityAt.set(Date.now());
+    this.startPolling();
+    this.startHeartbeat();
   }
 
   private updateStatusFromLogs(logs: LogEntry[], siteStatus: string): void {
