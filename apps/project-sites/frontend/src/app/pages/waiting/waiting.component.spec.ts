@@ -9,6 +9,8 @@ import {
   shouldDegradeToLoadError,
   deriveBuildStep,
   formatHeartbeat,
+  mapStatusToPhase,
+  OWNER_PHASES,
 } from './waiting.component';
 import type { LogEntry } from '../../services/api.service';
 
@@ -16,6 +18,88 @@ const ESC = String.fromCharCode(27);
 const CR = String.fromCharCode(13);
 const mkLog = (action: string, message: string, created_at: string): LogEntry =>
   ({ action, created_at, metadata_json: JSON.stringify({ message }) }) as LogEntry;
+
+describe('mapStatusToPhase (REAL backend status → owner-facing cinematic phase — the HONESTY seam)', () => {
+  // Ground truth: the backend writes sites.status (read via getSite().data.status) through the
+  // documented machine draft → collecting → imaging → generating → published | error | archived,
+  // plus the api.ts create/reset write 'building' and the NO_REGRESS set adds 'queued'/'uploading'.
+  // A non-technical owner must NEVER see those raw tokens — mapStatusToPhase is the only translator.
+
+  it('exposes exactly four ordered owner phases (research → design → build → polish), each with human copy', () => {
+    expect(OWNER_PHASES.length).toBe(4);
+    expect(OWNER_PHASES.map((p) => p.index)).toEqual([0, 1, 2, 3]);
+    // Not one phase leaks a raw status token or engineering jargon to the owner.
+    const banned = /collecting|imaging|generating|uploading|queued|workflow|r2|status|build pipeline/i;
+    for (const p of OWNER_PHASES) {
+      expect(p.phaseLabel.length).toBeGreaterThan(0);
+      expect(p.friendlyCopy.length).toBeGreaterThan(0);
+      expect(p.phaseLabel).not.toMatch(banned);
+      expect(p.friendlyCopy).not.toMatch(banned);
+    }
+  });
+
+  it('maps each REAL in-progress status to its friendly phase (never echoes the raw token)', () => {
+    const cases: Array<[string, number]> = [
+      ['draft', 0],
+      ['queued', 0],
+      ['building', 0],
+      ['collecting', 0], // "Researching your business…"
+      ['imaging', 1], // "Designing your brand & logo…"
+      ['generating', 2], // "Building your pages…"
+      ['uploading', 3], // "Polishing & going live…"
+    ];
+    for (const [status, index] of cases) {
+      const phase = mapStatusToPhase(status);
+      expect(phase.index).toBe(index);
+      expect(phase.total).toBe(4);
+      // HONESTY: the owner-facing copy must not surface the raw developer status string.
+      expect(phase.phaseLabel.toLowerCase()).not.toContain(status);
+      expect(phase.friendlyCopy.toLowerCase()).not.toContain(status);
+    }
+  });
+
+  it('maps the four documented phases to their expected human labels', () => {
+    expect(mapStatusToPhase('collecting').phaseLabel).toBe('Researching your business');
+    expect(mapStatusToPhase('imaging').phaseLabel).toBe('Designing your brand & logo');
+    expect(mapStatusToPhase('generating').phaseLabel).toBe('Building your pages');
+    expect(mapStatusToPhase('uploading').phaseLabel).toBe('Polishing & going live');
+  });
+
+  it('maps published → the final live phase (index 3)', () => {
+    const phase = mapStatusToPhase('published');
+    expect(phase.index).toBe(3);
+    expect(phase.phaseLabel.toLowerCase()).toContain('live');
+  });
+
+  it('HOLDS the last real phase for an UNKNOWN / between-statuses value — never invents progress, never regresses to 0', () => {
+    // Between known statuses the backend may briefly report something we do not map. We must HOLD
+    // the last real phase (index 2 here), NOT snap back to "Researching…" (index 0) — a fabricated
+    // regression would be a lying metric. `lastIndex` carries the monotonic floor.
+    const held = mapStatusToPhase('some_unexpected_status', 2);
+    expect(held.index).toBe(2);
+    expect(held.phaseLabel).toBe(OWNER_PHASES[2].phaseLabel);
+  });
+
+  it('defaults an unknown status with no prior phase to the first phase (never a blank/doomed screen)', () => {
+    const phase = mapStatusToPhase('totally_unknown');
+    expect(phase.index).toBe(0);
+    expect(phase.phaseLabel.length).toBeGreaterThan(0);
+  });
+
+  it('never REGRESSES below the monotonic floor even when a real status maps lower (windowed-regression guard)', () => {
+    // If we have already reached "Building your pages" (2) and a stale poll reports 'collecting' (0),
+    // the owner must not see the bar jump backward. The floor wins.
+    const phase = mapStatusToPhase('collecting', 2);
+    expect(phase.index).toBe(2);
+  });
+
+  it('error status still resolves to a real phase object (the component surfaces the error path separately, never masks it as progress)', () => {
+    // mapStatusToPhase does not fabricate progress for 'error'; it holds the last real phase so the
+    // component's dedicated error UI (status()==='error') owns the failure messaging.
+    const phase = mapStatusToPhase('error', 1);
+    expect(phase.index).toBe(1);
+  });
+});
 
 describe('formatHeartbeat (terminal keeps breathing during long build gaps)', () => {
   const START = Date.parse('2026-09-15T12:00:00Z');

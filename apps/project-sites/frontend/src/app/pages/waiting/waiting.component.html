@@ -110,83 +110,138 @@
       </div>
     </div>
   } @else {
-    <!-- Building state — the live Claude Code build takeover (overlays the not-yet-ready site) -->
+    <!-- Building state — an owner-facing CINEMATIC progress experience. Every phase shown is derived
+         from the REAL backend status via mapStatusToPhase (the honesty seam); the owner never sees a
+         raw status token. The live engineering terminal is tucked into an optional "behind the
+         scenes" detail so the jargon never dominates the highest-anxiety moment. -->
     <div
       data-testid="build-overlay"
-      class="build-overlay w-full max-w-[820px] animate-[fadeIn_0.4s_ease]"
+      class="build-stage w-full max-w-[640px] animate-[fadeIn_0.4s_ease]"
+      [class.build-stage--reduced]="reducedMotion()"
     >
-      <div class="text-center mb-5">
-        <div class="mx-auto mb-4"><div class="spinner"></div></div>
-        <h2 class="text-xl font-bold text-light mb-1">Building your website</h2>
-        <p class="text-[0.85rem] text-gray-400 mb-1 leading-normal">{{ statusMessage() }}</p>
-        <p class="text-[0.72rem] text-gray-500 font-medium tracking-wide">{{ stepProgress() }}</p>
+      <!-- Cinematic phase badge — a black+cyan pulsing orb while active, calm ring under reduced-motion -->
+      <div class="build-stage__orb" aria-hidden="true">
+        <span class="build-stage__orb-ring"></span>
+        <span class="build-stage__orb-ring build-stage__orb-ring--2"></span>
+        <span class="build-stage__orb-core">{{ ownerPhase().index + 1 }}</span>
       </div>
 
-      <div class="w-full h-1 bg-primary/[0.1] rounded-sm overflow-hidden mb-4">
-        <div
-          class="waiting-progress-fill h-full bg-gradient-to-r from-primary to-purple-500 rounded-sm"
-          [style.width.%]="(currentStep() / totalSteps) * 100"
-        ></div>
-      </div>
-
-      <!-- Per-phase chips synced to the live log tail -->
-      <div class="flex flex-wrap gap-2 justify-center mb-4" role="list" aria-label="Build phases">
-        @for (phase of phases(); track phase.label) {
-          <span
-            data-testid="build-phase-chip"
-            role="listitem"
-            class="build-chip"
-            [class.build-chip--done]="phase.state === 'done'"
-            [class.build-chip--active]="phase.state === 'active'"
-            [class.build-chip--error]="phase.state === 'error'"
-            >{{ phase.label }}</span
-          >
+      <div class="text-center">
+        <p
+          class="build-stage__eyebrow"
+          data-testid="build-phase-count"
+          aria-hidden="true"
+        >
+          Step {{ ownerPhase().index + 1 }} of {{ ownerPhase().total }}
+        </p>
+        <!-- The live phase title + friendly copy — assertively announced so screen-reader users hear
+             each real phase change. This is the owner's words, never "imaging"/"generating". -->
+        <h2
+          data-testid="owner-phase-label"
+          class="build-stage__title"
+          aria-live="polite"
+        >
+          {{ ownerPhase().phaseLabel }}
+        </h2>
+        <p data-testid="owner-phase-copy" class="build-stage__copy">
+          {{ ownerPhase().friendlyCopy }}
+        </p>
+        @if (elapsedReadout()) {
+          <p data-testid="build-elapsed" class="build-stage__elapsed">
+            <span class="build-stage__pulse-dot" aria-hidden="true"></span>
+            {{ elapsedReadout() }}
+          </p>
         }
       </div>
 
-      <!-- The gorgeous live Claude Code terminal -->
-      <div class="build-terminal" role="group" aria-label="Live build logs">
-        <div class="build-terminal__bar">
-          <span class="build-terminal__dot build-terminal__dot--r"></span>
-          <span class="build-terminal__dot build-terminal__dot--y"></span>
-          <span class="build-terminal__dot build-terminal__dot--g"></span>
-          <span class="build-terminal__title">claude-code · building {{ slug }}</span>
-        </div>
-        <div
-          #logScroll
-          data-testid="live-build-logs"
-          class="build-terminal__body"
-          role="log"
-          aria-live="polite"
-          aria-relevant="additions"
-          tabindex="0"
-        >
-          @for (line of logLines(); track $index) {
-            <div
-              data-testid="build-log-line"
-              class="build-line"
-              [class.build-line--phase]="line.kind === 'phase'"
-              [class.build-line--error]="line.kind === 'error'"
-              [class.build-line--success]="line.kind === 'success'"
-              [class.build-line--info]="line.kind === 'info'"
-            >
-              <span class="build-line__time">{{ line.time }}</span>
-              <span class="build-line__text">{{ line.text }}</span>
+      <!-- Owner-facing phase stepper — the honest arc. Each row is a real phase from OWNER_PHASES,
+           its state (done / active / pending / error) driven by the REAL status mapping. -->
+      <ol
+        class="build-steps"
+        data-testid="owner-phase-steps"
+        aria-label="Site build progress"
+      >
+        @for (phase of ownerPhases(); track phase.index) {
+          <li
+            data-testid="owner-phase-step"
+            class="build-steps__item"
+            [class.build-steps__item--done]="phase.state === 'done'"
+            [class.build-steps__item--active]="phase.state === 'active'"
+            [class.build-steps__item--error]="phase.state === 'error'"
+            [attr.aria-current]="phase.state === 'active' ? 'step' : null"
+          >
+            <span class="build-steps__marker" aria-hidden="true">
+              @if (phase.state === 'done') {
+                <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round">
+                  <polyline points="20 6 9 17 4 12" />
+                </svg>
+              } @else if (phase.state === 'error') {
+                <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round">
+                  <line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" />
+                </svg>
+              }
+            </span>
+            <span class="build-steps__label">{{ phase.phaseLabel }}</span>
+          </li>
+        }
+      </ol>
+
+      <!-- Behind-the-scenes live engineering log — OPTIONAL, collapsed by default so the raw
+           jargon never dominates. The owner can peek if curious; it carries the heartbeat so a long
+           silent build step never looks frozen. -->
+      <details class="build-peek">
+        <summary class="build-peek__summary" data-testid="build-peek-toggle">
+          <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="build-peek__chevron" aria-hidden="true">
+            <polyline points="9 18 15 12 9 6" />
+          </svg>
+          Watch the behind-the-scenes build
+        </summary>
+        <div class="build-terminal" role="group" aria-label="Live build logs">
+          <div class="build-terminal__bar">
+            <span class="build-terminal__dot build-terminal__dot--r"></span>
+            <span class="build-terminal__dot build-terminal__dot--y"></span>
+            <span class="build-terminal__dot build-terminal__dot--g"></span>
+            <span class="build-terminal__title">building {{ slug }}</span>
+          </div>
+          <div
+            #logScroll
+            data-testid="live-build-logs"
+            class="build-terminal__body"
+            role="log"
+            aria-live="off"
+            aria-relevant="additions"
+            tabindex="0"
+          >
+            @for (line of logLines(); track $index) {
+              <div
+                data-testid="build-log-line"
+                class="build-line"
+                [class.build-line--phase]="line.kind === 'phase'"
+                [class.build-line--error]="line.kind === 'error'"
+                [class.build-line--success]="line.kind === 'success'"
+                [class.build-line--info]="line.kind === 'info'"
+              >
+                <span class="build-line__time">{{ line.time }}</span>
+                <span class="build-line__text">{{ line.text }}</span>
+              </div>
+            } @empty {
+              <div class="build-line build-line--info">
+                <span class="build-line__text">Waiting for the build to start…</span>
+              </div>
+            }
+            <div class="build-line build-line--cursor" aria-hidden="true">
+              <span class="build-line__text">▋ {{ heartbeat() }}</span>
             </div>
-          } @empty {
-            <div class="build-line build-line--info">
-              <span class="build-line__text">Waiting for the build agent to start…</span>
-            </div>
-          }
-          <div class="build-line build-line--cursor" aria-hidden="true">
-            <span class="build-line__text">▋ {{ heartbeat() }}</span>
           </div>
         </div>
-      </div>
+      </details>
 
       @if (status() === 'error') {
-        <div class="mt-5 text-center">
-          <p class="text-red-500 text-[0.9rem] mb-3">Something went wrong during the build.</p>
+        <div class="mt-5 text-center" role="alert">
+          <p class="text-red-500 text-[0.9rem] mb-3">
+            Something went wrong while building your site. Your details are saved — try again and
+            we'll pick straight back up.
+          </p>
           <button
             class="border border-white/[0.08] bg-transparent text-text-secondary rounded-xl px-6 py-3 font-semibold transition-all hover:border-primary hover:text-primary"
             (click)="goHome()"
@@ -196,7 +251,7 @@
         </div>
       }
 
-      <div class="mt-5 text-center">
+      <div class="mt-6 text-center">
         <button
           class="border border-white/[0.08] bg-transparent text-text-secondary rounded-xl px-6 py-3 font-semibold transition-all hover:border-primary hover:text-primary"
           (click)="goAdmin()"

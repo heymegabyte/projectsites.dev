@@ -49,18 +49,6 @@ const PIPELINE_STEPS = [
 
 const TOTAL_STEPS = 8;
 
-/** The 8 build phases shown as live chips in the log widget header. */
-const PHASES: readonly { step: number; label: string }[] = [
-  { step: 1, label: 'Start' },
-  { step: 2, label: 'Research' },
-  { step: 3, label: 'Brand & media' },
-  { step: 4, label: 'Structure' },
-  { step: 5, label: 'Generate' },
-  { step: 6, label: 'Quality' },
-  { step: 7, label: 'Optimize' },
-  { step: 8, label: 'Live' },
-];
-
 /** One rendered terminal line. */
 export interface BuildLogLine {
   time: string;
@@ -68,10 +56,91 @@ export interface BuildLogLine {
   kind: 'phase' | 'info' | 'error' | 'success';
 }
 
-/** One phase chip with its live state. */
-export interface BuildPhaseChip {
-  label: string;
-  state: 'done' | 'active' | 'error' | 'pending';
+/** The live state of a single build phase row (owner-facing stepper + legacy terminal chips). */
+export type BuildPhaseState = 'done' | 'active' | 'error' | 'pending';
+
+/**
+ * One OWNER-FACING build phase — the human story a non-technical business owner watches, NEVER a
+ * raw status token. `index` is its position in the 4-phase arc; `phaseLabel` is the short title;
+ * `friendlyCopy` is the reassuring one-liner beneath it.
+ */
+export interface OwnerPhase {
+  index: number;
+  phaseLabel: string;
+  friendlyCopy: string;
+}
+
+/**
+ * The four cinematic, owner-facing build phases — the ONLY words the owner sees while their site
+ * generates. Deliberately NON-technical: a busy small-business owner understands "Designing your
+ * brand & logo", never "imaging". Ordered research → design → build → polish/live.
+ */
+export const OWNER_PHASES: readonly OwnerPhase[] = [
+  {
+    index: 0,
+    phaseLabel: 'Researching your business',
+    friendlyCopy: "We're learning what makes your business special.",
+  },
+  {
+    index: 1,
+    phaseLabel: 'Designing your brand & logo',
+    friendlyCopy: 'Crafting your colors, logo, and a look that feels like you.',
+  },
+  {
+    index: 2,
+    phaseLabel: 'Building your pages',
+    friendlyCopy: 'Writing your words and assembling every page, section by section.',
+  },
+  {
+    index: 3,
+    phaseLabel: 'Polishing & going live',
+    friendlyCopy: 'Final touches, quality checks, and publishing your site to the web.',
+  },
+] as const;
+
+/**
+ * The HONESTY SEAM. Translate the REAL backend `sites.status` (read via `getSite().data.status`)
+ * into ONE of the four owner-facing {@link OWNER_PHASES}. This is the ONLY place a raw status token
+ * becomes owner-visible copy — the owner never sees `collecting` / `imaging` / `generating`.
+ *
+ * Mapping (authoritative status machine `draft → collecting → imaging → generating → published`,
+ * plus `building`/`queued`/`uploading` the Worker also writes):
+ *   draft · queued · building · collecting → phase 0 (Researching your business)
+ *   imaging                                → phase 1 (Designing your brand & logo)
+ *   generating                             → phase 2 (Building your pages)
+ *   uploading · published                  → phase 3 (Polishing & going live)
+ *
+ * HOLD-THE-LAST-REAL-PHASE: if the backend sits between known statuses (an UNKNOWN value), we do NOT
+ * invent progress — we return the phase at `lastIndex` (the monotonic floor), never snapping back to
+ * phase 0. MONOTONIC: a known status that maps BELOW `lastIndex` (a stale/second-instance poll) is
+ * clamped UP to `lastIndex` so the visible arc never regresses. `error` is NOT special-cased here —
+ * it holds the last real phase; the component's dedicated `status()==='error'` UI owns the failure
+ * messaging so a build failure is never masked as progress. Pure + exported for unit coverage.
+ *
+ * @param status - The site's REAL lifecycle status from the poll (authoritative forward signal).
+ * @param lastIndex - The highest phase index already shown (monotonic floor). Default 0 (first poll).
+ * @returns The resolved {@link OwnerPhase} to display, carrying `total` for "Step X of Y" readouts.
+ */
+export function mapStatusToPhase(
+  status: string,
+  lastIndex = 0,
+): OwnerPhase & { total: number } {
+  const STATUS_TO_INDEX: Record<string, number> = {
+    draft: 0,
+    queued: 0,
+    building: 0,
+    collecting: 0,
+    imaging: 1,
+    generating: 2,
+    uploading: 3,
+    published: 3,
+  };
+  const mapped = STATUS_TO_INDEX[status];
+  // Unknown / between-statuses → HOLD the last real phase (no fabricated progress). A known status
+  // is clamped to the monotonic floor so the arc never regresses.
+  const index = mapped === undefined ? lastIndex : Math.max(mapped, lastIndex);
+  const phase = OWNER_PHASES[index] ?? OWNER_PHASES[0];
+  return { ...phase, total: OWNER_PHASES.length };
 }
 
 /**
@@ -298,6 +367,23 @@ export function formatHeartbeat(
 }
 
 /**
+ * Format the owner-facing ELAPSED readout ("2m 14s elapsed"). Pure + exported for unit coverage.
+ * Returns '' once the build is terminal (published/error) or before it starts, so a finished build
+ * never shows a live clock. Clamps negatives under clock skew. The clock measures REAL wall time —
+ * it does NOT drive the phase (the phase tracks backend status), so this can never fabricate progress.
+ *
+ * @param status - The site's current lifecycle status.
+ * @param buildStartedAtMs - Epoch ms when /waiting began tracking (0 = not started).
+ * @param nowMs - Current epoch ms (injected — pure).
+ */
+export function formatElapsed(status: string, buildStartedAtMs: number, nowMs: number): string {
+  if (status === 'published' || status === 'error' || buildStartedAtMs === 0) return '';
+  const s = Math.max(0, Math.floor((nowMs - buildStartedAtMs) / 1000));
+  const txt = s >= 60 ? `${Math.floor(s / 60)}m ${s % 60}s` : `${s}s`;
+  return `${txt} elapsed`;
+}
+
+/**
  * Derive the current build step + label from the fetched audit logs and the site status. Pure +
  * exported for unit coverage. Prefers the furthest-reached `workflow.*` PIPELINE_STEP action in the
  * log window; falls back to the coarse site-status map when no pipeline action is present.
@@ -381,8 +467,6 @@ export class WaitingComponent implements OnInit, OnDestroy {
 
   logScroll = viewChild<ElementRef<HTMLElement>>('logScroll');
 
-  stepProgress = computed(() => `Step ${this.currentStep()} of ${this.totalSteps}`);
-
   /**
    * Redacted, human/raw terminal lines for the live-logs widget. Claude Code
    * control-plane + provider-transport noise (isBuildLogNoise) is dropped so the
@@ -391,15 +475,52 @@ export class WaitingComponent implements OnInit, OnDestroy {
    */
   logLines = computed<BuildLogLine[]>(() => buildTerminalLines(this.logs()));
 
-  /** Per-phase chips with live state derived from the current step + status. */
-  phases = computed<BuildPhaseChip[]>(() => {
-    const cur = this.currentStep();
+  /**
+   * MONOTONIC owner-facing phase index (0-3), the floor for {@link mapStatusToPhase}. Only ever
+   * advances — a stale poll reporting an earlier status can never pull the cinematic arc backward.
+   */
+  readonly ownerPhaseIndex = signal(0);
+
+  /**
+   * The current OWNER-FACING phase — the human story the owner watches. Derived PURELY from the REAL
+   * `status()` the backend reports (the honesty seam), carrying the monotonic floor so it never
+   * regresses. This is what the redesigned /waiting screen renders — never a raw status token.
+   */
+  readonly ownerPhase = computed<OwnerPhase & { total: number }>(() =>
+    mapStatusToPhase(this.status(), this.ownerPhaseIndex()),
+  );
+
+  /**
+   * The four phases as owner-facing stepper rows with live state. `done` for cleared phases, `active`
+   * (with motion) for the current one, `error` if the build failed on it, else `pending`.
+   */
+  readonly ownerPhases = computed<(OwnerPhase & { state: BuildPhaseState })[]>(() => {
+    const cur = this.ownerPhase().index;
     const errored = this.status() === 'error';
-    return PHASES.map((p) => ({
-      label: p.label,
-      state: p.step < cur ? 'done' : p.step === cur ? (errored ? 'error' : 'active') : 'pending',
+    return OWNER_PHASES.map((p) => ({
+      ...p,
+      state: p.index < cur ? 'done' : p.index === cur ? (errored ? 'error' : 'active') : 'pending',
     }));
   });
+
+  /**
+   * Reassuring elapsed readout ("2m 14s elapsed") the owner sees beneath the active phase. Derived
+   * from the REAL build-start time + the 1s ticker; clears to '' once terminal (published/error) so
+   * a finished build never shows a live-ticking clock. Honest: the clock measures real wall time,
+   * it does NOT drive the phase — the phase tracks backend status.
+   */
+  readonly elapsedReadout = computed<string>(() => {
+    this.nowTick(); // recompute each tick so the clock breathes
+    return formatElapsed(this.status(), this.buildStartedAt, Date.now());
+  });
+
+  /**
+   * Whether the owner prefers reduced motion. When true the screen drops the decorative black+cyan
+   * motion (shimmer/pulse/spinner) and shows a calm static current-phase + elapsed readout — the
+   * `prefers-reduced-motion` mandate. Read once at construction (matchMedia is wrapped so SSR / old
+   * browsers never throw); SCSS also hard-guards every animation behind the same media query.
+   */
+  readonly reducedMotion = signal(false);
 
   // Heartbeat — keeps the terminal visibly ALIVE during the long container build, where
   // minutes pass with no new audit line (the ~40-min build-orchestrator step) and the widget
@@ -416,6 +537,18 @@ export class WaitingComponent implements OnInit, OnDestroy {
   });
 
   constructor() {
+    // Honor the owner's motion preference: drop the decorative black+cyan shimmer/pulse to a calm
+    // static phase + elapsed readout. matchMedia is guarded so SSR / old browsers never throw.
+    try {
+      this.reducedMotion.set(
+        typeof window !== 'undefined' &&
+          typeof window.matchMedia === 'function' &&
+          window.matchMedia('(prefers-reduced-motion: reduce)').matches,
+      );
+    } catch {
+      /* matchMedia unavailable (SSR / sandboxed) → keep motion default (false) */
+    }
+
     // Tail the terminal to the newest line whenever the stream grows.
     effect(() => {
       this.logLines();
@@ -493,6 +626,10 @@ export class WaitingComponent implements OnInit, OnDestroy {
         this.consecutiveErrors = 0;
         const site = res.site.data;
         this.status.set(site.status);
+        // Advance the MONOTONIC owner-phase floor from the REAL status (the honesty seam). A stale
+        // poll reporting an earlier status can never pull the cinematic arc backward — the floor only
+        // ever climbs, and an unknown/between-status value holds the last real phase.
+        this.ownerPhaseIndex.set(mapStatusToPhase(site.status, this.ownerPhaseIndex()).index);
 
         const logs = res.logs?.data ?? [];
         this.logs.set(logs);
@@ -510,6 +647,7 @@ export class WaitingComponent implements OnInit, OnDestroy {
           this.alive = false;
           this.statusMessage.set('Your site is live!');
           this.currentStep.set(TOTAL_STEPS);
+          this.ownerPhaseIndex.set(OWNER_PHASES.length - 1);
           this.status.set('published');
           this.toast.success('Your site is live!');
           return;

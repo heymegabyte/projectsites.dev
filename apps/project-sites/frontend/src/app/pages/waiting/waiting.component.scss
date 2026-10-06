@@ -23,6 +23,269 @@
   transition: width 0.6s ease;
 }
 
+// ── Cinematic owner-facing build stage ──────────────────────────────────
+// Brand tokens: --ps-bg #060610 / --ps-ink #f4f4ff / --ps-accent #00e5ff (from _polish.scss).
+.build-stage {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+
+  &__orb {
+    position: relative;
+    width: 84px;
+    height: 84px;
+    display: grid;
+    place-items: center;
+    margin-bottom: 1.4rem;
+  }
+
+  // Concentric radar rings that breathe outward — the black+cyan motion signalling live progress.
+  &__orb-ring {
+    position: absolute;
+    inset: 0;
+    border-radius: 50%;
+    border: 1px solid color-mix(in oklch, var(--ps-accent, #00e5ff) 55%, transparent);
+    animation: orbPulse 2.4s ease-out infinite;
+
+    &--2 {
+      animation-delay: 1.2s;
+    }
+  }
+
+  &__orb-core {
+    position: relative;
+    width: 56px;
+    height: 56px;
+    border-radius: 50%;
+    display: grid;
+    place-items: center;
+    font-family: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, monospace;
+    font-size: 1.15rem;
+    font-weight: 700;
+    color: var(--ps-bg, #060610);
+    background: radial-gradient(
+      circle at 32% 28%,
+      color-mix(in oklch, var(--ps-accent, #00e5ff) 100%, white 22%),
+      var(--ps-accent, #00e5ff) 70%
+    );
+    box-shadow:
+      0 0 26px color-mix(in oklch, var(--ps-accent, #00e5ff) 45%, transparent),
+      inset 0 1px 1px rgba(255, 255, 255, 0.4);
+    animation: orbGlow 2.8s ease-in-out infinite;
+  }
+
+  &__eyebrow {
+    font-size: 0.68rem;
+    font-weight: 700;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: color-mix(in oklch, var(--ps-accent, #00e5ff) 85%, var(--ps-ink, #f4f4ff) 15%);
+    margin-bottom: 0.55rem;
+  }
+
+  &__title {
+    font-size: clamp(1.3rem, 1.1rem + 1vw, 1.7rem);
+    font-weight: 700;
+    line-height: 1.2;
+    color: var(--ps-ink, #f4f4ff);
+    text-wrap: balance;
+    margin-bottom: 0.5rem;
+  }
+
+  &__copy {
+    font-size: 0.92rem;
+    line-height: 1.55;
+    color: color-mix(in oklch, var(--ps-ink, #f4f4ff) 68%, transparent);
+    max-width: 30rem;
+    margin: 0 auto;
+    text-wrap: pretty;
+  }
+
+  &__elapsed {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.45rem;
+    margin-top: 1rem;
+    font-family: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, monospace;
+    font-size: 0.74rem;
+    letter-spacing: 0.02em;
+    color: color-mix(in oklch, var(--ps-ink, #f4f4ff) 50%, transparent);
+    font-variant-numeric: tabular-nums;
+  }
+
+  &__pulse-dot {
+    width: 7px;
+    height: 7px;
+    border-radius: 50%;
+    background: var(--ps-accent, #00e5ff);
+    box-shadow: 0 0 8px color-mix(in oklch, var(--ps-accent, #00e5ff) 70%, transparent);
+    animation: blink 1.4s ease-in-out infinite;
+  }
+}
+
+@keyframes orbPulse {
+  0% {
+    transform: scale(0.62);
+    opacity: 0.9;
+  }
+  100% {
+    transform: scale(1.5);
+    opacity: 0;
+  }
+}
+@keyframes orbGlow {
+  0%,
+  100% {
+    box-shadow:
+      0 0 22px color-mix(in oklch, var(--ps-accent, #00e5ff) 35%, transparent),
+      inset 0 1px 1px rgba(255, 255, 255, 0.4);
+  }
+  50% {
+    box-shadow:
+      0 0 40px color-mix(in oklch, var(--ps-accent, #00e5ff) 60%, transparent),
+      inset 0 1px 1px rgba(255, 255, 255, 0.4);
+  }
+}
+
+// ── Owner-facing phase stepper ──────────────────────────────────────────
+.build-steps {
+  list-style: none;
+  margin: 2rem 0 0;
+  padding: 0;
+  width: 100%;
+  max-width: 24rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+
+  &__item {
+    display: flex;
+    align-items: center;
+    gap: 0.7rem;
+    padding: 0.6rem 0.75rem;
+    border-radius: 12px;
+    font-size: 0.86rem;
+    // Pending phases read dim but stay WCAG AA (mix with the SOLID bg, never transparent — the
+    // CONTRAST-GATE rejects opacity-on-a-muted-token below 4.5:1).
+    color: color-mix(in oklch, var(--ps-ink, #f4f4ff) 62%, var(--ps-bg, #060610));
+    transition:
+      color 0.35s ease,
+      background 0.35s ease;
+
+    &--done {
+      color: color-mix(in oklch, var(--ps-ink, #f4f4ff) 80%, var(--ps-bg, #060610));
+    }
+    &--active {
+      color: var(--ps-ink, #f4f4ff);
+      font-weight: 600;
+      background: color-mix(in oklch, var(--ps-accent, #00e5ff) 8%, transparent);
+    }
+    &--error {
+      color: #f87171;
+    }
+  }
+
+  // Connector line + state marker.
+  &__marker {
+    flex: 0 0 auto;
+    width: 20px;
+    height: 20px;
+    border-radius: 50%;
+    display: grid;
+    place-items: center;
+    border: 1px solid color-mix(in oklch, var(--ps-ink, #f4f4ff) 18%, transparent);
+    color: var(--ps-bg, #060610);
+    transition: all 0.35s ease;
+  }
+
+  &__item--done &__marker {
+    background: color-mix(in oklch, var(--ps-accent, #00e5ff) 85%, white 15%);
+    border-color: transparent;
+  }
+  &__item--active &__marker {
+    border-color: var(--ps-accent, #00e5ff);
+    background: color-mix(in oklch, var(--ps-accent, #00e5ff) 14%, transparent);
+    box-shadow: 0 0 0 4px color-mix(in oklch, var(--ps-accent, #00e5ff) 12%, transparent);
+    position: relative;
+
+    // Inner breathing dot so the current step reads as the live one.
+    &::after {
+      content: '';
+      width: 7px;
+      height: 7px;
+      border-radius: 50%;
+      background: var(--ps-accent, #00e5ff);
+      animation: markerBreathe 1.6s ease-in-out infinite;
+    }
+  }
+  &__item--error &__marker {
+    background: #f87171;
+    border-color: transparent;
+    color: var(--ps-bg, #060610);
+  }
+
+  &__label {
+    line-height: 1.35;
+  }
+}
+
+@keyframes markerBreathe {
+  0%,
+  100% {
+    transform: scale(1);
+    opacity: 1;
+  }
+  50% {
+    transform: scale(0.6);
+    opacity: 0.55;
+  }
+}
+
+// ── Behind-the-scenes peek (collapsible engineering terminal) ───────────
+.build-peek {
+  width: 100%;
+  margin-top: 1.8rem;
+
+  &__summary {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.4rem;
+    cursor: pointer;
+    list-style: none;
+    font-size: 0.78rem;
+    font-weight: 500;
+    // Muted but AA-legible — mix with the SOLID bg (CONTRAST-GATE: no opacity-on-muted below 4.5:1).
+    color: color-mix(in oklch, var(--ps-ink, #f4f4ff) 64%, var(--ps-bg, #060610));
+    padding: 0.35rem 0;
+    transition: color 0.2s ease;
+    user-select: none;
+
+    &::-webkit-details-marker {
+      display: none;
+    }
+    &:hover {
+      color: var(--ps-accent, #00e5ff);
+    }
+    &:focus-visible {
+      outline: 2px solid color-mix(in oklch, var(--ps-accent, #00e5ff) 60%, transparent);
+      outline-offset: 3px;
+      border-radius: 6px;
+    }
+  }
+
+  &__chevron {
+    transition: transform 0.25s ease;
+  }
+
+  &[open] &__chevron {
+    transform: rotate(90deg);
+  }
+
+  &[open] .build-terminal {
+    margin-top: 0.75rem;
+  }
+}
+
 // ── Live-build phase chips ──────────────────────────────────────────────
 .build-chip {
   font-size: 0.68rem;
@@ -180,8 +443,13 @@
   }
 }
 
-// Respect reduced-motion: kill the decorative pulses/animations, keep function.
-@media (prefers-reduced-motion: reduce) {
+// Respect reduced-motion: kill every decorative pulse/animation, keep the full phase + elapsed
+// readout functional and static. Belt-and-suspenders: the component also reads the media query
+// (reducedMotion signal) + sets .build-stage--reduced, so the behavior is guaranteed both ways.
+@mixin no-build-motion {
+  .spinner {
+    animation: none;
+  }
   .build-terminal__body {
     scroll-behavior: auto;
   }
@@ -194,4 +462,31 @@
   .build-line--cursor .build-line__text {
     animation: none;
   }
+  // Cinematic stage — freeze every motion to a calm static frame.
+  .build-stage__orb-ring {
+    animation: none;
+    opacity: 0; // the breathing rings carry no meaning when frozen — hide them
+  }
+  .build-stage__orb-core {
+    animation: none;
+  }
+  .build-stage__pulse-dot {
+    animation: none;
+  }
+  .build-steps__item--active .build-steps__marker::after {
+    animation: none;
+  }
+  .build-peek__chevron {
+    transition: none;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  @include no-build-motion;
+}
+
+// Explicit opt-out class the component sets from the matchMedia read — covers any renderer where the
+// media query itself is unreliable, so a reduced-motion owner always gets the static experience.
+.build-stage--reduced {
+  @include no-build-motion;
 }

@@ -200,6 +200,12 @@ describe('AdminSiteCopilotComponent — flag-gate link cohesion (real template)'
       ],
     });
     const fx = TestBed.createComponent(AdminSiteCopilotComponent);
+    // ISOLATION (gotcha #9): getComputedStyle reads LIVE CSS (textDecorationLine) off
+    // `.flag-gate__link`, which only resolves when the element is attached to the real document.
+    // A detached fixture (whenever Karma's execution order shifts this spec) makes the browser
+    // skip stylesheet resolution → querySelector can even return null → getComputedStyle(null)
+    // throws. Attach to document.body so the assertion is order-independent; detach in afterEach.
+    document.body.appendChild(fx.nativeElement);
     fx.componentInstance.flagEnabled.set(false);
     fx.detectChanges();
     const link = (fx.nativeElement as HTMLElement).querySelector(
@@ -209,6 +215,7 @@ describe('AdminSiteCopilotComponent — flag-gate link cohesion (real template)'
     // Shared <app-flag-gate-notice> underlines via `.flag-gate__link` CSS, not the Tailwind class.
     expect(getComputedStyle(link).textDecorationLine).withContext('permanently underlined').toContain('underline');
     expect(link.getAttribute('href')).toBe('/admin/feature-flags');
+    fx.nativeElement.remove();
   });
 
   // The session-count stats ("0 sessions" + intent distribution) must NOT render
