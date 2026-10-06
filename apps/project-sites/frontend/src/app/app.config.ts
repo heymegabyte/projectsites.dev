@@ -35,6 +35,7 @@ import { firstValueFrom } from 'rxjs';
 import { GlobalErrorHandler } from './services/error-handler.service';
 import { retryInterceptor } from './interceptors/retry.interceptor';
 import { loadingInterceptor } from './interceptors/loading.interceptor';
+import { mockApiInterceptor } from './interceptors/mock-api.interceptor';
 import { SwUpdateService } from './services/sw-update.service';
 
 /** Preload translations before the app renders — prevents flash of raw keys.
@@ -126,7 +127,10 @@ export const appConfig: ApplicationConfig = {
     ),
     provideHttpClient(
       withFetch(),
-      withInterceptors([retryInterceptor, loadingInterceptor]),
+      // mockApiInterceptor is LAST so it sees the final request (bearer injected,
+      // X-Request-ID set) and only acts under ?mock=1 — REAL is the prod default,
+      // where it passes every request straight through (zero production risk).
+      withInterceptors([retryInterceptor, loadingInterceptor, mockApiInterceptor]),
     ),
     provideAnimations(),
     // PrimeNG fully removed from the admin — every component migrated to Spartan

@@ -17,6 +17,7 @@ import { BgOrbsComponent } from './components/bg-orbs/bg-orbs.component';
 import { EasterEggsComponent } from './components/easter-eggs/easter-eggs.component';
 import { CommandPaletteComponent } from './components/command-palette/command-palette.component';
 import { ShortcutsOverlayComponent } from './components/shortcuts-overlay/shortcuts-overlay.component';
+import { DemoBadgeComponent } from './mocks/demo-badge.component';
 import { InstallPromptService } from './services/install-prompt.service';
 import { TranslateService } from '@ngx-translate/core';
 import { AuthService } from './services/auth.service';
@@ -28,7 +29,7 @@ import { TelemetryService } from './services/telemetry.service';
 @Component({
   selector: 'app-root',
   standalone: true,
-  imports: [RouterOutlet, HeaderComponent, ToastComponent, NetworkStatusBannerComponent, BgOrbsComponent, EasterEggsComponent, CommandPaletteComponent, ShortcutsOverlayComponent],
+  imports: [RouterOutlet, HeaderComponent, ToastComponent, NetworkStatusBannerComponent, BgOrbsComponent, EasterEggsComponent, CommandPaletteComponent, ShortcutsOverlayComponent, DemoBadgeComponent],
   template: `
     <a class="skip-link" href="#main-content">Skip to main content</a>
     <app-network-status-banner />
@@ -45,6 +46,9 @@ import { TelemetryService } from './services/telemetry.service';
       <app-easter-eggs />
     }
     <app-toast />
+    <!-- Mock-mode demo marker — renders ONLY under ?mock=1 (REAL is the prod default),
+         so a mocked surface is a VISIBLE demo, never mistaken for live data. -->
+    <app-demo-badge />
     <!-- A2HS PWA install (#25) is no longer a floating chip — the NotificationBell
          surfaces it as an in-app "Install Project Sites" App Notification with an
          Install action. InstallPromptService (injected below) captures the event. -->
