@@ -22,8 +22,13 @@
  *     → **404** (never 403; the gate decision lives in the service).
  *   - unauth (no `orgId`) → **401** BEFORE any research/provider call.
  *   - a supplied `siteId` the caller doesn't own → **404** (never 403).
- *   - BOTH research legs fail → `runDualResearch` throws {@link ResolutionEngineError}
- *     → **502** honest aggregate (secret-redacted reasons).
+ *   - BOTH research legs fail because the external vendors are CREDIT/QUOTA
+ *     exhausted → **200** DEGRADED (fire WLK-39): a single Cloudflare Workers AI
+ *     research+answer pass with `degraded:true` + a human `note`, instead of a
+ *     502. Honest single-model answer — NOT faked dual independence.
+ *   - BOTH research legs fail for a NON-billing reason (and Workers AI can't
+ *     answer) → `runDualResearch` throws {@link ResolutionEngineError} → **502**
+ *     honest aggregate (secret-redacted reasons).
  *   - the SYNTHESIS call ITSELF failing → **200** with the research legs + a
  *     `synthesis:{ok:false,reason}` marker (NEVER a 500 — the research is still
  *     valuable, and the panel can retry synthesis).
@@ -34,7 +39,7 @@
 import { Hono } from 'hono';
 import type { Context } from 'hono';
 import type { Env, Variables } from '../../../src/types/env.js';
-import { callExternalLLM } from '../../../src/services/external_llm.js';
+import { callExternalLLM, isCreditQuotaError } from '../../../src/services/external_llm.js';
 import { log } from '../../../src/lib/log.js';
 import { ResolveInputSchema } from './schemas.js';
 import {
@@ -66,6 +71,74 @@ const SYNTHESIS_SYSTEM =
   'each one contributes that the other missed; (3) where they DISAGREE, weigh the evidence and ' +
   'resolve it, noting the disagreement. Produce one coherent, dense, well-organized briefing that ' +
   'is better than either input alone. Do not fabricate; preserve any uncertainty either leg flagged.';
+
+/**
+ * System instruction for the DEGRADED single-provider path (both external
+ * frontier vendors credit-exhausted). One rigorous research+answer pass — NOT
+ * faked dual independence. Honest about being a single model.
+ */
+const DEGRADED_SYSTEM =
+  'You are a rigorous research analyst. Research the subject thoroughly and return a single, ' +
+  'dense, well-organized, factual briefing. Do not fabricate; mark any uncertainty. This is a ' +
+  'single-model answer (the dual-frontier research path is temporarily unavailable), so be ' +
+  'especially careful to flag where a claim would benefit from independent corroboration.';
+
+/**
+ * The human-readable note surfaced on a degraded resolve so the panel can tell
+ * the user WHY the answer is single-model (and that it is still usable).
+ */
+const DEGRADED_NOTE =
+  'Using Cloudflare Workers AI — dual-frontier research (OpenAI + Anthropic) needs external credits.';
+
+/**
+ * Do the both-legs-down reasons indicate the external vendors are
+ * credit/quota-exhausted (vs. a non-billing outage)? The service's redacted
+ * reasons still carry the billing phrase (e.g. "… credit balance is too low …"),
+ * so {@link isCreditQuotaError} over the joined reasons is a faithful test.
+ */
+function bothLegsCreditExhausted(err: ResolutionEngineError): boolean {
+  return err.legs.some((l) => isCreditQuotaError(l.reason));
+}
+
+/**
+ * DEGRADED fallback (fire WLK-39): when BOTH external frontier vendors are
+ * credit-exhausted, produce a usable single-model answer via Cloudflare Workers
+ * AI instead of a 502. We make ONE `callExternalLLM` premium-tier call — with
+ * every external vendor billing-blocked, external_llm's own terminal rung
+ * self-heals onto `env.AI` (Llama) and returns `degraded:true`. This is HONEST:
+ * one Workers-AI research+answer pass, clearly flagged — NOT two identical
+ * Workers-AI legs masquerading as independent dual research (which would violate
+ * invariant #7's spirit). Returns null when the fallback can't produce content
+ * (no `env.AI`, or an empty/failed answer) → the caller keeps the honest 502.
+ */
+async function degradeViaWorkersAi(
+  env: Env,
+  orgId: string,
+  input: { prompt: string; system?: string; maxTokens?: number; siteId?: string },
+): Promise<{ provider: string; model: string; content: string } | null> {
+  try {
+    const result = await callExternalLLM(env, {
+      tier: 'premium',
+      system: input.system ?? DEGRADED_SYSTEM,
+      user: `Research subject:\n\n${input.prompt}`,
+      maxTokens: input.maxTokens ?? 4096,
+      temperature: 0.3,
+      traceContext: {
+        orgId,
+        siteId: input.siteId,
+        promptId: 'resolution_engine:degraded_workers_ai',
+      },
+    });
+    // Only a genuinely DEGRADED (Workers-AI) result counts here. If — against
+    // expectation — an external vendor answered (credits returned mid-flight),
+    // it is still a usable answer, so accept any non-empty content.
+    if (!result.output) return null;
+    return { provider: result.provider, model: result.model_used, content: result.output };
+  } catch (err) {
+    reLog.warn('degraded_fallback_failed', { orgId, reason: safeReason(err) });
+    return null;
+  }
+}
 
 /**
  * Redact anything key-shaped from a synthesis failure reason before it reaches
@@ -171,6 +244,35 @@ resolutionEngine.post('/api/resolve', async (c: Context<AppContext>) => {
       return c.json({ error: { code: 'NOT_FOUND', message: 'Resource not found.' } }, 404);
     }
     if (err instanceof ResolutionEngineError) {
+      // DEGRADE-DON'T-502 (fire WLK-39): when BOTH external frontier vendors are
+      // credit-exhausted, degrade HONESTLY to a single Workers-AI research+answer
+      // pass (free, CF-native) rather than surfacing a 502. Flagged `degraded:true`
+      // + a human note so the panel can explain why the answer is single-model.
+      // NOT faked dual independence — one Workers-AI pass, clearly labelled.
+      if (bothLegsCreditExhausted(err)) {
+        const degraded = await degradeViaWorkersAi(c.env, orgId, {
+          prompt: input.prompt,
+          system: input.system,
+          maxTokens: input.maxTokens,
+          siteId: input.siteId,
+        });
+        if (degraded) {
+          reLog.warn('degraded_to_workers_ai', {
+            orgId,
+            reasons: err.legs.map((l) => ({ provider: l.provider, reason: l.reason })),
+          });
+          return c.json(
+            {
+              research: err.legs, // both down legs, surfaced for transparency
+              synthesis: { provider: degraded.provider, model: degraded.model, content: degraded.content },
+              degraded: true,
+              note: DEGRADED_NOTE,
+            },
+            200,
+          );
+        }
+        // Fall through to the honest 502 when even Workers AI can't answer.
+      }
       // Honest both-legs-down aggregate. Reasons are already secret-redacted by
       // the service's safeReason; surface them per-provider for the UI.
       return c.json(

@@ -16,6 +16,7 @@ import { captureLLMCall } from './analytics.js';
 import { log } from '../lib/log.js';
 import { meterAiTokens } from './usage_metering.js';
 import { accumulateBuildModelCallFromTrace } from './build_metrics.js';
+import { runObservedWorkersAI } from '../lib/workers_ai.js';
 import {
   gatewayBaseUrl,
   gatewayFetch,
@@ -165,7 +166,14 @@ export interface ExternalLLMOptions {
 export interface ExternalLLMResult {
   output: string;
   model_used: string;
-  provider: 'openai' | 'anthropic' | 'deepseek';
+  /**
+   * The vendor that produced the output. `'workers-ai'` appears ONLY on the
+   * terminal credit/quota fallback rung — when every external vendor failed
+   * with a credit-balance/quota error and the call self-healed through
+   * Cloudflare Workers AI (`env.AI`, Llama) instead of surfacing a 502.
+   * @see {@link isCreditQuotaError}
+   */
+  provider: 'openai' | 'anthropic' | 'deepseek' | 'workers-ai';
   latency_ms: number;
   token_count: number;
   /** Provider-reported prompt/completion split (0 when the provider omits it). */
@@ -182,6 +190,14 @@ export interface ExternalLLMResult {
    * indicating the prompt-cache prefix was reused.
    */
   cache_hit?: boolean;
+  /**
+   * True ONLY when this result came from the terminal Workers-AI fallback rung
+   * (every external vendor was credit/quota-exhausted). The output is real and
+   * usable, but produced by the free edge model rather than the requested
+   * frontier vendor — callers may surface a "reduced quality" note. Absent/false
+   * on every normal (externally-served) call, so existing callers are unaffected.
+   */
+  degraded?: boolean;
 }
 
 /**
@@ -211,6 +227,137 @@ const DEFAULT_MODELS: Record<'openai' | 'anthropic' | 'deepseek', string> = {
 /** Exported for unit tests. */
 export const DEFAULT_MODELS_EXPORT: Record<'openai' | 'anthropic' | 'deepseek', string> =
   DEFAULT_MODELS;
+
+// ─── Credit / Quota Exhaustion → Workers-AI Fallback (fire: WLK-39) ───────────
+
+/**
+ * The Workers AI model the terminal credit/quota fallback rung uses — the same
+ * free, CF-native edge model the edge AI router serves for `instant` requests.
+ * Workers AI is included on the Workers Paid plan (no external credits), so it
+ * keeps answering when OpenAI/Anthropic/DeepSeek are all billing-blocked.
+ */
+export const WORKERS_AI_FALLBACK_MODEL = '@cf/meta/llama-3.3-70b-instruct-fp8-fast' as const;
+
+/**
+ * Does this vendor error mean the account is out of money / quota (as opposed to
+ * a transient 5xx or a plain bad-key/validation 4xx)?
+ *
+ * @remarks
+ * This is the NEW terminal failure the fire-186 gateway-fallback ladder did not
+ * yet handle. The vendor errors reach us as `Error` messages built by
+ * {@link callOpenAI}/{@link callAnthropic} — e.g.
+ * `Anthropic API error 400: {"error":{"message":"Your credit balance is too low to access the Anthropic API…"}}`
+ * or `OpenAI API error 429: {"error":{"code":"insufficient_quota",…}}`.
+ * We match the vendor-agnostic billing phrases (plus the HTTP 402 Payment
+ * Required status) so the detector works across OpenAI / Anthropic / DeepSeek.
+ *
+ * A plain 401/403 (bad key) or 400/422 (validation) is NOT a credit error and
+ * must keep surfacing verbatim — those would fail identically on Workers AI's
+ * siblings and masking them hides the real cause (same discipline as the
+ * edge-router 4xx-forwarding rule).
+ *
+ * @param err - The thrown provider error (or any value).
+ * @returns `true` when the message/status indicates credit/quota exhaustion.
+ * @example
+ * isCreditQuotaError(new Error('Anthropic API error 400: ... credit balance is too low ...')) // true
+ * isCreditQuotaError(new Error('OpenAI API error 429: {"code":"insufficient_quota"}'))         // true
+ * isCreditQuotaError(new Error('OpenAI API error 401: invalid_api_key'))                        // false
+ */
+export function isCreditQuotaError(err: unknown): boolean {
+  const msg = (err instanceof Error ? err.message : String(err)).toLowerCase();
+  if (!msg) return false;
+  // HTTP 402 Payment Required is an unambiguous billing signal.
+  if (/\b402\b/.test(msg) && /payment|quota|credit|billing|fund/.test(msg)) return true;
+  return (
+    msg.includes('credit balance is too low') || // Anthropic
+    msg.includes('insufficient_quota') || // OpenAI error code
+    msg.includes('insufficient quota') ||
+    msg.includes('exceeded your current quota') || // OpenAI prose
+    msg.includes('insufficient_funds') ||
+    msg.includes('insufficient funds') ||
+    msg.includes('insufficient_balance') || // DeepSeek error code
+    msg.includes('insufficient balance') || // DeepSeek prose
+    msg.includes('payment required') ||
+    msg.includes('billing_hard_limit_reached') ||
+    msg.includes('quota exceeded') ||
+    (msg.includes('credit') && msg.includes('too low'))
+  );
+}
+
+/**
+ * Terminal fallback rung: answer through Cloudflare Workers AI (`env.AI`, Llama)
+ * when every external vendor is credit/quota-exhausted. Mirrors the fire-186
+ * gateway→direct ladder — a NEW rung (`… → on credit/quota → Workers AI`) that
+ * keeps the editor-chat + resolution paths producing REAL answers for free
+ * instead of surfacing a 502, and self-heals (stops firing) the moment the
+ * external credits return.
+ *
+ * Returns `null` when the `AI` binding is absent (nothing to fall back to) OR
+ * the Workers-AI call itself fails — the caller then rethrows the original
+ * vendor error, so behavior is unchanged where no AI binding exists.
+ */
+async function workersAiFallback(
+  env: Env,
+  options: ExternalLLMOptions,
+): Promise<ExternalLLMResult | null> {
+  if (!(env as unknown as { AI?: unknown }).AI) return null;
+  const start = Date.now();
+  const distinctId = resolveDistinctId(options.traceContext);
+  try {
+    const result = await runObservedWorkersAI(
+      env,
+      WORKERS_AI_FALLBACK_MODEL,
+      {
+        messages: [
+          { role: 'system', content: options.system },
+          { role: 'user', content: options.user },
+        ],
+        max_tokens: options.maxTokens ?? 2048,
+        temperature: options.temperature ?? 0.3,
+      },
+      {
+        distinctId,
+        promptId: options.traceContext?.promptId
+          ? `${options.traceContext.promptId}:workers_ai_fallback`
+          : 'workers_ai_fallback',
+        traceId: options.traceContext?.traceId,
+      },
+    );
+    const text =
+      typeof result === 'string'
+        ? result
+        : result && typeof result === 'object' && 'response' in result
+          ? String((result as { response?: unknown }).response ?? '')
+          : '';
+    if (!text) return null; // empty answer is not a usable fallback
+    const outputTokens = Math.max(0, Math.ceil(text.length / 4));
+    const inputTokens = Math.max(0, Math.ceil((options.system.length + options.user.length) / 4));
+    llmLog.warn('workers_ai_credit_fallback', {
+      model: WORKERS_AI_FALLBACK_MODEL,
+      durationMs: Date.now() - start,
+    });
+    return {
+      output: text,
+      model_used: WORKERS_AI_FALLBACK_MODEL,
+      provider: 'workers-ai',
+      latency_ms: Date.now() - start,
+      token_count: inputTokens + outputTokens,
+      input_tokens: inputTokens,
+      output_tokens: outputTokens,
+      cost_estimate: 0, // Workers AI is included on the Workers Paid plan.
+      citations: [],
+      cache_hit: false,
+      degraded: true,
+    };
+  } catch (err) {
+    // The fallback itself failed — log and signal "no fallback" so the caller
+    // rethrows the ORIGINAL vendor error (never swallow into a silent empty).
+    llmLog.warn('workers_ai_credit_fallback_failed', {
+      error: err instanceof Error ? err.message : String(err),
+    });
+    return null;
+  }
+}
 
 // ─── AI Gateway Helper ──────────────────────────────────────────────────────
 
@@ -822,6 +969,13 @@ export async function callExternalLLM(
   const traceId = options.traceContext?.traceId;
   const promptId = options.traceContext?.promptId;
 
+  // Tracks whether ANY external vendor failed because the account is out of
+  // credit/quota (fire WLK-39). When the external rungs are exhausted this way,
+  // we take the terminal Workers-AI rung (free, CF-native) instead of surfacing
+  // a 502 — the new rung on the fire-186 ladder. A plain 4xx (bad key) never
+  // sets this, so it still surfaces verbatim.
+  let sawCreditQuota = false;
+
   for (const provider of providers) {
     // The caller's explicit `options.model` belongs to the PRIMARY provider only.
     // When the loop falls back to a DIFFERENT provider, sending a cross-vendor model
@@ -935,6 +1089,9 @@ export async function callExternalLLM(
       const latency = Date.now() - start;
       const errorCategory = classifyError(err);
       recordFailure(provider);
+      // Remember credit/quota exhaustion so the terminal rung below can self-heal
+      // through Workers AI (fire WLK-39) rather than rethrow a 502.
+      if (isCreditQuotaError(err)) sawCreditQuota = true;
 
       llmLog.warn('provider_exhausted', {
         provider,
@@ -954,13 +1111,33 @@ export async function callExternalLLM(
         traceId,
       });
 
-      // If this is the LAST provider in the list, rethrow. In default mode this is the
-      // cross-vendor fallback; in lockProvider mode it is the primary itself (so a locked
-      // single-provider failure surfaces its own error, naming its OWN vendor — fire-188).
-      if (provider === rethrowProvider) throw err;
+      // If this is the LAST provider in the list, we are out of external rungs.
+      // NEW terminal rung (fire WLK-39): when the exhaustion was credit/quota
+      // (not a plain bad-key 4xx) and an `env.AI` binding exists, self-heal
+      // through Cloudflare Workers AI (free, CF-native) and return a DEGRADED
+      // result instead of surfacing a 502. The externals getting funded again
+      // makes this stop firing automatically. On any other failure — or when
+      // the fallback is unavailable / empty — rethrow the ORIGINAL vendor error
+      // exactly as before (default mode = cross-vendor fallback vendor's error;
+      // lockProvider mode = the primary's own error, fire-188).
+      if (provider === rethrowProvider) {
+        if (sawCreditQuota) {
+          const degraded = await workersAiFallback(env, options);
+          if (degraded) return degraded;
+        }
+        throw err;
+      }
     }
   }
 
+  // No external vendor ran to completion AND none rethrew — i.e. every rung was
+  // skipped (circuit-open or missing key). If a credit/quota error was seen on a
+  // skipped-then-reconsidered path, still offer the Workers-AI rung; otherwise
+  // surface the historical "no usable provider" error (no keys configured).
+  if (sawCreditQuota) {
+    const degraded = await workersAiFallback(env, options);
+    if (degraded) return degraded;
+  }
   throw new Error(
     'No usable LLM provider — set OPENAI_API_KEY, DEEPSEEK_API_KEY, or ANTHROPIC_API_KEY (kimi/fable are served by edge_ai_router, not this path)',
   );

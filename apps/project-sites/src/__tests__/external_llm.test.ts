@@ -787,6 +787,106 @@ describe('uploadDocToOpenAI', () => {
   });
 });
 
+// ─── Credit/quota exhaustion → terminal Workers-AI fallback (fire WLK-39) ──────
+//
+// When EVERY external vendor fails with a credit-balance/quota error (the NEW
+// terminal failure the fire-186 gateway ladder did not handle), callExternalLLM
+// self-heals through the free, CF-native `workers-ai` provider (env.AI + Llama)
+// and returns a DEGRADED completion — instead of surfacing a 502. A PLAIN 4xx
+// (bad key / validation) is NOT credit/quota and must still surface verbatim
+// (never masked by Workers AI). Confirmed live: POST /api/resolve → 502
+// ALL_PROVIDERS_FAILED / "Your credit balance is too low to access the Anthropic API".
+describe('credit/quota exhaustion → Workers-AI fallback', () => {
+  /** A scripted Workers-AI binding whose `run` returns a canned non-streaming answer. */
+  function aiBinding(response = 'workers-ai says hi'): Env['AI'] {
+    return { run: jest.fn(async () => ({ response })) } as unknown as Env['AI'];
+  }
+
+  it('isCreditQuotaError: true for Anthropic credit-balance + OpenAI insufficient_quota, false for a plain 401', () => {
+    expect(sut.isCreditQuotaError(new Error('Anthropic API error 400: {"error":{"message":"Your credit balance is too low to access the Anthropic API."}}'))).toBe(true);
+    expect(sut.isCreditQuotaError(new Error('OpenAI API error 429: {"error":{"code":"insufficient_quota"}}'))).toBe(true);
+    expect(sut.isCreditQuotaError(new Error('DeepSeek API error 402: Insufficient Balance'))).toBe(true);
+    // A plain bad-key / validation 4xx is NOT a credit error — must surface verbatim.
+    expect(sut.isCreditQuotaError(new Error('OpenAI API error 401: invalid_api_key'))).toBe(false);
+    expect(sut.isCreditQuotaError(new Error('Anthropic API error 400: {"type":"invalid_request_error"}'))).toBe(false);
+  });
+
+  it('falls back to the workers-ai provider (DEGRADED) when BOTH externals are credit-exhausted', async () => {
+    // openai primary → credit/quota 429; anthropic fallback → credit-balance 400.
+    mockGatewayFetch
+      .mockResolvedValueOnce(gwErr(429, '{"error":{"code":"insufficient_quota"}}'))
+      .mockResolvedValueOnce(gwErr(400, '{"error":{"message":"Your credit balance is too low to access the Anthropic API."}}'));
+
+    const ai = aiBinding('degraded edge answer');
+    const res = await callExternalLLM(makeEnv({ AI: ai }), { system: 's', user: 'u' });
+
+    // Both externals were tried, then the terminal Workers-AI rung produced a real answer.
+    expect(mockGatewayFetch).toHaveBeenCalledTimes(2);
+    expect((ai as unknown as { run: jest.Mock }).run).toHaveBeenCalledTimes(1);
+    expect(res.provider).toBe('workers-ai');
+    expect(res.degraded).toBe(true);
+    expect(res.output).toBe('degraded edge answer');
+    expect(res.cost_estimate).toBe(0); // free on Workers Paid
+    expect(res.model_used).toContain('llama');
+  });
+
+  it('falls back on a single credit-exhausted vendor too (locked primary, no AI cross-vendor)', async () => {
+    mockGatewayFetch.mockResolvedValueOnce(
+      gwErr(400, '{"error":{"message":"Your credit balance is too low to access the Anthropic API."}}'),
+    );
+    const ai = aiBinding('edge fallback');
+    const res = await callExternalLLM(makeEnv({ AI: ai }), {
+      system: 's',
+      user: 'u',
+      provider: 'anthropic',
+      lockProvider: true,
+    });
+    expect(mockGatewayFetch).toHaveBeenCalledTimes(1); // locked: no cross-vendor attempt
+    expect(res.provider).toBe('workers-ai');
+    expect(res.degraded).toBe(true);
+    expect(res.output).toBe('edge fallback');
+  });
+
+  it('does NOT fall back for a plain 401 bad-key — the real 4xx still surfaces (locked)', async () => {
+    mockGatewayFetch.mockResolvedValueOnce(gwErr(401, 'unauthorized'));
+    const ai = aiBinding();
+    await expect(
+      callExternalLLM(makeEnv({ AI: ai }), {
+        system: 's',
+        user: 'u',
+        provider: 'openai',
+        lockProvider: true,
+      }),
+    ).rejects.toThrow(/OpenAI API error 401/);
+    // The credit/quota rung must NOT fire for a bad key.
+    expect((ai as unknown as { run: jest.Mock }).run).not.toHaveBeenCalled();
+  });
+
+  it('rethrows the ORIGINAL credit error when no AI binding exists (behavior unchanged without env.AI)', async () => {
+    mockGatewayFetch.mockResolvedValueOnce(
+      gwErr(400, '{"error":{"message":"Your credit balance is too low to access the Anthropic API."}}'),
+    );
+    // No AI binding in env → nothing to fall back to → the original vendor error surfaces.
+    await expect(
+      callExternalLLM(makeEnv({ AI: undefined }), {
+        system: 's',
+        user: 'u',
+        provider: 'anthropic',
+        lockProvider: true,
+      }),
+    ).rejects.toThrow(/credit balance is too low/);
+  });
+
+  it('does NOT touch Workers AI when the external call SUCCEEDS (default path unchanged)', async () => {
+    mockGatewayFetch.mockResolvedValueOnce(gwOk(openAIBody('normal openai')));
+    const ai = aiBinding();
+    const res = await callExternalLLM(makeEnv({ AI: ai }), { system: 's', user: 'u', provider: 'openai' });
+    expect(res.provider).toBe('openai');
+    expect(res.degraded).toBeFalsy();
+    expect((ai as unknown as { run: jest.Mock }).run).not.toHaveBeenCalled();
+  });
+});
+
 describe('estimateCostPrecise — cost-table accuracy (LLM Observability)', () => {
   it('prices gpt-4o-mini as MINI, not gpt-4o (longest-match, not find-first)', () => {
     // 'gpt-4o-mini' CONTAINS 'gpt-4o' — the old find-first picked 'gpt-4o' and priced

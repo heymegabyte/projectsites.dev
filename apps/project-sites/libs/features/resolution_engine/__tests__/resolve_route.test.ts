@@ -42,6 +42,9 @@ jest.mock('../service.js', () => ({
 
 const mockCallExternalLLM = jest.fn();
 jest.mock('../../../../src/services/external_llm.js', () => ({
+  // Keep the REAL isCreditQuotaError so the handler's degrade-vs-502 branch uses
+  // the production detector (not a stub) over the both-down leg reasons.
+  ...jest.requireActual('../../../../src/services/external_llm.js'),
   callExternalLLM: (...a: unknown[]) => mockCallExternalLLM(...a),
 }));
 
@@ -247,5 +250,104 @@ describe('POST /api/resolve — synthesis of both research legs', () => {
     const res = await app().request({ prompt: '' });
     expect(res.status).toBe(400);
     expect(mockRunDualResearch).not.toHaveBeenCalled();
+  });
+
+  // ── fire WLK-39: degrade-don't-502 when BOTH externals are credit-exhausted ──
+  //
+  // Confirmed live: POST /api/resolve → 502 ALL_PROVIDERS_FAILED / "Your credit
+  // balance is too low to access the Anthropic API". With both external frontier
+  // vendors billing-blocked, the route must DEGRADE HONESTLY to a single Workers-AI
+  // research+answer pass (200, `degraded:true` + a human note) — never a 502.
+  describe('degraded Workers-AI fallback (both externals credit-exhausted)', () => {
+    it('returns 200 with degraded:true + content (NOT 502) when both legs are credit-exhausted', async () => {
+      mockRunDualResearch.mockRejectedValue(
+        new ResolutionEngineError([
+          downLeg('openai', 'OpenAI research failed: Your credit balance is too low to access the OpenAI API.'),
+          downLeg('anthropic', 'Anthropic research failed: Your credit balance is too low to access the Anthropic API.'),
+        ]),
+      );
+      // The degraded pass is ONE callExternalLLM premium call; with both externals dry,
+      // external_llm's own terminal rung self-heals onto Workers AI → degraded:true.
+      mockCallExternalLLM.mockResolvedValue({
+        output: 'A usable single-model briefing produced on Cloudflare Workers AI.',
+        model_used: '@cf/meta/llama-3.3-70b-instruct-fp8-fast',
+        provider: 'workers-ai',
+        latency_ms: 120,
+        token_count: 300,
+        input_tokens: 100,
+        output_tokens: 200,
+        cost_estimate: 0,
+        degraded: true,
+      });
+
+      const res = await app().request({ prompt: 'research Acme Co' });
+
+      expect(res.status).toBe(200); // NOT 502
+      const body = (await res.json()) as {
+        degraded?: boolean;
+        note?: string;
+        synthesis?: { provider: string; content: string };
+      };
+      expect(body.degraded).toBe(true);
+      expect(body.synthesis?.content).toContain('Workers AI');
+      expect(body.synthesis?.provider).toBe('workers-ai');
+      // Human note explains WHY it degraded (dual-frontier needs external credits).
+      expect(body.note?.toLowerCase()).toContain('workers ai');
+      expect(body.note?.toLowerCase()).toContain('credit');
+      // Exactly one degraded synthesis call (NOT two faked "independent" legs).
+      expect(mockCallExternalLLM).toHaveBeenCalledTimes(1);
+      const [, opts] = mockCallExternalLLM.mock.calls[0] as [unknown, { tier?: string }];
+      expect(opts.tier).toBe('premium');
+    });
+
+    it('does NOT fake dual independence — the degraded path makes a SINGLE research+answer call', async () => {
+      mockRunDualResearch.mockRejectedValue(
+        new ResolutionEngineError([
+          downLeg('openai', 'OpenAI research failed: insufficient_quota'),
+          downLeg('anthropic', 'Anthropic research failed: credit balance is too low'),
+        ]),
+      );
+      mockCallExternalLLM.mockResolvedValue({
+        output: 'single degraded answer',
+        model_used: '@cf/meta/llama-3.3-70b-instruct-fp8-fast',
+        provider: 'workers-ai',
+        latency_ms: 90,
+        token_count: 100,
+        input_tokens: 40,
+        output_tokens: 60,
+        cost_estimate: 0,
+        degraded: true,
+      });
+      await app().request({ prompt: 'research Acme Co' });
+      // One call only — never two Workers-AI legs dressed up as independent dual research.
+      expect(mockCallExternalLLM).toHaveBeenCalledTimes(1);
+    });
+
+    it('still 502s (honest) when both legs are down for a NON-billing reason', async () => {
+      // A non-credit outage must NOT be papered over with a degraded answer.
+      mockRunDualResearch.mockRejectedValue(
+        new ResolutionEngineError([
+          downLeg('openai', 'OpenAI research failed: upstream error'),
+          downLeg('anthropic', 'anthropic is not configured (no API key)'),
+        ]),
+      );
+      const res = await app().request({ prompt: 'research Acme Co' });
+      expect(res.status).toBe(502);
+      // The degraded fallback must NOT have been attempted for a non-billing failure.
+      expect(mockCallExternalLLM).not.toHaveBeenCalled();
+    });
+
+    it('falls back to the honest 502 when the degraded Workers-AI pass itself cannot answer', async () => {
+      mockRunDualResearch.mockRejectedValue(
+        new ResolutionEngineError([
+          downLeg('openai', 'OpenAI research failed: insufficient_quota'),
+          downLeg('anthropic', 'Anthropic research failed: credit balance is too low'),
+        ]),
+      );
+      // Degraded pass throws (e.g. no AI binding) → the route keeps the honest 502.
+      mockCallExternalLLM.mockRejectedValue(new Error('No usable LLM provider'));
+      const res = await app().request({ prompt: 'research Acme Co' });
+      expect(res.status).toBe(502);
+    });
   });
 });
