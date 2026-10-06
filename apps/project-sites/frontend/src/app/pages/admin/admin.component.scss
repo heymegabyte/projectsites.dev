@@ -530,6 +530,22 @@ aside::before {
   }
   // The .nav-item-active left-rail accent bar would clash with the filled pill — hide it.
   &::before { content: none; }
+  // ⭐ Visible keyboard focus ring (WCAG 2.4.7 / 2.4.11). A cyan outline would vanish
+  // against this cyan→violet fill. The active CTA also carries `.nav-item-active`,
+  // whose GLOBAL `_admin-polish.scss` glow is `box-shadow: … !important` — it pins the
+  // resting glow and overrides every non-important focus ring, so the primary CTA
+  // shipped with NO keyboard focus indicator (axe can't catch a missing focus ring).
+  // Per `logo-contrast`/[pill!]: a filled pill needs its OWN high-contrast ring. The
+  // `!important` here beats that global glow, and `.nav-item-create:focus-visible`
+  // (0,2,0) out-specifies `.nav-item-active` (0,1,0) so it deterministically wins. A
+  // dark separator halo → bright-white ring reads crisply on BOTH the pill AND the rail.
+  &:focus-visible {
+    outline: none;
+    box-shadow:
+      0 0 0 2px #041016,
+      0 0 0 4px #ffffff,
+      0 6px 20px -8px rgba(0, 229, 255, 0.55) !important;
+  }
 }
 
 // Buttons
