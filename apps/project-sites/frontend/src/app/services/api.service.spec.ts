@@ -152,6 +152,51 @@ describe('ApiService (auth header + 401 redirect + error mapping)', () => {
     expect(toastErr).toHaveBeenCalled();
   });
 
+  // getDomainSummary FLATTENS the worker's nested wire shape so every consumer reads the
+  // flat DomainSummary. The worker emits `{ data: { total, by_status: { active, pending,
+  // verification_failed }, by_type } }` — before the mapper, AdminStateService assigned
+  // `res.data` verbatim, leaving flat `active`/`pending`/`failed` UNDEFINED → the dashboard
+  // KPI tile bound undefined into a rolling-counter → `undefined.toLocaleString()` crash
+  // (the #34 dashboard error toast, and a latent prod crash for any org with a hostname).
+  describe('getDomainSummary — flattens the nested worker wire → flat DomainSummary', () => {
+    it('maps { data: { total, by_status: { active, pending, verification_failed } } } → flat { total, active, pending, failed }', () => {
+      const wire = {
+        data: {
+          total: 9,
+          by_status: { active: 6, pending: 2, verification_failed: 1 },
+          by_type: { free_subdomain: 7, custom_cname: 2 },
+        },
+      };
+      const { api } = make({ token: 't', get: jasmine.createSpy('get').and.returnValue(of(wire)) });
+      let seen: { data: { total: number; active: number; pending: number; failed: number } } | undefined;
+      api.getDomainSummary().subscribe((r) => (seen = r));
+      expect(seen?.data).toEqual({ total: 9, active: 6, pending: 2, failed: 1 });
+      // No raw nested keys leak through onto the flat type.
+      expect((seen?.data as unknown as { by_status?: unknown }).by_status).toBeUndefined();
+    });
+
+    it('defaults every field to 0 when the envelope / by_status is absent (never undefined → no toLocaleString crash)', () => {
+      for (const wire of [{ data: {} }, {}, { data: { total: 3 } }]) {
+        const { api } = make({ token: 't', get: jasmine.createSpy('get').and.returnValue(of(wire)) });
+        let seen: { data: { total: number; active: number; pending: number; failed: number } } | undefined;
+        api.getDomainSummary().subscribe((r) => (seen = r));
+        expect(seen?.data.active).toBe(0);
+        expect(seen?.data.pending).toBe(0);
+        expect(seen?.data.failed).toBe(0);
+        expect(Number.isFinite(seen?.data.total)).toBe(true);
+        TestBed.resetTestingModule();
+      }
+    });
+
+    it('forwards { silent } through to the GET (dashboard load is silent-when-component-owns-error)', () => {
+      const getSpy = jasmine.createSpy('get').and.returnValue(of({ data: { total: 0, by_status: { active: 0, pending: 0, verification_failed: 0 } } }));
+      const { api } = make({ token: 't', get: getSpy });
+      api.getDomainSummary({ silent: true }).subscribe();
+      const [url] = getSpy.calls.mostRecent().args as [string];
+      expect(url).toBe('/api/admin/domains/summary');
+    });
+  });
+
   it('remaps a 2xx-with-non-JSON body (SPA fallthrough) to 404 so "endpoint unavailable" handling applies', () => {
     // Angular HttpClient surfaces a 200 whose body is HTML (JSON parse fails) as an
     // HttpErrorResponse with a 2xx status. The worker's SPA catch-all returns 200 +

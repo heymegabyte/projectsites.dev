@@ -1738,20 +1738,30 @@ export class AdminDashboardComponent {
       });
     }
     const domains = this.state.domainSummary();
-    if (domains.total > 0) {
+    // `?? 0` defense-in-depth: `DomainSummary` TYPES these as required numbers, but a
+    // wire-shape drift (the worker's nested `{ by_status }` envelope assigned verbatim)
+    // once left them `undefined` here — binding `undefined` into the numeric KPI tile's
+    // <app-rolling-counter> crashed `format()` (`undefined.toLocaleString()`). ApiService
+    // now flattens the wire so this is belt-and-suspenders; keep it so no future producer
+    // drift can crash this first-paint tile. (fire #34)
+    const domTotal = domains.total ?? 0;
+    const domActive = domains.active ?? 0;
+    const domPending = domains.pending ?? 0;
+    const domFailed = domains.failed ?? 0;
+    if (domTotal > 0) {
       tiles.push({
         key: 'domains',
         label: 'Custom domains',
-        value: domains.active,
+        value: domActive,
         display: null,
         sub:
-          domains.pending > 0
-            ? `${domains.pending} pending setup`
-            : domains.failed > 0
-              ? `${domains.failed} need attention`
+          domPending > 0
+            ? `${domPending} pending setup`
+            : domFailed > 0
+              ? `${domFailed} need attention`
               : 'active + verified',
         glyph: 'globe',
-        tone: domains.failed > 0 ? 'attention' : domains.active > 0 ? 'good' : 'neutral',
+        tone: domFailed > 0 ? 'attention' : domActive > 0 ? 'good' : 'neutral',
         numeric: true,
       });
     }

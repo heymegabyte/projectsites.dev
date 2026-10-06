@@ -466,3 +466,202 @@ export interface WebhookDeliveriesResponse {
 export const webhookDeliveriesFixture: FixtureFactory<WebhookDeliveriesResponse> = (
   _state: MockState,
 ): WebhookDeliveriesResponse => ({ ok: true, deliveries: [] });
+
+// ═══════════════════ #34 — Snapshots section's three per-site reads ═══════════════════
+// The Snapshots section mounts three self-fetching cards — the health sparkline, the
+// readiness panel, and the timeline-notes — each firing a per-site GET the moment a site
+// is selected. In prod all three are flag-gated (`site_doctor` / `activity_feed`) and 404
+// when dark, which the components treat as "feature off → stay hidden" ({ silent: true }).
+// In the demo the fixture ids don't exist in prod, so these 404'd and littered the demo
+// network tab — fixturing them (with believable populated data) lets the demo SHOW these
+// surfaces instead of hiding them. Each returns the EXACT worker wire shape:
+//   GET /sites/:id/sparkline      → { siteId, days: {date,visits}[] }  (site_health_sparklines; honors ?days=)
+//   GET /sites/:id/annotations    → { data: Annotation[] }             (analytics_annotations)
+//   GET /sites/:id/readiness      → { score, grade, checks[] }         (prod_readiness_score)
+// (The brief named these under a `/snapshots/*` prefix; the live components + worker
+//  mount them at the un-prefixed per-site paths above — verified against source, which wins.)
+
+// ───────────────────────── GET /sites/:id/sparkline ─────────────────────────
+
+/** One day of traffic — mirrors the worker's `getSparkline` row (`{ date, visits }`). */
+export interface SparkDay {
+  date: string;
+  visits: number;
+}
+
+/**
+ * The `GET /api/sites/:siteId/sparkline` envelope — `getSparkline` returns
+ * `{ siteId, days }` (NOT `{ data }`). The health-sparkline card only renders when
+ * `days.length >= 2 && total > 0`, so the populated fixture carries a real 7-day trend.
+ */
+export interface SparklineResponse {
+  siteId: string;
+  days: SparkDay[];
+}
+
+/** A believable fortnight of daily visits (oldest→newest), gently trending up with a weekend dip. */
+const SPARK_DAYS: readonly SparkDay[] = [
+  { date: '2026-09-23', visits: 38 },
+  { date: '2026-09-24', visits: 44 },
+  { date: '2026-09-25', visits: 41 },
+  { date: '2026-09-26', visits: 52 },
+  { date: '2026-09-27', visits: 29 }, // weekend dip
+  { date: '2026-09-28', visits: 24 },
+  { date: '2026-09-29', visits: 58 },
+  { date: '2026-09-30', visits: 63 },
+  { date: '2026-10-01', visits: 57 },
+  { date: '2026-10-02', visits: 71 },
+  { date: '2026-10-03', visits: 66 },
+  { date: '2026-10-04', visits: 34 }, // weekend dip
+  { date: '2026-10-05', visits: 31 },
+  { date: '2026-10-06', visits: 79 },
+];
+
+/**
+ * Sparkline factory. `empty` → `{ days: [] }` (no traffic yet → the card self-hides, the
+ * honest brand-new-site surface); `populated`/`loading`/default → a real trend. Honors the
+ * `days` query param the card sends (`?days=7`) by returning the LAST N days (the worker's
+ * `day >= date('now','-Nd')` window), clamped to 1..30 like the handler. `error` is handled
+ * by the interceptor.
+ *
+ * @param state - The mock state knob from `?mock=1&state=…`.
+ * @param query - Parsed request query (reads `days`, default 7, max 30).
+ */
+export const sparklineFixture: FixtureFactory<SparklineResponse> = (
+  state: MockState,
+  query: URLSearchParams,
+): SparklineResponse => {
+  if (state === 'empty') return { siteId: 'site-001', days: [] };
+  const raw = Number(query.get('days') ?? '7');
+  const days = Number.isFinite(raw) ? Math.min(Math.max(Math.trunc(raw), 1), 30) : 7;
+  return {
+    siteId: 'site-001',
+    days: SPARK_DAYS.slice(-days).map((d) => ({ ...d })),
+  };
+};
+
+// ───────────────────────── GET /sites/:id/annotations ─────────────────────────
+
+/** One timeline annotation — mirrors the worker's `analytics_annotations` row. */
+export interface AnnotationRow {
+  id: string;
+  siteId: string;
+  date: string;
+  note: string;
+  category: string;
+  createdAt: string;
+}
+
+/** The `GET /api/sites/:siteId/annotations` envelope — the worker wraps the list in `{ data }`. */
+export interface AnnotationsResponse {
+  data: AnnotationRow[];
+}
+
+/** Two believable timeline markers (a deploy + a marketing push), newest-first. */
+const ANNOTATIONS: readonly AnnotationRow[] = [
+  {
+    id: 'anno-002',
+    siteId: 'site-001',
+    date: '2026-10-04',
+    note: 'Launched the fall booking promo across Instagram + the homepage banner.',
+    category: 'marketing',
+    createdAt: sweepIso(48),
+  },
+  {
+    id: 'anno-001',
+    siteId: 'site-001',
+    date: '2026-10-02',
+    note: 'Published build v2 — warmer hero palette + booking CTA above the fold.',
+    category: 'deploy',
+    createdAt: sweepIso(96),
+  },
+];
+
+/**
+ * Annotations factory. `empty` → `{ data: [] }` (no notes yet → the timeline-notes card's
+ * "add a marker" launchpad — the card still shows once the list loads 200); `populated`/
+ * `loading`/default → two believable markers. `error` is handled by the interceptor.
+ *
+ * @param state - The mock state knob from `?mock=1&state=…`.
+ */
+export const annotationsFixture: FixtureFactory<AnnotationsResponse> = (
+  state: MockState,
+): AnnotationsResponse => ({
+  data: state === 'empty' ? [] : ANNOTATIONS.map((a) => ({ ...a })),
+});
+
+// ───────────────────────── GET /sites/:id/readiness ─────────────────────────
+
+/** One readiness check — mirrors the worker's `ReadinessCheck` (`{ name, pass, weight, hint }`). */
+export interface ReadinessCheckRow {
+  name: string;
+  pass: boolean;
+  weight: number;
+  hint: string;
+}
+
+/**
+ * The `GET /api/sites/:siteId/readiness` envelope — `computeReadiness` returns a BARE
+ * `{ score, grade, checks }` (NOT `{ data }`). The readiness panel only renders when
+ * `grade` is a string, and surfaces the FAILING checks as the actionable fix list.
+ */
+export interface ReadinessResponse {
+  score: number;
+  grade: string;
+  checks: ReadinessCheckRow[];
+}
+
+/**
+ * The four weighted checks the worker computes (25 pts each, sum 100). The demo default
+ * passes published + custom-domain + performance and fails sitemap → score 75, grade C,
+ * so the panel renders a realistic one-item "left to make this production-ready" list
+ * (the most instructive demo state). `empty` flips perf + sitemap to failing → score 50,
+ * grade F (a freshly-built, not-yet-tuned site).
+ */
+function readinessChecks(full: boolean): ReadinessCheckRow[] {
+  return [
+    {
+      name: 'published',
+      pass: true,
+      weight: 25,
+      hint: 'Site is live.',
+    },
+    {
+      name: 'custom_domain',
+      pass: full,
+      weight: 25,
+      hint: full
+        ? 'Custom domain is active.'
+        : 'Connect a custom domain to build credibility and improve SEO.',
+    },
+    {
+      name: 'performance',
+      pass: true,
+      weight: 25,
+      hint: 'Lighthouse score is 96.',
+    },
+    {
+      name: 'sitemap',
+      pass: false,
+      weight: 25,
+      hint: 'No sitemap.xml found in the current build — search engines may miss pages.',
+    },
+  ];
+}
+
+/**
+ * Readiness factory. `populated`/`loading`/default → a grade-C site (3 of 4 checks pass →
+ * score 75, one actionable fix); `empty` → a grade-F freshly-built site (2 of 4 pass →
+ * score 50). The score is always the sum of passing weights, mirroring the worker. `error`
+ * is handled by the interceptor.
+ *
+ * @param state - The mock state knob from `?mock=1&state=…`.
+ */
+export const readinessFixture: FixtureFactory<ReadinessResponse> = (
+  state: MockState,
+): ReadinessResponse => {
+  const checks = readinessChecks(state !== 'empty');
+  const score = checks.reduce((sum, c) => sum + (c.pass ? c.weight : 0), 0);
+  const grade = score >= 90 ? 'A' : score >= 80 ? 'B' : score >= 70 ? 'C' : score >= 60 ? 'D' : 'F';
+  return { score, grade, checks };
+};

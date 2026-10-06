@@ -39,6 +39,9 @@ import {
   logsTailFixture,
   webhooksFixture,
   webhookDeliveriesFixture,
+  sparklineFixture,
+  annotationsFixture,
+  readinessFixture,
 } from './per-site.fixture';
 import {
   aiSettingsFixture,
@@ -184,6 +187,13 @@ export const FIXTURES: Readonly<Record<RoutePattern, FixtureFactory>> = {
   'GET /sites/:id/logs/tail': logsTailFixture as FixtureFactory,
   'GET /sites/:id/webhooks': webhooksFixture as FixtureFactory,
   'GET /sites/:id/webhooks/deliveries': webhookDeliveriesFixture as FixtureFactory,
+  // #34 — the Snapshots section's three self-fetching cards (health sparkline, timeline
+  // notes, readiness panel). Un-prefixed per-site paths (NOT `/snapshots/*`), verified
+  // against the live components + worker. `:param` keys; each anchored regex (`^…$`, one
+  // `[^/]+` per segment) can't shadow a longer sibling (`/snapshots`, `/snapshots/metrics`).
+  'GET /sites/:id/sparkline': sparklineFixture as FixtureFactory,
+  'GET /sites/:id/annotations': annotationsFixture as FixtureFactory,
+  'GET /sites/:id/readiness': readinessFixture as FixtureFactory,
 };
 
 /**

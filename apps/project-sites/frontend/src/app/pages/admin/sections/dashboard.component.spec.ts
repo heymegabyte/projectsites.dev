@@ -100,6 +100,69 @@ describe('AdminDashboardComponent (Getting Started hub)', () => {
 });
 
 /**
+ * KPI strip — "Custom domains" tile hardening (#34). The worker's domain-summary
+ * endpoint emits a NESTED wire shape; a drift once left the flat `active`/`pending`/
+ * `failed` fields `undefined` on `domainSummary()`. The numeric tile binds its `value`
+ * into a rolling-counter, whose `format()` calls `.toLocaleString()` — an `undefined`
+ * value crashed the whole dashboard (the error toast on `?mock=1`). The tile must coerce
+ * every domain field to a finite number so a producer drift can NEVER crash first paint.
+ */
+describe('AdminDashboardComponent (KPI "Custom domains" tile — no undefined → no toLocaleString crash)', () => {
+  function buildWithDomainSummary(summary: Record<string, unknown>): AdminDashboardComponent {
+    TestBed.resetTestingModule();
+    TestBed.configureTestingModule({
+      imports: [AdminDashboardComponent],
+      providers: [
+        {
+          provide: AdminStateService,
+          useValue: {
+            // One published+built site so the KPI strip renders (and the domains tile is reached).
+            sites: signal([{ id: 's0', status: 'published', current_build_version: 'v1', business_name: 'Demo', slug: 'demo' }]),
+            domainSummary: signal(summary),
+            subscription: signal(null),
+            getStatusClass: (s: string) => (s === 'published' ? 'published' : 'draft'),
+            getStatusLabel: (s: string) => s,
+            isBuilding: () => false,
+          },
+        },
+        { provide: AuthService, useValue: { email: signal('owner@example.com') } },
+      ],
+    });
+    TestBed.overrideComponent(AdminDashboardComponent, { set: { template: '<div></div>', imports: [] } });
+    return TestBed.createComponent(AdminDashboardComponent).componentInstance;
+  }
+  afterEach(() => TestBed.resetTestingModule());
+
+  // The exact pre-fix break: total present (>0 → tile renders) but active/pending/failed
+  // absent (the raw nested wire shape assigned verbatim). The tile's numeric `value` MUST
+  // still be a finite number, never undefined (which would crash the counter's format()).
+  it('renders a finite numeric value when active/pending/failed are undefined (the raw-wire drift)', () => {
+    const c = buildWithDomainSummary({ total: 9 }); // active/pending/failed undefined
+    const tile = c.kpiTiles().find((t) => t.key === 'domains');
+    expect(tile).withContext('the domains tile renders because total > 0').toBeDefined();
+    expect(tile!.numeric).toBe(true);
+    expect(Number.isFinite(tile!.value)).withContext('value is a finite number, never undefined').toBe(true);
+    expect(tile!.value).toBe(0);
+    // The sub copy + tone must not throw on undefined pending/failed either.
+    expect(typeof tile!.sub).toBe('string');
+    expect(['good', 'attention', 'neutral']).toContain(tile!.tone);
+  });
+
+  it('still reflects the real flat counts when present (active drives value, failed drives attention tone)', () => {
+    const c = buildWithDomainSummary({ total: 9, active: 6, pending: 2, failed: 1 });
+    const tile = c.kpiTiles().find((t) => t.key === 'domains')!;
+    expect(tile.value).toBe(6);
+    expect(tile.tone).toBe('attention'); // failed > 0
+    expect(tile.sub).toContain('pending'); // pending > 0 → "2 pending setup"
+  });
+
+  it('omits the domains tile entirely when total is 0 (no fabricated tile)', () => {
+    const c = buildWithDomainSummary({ total: 0, active: 0, pending: 0, failed: 0 });
+    expect(c.kpiTiles().find((t) => t.key === 'domains')).toBeUndefined();
+  });
+});
+
+/**
  * P4 command-center: the site-status summary buckets the already-loaded sites
  * via AdminStateService.getStatusClass and surfaces only non-zero buckets,
  * `error` (needs attention) first. Real data only — no fetch.

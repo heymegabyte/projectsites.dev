@@ -9,6 +9,9 @@ import {
   logsTailFixture,
   webhooksFixture,
   webhookDeliveriesFixture,
+  sparklineFixture,
+  annotationsFixture,
+  readinessFixture,
   type McpConnectionsResponse,
   type SnapshotMetricsResponse,
   type SnapshotsListResponse,
@@ -19,6 +22,9 @@ import {
   type LogsTailResponse,
   type WebhooksResponse,
   type WebhookDeliveriesResponse,
+  type SparklineResponse,
+  type AnnotationsResponse,
+  type ReadinessResponse,
 } from './per-site.fixture';
 import { findFixture, toRegistryKey } from './index';
 
@@ -238,6 +244,126 @@ describe('webhooksFixture + webhookDeliveriesFixture (Settings → Webhooks tab)
     // resolves to its OWN fixture (both share the same empty shape, so assert via key count).
     expect(toRegistryKey('GET', '/api/sites/s-1/webhooks/deliveries').key).toBe(
       'GET /sites/s-1/webhooks/deliveries',
+    );
+  });
+});
+
+// ═══════════════════ #34 — Snapshots section's three per-site reads ═══════════════════
+// The health sparkline, timeline-notes, and readiness panel each self-fetch a per-site GET
+// on the Snapshots surface. These were NOT fixtured → 404 in the demo (fixture ids are
+// prod-nonexistent). Each must match the EXACT worker wire shape (verified against the live
+// handlers), register under a :param key, and — critically — NOT be shadowed by the sibling
+// `/sites/:id/snapshots` + `/sites/:id/snapshots/metrics` patterns (anchored regexes).
+
+describe('sparklineFixture (GET /sites/:id/sparkline → { siteId, days })', () => {
+  it('returns the worker envelope { siteId, days } (NOT wrapped in { data })', () => {
+    const res: SparklineResponse = sparklineFixture('populated', q());
+    expect(typeof res.siteId).toBe('string');
+    expect(Array.isArray(res.days)).toBe(true);
+    for (const d of res.days) {
+      expect(typeof d.date).toBe('string');
+      expect(typeof d.visits).toBe('number');
+    }
+  });
+
+  it('populated → a renderable trend (≥2 days AND a non-zero total, the card`s visible gate)', () => {
+    const res = sparklineFixture('populated', q());
+    expect(res.days.length).toBeGreaterThanOrEqual(2);
+    expect(res.days.reduce((s, d) => s + d.visits, 0)).toBeGreaterThan(0);
+  });
+
+  it('empty → { days: [] } (no traffic → the card self-hides, honest brand-new state)', () => {
+    expect(sparklineFixture('empty', q()).days).toEqual([]);
+  });
+
+  it('honors ?days= by returning the LAST N days, clamped to 1..30 (mirrors the worker window)', () => {
+    expect(sparklineFixture('populated', q('days=7')).days.length).toBe(7);
+    expect(sparklineFixture('populated', q('days=3')).days.length).toBe(3);
+    // default (no param) = 7
+    expect(sparklineFixture('populated', q()).days.length).toBe(7);
+    // clamp: a huge value caps at the available series (≤30); a bad value falls back to 7
+    expect(sparklineFixture('populated', q('days=999')).days.length).toBeLessThanOrEqual(30);
+    expect(sparklineFixture('populated', q('days=abc')).days.length).toBe(7);
+    // the returned slice is the TAIL (most-recent days), newest last
+    const three = sparklineFixture('populated', q('days=3')).days;
+    expect(three[three.length - 1].date).toBe('2026-10-06');
+  });
+
+  it('is registered under :param GET /sites/:id/sparkline and NOT shadowed by /snapshots', () => {
+    expect(registered('GET /sites/s-1/sparkline')).toBe(true);
+    // the /snapshots + /snapshots/metrics patterns must not swallow /sparkline
+    expect(findFixture('GET /sites/s-1/sparkline')).toBe(
+      sparklineFixture as unknown as ReturnType<typeof findFixture>,
+    );
+  });
+});
+
+describe('annotationsFixture (GET /sites/:id/annotations → { data })', () => {
+  it('returns the worker envelope { data: Annotation[] } with the full row shape', () => {
+    const res: AnnotationsResponse = annotationsFixture('populated', q());
+    expect(Array.isArray(res.data)).toBe(true);
+    expect(res.data.length).toBeGreaterThan(0);
+    for (const a of res.data) {
+      expect(typeof a.id).toBe('string');
+      expect(typeof a.siteId).toBe('string');
+      expect(typeof a.date).toBe('string');
+      expect(typeof a.note).toBe('string');
+      expect(typeof a.category).toBe('string');
+      expect(typeof a.createdAt).toBe('string');
+    }
+  });
+
+  it('empty → { data: [] } (the timeline-notes `add a marker` launchpad)', () => {
+    expect(annotationsFixture('empty', q()).data).toEqual([]);
+  });
+
+  it('is registered under :param GET /sites/:id/annotations', () => {
+    expect(registered('GET /sites/s-1/annotations')).toBe(true);
+    expect(findFixture('GET /sites/s-1/annotations')).toBe(
+      annotationsFixture as unknown as ReturnType<typeof findFixture>,
+    );
+  });
+});
+
+describe('readinessFixture (GET /sites/:id/readiness → { score, grade, checks })', () => {
+  it('returns the BARE worker envelope { score, grade, checks } (NOT wrapped in { data })', () => {
+    const res: ReadinessResponse = readinessFixture('populated', q());
+    expect(typeof res.score).toBe('number');
+    expect(typeof res.grade).toBe('string');
+    expect(Array.isArray(res.checks)).toBe(true);
+    for (const c of res.checks) {
+      expect(typeof c.name).toBe('string');
+      expect(typeof c.pass).toBe('boolean');
+      expect(typeof c.weight).toBe('number');
+      expect(typeof c.hint).toBe('string');
+    }
+  });
+
+  it('score equals the sum of passing weights, and grade follows the worker A/B/C/D/F boundaries', () => {
+    for (const state of ['populated', 'empty'] as const) {
+      const r = readinessFixture(state, q());
+      const expected = r.checks.reduce((s, c) => s + (c.pass ? c.weight : 0), 0);
+      expect(r.score).toBe(expected);
+      const g =
+        r.score >= 90 ? 'A' : r.score >= 80 ? 'B' : r.score >= 70 ? 'C' : r.score >= 60 ? 'D' : 'F';
+      expect(r.grade).toBe(g);
+    }
+  });
+
+  it('populated → grade C (3 of 4 pass → score 75, one actionable fix); empty → grade F (score 50)', () => {
+    const pop = readinessFixture('populated', q());
+    expect(pop.score).toBe(75);
+    expect(pop.grade).toBe('C');
+    expect(pop.checks.filter((c) => !c.pass).length).toBe(1); // the one "left to fix" the panel lists
+    const empty = readinessFixture('empty', q());
+    expect(empty.score).toBe(50);
+    expect(empty.grade).toBe('F');
+  });
+
+  it('is registered under :param GET /sites/:id/readiness', () => {
+    expect(registered('GET /sites/s-1/readiness')).toBe(true);
+    expect(findFixture('GET /sites/s-1/readiness')).toBe(
+      readinessFixture as unknown as ReturnType<typeof findFixture>,
     );
   });
 });

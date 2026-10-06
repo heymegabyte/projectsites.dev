@@ -628,8 +628,42 @@ export class ApiService {
     return this.get('/billing/subscription', undefined, opts);
   }
 
+  /**
+   * Fetch the org's domain summary, normalized to the flat {@link DomainSummary}
+   * every consumer expects (`{ total, active, pending, failed }`).
+   *
+   * The worker emits a NESTED wire shape — `{ data: { total, by_status: { active,
+   * pending, verification_failed }, by_type: {…} } }` (see `hostnames/handlers.ts`
+   * `GET /api/admin/domains/summary`) — so the flat `active`/`pending`/`failed`
+   * keys do NOT exist on the raw envelope. Before this mapper, `AdminStateService`
+   * assigned `res.data` verbatim, leaving those three fields `undefined`; the
+   * dashboard's "Custom domains" KPI tile then bound `undefined` into a
+   * `<app-rolling-counter>`, whose `format()` called `undefined.toLocaleString()`
+   * → an uncaught `TypeError` (the dashboard error toast on `?mock=1`, and a latent
+   * prod crash for any org with ≥1 hostname). Flattening here — the contract
+   * boundary — fixes every caller + prod in one place; the fixture stays faithful
+   * to the real wire. `verification_failed` collapses to the flat `failed`.
+   */
   getDomainSummary(opts?: { silent?: boolean }): Observable<{ data: DomainSummary }> {
-    return this.get('/admin/domains/summary', undefined, opts);
+    return this.get<{
+      data?: {
+        total?: number;
+        by_status?: { active?: number; pending?: number; verification_failed?: number };
+      };
+    }>('/admin/domains/summary', undefined, opts).pipe(
+      map((res) => {
+        const d = res?.data ?? {};
+        const byStatus = d.by_status ?? {};
+        return {
+          data: {
+            total: d.total ?? 0,
+            active: byStatus.active ?? 0,
+            pending: byStatus.pending ?? 0,
+            failed: byStatus.verification_failed ?? 0,
+          } satisfies DomainSummary,
+        };
+      }),
+    );
   }
 
   searchAddress(
