@@ -809,3 +809,209 @@ describe('CreateComponent — claim build FAILED branch offers a retry (WAITING-
     expect(navigate).toHaveBeenCalledWith(['/signin']);
   });
 });
+
+/**
+ * CREATE-CONTEXT-DROP (#28) — a SIGNED-OUT owner who filled the form is bounced to
+ * `/signin`; `submitBuild()` persists the business via `AuthService.setSelectedBusiness`
+ * then auto-submits on return. The old persist DROPPED the owner's `businessCategory`,
+ * `additionalContext`, `place_id`, and `types`, so the returning auto-submit sent the AI
+ * a THINNER brief than the owner assembled — a silent quality loss on exactly the owners
+ * who filled everything. This block uses the REAL AuthService (real localStorage
+ * round-trip) to prove all four fields: (a) survive the persist, (b) re-hydrate the
+ * on-screen inputs on return, and (c) thread into the create-from-search build request.
+ *
+ * File UPLOADS are DEFERRED (a FileList cannot survive a localStorage bounce — that needs
+ * a session-upload hand-off, tracked separately). This fix covers the text + identity
+ * fields only.
+ */
+describe('CreateComponent — signed-out persist keeps category/context/place_id/types (#28)', () => {
+  let api: {
+    searchBusinesses: jasmine.Spy;
+    searchAddress: jasmine.Spy;
+    createSiteFromSearch: jasmine.Spy;
+  };
+
+  const FILLED = {
+    name: "Vito's Mens Salon",
+    address: '74 N Beverwyck Rd, Lake Hiawatha, NJ 07034',
+    phone: '(973) 555-0148',
+    website: 'https://vitosmens.com',
+    category: 'Salon / Barbershop',
+    context: 'Old-school hot-towel shaves, walk-ins welcome, open since 1998.',
+    placeId: 'ChIJ_vitos_mens_salon',
+    types: ['hair_care', 'establishment'],
+  };
+
+  afterEach(() => {
+    localStorage.clear();
+    sessionStorage.clear();
+    TestBed.resetTestingModule();
+  });
+
+  /**
+   * Render /create with the REAL AuthService. `loggedIn` + `pending` drive the two
+   * phases: first render signed-OUT (to persist), second render signed-IN with a pending
+   * build (to re-hydrate + auto-submit). `createReturn` is what the mocked create endpoint
+   * resolves with.
+   */
+  function render(opts: {
+    loggedIn: boolean;
+    pending: boolean;
+    createReturn?: unknown;
+  }): { fx: ComponentFixture<CreateComponent>; auth: AuthService; router: Router } {
+    api = {
+      searchBusinesses: jasmine.createSpy('searchBusinesses').and.returnValue(of({ data: [] })),
+      searchAddress: jasmine.createSpy('searchAddress').and.returnValue(of({ data: [] })),
+      createSiteFromSearch: jasmine
+        .createSpy('createSiteFromSearch')
+        .and.returnValue(of(opts.createReturn ?? { data: { site_id: 's1', slug: 'vitos' } })),
+    };
+    TestBed.configureTestingModule({
+      imports: [CreateComponent],
+      providers: [
+        provideRouter([]),
+        { provide: ApiService, useValue: api },
+        AuthService, // REAL service — exercises the localStorage persist/rehydrate round-trip
+        { provide: GeolocationService, useValue: { lat: () => null, lng: () => null } },
+        {
+          provide: ToastService,
+          useValue: { error: () => undefined, success: () => undefined, info: () => undefined },
+        },
+        { provide: TelemetryService, useValue: { track: () => undefined } },
+        {
+          provide: ActivatedRoute,
+          useValue: { snapshot: { queryParams: {}, queryParamMap: { get: () => null } } },
+        },
+      ],
+    });
+    const auth = TestBed.inject(AuthService);
+    if (opts.loggedIn) auth.setSession('tok', 'owner@example.com');
+    if (opts.pending) auth.setPendingBuild(true);
+    const router = TestBed.inject(Router);
+    spyOn(router, 'navigate').and.resolveTo(true);
+    const fx = TestBed.createComponent(CreateComponent);
+    fx.detectChanges();
+    return { fx, auth, router };
+  }
+
+  it('(a) setSelectedBusiness PERSISTS category, additional_context, place_id, and types on the signed-out bounce', () => {
+    const { fx, auth } = render({ loggedIn: false, pending: false });
+    const c = fx.componentInstance;
+    // Owner assembled the FULL brief, then hit submit while signed out.
+    c.businessName = FILLED.name;
+    c.businessAddress = FILLED.address;
+    c.businessPhone = FILLED.phone;
+    c.businessWebsite = FILLED.website;
+    c.businessCategory = FILLED.category;
+    c.additionalContext = FILLED.context;
+    c.selectedBusiness.set({
+      name: FILLED.name,
+      address: FILLED.address,
+      place_id: FILLED.placeId,
+      types: FILLED.types,
+    });
+
+    c.submitBuild(); // signed-out → persists + routes to /signin
+
+    const saved = auth.getSelectedBusiness();
+    expect(saved).withContext('the business selection must persist').not.toBeNull();
+    // The four fields the old persist DROPPED — the heart of the bug.
+    expect(saved?.category).withContext('category must survive the signin bounce').toBe(
+      FILLED.category,
+    );
+    expect(saved?.additional_context)
+      .withContext('the owner-written context must survive the signin bounce')
+      .toBe(FILLED.context);
+    expect(saved?.place_id).withContext('place_id must survive the signin bounce').toBe(
+      FILLED.placeId,
+    );
+    expect(saved?.types).withContext('Places types must survive the signin bounce').toEqual(
+      FILLED.types,
+    );
+    // The fields that already survived stay intact.
+    expect(saved?.name).toBe(FILLED.name);
+    expect(saved?.address).toBe(FILLED.address);
+    expect(saved?.phone).toBe(FILLED.phone);
+    expect(saved?.website).toBe(FILLED.website);
+  });
+
+  it('(b) RE-HYDRATES the category + context inputs on return so the owner SEES their earlier entries', fakeAsync(() => {
+    // Simulate the persisted blob from the signed-out submit.
+    localStorage.setItem(
+      'ps_selected_business',
+      JSON.stringify({
+        name: FILLED.name,
+        address: FILLED.address,
+        phone: FILLED.phone,
+        website: FILLED.website,
+        place_id: FILLED.placeId,
+        types: FILLED.types,
+        category: FILLED.category,
+        additional_context: FILLED.context,
+      }),
+    );
+    // Return signed-in (no pending build so it rehydrates WITHOUT auto-submitting).
+    const { fx } = render({ loggedIn: true, pending: false });
+    const c = fx.componentInstance;
+
+    expect(c.businessCategory)
+      .withContext('category input must repopulate from the persisted selection')
+      .toBe(FILLED.category);
+    expect(c.additionalContext)
+      .withContext('context textarea must repopulate from the persisted selection')
+      .toBe(FILLED.context);
+    // The select + textarea reflect the model (ngModel) so the owner literally sees them.
+    // ngModel writes the view value on a microtask — flush it, then a second CD pass so
+    // the DOM mirrors the rehydrated model (deterministic, no timing flake).
+    tick();
+    fx.detectChanges();
+    const select = overlayRoot(fx).querySelector<HTMLSelectElement>('#create-category');
+    const textarea = overlayRoot(fx).querySelector<HTMLTextAreaElement>('#create-context');
+    expect(select?.value).withContext('the rendered category select shows the value').toBe(
+      FILLED.category,
+    );
+    expect(textarea?.value).withContext('the rendered context textarea shows the value').toBe(
+      FILLED.context,
+    );
+  }));
+
+  it('(c) auto-submit on return THREADS category/context/place_id/types into the build request', fakeAsync(() => {
+    localStorage.setItem(
+      'ps_selected_business',
+      JSON.stringify({
+        name: FILLED.name,
+        address: FILLED.address,
+        phone: FILLED.phone,
+        website: FILLED.website,
+        place_id: FILLED.placeId,
+        types: FILLED.types,
+        category: FILLED.category,
+        additional_context: FILLED.context,
+      }),
+    );
+    // Return signed-in WITH a pending build → ngOnInit auto-submits after 500ms.
+    render({ loggedIn: true, pending: true });
+    tick(600); // clear the auto-submit setTimeout
+
+    expect(api.createSiteFromSearch)
+      .withContext('the returning owner must auto-submit the build')
+      .toHaveBeenCalledTimes(1);
+    const payload = api.createSiteFromSearch.calls.mostRecent().args[0] as {
+      additional_context?: string;
+      business: { category?: string; place_id?: string; types?: string[] };
+    };
+    // The FULL brief reaches the AI — not the thinned name/address/phone/website subset.
+    expect(payload.business.category)
+      .withContext('category must thread into the build request')
+      .toBe(FILLED.category);
+    expect(payload.additional_context)
+      .withContext('the owner-written context must thread into the build request')
+      .toBe(FILLED.context);
+    expect(payload.business.place_id)
+      .withContext('place_id must thread into the build request')
+      .toBe(FILLED.placeId);
+    expect(payload.business.types)
+      .withContext('Places types must thread into the build request')
+      .toEqual(FILLED.types);
+  }));
+});

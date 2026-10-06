@@ -482,14 +482,25 @@ export class CreateComponent implements OnInit, AfterViewInit, OnDestroy {
     const biz = this.auth.getSelectedBusiness();
 
     if (biz) {
-      // Coming from search selection — always use stored business data
-      if (this.auth.getMode() === 'business' && biz.place_id) {
+      // Coming from search selection — always use stored business data.
+      // CREATE-CONTEXT-DROP (#28): restore selectedBusiness whenever the persisted blob
+      // carries a place_id — NOT only in 'business' mode. The signed-out bounce persists
+      // under 'custom' mode, so gating on 'business' here silently dropped place_id + types
+      // from the returning auto-submit. The signal feeds place_id/types into the payload.
+      if (biz.place_id) {
         this.selectedBusiness.set(biz);
       }
       this.businessName = biz.name || this.businessName;
       this.businessAddress = biz.address || this.businessAddress;
       if (biz.phone) this.businessPhone = biz.phone;
       if (biz.website) this.businessWebsite = cleanUrl(biz.website);
+      // Re-hydrate the category + context INPUTS so the returning owner SEES their earlier
+      // entries (not just has them silently sent) — ngModel mirrors these to the select +
+      // textarea. Only fill a field the owner hasn't already typed into this session.
+      if (biz.category && !this.businessCategory) this.businessCategory = biz.category;
+      if (biz.additional_context && !this.additionalContext.trim()) {
+        this.additionalContext = biz.additional_context;
+      }
       if (hasPendingBuild && !this.auth.isLoggedIn()) {
         // Keep pendingBuild — user needs to sign in first
       } else if (hasPendingBuild && this.auth.isLoggedIn() && !shouldAutoCreate) {
@@ -1926,14 +1937,25 @@ export class CreateComponent implements OnInit, AfterViewInit, OnDestroy {
     // field. The AI fills whatever the owner leaves blank; we send only what's
     // provided. No required-field guard, no "is required" toast.
 
-    // If not logged in, store business info and redirect to signin
+    // If not logged in, store business info and redirect to signin.
+    // CREATE-CONTEXT-DROP (#28): persist the FULL brief — category, the owner's
+    // additional_context, place_id, and Places types — ALONGSIDE name/address/phone/
+    // website. The old persist dropped these four, so the returning auto-submit sent
+    // the AI a thinner brief than the owner assembled (silent quality loss on exactly
+    // the owners who filled everything). File uploads are DEFERRED (a FileList can't
+    // survive a localStorage bounce — needs a session-upload hand-off, tracked separately).
     if (!this.auth.isLoggedIn()) {
       this.auth.setMode('custom');
+      const biz = this.selectedBusiness();
       this.auth.setSelectedBusiness({
         name: this.businessName.trim(),
         address: this.businessAddress.trim(),
         phone: this.businessPhone.trim() || undefined,
         website: this.businessWebsite.trim() || undefined,
+        place_id: biz?.place_id,
+        types: biz?.types,
+        category: this.businessCategory || undefined,
+        additional_context: this.additionalContext.trim() || undefined,
       });
       this.auth.setPendingBuild(true);
       this.router.navigate(['/signin']);

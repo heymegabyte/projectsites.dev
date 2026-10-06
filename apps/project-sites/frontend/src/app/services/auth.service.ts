@@ -52,6 +52,20 @@ export interface SelectedBusiness {
   types?: string[];
   lat?: number;
   lng?: number;
+  /**
+   * Business vertical the owner chose (one of the create-form category options).
+   * Matches the `business.category` field the create-from-search worker accepts.
+   * Persisted so a signed-out owner's category survives the signin bounce + the
+   * returning auto-submit threads it into the build (#28 — else the AI got a
+   * thinner brief than the owner assembled).
+   */
+  category?: string;
+  /**
+   * The owner's free-text "additional details" for the build. Matches the
+   * top-level `additional_context` field the create-from-search worker accepts.
+   * Persisted alongside {@link category} so the full brief survives signin (#28).
+   */
+  additional_context?: string;
 }
 
 @Injectable({ providedIn: 'root' })
