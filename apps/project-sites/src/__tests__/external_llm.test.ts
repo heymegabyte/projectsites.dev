@@ -803,19 +803,40 @@ describe('credit/quota exhaustion → Workers-AI fallback', () => {
   }
 
   it('isCreditQuotaError: true for Anthropic credit-balance + OpenAI insufficient_quota, false for a plain 401', () => {
-    expect(sut.isCreditQuotaError(new Error('Anthropic API error 400: {"error":{"message":"Your credit balance is too low to access the Anthropic API."}}'))).toBe(true);
-    expect(sut.isCreditQuotaError(new Error('OpenAI API error 429: {"error":{"code":"insufficient_quota"}}'))).toBe(true);
-    expect(sut.isCreditQuotaError(new Error('DeepSeek API error 402: Insufficient Balance'))).toBe(true);
+    expect(
+      sut.isCreditQuotaError(
+        new Error(
+          'Anthropic API error 400: {"error":{"message":"Your credit balance is too low to access the Anthropic API."}}',
+        ),
+      ),
+    ).toBe(true);
+    expect(
+      sut.isCreditQuotaError(
+        new Error('OpenAI API error 429: {"error":{"code":"insufficient_quota"}}'),
+      ),
+    ).toBe(true);
+    expect(sut.isCreditQuotaError(new Error('DeepSeek API error 402: Insufficient Balance'))).toBe(
+      true,
+    );
     // A plain bad-key / validation 4xx is NOT a credit error — must surface verbatim.
     expect(sut.isCreditQuotaError(new Error('OpenAI API error 401: invalid_api_key'))).toBe(false);
-    expect(sut.isCreditQuotaError(new Error('Anthropic API error 400: {"type":"invalid_request_error"}'))).toBe(false);
+    expect(
+      sut.isCreditQuotaError(
+        new Error('Anthropic API error 400: {"type":"invalid_request_error"}'),
+      ),
+    ).toBe(false);
   });
 
   it('falls back to the workers-ai provider (DEGRADED) when BOTH externals are credit-exhausted', async () => {
     // openai primary → credit/quota 429; anthropic fallback → credit-balance 400.
     mockGatewayFetch
       .mockResolvedValueOnce(gwErr(429, '{"error":{"code":"insufficient_quota"}}'))
-      .mockResolvedValueOnce(gwErr(400, '{"error":{"message":"Your credit balance is too low to access the Anthropic API."}}'));
+      .mockResolvedValueOnce(
+        gwErr(
+          400,
+          '{"error":{"message":"Your credit balance is too low to access the Anthropic API."}}',
+        ),
+      );
 
     const ai = aiBinding('degraded edge answer');
     const res = await callExternalLLM(makeEnv({ AI: ai }), { system: 's', user: 'u' });
@@ -832,7 +853,10 @@ describe('credit/quota exhaustion → Workers-AI fallback', () => {
 
   it('falls back on a single credit-exhausted vendor too (locked primary, no AI cross-vendor)', async () => {
     mockGatewayFetch.mockResolvedValueOnce(
-      gwErr(400, '{"error":{"message":"Your credit balance is too low to access the Anthropic API."}}'),
+      gwErr(
+        400,
+        '{"error":{"message":"Your credit balance is too low to access the Anthropic API."}}',
+      ),
     );
     const ai = aiBinding('edge fallback');
     const res = await callExternalLLM(makeEnv({ AI: ai }), {
@@ -864,7 +888,10 @@ describe('credit/quota exhaustion → Workers-AI fallback', () => {
 
   it('rethrows the ORIGINAL credit error when no AI binding exists (behavior unchanged without env.AI)', async () => {
     mockGatewayFetch.mockResolvedValueOnce(
-      gwErr(400, '{"error":{"message":"Your credit balance is too low to access the Anthropic API."}}'),
+      gwErr(
+        400,
+        '{"error":{"message":"Your credit balance is too low to access the Anthropic API."}}',
+      ),
     );
     // No AI binding in env → nothing to fall back to → the original vendor error surfaces.
     await expect(
@@ -880,7 +907,11 @@ describe('credit/quota exhaustion → Workers-AI fallback', () => {
   it('does NOT touch Workers AI when the external call SUCCEEDS (default path unchanged)', async () => {
     mockGatewayFetch.mockResolvedValueOnce(gwOk(openAIBody('normal openai')));
     const ai = aiBinding();
-    const res = await callExternalLLM(makeEnv({ AI: ai }), { system: 's', user: 'u', provider: 'openai' });
+    const res = await callExternalLLM(makeEnv({ AI: ai }), {
+      system: 's',
+      user: 'u',
+      provider: 'openai',
+    });
     expect(res.provider).toBe('openai');
     expect(res.degraded).toBeFalsy();
     expect((ai as unknown as { run: jest.Mock }).run).not.toHaveBeenCalled();
