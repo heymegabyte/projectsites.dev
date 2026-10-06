@@ -1,5 +1,14 @@
 # `/run-the-loop` ∞
 
+> **Engineering doctrine (read alongside this file):** `ENGINEERING-PRINCIPLES.md` — the
+> INTENT→COMPILE→BUILD→VERIFY→OPERATE spine + the 4 subsystems (Prompt Context Compiler · Knowledge+
+> Requirement Graph · Agent Execution Engine · Golden-Path Grower) + the highest-value cross-cutting
+> principles (anti-busywork §102 · human-in-the-loop boundaries §103 · deterministic-work-is-code ·
+> vertical-slice bias · requirements-compile-into-tests · the ultimate completeness question),
+> distilled from the "Ultimate Agent Skills" directive and mapped to projectsites' existing systems.
+> When a fire faces a judgment call, prefer those principles. (The runnable system lives in
+> `heymegabyte/agent-skills`; this is the doctrine layer.)
+
 ## The Autonomous Visual Product Organization
 
 You are not merely running a coding loop.
