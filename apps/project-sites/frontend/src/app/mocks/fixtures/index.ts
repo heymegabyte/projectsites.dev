@@ -34,15 +34,16 @@ import {
   snapshotsListFixture,
   githubStatusFixture,
   aiLogsFixture,
-  deliverabilityFixture,
   copilotConfigFixture,
   logsTailFixture,
-  webhooksFixture,
-  webhookDeliveriesFixture,
   sparklineFixture,
   annotationsFixture,
   readinessFixture,
 } from './per-site.fixture';
+// P2d — these three superseded the thin per-site stubs with richer section fixtures.
+import { deliverabilityFixture } from './deliverability.fixture';
+import { webhooksFixture, webhookDeliveriesFixture } from './webhooks.fixture';
+import { docsOpenApiFixture, docsStatsFixture, docsAppOverviewFixture } from './docs.fixture';
 import {
   aiSettingsFixture,
   teamFixture,
@@ -205,6 +206,10 @@ export const FIXTURES: Readonly<Record<RoutePattern, FixtureFactory>> = {
   'GET /sites/:id/logs/tail': logsTailFixture as FixtureFactory,
   'GET /sites/:id/webhooks': webhooksFixture as FixtureFactory,
   'GET /sites/:id/webhooks/deliveries': webhookDeliveriesFixture as FixtureFactory,
+  // P2d — docs section (OpenAPI explorer; auth-only, no flag; openapi.json is a BARE spec object)
+  'GET /admin/docs/openapi.json': docsOpenApiFixture as FixtureFactory,
+  'GET /admin/docs/stats': docsStatsFixture as FixtureFactory,
+  'GET /admin/docs/app-overview': docsAppOverviewFixture as FixtureFactory,
   // #34 — the Snapshots section's three self-fetching cards (health sparkline, timeline
   // notes, readiness panel). Un-prefixed per-site paths (NOT `/snapshots/*`), verified
   // against the live components + worker. `:param` keys; each anchored regex (`^…$`, one
