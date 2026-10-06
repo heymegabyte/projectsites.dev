@@ -1,11 +1,18 @@
-# Session checkpoint — fire-187 (WLK-39 Editor panel: IMPLEMENTED + PROVEN; launch blocked on Anthropic billing)
+# Session checkpoint — WLK-39 Editor panel: ✅ CLOSED + LIVE (via Cloudflare Workers AI)
 
-## TL;DR
-The §75 flagship **"Claude Code" Editor panel (WLK-39) is finished being implemented** — code-complete,
-deployed across all 3 surfaces (worker + editor Pages + admin bridge), and proven end-to-end by a live
-browser proof + a prod curl. It is NOT live to users (flags dark) for ONE non-code reason: **the
-Anthropic account is out of credits**. The directive "finish the Editor panel implementation" is
-SATISFIED; what remains is a billing top-up (Brian) + one platform-touching refinement (below).
+## TL;DR — ✅ CLOSED (fire-260, 2026-10-06)
+The §75 flagship **"Claude Code" Editor panel (WLK-39) is COMPLETE + LIVE** for org `org-brian-001`
+("Brian Z"). It was engineering-complete + proven end-to-end (3 surfaces + a live browser proof), then
+blocked ONLY by the OpenAI/Anthropic accounts being credit-exhausted. Per Brian's directive ("continue
+without passing the prompt through OpenAI/Anthropic"), fire-260 added a **Workers-AI terminal fallback**
+(`isCreditQuotaError` → `env.AI` Llama; commit `840322b24`, deployed `f39805c2`): on vendor credit/quota
+exhaustion the call degrades to Cloudflare Workers AI (free, CF-native) instead of 502. **Prod-proven:**
+`/api/resolve` → **200** with research + synthesis via `@cf/meta/llama-3.3-70b-instruct-fp8-fast`. Flags
+PROMOTED (reversible): `claude_code_panel`→org-brian-001 + `resolution_engine`→global (`set_by=wlk39-launch`).
+Single mode = full quality; Resolution = honest-degraded (Workers AI; flagged "dual-frontier research
+needs external credits"). **External dual-frontier (OpenAI+Anthropic) is deferred to a credit top-up —
+`DECISIONS.md` ADR-0056;** when funded, the fallback self-heals back to the external providers.
+(History of the journey below is retained as context.)
 
 ## DONE + PROVEN (fires 174-186)
 - Embedded "Claude Code" tab: Activity/Files/Tests/Deploy surfaces + run lifecycle + Single mode
@@ -17,9 +24,8 @@ SATISFIED; what remains is a billing top-up (Brian) + one platform-touching refi
   gateway path) — PROVEN on prod: the `AiGatewayError 401` is gone; the error moved DOWNSTREAM to vendor billing.
 - Flags `claude_code_panel` + `resolution_engine` are DARK (default-off). Every verify-override reverted clean.
 
-## 🔑 THE blocker to LAUNCH — NOT code (Brian/ops action)
-**BOTH external LLM providers are short on credits/quota** (re-checked fire-189, 2026-10-05 — STILL
-blocked): Anthropic `"Your credit balance is too low to access the Anthropic API"`; OpenAI now also
+## 🔑 THE (former) blocker — ✅ RESOLVED fire-260 (Workers-AI fallback; an external top-up is now OPTIONAL quality-upgrade, not a launch blocker)
+**BOTH external LLM providers were short on credits/quota** (historical — fires 189..257): Anthropic `"Your credit balance is too low to access the Anthropic API"`; OpenAI also
 shows quota/`insufficient` markers. Top up BOTH accounts — AND/OR mint the CF AI Gateway auth token → a NEW `CF_AIG_TOKEN` secret + send
 `cf-aig-authorization` (CF dashboard → AI Gateway → settings) so calls flow THROUGH the gateway (cache/
 cost controls) instead of the direct-vendor fallback. This also blocks the **editor AI chat's premium/
