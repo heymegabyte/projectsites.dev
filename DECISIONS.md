@@ -494,3 +494,27 @@ The WLK-39 "Claude Code" editor panel and the Resolution Engine (`POST /api/reso
 **Reconsider when:** the OpenAI + Anthropic accounts are funded — at that point the external dual-frontier research path resumes automatically (the Workers-AI rung goes dormant) and no code change is needed. Re-evaluate whether to keep Workers AI as a permanent last-resort rung or gate it behind a flag.
 
 **Consequences:** AI surfaces stay usable (real answers, free) while the external accounts are dry, at reduced quality — flagged `degraded:true` so the UI can tell the user. TDD: `src/__tests__/external_llm.test.ts` (credit/quota → workers-ai fallback; plain 4xx still surfaces) + `libs/features/resolution_engine/__tests__/resolve_route.test.ts` (both-externals-exhausted → 200 degraded, non-billing → honest 502). No new flag, no migration. Negative-knowledge: do not re-wire the external dual-frontier path as "broken" — it's billing-blocked, not defective.
+
+**See also:** ADR-0057 — the INTERNAL agent-orchestration layer no longer needs funded external API keys at all (subscription CLIs + DeepSeek); this ADR's Workers-AI degradation remains the PRODUCT Resolution path's honest fallback.
+
+## ADR-0057 — Internal agent orchestration: subscription CLIs + DeepSeek-via-OpenCode, never API keys
+
+- **Status:** Accepted · **Date:** 2026-10-06 (Brian directive) · **Deciders:** Brian Zalewski · **Series:** convergence
+
+Our INTERNAL development / research / agent-orchestration layer (the `/run-the-loop` agents, build tooling, self-improvement, reviews) must stop spending OpenAI/Anthropic **API** money when subscription CLIs or DeepSeek can do the work. This is a hard provider policy, distinct from customer-facing product features.
+
+**Decision — two tiers, both off API keys:**
+- **Frontier (architecture · research · judgment):** `claude` CLI (Claude subscription) = architect/integrator/final judge; `codex` CLI (ChatGPT subscription) = independent researcher/adversarial reviewer. Run both independently; Claude synthesizes. **Codex unauthed is NOT fatal** → Claude does an extra independent pass.
+- **Throughput (routine implementation):** OpenCode + DeepSeek (API allowed via `get-secret DEEPSEEK_API_KEY`) — parallel shards, tests, refactors, migrations, docs, candidates; swarm when parallelizable.
+
+**Hard rules (internal only):** never `OPENAI_API_KEY`/`ANTHROPIC_API_KEY`; never the Responses/ChatCompletions/Messages API or SDK to make a model research/plan/review/code/expand when the CLI can; never silently fall back subscription→PAYG; never mint a key or touch CLI OAuth creds. Child `claude` must not inherit `ANTHROPIC_API_KEY`; child `codex` must not inherit `OPENAI_API_KEY` — launch via `with-subscription-cli.sh`.
+
+**Canonical SSOT:** `~/.agentskills/rules/agent-provider-policy.md` (`heymegabyte/agent-skills@3b8c77c`). Enforcement tooling: `bin/provider-capability.sh` (capability/env-leak detector), `bin/with-subscription-cli.sh` (env-sanitizing launcher), `bin/check-required-keys.sh` (DeepSeek required; Anthropic/OpenAI env-presence = warning). `rules/model-routing.md` now points at the SSOT and the `ANTHROPIC_API_KEY` passive-fallback blessing is removed.
+
+**Product boundary (PRESERVED):** customer-facing OpenAI/Anthropic features — the WLK-39 Resolution Engine (`/api/resolve`), model-registry `/v1/*`, editor chat router, voice/social/media owner AI, AI-Gateway + telemetry — stay, billed to the platform. ADR-0056's Workers-AI degradation remains the Resolution path's honest fallback.
+
+**Supersedes:** the "defer internal dual-frontier research to credit top-up" disposition implied by ADR-0056 — internal frontier research is AVAILABLE NOW via `claude`+`codex` subscriptions (Codex ChatGPT-authed, confirmed live), no API funding needed.
+
+**Live capability (2026-10-06, `provider-capability.sh`):** `claude` 2.1.197 ✓ · `codex` 0.144.3 ChatGPT-authed ✓ · `DEEPSEEK_API_KEY` present ✓ · no API-key env leak ✓ · `policy_ok=true`. Gap: `opencode` NOT installed (throughput tier unwired — tracked).
+
+**Remaining campaign (subsequent fires):** install+wire OpenCode (throughput tier); migrate category-A code call sites (`scripts/container-server.mjs` build-agent Anthropic fallback, `bin/lint-auto-improve.sh --auto-draft`'s `api.anthropic.com` call, `src/services/retrospective.ts` Haiku, build visual-QA GPT-4o in `scripts/inspect.js` / `container/asset-collector.mjs` / `frontend/scripts/visual-inspection.mjs`, `.github/workflows/run-the-loop.yml` action, `infra/litellm` + `infra/payload`); insert hard-rule pointers into `CLAUDE.md` + `AGENTS.md`; reword category-C docs; remove dead `openai-mcp`. Phase 1 audit + Phase 2–4 artifacts landed this fire.
