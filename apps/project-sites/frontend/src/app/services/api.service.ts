@@ -162,9 +162,51 @@ export class ApiService {
     return qIdx === -1 ? url : url.slice(0, qIdx);
   }
 
+  /**
+   * Pull the worker's RFC7807 fields off a failed response. The worker emits
+   * `{ error: { code, message, request_id } }` (see `middleware/error_render.ts`
+   * + shared `AppError.toJSON`); Angular puts the PARSED body on
+   * `HttpErrorResponse.error`, so the message lives at `err.error?.error?.message`.
+   * Returns `{}` when the body isn't a `{ error: { … } }` envelope (a bare string,
+   * HTML, null, …) so the caller falls back to the generic status text.
+   */
+  private serverEnvelope(error: HttpErrorResponse): { message?: string; requestId?: string } {
+    const body = error.error as { error?: { message?: unknown; request_id?: unknown } } | undefined;
+    const inner = body?.error;
+    if (!inner || typeof inner !== 'object') return {};
+    const message =
+      typeof inner.message === 'string' && inner.message.trim() ? inner.message : undefined;
+    const requestId =
+      typeof inner.request_id === 'string' && inner.request_id.trim() ? inner.request_id : undefined;
+    return { message, requestId };
+  }
+
+  /**
+   * The user-facing toast text for a failed request.
+   *
+   * The worker writes its RFC7807 `message` to be SHOWN to the user — on an
+   * actionable 4xx (a declined card, insufficient funds, a validation gripe, a
+   * conflict) that message IS the real reason, so we surface it verbatim instead
+   * of a generic "something went wrong" that makes a failed payment look like a
+   * random glitch (#29). For 5xx we deliberately do NOT echo the server body (it's
+   * a generic public message at best, a raw internal error at worst) — we keep a
+   * calm generic line and append the `request_id` so support can trace it.
+   */
   private getErrorMessage(error: HttpErrorResponse): string {
     if (error.status === 0 || error.statusText === 'Unknown Error') {
       return "Can't reach the server. Check your connection.";
+    }
+    const { message: serverMessage, requestId } = this.serverEnvelope(error);
+    // 401 keeps its canonical "session expired" copy (the user is about to be
+    // bounced to /signin — a backend-specific 401 string would be noise).
+    // For every other actionable 4xx, the server's user-facing message wins.
+    if (error.status >= 400 && error.status < 500 && error.status !== 401 && serverMessage) {
+      return serverMessage;
+    }
+    if (error.status >= 500) {
+      // Generic + request_id only — never the raw server message/stack.
+      const base = "Something went wrong. We're looking into it.";
+      return requestId ? `${base} (ref: ${requestId})` : base;
     }
     switch (error.status) {
       case 401:
@@ -176,9 +218,7 @@ export class ApiService {
       case 429:
         return 'Too many requests. Please wait a moment.';
       default:
-        return error.status >= 500
-          ? "Something went wrong. We're looking into it."
-          : 'An unexpected error occurred. Please try again.';
+        return 'An unexpected error occurred. Please try again.';
     }
   }
 

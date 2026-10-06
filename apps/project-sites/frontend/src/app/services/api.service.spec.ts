@@ -197,6 +197,100 @@ describe('ApiService (auth header + 401 redirect + error mapping)', () => {
     });
   });
 
+  // #29 API-ERROR-MESSAGE — the worker emits human-readable, user-facing RFC7807 envelopes
+  // (`{ error: { code, message, request_id } }`, see src/middleware/error_render.ts +
+  // shared AppError.toJSON). On a money-path 4xx (card declined, insufficient funds,
+  // validation, conflict) the server's `message` IS the actionable reason — it must reach
+  // the user's toast instead of a generic "unexpected error". `HttpErrorResponse.error` is
+  // the parsed body, so the accessor is `err.error?.error?.message`.
+  describe('#29 surfaces the server RFC7807 message on actionable errors', () => {
+    const withBody = (status: number, statusText: string, body: unknown) =>
+      jasmine.createSpy('get').and.callFake(() =>
+        throwError(() => new HttpErrorResponse({ status, statusText, error: body })),
+      );
+
+    // 402 Payment Required — the canonical decline. The real decline reason (written
+    // user-facing by the billing handler, e.g. "Stripe checkout failed (card_declined):
+    // Your card was declined") must be exactly what the user sees — never the generic.
+    it('a 402 with a server message surfaces THAT message (not the generic)', () => {
+      const body = { error: { code: 'STRIPE_ERROR', message: 'Your card was declined', request_id: 'req_402' } };
+      const { api, toastErr } = make({ url: '/admin/billing', get: withBody(402, 'Payment Required', body) });
+      api.get('/billing/checkout').subscribe({ error: () => undefined });
+      expect(toastErr).toHaveBeenCalledWith('Your card was declined');
+    });
+
+    it('a 400 validation error surfaces the server message verbatim', () => {
+      const body = { error: { code: 'VALIDATION_ERROR', message: 'Monthly cap must be a positive number', request_id: 'req_400' } };
+      const { api, toastErr } = make({ url: '/admin/billing', get: withBody(400, 'Bad Request', body) });
+      api.get('/x').subscribe({ error: () => undefined });
+      expect(toastErr).toHaveBeenCalledWith('Monthly cap must be a positive number');
+    });
+
+    it('a 409 conflict surfaces the server message (e.g. duplicate hostname)', () => {
+      const body = { error: { code: 'CONFLICT', message: 'That domain is already attached to another site', request_id: 'req_409' } };
+      const { api, toastErr } = make({ url: '/admin/domains', get: withBody(409, 'Conflict', body) });
+      api.get('/x').subscribe({ error: () => undefined });
+      expect(toastErr).toHaveBeenCalledWith('That domain is already attached to another site');
+    });
+
+    it('a 403/404/422 with a server message surfaces it over the generic mapping', () => {
+      const cases: Array<[number, string, string]> = [
+        [403, 'Forbidden', 'Direct payouts need the Agency-tier add-on'],
+        [404, 'Not Found', 'That saved card is no longer on file'],
+        [422, 'Unprocessable Entity', 'The promo code has expired'],
+      ];
+      for (const [status, statusText, message] of cases) {
+        const body = { error: { code: 'X', message, request_id: 'r' } };
+        const { api, toastErr } = make({ url: '/admin/billing', get: withBody(status, statusText, body) });
+        api.get('/x').subscribe({ error: () => undefined });
+        expect(toastErr).withContext(`status ${status}`).toHaveBeenCalledWith(message);
+        TestBed.resetTestingModule();
+      }
+    });
+
+    // No server message present → the existing generic status-mapped text is the fallback.
+    it('a 4xx with NO server message falls back to the generic status text', () => {
+      const { api, toastErr } = make({ url: '/admin/billing', get: withBody(404, 'Not Found', null) });
+      api.get('/x').subscribe({ error: () => undefined });
+      expect(toastErr).toHaveBeenCalledWith(jasmine.stringContaining("wasn't found"));
+    });
+
+    it('a 4xx whose body is a bare string (not an envelope) falls back to the generic text', () => {
+      const { api, toastErr } = make({ url: '/admin/billing', get: withBody(403, 'Forbidden', 'Forbidden') });
+      api.get('/x').subscribe({ error: () => undefined });
+      expect(toastErr).toHaveBeenCalledWith(jasmine.stringContaining("don't have permission"));
+    });
+
+    // 5xx is NEVER user-actionable — the worker returns a GENERIC public message + a
+    // request_id; the raw internal message/stack stays in logs/Sentry only. We keep a
+    // generic "server error" line and APPEND the request_id for support hand-off, and we
+    // must NOT echo a server-sent 5xx body message (defense in depth even if one leaks).
+    it('a 500 keeps a generic message + request_id and does NOT leak the body message', () => {
+      const body = { error: { code: 'INTERNAL_ERROR', message: 'TypeError: cannot read properties of undefined (reading foo)', request_id: 'req_500' } };
+      const { api, toastErr } = make({ url: '/admin/billing', get: withBody(500, 'Internal Server Error', body) });
+      api.get('/x').subscribe({ error: () => undefined });
+      const arg = toastErr.calls.mostRecent().args[0] as string;
+      expect(arg).withContext('generic 5xx copy preserved').toContain('looking into it');
+      expect(arg).withContext('request_id appended for support').toContain('req_500');
+      expect(arg).withContext('raw internal message must NOT leak to the user').not.toContain('TypeError');
+    });
+
+    it('{ silent: true } still suppresses the toast even when a server message is present', () => {
+      const body = { error: { code: 'STRIPE_ERROR', message: 'Your card was declined', request_id: 'r' } };
+      const { api, toastErr } = make({ url: '/admin/billing', get: withBody(402, 'Payment Required', body) });
+      api.get('/x', undefined, { silent: true }).subscribe({ error: () => undefined });
+      expect(toastErr).not.toHaveBeenCalled();
+    });
+
+    it('a 401 WITH a server message still clears the session AND redirects (security path intact)', () => {
+      const body = { error: { code: 'UNAUTHORIZED', message: 'Your session expired', request_id: 'r' } };
+      const { api, nav, clear } = make({ token: 't', url: '/admin/billing', get: withBody(401, 'Unauthorized', body) });
+      api.get('/x').subscribe({ error: () => undefined });
+      expect(clear).toHaveBeenCalled();
+      expect(nav).toHaveBeenCalledWith(['/signin'], { queryParams: { returnUrl: '/admin/billing' } });
+    });
+  });
+
   it('remaps a 2xx-with-non-JSON body (SPA fallthrough) to 404 so "endpoint unavailable" handling applies', () => {
     // Angular HttpClient surfaces a 200 whose body is HTML (JSON parse fails) as an
     // HttpErrorResponse with a 2xx status. The worker's SPA catch-all returns 200 +

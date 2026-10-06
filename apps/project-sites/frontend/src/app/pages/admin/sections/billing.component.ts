@@ -2528,7 +2528,20 @@ export class AdminBillingComponent implements OnInit {
           this.toast.info('Checkout opened');
         }
       },
-      error: () => { this.upgrading.set(false); this.toast.error('Could not start checkout — retry, or contact hey@megabyte.space'); },
+      error: (err: unknown) => {
+        this.upgrading.set(false);
+        // Surface the worker's actionable RFC7807 reason (card declined, insufficient
+        // funds, validation) instead of a blanket generic — the server writes
+        // `{ error: { message } }` to be shown to the user (#29). The checkout POST is
+        // { silent: true } so ApiService doesn't also toast; we own the single toast here.
+        const serverMessage = (err as { error?: { error?: { message?: unknown } } })?.error?.error
+          ?.message;
+        this.toast.error(
+          typeof serverMessage === 'string' && serverMessage.trim()
+            ? serverMessage
+            : 'Could not start checkout — retry, or contact hey@megabyte.space',
+        );
+      },
     });
   }
   manage(): void {
