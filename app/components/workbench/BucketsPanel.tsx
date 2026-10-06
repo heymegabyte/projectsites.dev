@@ -1078,10 +1078,13 @@ const ObjectBrowser = memo(
         onDragLeave={onDragLeave}
         onDrop={onDrop}
       >
-        {/* Toolbar */}
-        <div className="flex items-center gap-2 px-3 py-2 border-b border-bolt-elements-borderColor/60 shrink-0 overflow-x-auto">
-          {/* Breadcrumbs */}
-          <nav className="flex items-center gap-1 text-[11px] min-w-0" aria-label="Prefix breadcrumbs">
+        {/* Toolbar — wraps by PANEL width (this pane is a flex sub-pane of the editor split, not the
+            viewport, so a viewport @media is wrong). At a narrow panel (~≤620px) the control cluster
+            flows onto a second line beneath the breadcrumbs instead of cramping; at wide widths it
+            stays right-aligned on the same row. `gap-y-2` keeps the two rows breathing when wrapped. */}
+        <div className="flex flex-wrap items-center gap-x-2 gap-y-2 px-3 py-2 border-b border-bolt-elements-borderColor/60 shrink-0">
+          {/* Breadcrumbs — flex-1 so they own the first line and let the control cluster wrap below. */}
+          <nav className="flex items-center gap-1 text-[11px] min-w-0 flex-1 basis-40" aria-label="Prefix breadcrumbs">
             <button
               type="button"
               onClick={() => setPrefix('')}
@@ -1109,9 +1112,13 @@ const ObjectBrowser = memo(
             })}
           </nav>
 
-          <div className="ml-auto flex items-center gap-2 shrink-0">
-            {/* Search */}
-            <div className="relative w-32 group">
+          {/* Control cluster — `ml-auto` right-aligns it on the first row at wide panel widths; it
+              wraps BELOW the breadcrumbs as a unit when the panel narrows (~≤620px). It can itself
+              wrap internally (`flex-wrap justify-end`) so the controls stack cleanly at extreme narrow
+              widths rather than clipping. */}
+          <div className="ml-auto flex flex-wrap items-center justify-end gap-2">
+            {/* Search — grows to share free space, never shrinks below a usable width. */}
+            <div className="relative grow min-w-[8rem] max-w-[14rem] group">
               <div className="i-ph:magnifying-glass absolute left-2 top-1/2 -translate-y-1/2 text-xs text-bolt-elements-textTertiary group-focus-within:text-bolt-elements-item-contentAccent transition-colors pointer-events-none" />
               <input
                 type="search"
@@ -1129,7 +1136,7 @@ const ObjectBrowser = memo(
               onChange={(e) => setSort(e.target.value as SortKey)}
               aria-label="Sort objects"
               className={classNames(
-                'min-h-[26px] appearance-none pl-2.5 pr-7 py-1 text-[11px] rounded-lg border border-bolt-elements-borderColor bg-bolt-elements-background-depth-2 text-bolt-elements-textSecondary cursor-pointer transition-colors',
+                'shrink-0 min-h-[26px] appearance-none pl-2.5 pr-7 py-1 text-[11px] rounded-lg border border-bolt-elements-borderColor bg-bolt-elements-background-depth-2 text-bolt-elements-textSecondary cursor-pointer transition-colors',
                 'hover:border-bolt-elements-item-contentAccent/50 hover:text-bolt-elements-textPrimary',
                 'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-bolt-elements-item-contentAccent',
                 "bg-[url('data:image/svg+xml;charset=utf-8,%3Csvg%20xmlns%3D%22http%3A//www.w3.org/2000/svg%22%20viewBox%3D%220%200%2024%2024%22%20fill%3D%22none%22%20stroke%3D%22%2300e5ff%22%20stroke-width%3D%222.5%22%20stroke-linecap%3D%22round%22%20stroke-linejoin%3D%22round%22%3E%3Cpolyline%20points%3D%226%209%2012%2015%2018%209%22/%3E%3C/svg%3E')]",
@@ -1147,7 +1154,7 @@ const ObjectBrowser = memo(
               onClick={onCopyBucketAddress}
               title="Copy the bucket address"
               aria-label="Copy bucket address"
-              className={classNames(BTN_GHOST, 'min-h-[26px] px-2 py-1 text-[11px]')}
+              className={classNames(BTN_GHOST, 'shrink-0 min-h-[26px] px-2 py-1 text-[11px]')}
             >
               <div className="i-ph:link text-sm" /> Address
             </button>
@@ -1158,7 +1165,7 @@ const ObjectBrowser = memo(
               disabled={uploading || !objectOpsAvailable}
               data-testid="buckets-upload"
               title={objectOpsAvailable ? 'Upload files to this bucket' : 'Object uploads need R2 S3 credentials'}
-              className={classNames(BTN_PRIMARY, 'min-h-[26px] px-3 py-1 text-[11px]')}
+              className={classNames(BTN_PRIMARY, 'shrink-0 min-h-[26px] px-3 py-1 text-[11px]')}
             >
               <div
                 className={classNames(
