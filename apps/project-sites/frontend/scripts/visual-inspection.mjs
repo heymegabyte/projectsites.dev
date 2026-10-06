@@ -12,6 +12,12 @@
  *   - OPENAI_API_KEY env var (primary)
  *   - ANTHROPIC_API_KEY env var (fallback)
  *   - playwright installed
+ *
+ * PROVIDER POLICY (category-B PRODUCT, PRESERVED — rules/agent-provider-policy.md
+ * § Product-runtime boundary + ADR-0057): GPT-4o / Claude VISION QA of a generated CUSTOMER
+ * site at 6 breakpoints. Vision has no DeepSeek equivalent, so OpenAI-primary + Anthropic-fallback
+ * stay — product delivery, not internal dev orchestration. (Workers-AI vision = possible FUTURE
+ * enhancement, not a policy fix.)
  */
 
 import { chromium } from 'playwright';

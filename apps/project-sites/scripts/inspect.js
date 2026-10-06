@@ -6,6 +6,11 @@
  * Usage: node inspect.js <html-file-path>
  * Requires: OPENAI_API_KEY env var
  * Outputs: JSON critique to stdout
+ *
+ * PROVIDER POLICY (category-B PRODUCT, PRESERVED — rules/agent-provider-policy.md
+ * § Product-runtime boundary + ADR-0057): GPT-4o VISION QA of a generated CUSTOMER site.
+ * Vision has no DeepSeek equivalent, so OpenAI stays — this is product delivery, not internal
+ * dev orchestration. (A Workers-AI-vision rung is a possible FUTURE enhancement, not a policy fix.)
  */
 const https = require('https');
 const fs = require('fs');

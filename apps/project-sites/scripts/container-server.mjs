@@ -1893,6 +1893,13 @@ http.createServer((q, r) => {
         }
         // DeepSeek-primary path: override Claude Code's Anthropic endpoint with DeepSeek's
         // Anthropic-compatible API. ANTHROPIC_API_KEY stays as fallback if DeepSeek errors.
+        //
+        // PROVIDER POLICY (category-B PRODUCT, PRESERVED — rules/agent-provider-policy.md
+        // § Product-runtime boundary + ADR-0057): this is the CUSTOMER-SITE build agent, not
+        // internal dev orchestration. DeepSeek is primary (policy-compliant cheap rail); the
+        // Anthropic fallback is a product-runtime safety net so a paying customer's build does
+        // NOT fail when DeepSeek is down — platform-billed, intentional. Do NOT remove it as an
+        // "internal Anthropic call": the ban covers our own dev agents, never the delivery pipeline.
         if (P._deepseekKey && P._anthropicBaseUrl) {
           envVars.ANTHROPIC_BASE_URL = P._anthropicBaseUrl;
           envVars.ANTHROPIC_AUTH_TOKEN = P._deepseekKey;

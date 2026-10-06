@@ -672,6 +672,12 @@ function enrichWithOptimizedUrls(images) {
  * Validate a single image using GPT-4o-mini Vision API.
  * Returns a quality assessment including relevance, professionalism, and issue detection.
  *
+ * PROVIDER POLICY (category-B PRODUCT, PRESERVED — rules/agent-provider-policy.md
+ * § Product-runtime boundary + ADR-0057): GPT-4.1-mini VISION curation of CUSTOMER-site imagery
+ * (relevance/quality/watermark gate). Vision has no DeepSeek equivalent, so OpenAI stays — this is
+ * the delivery pipeline, not internal dev orchestration. (Workers-AI vision = possible FUTURE
+ * enhancement, not a policy fix.)
+ *
  * @param {string} imagePath - Absolute path to the image file
  * @param {string} businessName - Business name for context
  * @param {string} businessType - Business type for context
