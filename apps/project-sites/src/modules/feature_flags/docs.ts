@@ -122,6 +122,28 @@ export const FLAG_DOCS: Record<string, FlagDocs> = {
     ],
     e2e_tests: [],
   },
+  resolution_engine: {
+    checklist: [
+      'Dual-frontier prompt Resolution Engine behind the editor Claude Code panel (WLK-39 §76)',
+      'Gates POST /api/resolve — two INDEPENDENT research legs (OpenAI + Anthropic) → premium-Claude synthesis',
+      'Resolves on the GLOBAL (empty) scope — needs a global override to light up, not org-scoped',
+      'Gate order: flag-dark-404 ("not enabled", never 403) → auth-401 → Zod-validated body',
+      'Degrades HONESTLY on vendor credit exhaustion → one Cloudflare Workers-AI pass, degraded:true, never a 502 (ADR-0056)',
+      'Transport: editor ⇄ admin PS_RESOLVE bridge (no cross-origin session); 90s ceiling for the multi-LLM path (fire-264)',
+      'Off (default, DARK) → /api/resolve 404s for everyone + the panel\'s Resolution mode stays hidden',
+    ],
+    explanation:
+      'The Resolution Engine (WLK-39 §76) is the dual-frontier prompt-expansion core behind the editor Claude Code panel\'s "Resolution" mode. POST /api/resolve runs two INDEPENDENT heavy-research legs — one via OpenAI, one via Anthropic, each locked to its provider so neither sees the other\'s answer — then a premium-Claude synthesis pass merges the best of both into one executable plan (not a concatenation). Isolation + gate order: flag-dark-404 ("not enabled", never 403, so existence never leaks) → auth-401 → Zod-validated body. The flag resolves on the GLOBAL scope (an empty-scope override), unlike the org-scoped claude_code_panel. The embedded editor has no cross-origin session, so it asks the admin (BoltEmbedService) over the PS_RESOLVE_REQUEST→PS_RESOLVE_RESPONSE bridge with a 90s ceiling (the dual-research→synthesis path is inherently 20-60s). Per ADR-0056, when the external vendors are credit-exhausted the engine degrades HONESTLY to a single Cloudflare Workers-AI pass flagged degraded:true — a real answer, never a 502, and never two identical Workers-AI legs dressed up as independent. Off (default, DARK) → /api/resolve 404s and the panel\'s Resolution mode is hidden. Reversible: promotion is a global flag override.',
+    smoke_test: [
+      'Enable via a GLOBAL override (empty scope) → curl -X POST https://projectsites.dev/api/resolve -H "Authorization: Bearer $TOKEN" -H "origin: https://projectsites.dev" -d \'{"prompt":"add a contact form"}\' → 200 { research:[legs], synthesis } (or 200 degraded:true when the vendors are dry)',
+      'Open the editor Claude Code panel → Resolution mode → run a prompt → staged progress → a synthesis renders',
+      'Off → the same POST 404s ("not enabled") and Resolution mode is absent',
+    ],
+    // Coverage: libs/features/resolution_engine/__tests__/{service,resolve_route}.test.ts (jest unit —
+    // dual-leg independence, both-exhausted → 200 degraded, non-billing → honest 502). The e2e_tests field
+    // tracks dev/PR e2e/*.spec.ts only; WLK39-E2E (the live golden-path spec) is tracked separately.
+    e2e_tests: [],
+  },
   cinematic_scroll_reveals: {
     checklist: [
       'Native CSS scroll-driven homepage section reveals (animation-timeline: view())',
