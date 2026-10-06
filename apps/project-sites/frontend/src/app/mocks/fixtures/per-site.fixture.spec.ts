@@ -1,10 +1,26 @@
 import {
   mcpConnectionsFixture,
   snapshotMetricsFixture,
+  snapshotsListFixture,
+  githubStatusFixture,
+  aiLogsFixture,
+  deliverabilityFixture,
+  copilotConfigFixture,
+  logsTailFixture,
+  webhooksFixture,
+  webhookDeliveriesFixture,
   type McpConnectionsResponse,
   type SnapshotMetricsResponse,
+  type SnapshotsListResponse,
+  type GithubStatusResponse,
+  type AiLogsResponse,
+  type DeliverabilityResponse,
+  type CopilotConfigResponse,
+  type LogsTailResponse,
+  type WebhooksResponse,
+  type WebhookDeliveriesResponse,
 } from './per-site.fixture';
-import { toRegistryKey } from './index';
+import { findFixture, toRegistryKey } from './index';
 
 /**
  * per-site.fixture — mock bodies for the PER-SITE (`/sites/:id/…`) reads the
@@ -75,6 +91,153 @@ describe('snapshotMetricsFixture (GET /sites/:id/snapshots/metrics → { data: M
   it('normalizes to the :param registry key GET /sites/:id/snapshots/metrics', () => {
     expect(toRegistryKey('GET', '/api/sites/site-002/snapshots/metrics').key).toBe(
       'GET /sites/site-002/snapshots/metrics',
+    );
+  });
+});
+
+// ═══════════════════════ #34 shell sweep — toast-free demo ═══════════════════════
+// Eight more per-site reads fired on section/tab open. Fixturing them makes the whole
+// ?mock=1 demo toast-free (snapshots + github/status were NON-silent → toasted; the rest
+// are silent but kept the demo network tab dirty with 404s). Each is typed to the exact
+// worker wire shape and registered under a :param pattern (one body serves every site id).
+
+function registered(key: string): boolean {
+  return findFixture(key) !== undefined;
+}
+
+describe('snapshotsListFixture (GET /sites/:id/snapshots → { data, git_history })', () => {
+  it('returns the worker envelope { data, git_history } (git_history always [] in the demo)', () => {
+    const res: SnapshotsListResponse = snapshotsListFixture('populated', q());
+    expect(Array.isArray(res.data)).toBe(true);
+    expect(res.git_history).toEqual([]);
+  });
+
+  it('populated → believable snapshots newest-first (the "initial" is oldest); empty → []', () => {
+    const rows = snapshotsListFixture('populated', q()).data;
+    expect(rows.length).toBeGreaterThan(0);
+    for (const r of rows) {
+      expect(typeof r.snapshot_name).toBe('string');
+      expect(typeof r.build_version).toBe('string');
+      expect(typeof r.commit_iso).toBe('string');
+    }
+    expect(snapshotsListFixture('empty', q()).data).toEqual([]);
+  });
+
+  it('is registered under the :param key GET /sites/:id/snapshots (NOT shadowed by …/metrics)', () => {
+    expect(toRegistryKey('GET', '/api/sites/s-1/snapshots').key).toBe('GET /sites/s-1/snapshots');
+    expect(registered('GET /sites/s-1/snapshots')).toBe(true);
+    // The longer …/snapshots/metrics key resolves to the DISTINCT metrics fixture (array body).
+    const metrics = findFixture('GET /sites/s-1/snapshots/metrics')!('populated', q()) as {
+      data: unknown[];
+    };
+    expect(Array.isArray(metrics.data)).toBe(true);
+    // …and the plain snapshots key resolves to the LIST fixture (has git_history).
+    const list = findFixture('GET /sites/s-1/snapshots')!('populated', q()) as SnapshotsListResponse;
+    expect('git_history' in list).toBe(true);
+  });
+});
+
+describe('githubStatusFixture (GET /sites/:id/github/status → { data: { connected } })', () => {
+  it('always returns { data: { connected: false } } on every state (never fabricates a link)', () => {
+    const states = ['populated', 'empty', 'loading'] as const;
+    for (const s of states) {
+      const res: GithubStatusResponse = githubStatusFixture(s, q());
+      expect(res.data.connected).toBe(false);
+    }
+  });
+
+  it('is registered under the :param key GET /sites/:id/github/status', () => {
+    expect(toRegistryKey('GET', '/api/sites/s-1/github/status').key).toBe(
+      'GET /sites/s-1/github/status',
+    );
+    expect(registered('GET /sites/s-1/github/status')).toBe(true);
+  });
+});
+
+describe('aiLogsFixture (GET /sites/:id/ai-logs → { data, meta })', () => {
+  it('returns the worker envelope { data, meta } with a consistent total', () => {
+    const res: AiLogsResponse = aiLogsFixture('populated', q());
+    expect(Array.isArray(res.data)).toBe(true);
+    expect(res.meta.total).toBe(res.data.length);
+    expect(res.meta.has_more).toBe(false);
+  });
+
+  it('populated → believable traces (chat/router/tool); empty → [] with total 0', () => {
+    expect(aiLogsFixture('populated', q()).data.length).toBeGreaterThan(0);
+    const empty = aiLogsFixture('empty', q());
+    expect(empty.data).toEqual([]);
+    expect(empty.meta.total).toBe(0);
+  });
+
+  it('is registered under the :param key GET /sites/:id/ai-logs', () => {
+    expect(registered('GET /sites/s-1/ai-logs')).toBe(true);
+  });
+});
+
+describe('deliverabilityFixture (GET /sites/:id/deliverability → { ok, report, needsDomain })', () => {
+  it('always returns the honest pre-domain surface { ok, report: null, needsDomain: true }', () => {
+    const res: DeliverabilityResponse = deliverabilityFixture('populated', q());
+    expect(res.ok).toBe(true);
+    expect(res.report).toBeNull();
+    expect(res.needsDomain).toBe(true);
+  });
+
+  it('is registered under the :param key GET /sites/:id/deliverability', () => {
+    expect(registered('GET /sites/s-1/deliverability')).toBe(true);
+  });
+});
+
+describe('copilotConfigFixture (GET /sites/:id/copilot/config → { site_id, enabled })', () => {
+  it('returns { site_id, enabled } — enabled on populated, off on empty', () => {
+    const on: CopilotConfigResponse = copilotConfigFixture('populated', q());
+    expect(on.enabled).toBe(true);
+    expect(typeof on.site_id).toBe('string');
+    expect(copilotConfigFixture('empty', q()).enabled).toBe(false);
+  });
+
+  it('is registered under the :param key GET /sites/:id/copilot/config', () => {
+    expect(registered('GET /sites/s-1/copilot/config')).toBe(true);
+  });
+});
+
+describe('logsTailFixture (GET /sites/:id/logs/tail → { logs })', () => {
+  it('returns { logs } — believable tail on populated, [] on empty', () => {
+    const res: LogsTailResponse = logsTailFixture('populated', q());
+    expect(Array.isArray(res.logs)).toBe(true);
+    expect(res.logs.length).toBeGreaterThan(0);
+    for (const l of res.logs) {
+      expect(typeof l.ts).toBe('string');
+      expect(typeof l.message).toBe('string');
+    }
+    expect(logsTailFixture('empty', q()).logs).toEqual([]);
+  });
+
+  it('is registered under the :param key GET /sites/:id/logs/tail', () => {
+    expect(registered('GET /sites/s-1/logs/tail')).toBe(true);
+  });
+});
+
+describe('webhooksFixture + webhookDeliveriesFixture (Settings → Webhooks tab)', () => {
+  it('webhooks → { ok: true, endpoints: [] } on every state (honest empty launchpad)', () => {
+    const res: WebhooksResponse = webhooksFixture('populated', q());
+    expect(res.ok).toBe(true);
+    expect(res.endpoints).toEqual([]);
+    expect(webhooksFixture('empty', q()).endpoints).toEqual([]);
+  });
+
+  it('deliveries → { ok: true, deliveries: [] } on every state', () => {
+    const res: WebhookDeliveriesResponse = webhookDeliveriesFixture('populated', q());
+    expect(res.ok).toBe(true);
+    expect(res.deliveries).toEqual([]);
+  });
+
+  it('both are registered under :param keys, and the longer deliveries key is NOT shadowed', () => {
+    expect(registered('GET /sites/s-1/webhooks')).toBe(true);
+    expect(registered('GET /sites/s-1/webhooks/deliveries')).toBe(true);
+    // The anchored :param regex for /webhooks must NOT match /webhooks/deliveries — each
+    // resolves to its OWN fixture (both share the same empty shape, so assert via key count).
+    expect(toRegistryKey('GET', '/api/sites/s-1/webhooks/deliveries').key).toBe(
+      'GET /sites/s-1/webhooks/deliveries',
     );
   });
 });

@@ -28,7 +28,24 @@ import { sitesFixture } from './sites.fixture';
 import { subscriptionFixture, entitlementsFixture, walletFixture } from './billing.fixture';
 import { domainsSummaryFixture } from './domains-summary.fixture';
 import { meFixture } from './admin-me.fixture';
-import { mcpConnectionsFixture, snapshotMetricsFixture } from './per-site.fixture';
+import {
+  mcpConnectionsFixture,
+  snapshotMetricsFixture,
+  snapshotsListFixture,
+  githubStatusFixture,
+  aiLogsFixture,
+  deliverabilityFixture,
+  copilotConfigFixture,
+  logsTailFixture,
+  webhooksFixture,
+  webhookDeliveriesFixture,
+} from './per-site.fixture';
+import {
+  aiSettingsFixture,
+  teamFixture,
+  orgEnvVarsFixture,
+  orgSecurityFixture,
+} from './settings.fixture';
 import {
   multiUrlAnalyticsFixture,
   siteAnalyticsFixture,
@@ -149,6 +166,24 @@ export const FIXTURES: Readonly<Record<RoutePattern, FixtureFactory>> = {
   // P2b — hosting section
   'GET /feature-flags': featureFlagsFixture as FixtureFactory,
   'GET /sites/:id/live-check': liveCheckFixture as FixtureFactory,
+  // P2c — SETTINGS section (per-site ai-settings :param + org-level team/env-vars/security).
+  // `GET /sites/:id/ai-settings` is the single richest per-site read (Settings General + AI-Chat
+  // MCP allow-list + the Forms designer all read it) — it fixes the fire-281 #34 toast.
+  'GET /sites/:id/ai-settings': aiSettingsFixture as FixtureFactory,
+  'GET /team': teamFixture as FixtureFactory,
+  'GET /env-vars': orgEnvVarsFixture as FixtureFactory,
+  'GET /admin/security': orgSecurityFixture as FixtureFactory,
+  // P2c — #34 shell sweep: the remaining per-site GET reads fired on section/tab open so NO
+  // spurious 404/error toast fires anywhere in the demo (snapshots + github/status were NON-silent
+  // → toasted; the rest are silent but kept the demo network tab dirty).
+  'GET /sites/:id/snapshots': snapshotsListFixture as FixtureFactory,
+  'GET /sites/:id/github/status': githubStatusFixture as FixtureFactory,
+  'GET /sites/:id/ai-logs': aiLogsFixture as FixtureFactory,
+  'GET /sites/:id/deliverability': deliverabilityFixture as FixtureFactory,
+  'GET /sites/:id/copilot/config': copilotConfigFixture as FixtureFactory,
+  'GET /sites/:id/logs/tail': logsTailFixture as FixtureFactory,
+  'GET /sites/:id/webhooks': webhooksFixture as FixtureFactory,
+  'GET /sites/:id/webhooks/deliveries': webhookDeliveriesFixture as FixtureFactory,
 };
 
 /**
