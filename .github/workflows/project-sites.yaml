@@ -146,21 +146,20 @@ jobs:
       - name: Test worker package
         working-directory: apps/project-sites
         env:
-          # CI runners have less RAM than dev. The heavy suites that import the full worker via
-          # ../index (route_malformed_json_boundary, platform_root_landings) intermittently
-          # "Test suite failed to run" / "Class extends value undefined" under parallel jest —
-          # a memory/resource race, GREEN locally 14420/14420 every run. Raise the V8 heap ceiling
-          # so the heavy import always has headroom. (CRAWL-3b fire-121 CI-FLAKE-1 durable fix.)
+          # Generous V8 heap headroom for the 31 suites that import the full worker via ../index
+          # (route_malformed_json_boundary, platform_root_landings, …). Measured peak RSS of the
+          # whole --runInBand suite is ~0.9 GB, so 4 GB is comfortable margin on the CI runner.
           NODE_OPTIONS: '--max-old-space-size=4096'
-        # THREE total attempts. fire-119 STRANDED the worker deploy (CRAWL-3 skeleton + ide_sandbox
-        # cleanup never shipped) because the old 2-attempt step flaked BOTH runs → Deploy skipped 0s.
-        # `--maxWorkers=2` caps concurrent heavy-suite memory on the RAM-constrained runner; the local
-        # full suite is the authoritative signal, so a CI-only flake must never strand the deploy. A
-        # GENUINE regression fails all 3 attempts and correctly blocks.
-        run: |
-          npm run test:unit -- --maxWorkers=2 \
-            || (echo "::warning::worker unit suite flaked (attempt 1/3; green locally) — retrying" && npm run test:unit -- --maxWorkers=2) \
-            || (echo "::warning::worker unit suite flaked (attempt 2/3; green locally) — retrying" && npm run test:unit -- --maxWorkers=2)
+        # --runInBand (ROOT-CAUSE FIX, CI-FLAKE-1): the intermittent "Test suite failed to run" /
+        # "Class extends value undefined" was NOT a code circular-import — madge AND dpdm over the
+        # whole src+libs graph find no runtime `extends` cycle (the only cycles are type-only /
+        # dynamic-import back-edges, erased at runtime). It was a PROCESS-LEVEL resource race: on the
+        # RAM-constrained runner, two of the 31 heavy ../index-importing suites co-located on the two
+        # parallel jest workers and corrupted a worker's module registry mid-load. Running the suite
+        # in a single process removes the second worker, so the race cannot occur by construction —
+        # green across 15 repeated local full-suite runs (11 parallel + 4 serial), ~46-50s each. This
+        # replaces the old --maxWorkers=2 + 3-attempt retry band-aid (a serial run needs no retry).
+        run: npm run test:unit -- --runInBand
 
   # ─── Stage 3: Deploy to Staging ────────────────────────────
   deploy-staging:
