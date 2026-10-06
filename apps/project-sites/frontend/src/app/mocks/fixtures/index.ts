@@ -84,6 +84,13 @@ import {
 } from './voice.fixture';
 import { mcpTokensFixture, mcpToolsFixture, mcpToolUsageFixture } from './site-mcp-server.fixture';
 import { featureFlagsFixture, liveCheckFixture } from './hosting.fixture';
+import {
+  socialAccountsFixture,
+  socialPostsFixture,
+  socialBestTimesFixture,
+  socialAutoPilotConfigFixture,
+  socialPostAnalyticsFixture,
+} from './social.fixture';
 
 /** The demo-state knob from `?mock=1&state=…`. `populated` is the default. */
 export type MockState = 'empty' | 'loading' | 'error' | 'populated';
@@ -169,6 +176,17 @@ export const FIXTURES: Readonly<Record<RoutePattern, FixtureFactory>> = {
   // P2b — hosting section
   'GET /feature-flags': featureFlagsFixture as FixtureFactory,
   'GET /sites/:id/live-check': liveCheckFixture as FixtureFactory,
+  // P2d — SOCIAL section (Pulse Social composer + scheduler). The SECTION is NOT
+  // flag-gated — every PRIMARY GET below is auth-only in `routes/social.ts` (only the
+  // publish/schedule/generate MUTATIONS carry `social_publishing_native` / the
+  // `social_publishing` + `social_autopilot` kill-switches). So the Social tab renders
+  // fully on `?mock=1` with these five factories, no flag flip. `GET /social/posts/:id/analytics`
+  // is a `:param` pattern (anchored, so it never shadows the exact `/social/posts` list).
+  'GET /social/accounts': socialAccountsFixture as FixtureFactory,
+  'GET /social/posts': socialPostsFixture as FixtureFactory,
+  'GET /social/best-times': socialBestTimesFixture as FixtureFactory,
+  'GET /social/auto-pilot/config': socialAutoPilotConfigFixture as FixtureFactory,
+  'GET /social/posts/:id/analytics': socialPostAnalyticsFixture as FixtureFactory,
   // P2c — SETTINGS section (per-site ai-settings :param + org-level team/env-vars/security).
   // `GET /sites/:id/ai-settings` is the single richest per-site read (Settings General + AI-Chat
   // MCP allow-list + the Forms designer all read it) — it fixes the fire-281 #34 toast.
