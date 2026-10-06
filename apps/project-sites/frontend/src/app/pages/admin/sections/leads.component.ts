@@ -1,4 +1,4 @@
-import { Component, type OnInit, inject, signal, ChangeDetectionStrategy } from '@angular/core';
+import { Component, type OnInit, inject, signal, computed, ChangeDetectionStrategy } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 
 import { RevealDirective } from '../../../directives/reveal.directive';
@@ -127,6 +127,16 @@ const SOCIAL_META: Readonly<Record<string, SocialMeta>> = {
  * on one of these is directly reachable there. Yelp/Google are LISTINGS (not DM
  * channels), so they're intentionally excluded. */
 const OUTREACH_DM_ORDER = ['instagram', 'facebook', 'x', 'linkedin', 'tiktok', 'threads', 'youtube'] as const;
+
+/**
+ * Rows fetched per page. Mirrors the worker's default `limit` for
+ * `GET /api/admin/leads` (1..200, default 50) so the initial load + every
+ * "Load more" page stay aligned — the control fetches the next slice at
+ * `offset = leads().length` and APPENDS it, so rows #51+ are reachable
+ * (openable / enrichable / claim-linkable / CSV-exportable), not stranded
+ * behind the first page.
+ */
+const LEADS_PAGE_LIMIT = 50;
 
 /** The recommended outreach channel for a lead, or null when no contact was captured. */
 export interface OutreachChannel {
@@ -516,6 +526,32 @@ export function bestOutreachChannel(lead: {
             </tbody>
           </table>
         </div>
+
+        <!-- Load more — shown only while the store holds leads past the loaded
+             page (worker default limit 50). Fetches the next page at
+             offset=leads().length and APPENDS, so every lead is reachable. -->
+        @if (canLoadMore()) {
+          <div class="mt-4 flex items-center justify-center">
+            <button
+              type="button"
+              (click)="loadMore()"
+              [disabled]="loadingMore()"
+              class="inline-flex items-center gap-2 rounded-full border border-primary/30 bg-primary/10 px-5 py-2 text-sm font-semibold text-primary transition-all hover:bg-primary/20 disabled:opacity-60 focus-visible:outline focus-visible:outline-2 focus-visible:outline-[#00E5FF] focus-visible:outline-offset-2"
+              data-testid="leads-load-more"
+              [attr.aria-label]="'Load more leads (' + leads().length + ' of ' + total() + ' shown)'"
+            >
+              @if (loadingMore()) {
+                <span class="ps-enrich-spinner" aria-hidden="true"></span>
+                <span>Loading…</span>
+              } @else {
+                <span>Load more</span>
+                <span class="text-primary/70" aria-hidden="true"
+                  >({{ leads().length }} of {{ total() }})</span
+                >
+              }
+            </button>
+          </div>
+        }
       }
     </section>
   `,
@@ -571,6 +607,14 @@ export class AdminLeadsComponent implements OnInit {
    * capped page never reads as "all" (fire-137 lying-count fix).
    */
   readonly total = signal(0);
+  /** True while the NEXT page is being fetched (in-flight guard for the "Load more" control). */
+  readonly loadingMore = signal(false);
+  /**
+   * True when the store holds more matching leads than are currently loaded —
+   * drives the "Load more" control. Mirrors the count pill's `total() > length`
+   * so the button appears exactly when (and only when) there are unreachable rows.
+   */
+  readonly canLoadMore = computed(() => this.total() > this.leads().length);
   readonly lastScan = signal<{
     scanned: number;
     created: number;
@@ -611,13 +655,35 @@ export class AdminLeadsComponent implements OnInit {
     input.focus();
   }
 
-  /** Load scanned leads (highest score first), honoring the no-website filter. */
+  /**
+   * Build the `/admin/leads` query string for a given page. The no-website
+   * filter is always honored; `offset` (+ an explicit `limit`) is appended only
+   * for a follow-on page so a FRESH load stays byte-identical to the historic
+   * `?onlyNoWebsite=true` / `''` contract (keeps the initial request minimal).
+   */
+  private leadsQuery(offset: number): string {
+    const parts: string[] = [];
+    if (this.onlyNoWebsite()) parts.push('onlyNoWebsite=true');
+    if (offset > 0) {
+      parts.push(`offset=${offset}`);
+      parts.push(`limit=${LEADS_PAGE_LIMIT}`);
+    }
+    return parts.length ? `?${parts.join('&')}` : '';
+  }
+
+  /**
+   * Load the FIRST page of scanned leads (highest score first), honoring the
+   * no-website filter. RESETS pagination — REPLACES the `leads()` signal and
+   * starts from offset 0 — so a fresh load / filter change never appends onto a
+   * stale page. Follow-on pages come from {@link loadMore}.
+   */
   loadLeads(): void {
     this.loading.set(true);
     this.loadError.set(false);
-    const query = this.onlyNoWebsite() ? '?onlyNoWebsite=true' : '';
     this.api
-      .get<{ leads: LeadSummary[]; count: number; total?: number }>(`/admin/leads${query}`)
+      .get<{ leads: LeadSummary[]; count: number; total?: number }>(
+        `/admin/leads${this.leadsQuery(0)}`,
+      )
       .subscribe({
       next: (res) => {
         const rows = res?.leads ?? [];
@@ -632,6 +698,38 @@ export class AdminLeadsComponent implements OnInit {
         this.loading.set(false);
       },
     });
+  }
+
+  /**
+   * Fetch the NEXT page and APPEND it to the loaded leads — so rows past the
+   * first page (worker default `limit` 50) become reachable: openable,
+   * enrichable, claim-linkable, and included in the CSV export. Requests
+   * `offset = leads().length` (the current count) with the same filter, and
+   * de-dupes by `leadId` so an overlapping page can never double-insert a row.
+   * No-ops when there's nothing more to fetch or a fetch is already in flight;
+   * never throws (a failed page clears the guard + leaves the list intact).
+   */
+  loadMore(): void {
+    if (!this.canLoadMore() || this.loadingMore()) return;
+    const offset = this.leads().length;
+    this.loadingMore.set(true);
+    this.api
+      .get<{ leads: LeadSummary[]; count: number; total?: number }>(
+        `/admin/leads${this.leadsQuery(offset)}`,
+      )
+      .subscribe({
+        next: (res) => {
+          const next = res?.leads ?? [];
+          this.leads.update((cur) => {
+            const seen = new Set(cur.map((l) => l.leadId));
+            return [...cur, ...next.filter((l) => !seen.has(l.leadId))];
+          });
+          // Keep the true total fresh (it can only have grown), never below what we hold.
+          this.total.set(Math.max(res?.total ?? 0, this.leads().length));
+          this.loadingMore.set(false);
+        },
+        error: () => this.loadingMore.set(false),
+      });
   }
 
   /**

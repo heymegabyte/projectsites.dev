@@ -106,6 +106,15 @@ interface McpPill {
 const POLL_INTERVAL_MS = 10_000;
 
 /**
+ * Submissions fetched per page. Mirrors the worker default `limit` for
+ * `GET /api/sites/:siteId/form-submissions` (1..500, default 200) so the
+ * initial inbox load + every "Load more" page stay aligned — the control
+ * fetches the next slice at `offset = submissions().length` and APPENDS it, so
+ * leads past the first page become openable + exportable instead of stranded.
+ */
+const FORMS_PAGE_LIMIT = 200;
+
+/**
  * Admin → Forms section. Inbox + analytics list, plus the embedded
  * Form-Handling-Prompt widget (textarea + MCP pills + AI improve + save).
  *
@@ -601,6 +610,27 @@ const POLL_INTERVAL_MS = 10_000;
             </tbody>
           </table>
           </div>
+
+          <!-- Load more — shown only while the store holds submissions past the
+               loaded page (worker default limit 200). Fetches the next page at
+               offset=submissions().length and APPENDS, so every lead is reachable
+               + exportable, not just the most-recent page. -->
+          @if (hasHiddenLeads()) {
+            <div class="p-4 pt-0 flex items-center justify-center">
+              <button class="btn-ghost text-xs inline-flex items-center gap-2" type="button"
+                      data-testid="forms-load-more"
+                      [disabled]="loadingMore()" (click)="loadMore()"
+                      [attr.aria-label]="'Load more submissions (' + submissions().length + ' of ' + totalCount() + ' shown)'">
+                @if (loadingMore()) {
+                  <span class="skeleton-dot" aria-hidden="true"></span>
+                  <span>Loading…</span>
+                } @else {
+                  <span>Load more</span>
+                  <span class="text-text-secondary" aria-hidden="true">({{ submissions().length }} of {{ totalCount() }})</span>
+                }
+              </button>
+            </div>
+          }
         }
       </section>
     </div>
@@ -822,6 +852,14 @@ const POLL_INTERVAL_MS = 10_000;
     .skeleton { background: rgba(255,255,255,0.10); border-radius: 8px; animation: skel-pulse 1.4s ease-in-out infinite; }
     .skeleton-row { height: 44px; }
     @keyframes skel-pulse { 0%, 100% { opacity: 0.55; } 50% { opacity: 1; } }
+    /* In-flight spinner for the "Load more" control (inherits currentColor). */
+    .skeleton-dot {
+      display: inline-block; width: 10px; height: 10px;
+      border: 2px solid currentColor; border-right-color: transparent;
+      border-radius: 50%; animation: forms-load-spin 0.6s linear infinite;
+    }
+    @keyframes forms-load-spin { to { transform: rotate(360deg); } }
+    @media (prefers-reduced-motion: reduce) { .skeleton-dot { animation-duration: 1.5s; } }
     /* Keyboard-openable submission rows — role=button + tabindex on the <tr>.
        Cyan focus ring (inset so it reads inside the table chrome) satisfies
        WCAG 2.4.11 focus appearance + 2.4.7 visible focus for keyboard users. */
@@ -967,6 +1005,8 @@ export class AdminFormsComponent implements OnInit, OnDestroy {
    *  (The worker caps the page at the 200 most-recent rows; `hasHiddenLeads` fires
    *  off the real `meta.total`, so the note shows exact counts, not a hardcoded 200.) */
   readonly hasHiddenLeads = computed(() => this.totalCount() > this.submissions().length);
+  /** True while the NEXT page is being fetched (in-flight guard for the "Load more" control). */
+  readonly loadingMore = signal(false);
   loading = signal(false);
   /** Persistent submissions-load failure — so a fetch error shows a Retry card, not a fake "No submissions yet" empty state. */
   loadError = signal<string | null>(null);
@@ -1487,7 +1527,9 @@ export class AdminFormsComponent implements OnInit, OnDestroy {
   }
 
   /**
-   * Reload the submissions list.
+   * Reload the submissions list (the FIRST page, or — on a background poll that
+   * follows a "Load more" — enough rows to refresh everything currently loaded).
+   * REPLACES `submissions()`; a user-initiated reload resets to the first page.
    * @param opts.silent - when true, suppress the loading spinner + error toast
    *   (used by the auto-poll timer so the UI doesn't flicker every 10s).
    */
@@ -1496,9 +1538,14 @@ export class AdminFormsComponent implements OnInit, OnDestroy {
     if (!site) return;
     if (!opts.silent) this.loading.set(true);
     if (!opts.silent) { this.loadError.set(null); this.loadErrorRef.set(''); }
+    // A background poll must refresh EVERY loaded row, not truncate back to the
+    // first page — so after the user has paged in more, re-request that many.
+    // A user-initiated (non-silent) reload resets to the first page.
+    const want = opts.silent ? Math.max(FORMS_PAGE_LIMIT, this.submissions().length) : FORMS_PAGE_LIMIT;
+    const query = want > FORMS_PAGE_LIMIT ? `?limit=${Math.min(want, 500)}` : '';
     this.api
       .get<{ data: Submission[]; meta?: { total?: number; has_more?: boolean } }>(
-        `/sites/${site.id}/form-submissions`,
+        `/sites/${site.id}/form-submissions${query}`,
         undefined,
         { silent: true },
       )
@@ -1527,6 +1574,42 @@ export class AdminFormsComponent implements OnInit, OnDestroy {
         }
       },
     });
+  }
+
+  /**
+   * Fetch the NEXT page of submissions and APPEND it — so leads past the first
+   * page (worker default `limit` 200) become reachable: openable, selectable,
+   * and CSV-exportable (the export serializes loaded rows). Requests
+   * `offset = submissions().length` and de-dupes by `id` so an overlapping page
+   * can never double-insert. No-ops when there's nothing more to fetch or a
+   * fetch is already in flight; never throws (a failed page clears the guard +
+   * leaves the list intact).
+   */
+  loadMore(): void {
+    if (!this.hasHiddenLeads() || this.loadingMore()) return;
+    const site = this.state.selectedSite();
+    if (!site) return;
+    const offset = this.submissions().length;
+    this.loadingMore.set(true);
+    this.api
+      .get<{ data: Submission[]; meta?: { total?: number; has_more?: boolean } }>(
+        `/sites/${site.id}/form-submissions?offset=${offset}&limit=${FORMS_PAGE_LIMIT}`,
+        undefined,
+        { silent: true },
+      )
+      .subscribe({
+        next: (r) => {
+          const next = r.data ?? [];
+          this.submissions.update((cur) => {
+            const seen = new Set(cur.map((s) => s.id));
+            return [...cur, ...next.filter((s) => !seen.has(s.id))];
+          });
+          // Keep the true total fresh, never below what we now hold.
+          this.metaTotal.set(Math.max(r.meta?.total ?? 0, this.submissions().length));
+          this.loadingMore.set(false);
+        },
+        error: () => this.loadingMore.set(false),
+      });
   }
 
   /** Pull the worker request_id from a failed response ({ error: { request_id } }) for the support reference. */

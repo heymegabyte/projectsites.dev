@@ -136,6 +136,62 @@ describe('AdminFormsComponent (cohesion + a11y, convergence r17)', () => {
     expect(component.hasHiddenLeads()).toBe(false);
   });
 
+  // Reaching the hidden leads: the worker pages on offset (meta.has_more), and the
+  // FE must be able to fetch the NEXT page + APPEND it (not replace) so every
+  // stored lead is openable/exportable — not just the first 200.
+  it('loadMore requests offset = current length and APPENDS the next page (list grows)', () => {
+    build(null);
+    const page1 = Array.from({ length: 200 }, (_, i) => ({
+      id: `p1-${i}`, form_name: 'contact', email: `u${i}@x.com`, status: 'received',
+      created_at: '2026-08-01T00:00:00Z', fields: {},
+    }));
+    const page2 = Array.from({ length: 30 }, (_, i) => ({
+      id: `p2-${i}`, form_name: 'contact', email: `v${i}@x.com`, status: 'received',
+      created_at: '2026-07-01T00:00:00Z', fields: {},
+    }));
+    get.and.callFake((url: string) => {
+      if (url.includes('/ai-settings')) return of({ data: { form_router_prompt: '', form_router_prompt_default: '', reply_email: '' } });
+      if (url.includes('/mcp/connections')) return of({ data: { connections: [] } });
+      if (url.includes('/form-submissions')) {
+        return of({ data: page1, meta: { limit: 200, offset: 0, total: 230, has_more: true } });
+      }
+      return of({ data: [] });
+    });
+    selectedSite.set({ id: 'site-1' });
+    fixture.detectChanges();
+
+    expect(component.submissions().length).toBe(200);
+    expect(component.hasHiddenLeads()).toBe(true);
+
+    // Next page: must request offset=200 (current length).
+    get.and.callFake((_url: string) => of({ data: page2, meta: { limit: 200, offset: 200, total: 230, has_more: false } }));
+    component.loadMore();
+
+    const call = get.calls.all().find((x) => String(x.args[0]).includes('offset=200'));
+    expect(call).withContext('loadMore fetches the next page at offset=200').toBeTruthy();
+    // APPENDED — the list grew to 230 (page1 ∪ page2), first page still present.
+    expect(component.submissions().length).toBe(230);
+    expect(component.submissions()[0]!.id).toBe('p1-0');
+    expect(component.submissions()[200]!.id).toBe('p2-0');
+    expect(component.hasHiddenLeads()).toBe(false); // 230 of 230 → control hides
+    expect(component.loadingMore()).toBe(false);
+  });
+
+  it('loadMore no-ops when there are no hidden leads or a fetch is already in flight', () => {
+    build(null);
+    get.and.callFake((url: string) => {
+      if (url.includes('/ai-settings')) return of({ data: { form_router_prompt: '', form_router_prompt_default: '', reply_email: '' } });
+      if (url.includes('/mcp/connections')) return of({ data: { connections: [] } });
+      if (url.includes('/form-submissions')) return of({ data: [{ id: 'a', form_name: 'c', email: 'a@b.com', status: 'received', created_at: '2026-08-01T00:00:00Z', fields: {} }], meta: { limit: 200, offset: 0, total: 1, has_more: false } });
+      return of({ data: [] });
+    });
+    selectedSite.set({ id: 'site-1' });
+    fixture.detectChanges();
+    get.calls.reset();
+    component.loadMore(); // hasHiddenLeads() is false → must not fetch
+    expect(get.calls.all().find((x) => String(x.args[0]).includes('offset='))).toBeUndefined();
+  });
+
   it('does NOT fetch anything on mount when no site is selected (deep-link)', () => {
     build(null);
     expect(get).not.toHaveBeenCalled();

@@ -62,6 +62,81 @@ describe('AdminLeadsComponent', () => {
     expect(api.get).toHaveBeenCalledWith('/admin/leads');
   });
 
+  it('a fresh loadLeads REPLACES the list + resets pagination (offset back to 0)', () => {
+    const c = make();
+    // Seed a prior second page so we can prove the next fresh load replaces (not appends).
+    c.leads.set([lead, { ...lead, leadId: 'stale' }]);
+    c.loadLeads();
+    // No offset param on a fresh load → server starts from the top.
+    expect(api.get).toHaveBeenCalledWith('/admin/leads?onlyNoWebsite=true');
+    expect(c.leads().length).toBe(1); // replaced with the single mocked row, not 3
+    expect(c.leads()[0]!.leadId).toBe('l1');
+  });
+
+  it('shows the load-more control only when total() exceeds the loaded count', () => {
+    const c = make();
+    // One row loaded, server says 60 total → more to fetch.
+    api.get.and.returnValue(of({ leads: [lead], count: 1, total: 60 }));
+    c.loadLeads();
+    expect(c.canLoadMore()).toBe(true);
+    // Server total equals the loaded count → nothing more to fetch.
+    api.get.and.returnValue(of({ leads: [lead], count: 1, total: 1 }));
+    c.loadLeads();
+    expect(c.canLoadMore()).toBe(false);
+  });
+
+  it('loadMore requests offset = current length and APPENDS (list grows, not replaced)', () => {
+    const c = make();
+    const page1 = Array.from({ length: 50 }, (_, i) => ({ ...lead, leadId: `p1-${i}` }));
+    const page2 = Array.from({ length: 10 }, (_, i) => ({ ...lead, leadId: `p2-${i}` }));
+    api.get.and.returnValue(of({ leads: page1, count: 50, total: 60 }));
+    c.loadLeads();
+    expect(c.leads().length).toBe(50);
+    expect(c.canLoadMore()).toBe(true);
+
+    // Next page: must request offset=50 (current length) and keep the same filter.
+    api.get.and.returnValue(of({ leads: page2, count: 10, total: 60 }));
+    c.loadMore();
+    expect(api.get).toHaveBeenCalledWith('/admin/leads?onlyNoWebsite=true&offset=50&limit=50');
+    // APPENDED — the list grew to 60 (page1 ∪ page2), the first page is still present.
+    expect(c.leads().length).toBe(60);
+    expect(c.leads()[0]!.leadId).toBe('p1-0');
+    expect(c.leads()[50]!.leadId).toBe('p2-0');
+    expect(c.canLoadMore()).toBe(false); // 60 of 60 → control hides
+    expect(c.loadingMore()).toBe(false);
+  });
+
+  it('loadMore appends with no filter param when no-website-only is off', () => {
+    const c = make();
+    c.onlyNoWebsite.set(false);
+    const page1 = Array.from({ length: 50 }, (_, i) => ({ ...lead, leadId: `a${i}` }));
+    api.get.and.returnValue(of({ leads: page1, count: 50, total: 90 }));
+    c.loadLeads();
+    api.get.and.returnValue(of({ leads: [lead], count: 1, total: 90 }));
+    c.loadMore();
+    expect(api.get).toHaveBeenCalledWith('/admin/leads?offset=50&limit=50');
+  });
+
+  it('loadMore no-ops when nothing more to fetch or a fetch is already in flight', () => {
+    const c = make();
+    api.get.and.returnValue(of({ leads: [lead], count: 1, total: 1 }));
+    c.loadLeads();
+    api.get.calls.reset();
+    c.loadMore(); // canLoadMore() is false → must not fetch
+    expect(api.get).not.toHaveBeenCalled();
+  });
+
+  it('clears the loadingMore guard on a load-more error (list preserved)', () => {
+    const c = make();
+    const page1 = Array.from({ length: 50 }, (_, i) => ({ ...lead, leadId: `x${i}` }));
+    api.get.and.returnValue(of({ leads: page1, count: 50, total: 80 }));
+    c.loadLeads();
+    api.get.and.returnValue(throwError(() => new Error('boom')));
+    c.loadMore();
+    expect(c.loadingMore()).toBe(false);
+    expect(c.leads().length).toBe(50); // first page still there, not wiped
+  });
+
   it('sets loadError on a failed list fetch (never throws)', () => {
     api.get.and.returnValue(throwError(() => new Error('boom')));
     const c = make();
