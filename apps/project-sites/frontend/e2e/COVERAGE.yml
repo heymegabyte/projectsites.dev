@@ -141,3 +141,12 @@ chaos_resilience:
   suite:        { status: covered, specs: [chaos-1-visitor.e2e.ts, chaos-10-admin-header-overlays.e2e.ts, chaos-11-domains.e2e.ts, chaos-12-forms-count.e2e.ts, chaos-13-audit-count.e2e.ts, chaos-14-ai-logs-count.e2e.ts, chaos-15-apps-catalog.e2e.ts, chaos-15-editor-journey.e2e.ts, chaos-16-apps-instances.e2e.ts, chaos-17-voice-config.e2e.ts, chaos-18-template-build-journey.e2e.ts, chaos-2-builder.e2e.ts, chaos-3-auth.e2e.ts, chaos-4-admin.e2e.ts, chaos-5-resilience.e2e.ts, chaos-6-conversion-i18n.e2e.ts, chaos-7-analytics-tabs.e2e.ts, chaos-8-keyboard-focus.e2e.ts, chaos-9-mobile-responsive.e2e.ts] }
 admin_e2e_extra:
   suite:        { status: covered, specs: [admin-clickaround-errors.e2e.ts, admin-navigation-responsive.e2e.ts, admin-section-h1.e2e.ts, admin-settings-folded-tabs.e2e.ts, admin-settings-general-merge.e2e.ts, admin-settings-mcp-aivars.e2e.ts, admin-token-lifecycle.e2e.ts, admin-traces-grid.e2e.ts, homepage-disclosure-a11y.e2e.ts, roadmap.e2e.ts] }
+
+# WLK-39 §75 flagship — the embedded "Claude Code" editor tab's Resolution mode + the fire-266
+# STREAM-RESOLVE cinematic staged-progress UI (phase label + live m:ss clock). Drives the REAL
+# cross-origin panel against prod, authed as brian@megabyte.space (the org the org-scoped
+# claude_code_panel flag is ON for). The staged-progress assertion is the hard regression guard.
+editor_claude_code_panel:
+  status: covered
+  specs:
+    - wlk39-claude-code.e2e.ts

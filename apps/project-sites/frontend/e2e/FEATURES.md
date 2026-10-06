@@ -66,6 +66,7 @@ Status legend: ✅ covered + green · ⚠️ covered, known-blocked dependency �
 |---|---|---|
 | Dashboard / sites list | `admin.spec.ts`, `production-admin.spec.ts` | ✅ |
 | Editor (persistent bolt.diy iframe) | `bolt-embed.spec.ts`, `editor-proxy.e2e.ts`, `production-editor.spec.ts`, `production-editor-prompt.spec.ts`, `production-editor-errors.spec.ts` | ✅ |
+| Editor · Claude Code panel (WLK-39 flagship) — Resolution mode + STREAM-RESOLVE staged progress | `wlk39-claude-code.e2e.ts` | ✅ |
 | Files explorer | `files-deep.spec.ts` | ✅ |
 | Snapshots + diff | `admin-snapshots.spec.ts`, `build-edit-snapshot-cycle.spec.ts` | ✅ |
 | Site detail tabs | `admin-site-detail-tabs.e2e.ts` | ✅ |
