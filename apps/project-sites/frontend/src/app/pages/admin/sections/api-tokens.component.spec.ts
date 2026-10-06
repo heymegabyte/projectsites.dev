@@ -1,6 +1,6 @@
 import { TestBed, type ComponentFixture } from '@angular/core/testing';
 import { signal } from '@angular/core';
-import { of, throwError } from 'rxjs';
+import { NEVER, of, throwError } from 'rxjs';
 import { HttpClient } from '@angular/common/http';
 import { AdminApiTokensComponent } from './api-tokens.component';
 import { ToastService } from '../../../services/toast.service';
@@ -339,28 +339,21 @@ describe('AdminApiTokensComponent (flag-disabled banner link is underlined)', ()
     TestBed.configureTestingModule({
       imports: [AdminApiTokensComponent],
       providers: [
-        { provide: HttpClient, useValue: { get: () => throwError(() => ({ status: 404 })), post: () => of({}) } },
+        // `NEVER` for the auto-load `get`: the constructor effect fires loadTokens(), whose async
+        // leg (ApiService's timeout over the mocked HttpClient) used to re-run AFTER whenStable()
+        // settled — on some Jasmine random orderings it cleared/clobbered the forced flag post-render,
+        // flaking this at `link === null` (band-aided across fire-80/fire-100; the real race remained).
+        // A NEVER observable never emits or errors, so loadTokens NEVER writes flagDisabled: the spec's
+        // explicit `set(true)` is the SOLE writer and the banner renders deterministically. Root-cause
+        // isolation, not another settle-dance (CLAUDE.md §9). `post` still resolves for any mint path.
+        { provide: HttpClient, useValue: { get: () => NEVER, post: () => of({}) } },
         { provide: ToastService, useValue: { show: () => 0 } },
         { provide: AdminStateService, useValue: { orgId: signal('org1') } },
         provideRouter([]),
       ],
     });
     const fx = TestBed.createComponent(AdminApiTokensComponent);
-    // Settle the constructor auto-load FIRST: loadTokens() clears flagDisabled at the start of each
-    // fetch and only re-sets it from the async 404 — forcing the flag before the load settles is
-    // clobbered the moment Karma's execution order shifts (fire-80: a new sibling spec shifted the
-    // order and flaked this at `link === null`; fire-100: the WLK-39 PS_RESOLVE spec shifted it
-    // again). Settle, force the banner state, then settle ONCE MORE so any late async leg of the
-    // real ApiService pipeline (timeout operator over the mocked HttpClient 404) can no longer
-    // re-run loadTokens and clobber the forced flag AFTER we render. (CLAUDE.md §9.)
-    fx.detectChanges();
-    await fx.whenStable();
     fx.componentInstance.flagDisabled.set(true); // force the flag-disabled banner to render
-    fx.detectChanges();
-    await fx.whenStable();
-    // Re-assert the forced state + re-render as the LAST act before the query, so nothing async can
-    // have cleared it between the settle and the DOM read (the root-cause of the order-fragile null).
-    fx.componentInstance.flagDisabled.set(true);
     fx.detectChanges();
     const link = (fx.nativeElement as HTMLElement).querySelector('[data-testid="api-tokens-flag-gate"] a[routerLink="/admin/feature-flags"]') as HTMLAnchorElement | null;
     expect(link).not.toBeNull();

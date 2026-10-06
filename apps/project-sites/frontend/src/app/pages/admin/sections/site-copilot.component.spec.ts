@@ -193,7 +193,13 @@ describe('AdminSiteCopilotComponent — flag-gate link cohesion (real template)'
     TestBed.configureTestingModule({
       imports: [AdminSiteCopilotComponent],
       providers: [
-        { provide: ApiService, useValue: { get: () => of({ sessions: [], distribution: [] }), put: () => of({ ok: true }) } },
+        // `NEVER` for the sessions `get`: a SUCCESSFUL load calls flagEnabled.set(true) (the component
+        // treats a 200 as "flag on"), which clobbered the forced flagEnabled.set(false) whenever the
+        // load's subscribe fired AFTER the forced set under Jasmine's random spec order → the gate hid
+        // and this flaked at `link === null`. A NEVER observable never emits, so the load NEVER writes
+        // flagEnabled: the spec's `set(false)` is the SOLE writer and the gate renders deterministically.
+        // Root-cause isolation, not a settle-dance (CLAUDE.md §9); `put` still resolves for the toggle.
+        { provide: ApiService, useValue: { get: () => NEVER, put: () => of({ ok: true }) } },
         { provide: ToastService, useValue: { error: () => 0, success: () => 0 } },
         provideRouter([]),
         { provide: ActivatedRoute, useValue: { snapshot: { params: {} }, parent: { snapshot: { params: {} } } } },

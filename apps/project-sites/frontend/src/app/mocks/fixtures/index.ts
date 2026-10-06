@@ -16,6 +16,10 @@
  * - Paths are stored WITHOUT the `/api` prefix + WITHOUT query — the interceptor
  *   normalizes the request the same way before lookup, so `GET /api/admin/leads?x=1`
  *   matches the `GET /admin/leads` entry.
+ * - A registry key MAY carry `:param` segments (`GET /sites/:id/mcp/connections`) — a
+ *   PATTERN that matches any value in that segment, so ONE fixture serves every id.
+ *   {@link findFixture} checks EXACT keys first, then `:param` patterns (first match),
+ *   so an exact key always wins; an unmatched key still passes through to the backend.
  * - `state` lets every fixture expose empty / loading / error / populated variants
  *   via `?mock=1&state=…` so every UI state is demoable from mock data alone.
  */
@@ -24,6 +28,7 @@ import { sitesFixture } from './sites.fixture';
 import { subscriptionFixture, entitlementsFixture, walletFixture } from './billing.fixture';
 import { domainsSummaryFixture } from './domains-summary.fixture';
 import { meFixture } from './admin-me.fixture';
+import { mcpConnectionsFixture, snapshotMetricsFixture } from './per-site.fixture';
 
 /** The demo-state knob from `?mock=1&state=…`. `populated` is the default. */
 export type MockState = 'empty' | 'loading' | 'error' | 'populated';
@@ -43,12 +48,18 @@ export type FixtureFactory<T = unknown> = (state: MockState, query: URLSearchPar
  * Registry key: `"<METHOD> <path>"` where `path` is relative to `/api` and carries
  * NO query string, e.g. `"GET /admin/leads"`. Kept as a plain string so a slice can
  * add an entry in one line.
+ *
+ * A key MAY contain `:param` segments (e.g. `"GET /sites/:id/mcp/connections"`) — a
+ * PATTERN key. A `:param` segment matches any single non-empty, non-`/` value, so
+ * one pattern serves every id. EXACT keys (no `:param`) always win over patterns
+ * (see {@link findFixture}). Static keys without a colon are matched verbatim.
  */
 export type RoutePattern = string;
 
 /**
  * The registry. **P0 ships ONE real surface — leads.** Later slices (dashboard,
- * billing, sites, analytics, …) each add their own typed fixture module + a line here.
+ * billing, sites, analytics, …) each add their own typed fixture module + a line
+ * here. PER-SITE routes use a `:param` PATTERN key so one fixture serves every id.
  */
 export const FIXTURES: Readonly<Record<RoutePattern, FixtureFactory>> = {
   'GET /admin/leads': leadsFixture as FixtureFactory,
@@ -58,6 +69,10 @@ export const FIXTURES: Readonly<Record<RoutePattern, FixtureFactory>> = {
   'GET /wallet': walletFixture as FixtureFactory,
   'GET /admin/domains/summary': domainsSummaryFixture as FixtureFactory,
   'GET /auth/me': meFixture as FixtureFactory,
+  // Per-site reads the already-mocked surfaces fire once a site is selected — `:param`
+  // patterns so one fixture serves EVERY fixture-site id (prod-nonexistent → 404 before).
+  'GET /sites/:id/mcp/connections': mcpConnectionsFixture as FixtureFactory,
+  'GET /sites/:id/snapshots/metrics': snapshotMetricsFixture as FixtureFactory,
 };
 
 /**
@@ -92,7 +107,107 @@ export function toRegistryKey(
   return { key: `${method.toUpperCase()} ${path}`, query };
 }
 
-/** Look up a fixture factory for a normalized registry key, or `undefined`. */
+/**
+ * A compiled `:param` PATTERN key — the original pattern plus an anchored regex
+ * that matches any normalized `"<METHOD> <path>"` key with the same shape.
+ */
+interface ParamPattern {
+  /** The source pattern, e.g. `"GET /sites/:id/mcp/connections"`. */
+  readonly pattern: RoutePattern;
+  /** Anchored matcher: each `:param` → one non-`/` segment; everything else literal. */
+  readonly regex: RegExp;
+}
+
+/**
+ * Compile a `:param` pattern key to an anchored regex. The method + each literal
+ * path segment is escaped so regex metacharacters in a real path are matched
+ * literally; a `:param` segment becomes `[^/]+` (one or more non-slash chars, so a
+ * value can't span segment boundaries). Anchored with `^…$` so the whole key must
+ * match (no prefix/suffix over-match). Keys WITHOUT a `:` compile to `null` (they
+ * live in the exact map and are never pattern-matched).
+ */
+function compileParamPattern(pattern: RoutePattern): ParamPattern | null {
+  if (!pattern.includes(':')) return null;
+  // Split on `/` so each segment is classified independently; the leading
+  // "METHOD /" chunk has no `/` before the first space, so it's escaped whole.
+  const source = pattern
+    .split('/')
+    .map((seg) => (seg.startsWith(':') ? '[^/]+' : escapeRegex(seg)))
+    .join('/');
+  return { pattern, regex: new RegExp(`^${source}$`) };
+}
+
+/** Escape regex metacharacters so a literal segment matches itself verbatim. */
+function escapeRegex(s: string): string {
+  return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+/**
+ * Precompiled `:param` patterns from the shipped {@link FIXTURES}, plus any
+ * registered at runtime via {@link registerFixtures}. Rebuilt whenever the
+ * registered set changes. Exact (colon-free) keys are NOT here — they're matched
+ * via the object maps directly, which is both faster and higher-precedence.
+ */
+let PARAM_PATTERNS: ParamPattern[] = buildParamPatterns(FIXTURES);
+
+/** Ad-hoc patterns registered at runtime (test seam) — checked after {@link FIXTURES}. */
+const EXTRA_FIXTURES: Record<RoutePattern, FixtureFactory> = {};
+
+/** Build the compiled param-pattern list from one or more registries (in order). */
+function buildParamPatterns(...registries: Record<RoutePattern, FixtureFactory>[]): ParamPattern[] {
+  const out: ParamPattern[] = [];
+  for (const reg of registries) {
+    for (const pattern of Object.keys(reg)) {
+      const compiled = compileParamPattern(pattern);
+      if (compiled) out.push(compiled);
+    }
+  }
+  return out;
+}
+
+/**
+ * Look up a fixture factory for a normalized registry key, or `undefined`.
+ *
+ * Precedence (first hit wins):
+ *   1. EXACT match in {@link FIXTURES} (the shipped static + pattern map — exact keys only);
+ *   2. EXACT match in {@link EXTRA_FIXTURES} (runtime-registered, exact keys only);
+ *   3. first `:param` PATTERN whose anchored regex matches the key.
+ *
+ * So an exact key ALWAYS beats a param pattern that would also match, and an
+ * unmatched key returns `undefined` → the interceptor passes the request straight
+ * through to the real backend (the mock layer never breaks a real call).
+ */
 export function findFixture(key: RoutePattern): FixtureFactory | undefined {
-  return FIXTURES[key];
+  // 1 + 2 — exact wins (a `:param`-containing key is never an exact runtime key).
+  const exact = FIXTURES[key] ?? EXTRA_FIXTURES[key];
+  if (exact) return exact;
+  // 3 — first matching param pattern (shipped patterns precede runtime-registered ones).
+  for (const { pattern, regex } of PARAM_PATTERNS) {
+    if (regex.test(key)) return FIXTURES[pattern] ?? EXTRA_FIXTURES[pattern];
+  }
+  return undefined;
+}
+
+/**
+ * TEST SEAM — register ad-hoc fixture patterns (exact OR `:param`) without mutating
+ * the shipped {@link FIXTURES} map. Returns a disposer that removes exactly the keys
+ * it added and rebuilds the compiled pattern list, so a spec stays hermetic:
+ *
+ * ```ts
+ * const dispose = registerFixtures({ 'GET /sites/:id/x': myFactory });
+ * // …assert findFixture(...) …
+ * dispose();
+ * ```
+ *
+ * Shipped fixtures always take precedence (they're checked first); this seam only
+ * ADDS routes for a test and never shadows a shipped key.
+ */
+export function registerFixtures(extra: Record<RoutePattern, FixtureFactory>): () => void {
+  const added = Object.keys(extra);
+  for (const key of added) EXTRA_FIXTURES[key] = extra[key];
+  PARAM_PATTERNS = buildParamPatterns(FIXTURES, EXTRA_FIXTURES);
+  return () => {
+    for (const key of added) delete EXTRA_FIXTURES[key];
+    PARAM_PATTERNS = buildParamPatterns(FIXTURES, EXTRA_FIXTURES);
+  };
 }
