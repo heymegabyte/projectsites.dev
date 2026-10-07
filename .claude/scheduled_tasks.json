@@ -1,12 +1,12 @@
 {
   "tasks": [
     {
-      "id": "a2c2e412",
-      "cron": "*/15 * * * *",
-      "prompt": "Continue and focus on completeing all the tabs in the \"Editor\" \"Resources\" screen. Continue and run-the-loop continue until the \"Editor\" panel is finished being implemented",
-      "createdAt": 1791121191157,
+      "id": "c352bf00",
+      "cron": "4,19,34,49 * * * *",
+      "prompt": "/run-the-loop",
+      "createdAt": 1791344501796,
       "recurring": true,
-      "createdBySessionId": "c211784c-e139-440c-8a82-893d44245de2",
+      "createdBySessionId": "34eb351d-203b-4db8-904e-71e29cedcb47",
       "createdByPid": 67491,
       "createdByProcStart": "Sat Oct  3 19:44:05 2026"
     }

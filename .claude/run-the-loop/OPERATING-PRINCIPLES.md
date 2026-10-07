@@ -571,3 +571,24 @@ The failure-taxonomy salvage path ("salvage its commit via `git show <branch-tip
 
 ## Agent-type roster in THIS environment (fire-173c — loop-improvement)
 The loop command names specialists (`architect`, `visual-qa`, `test-writer`, `security-reviewer`, `deploy-verifier`, …), but the Agent tool in this Claude Code environment only exposes: **`claude` · `claude-code-guide` · `Explore` · `general-purpose` · `Plan` · `statusline-setup`**. Spawning a non-existent type hard-fails ("Agent type 'architect' not found") and wastes the slot. MAP the loop's roles to available types: architecture/planning → **`Plan`**; read-only research/inventory → **`Explore`**; everything mutating (feature-delivery, test-writer, visual-qa-that-edits, security, a11y) → **`general-purpose`** (or **`claude`** for the heaviest judgment). Pass the SPECIALTY in the brief (the role, gates, Opus-pinning intent) since the type can't carry it. Re-test `Explore`/`general-purpose`/`Plan` spawn at a fire's start before declaring lead-only — the "quota-dead" status is never assumed from a prior session (fire-173b).
+
+## § Dark-flag + dark-feature discipline (fires 294, 297)
+
+- A dark-flag RESOLVER endpoint must return **`200 {enabled:false}`**, NOT `404`, when the flag is off — a 404 pollutes the editor console with a failed-request error (distinct from the FEATURE handler, which correctly 404s when its flag is off per § Architecture principles). The resolver's job is to ANSWER "is this on?"; "no" is a successful answer. (fire-294)
+- A dark-feature's graceful **capability-gated / needs-credentials** state (e.g. Buckets rendering "connect S3/R2 credentials to continue" because `R2_S3` creds aren't provisioned) is the EXPECTED dark state, NOT incompleteness — do NOT file it as a product gap. The gap is only real if the state is a broken/doomed control, not a correct "awaiting its prerequisite" prompt. Pairs with MEMORY `[dkGrace]`. (fire-297)
+
+## § Multi-nav browser-probe console errors are often navigation-abort transients (fires 295-296)
+
+- A `console.error` captured DURING a multi-navigation browser probe (sweeping several routes in one session) is frequently a **navigation-abort transient** — a request cancelled when the next `goto`/click fires mid-flight — NOT a real defect. Before filing it, **re-probe the SETTLED state** (navigate to just that route, wait for it to quiesce, re-read the console); if the error vanishes, it was the abort, not a bug. Only a console error that survives a settled single-route re-probe is filed. Pairs with MEMORY `[navAb]`. (fires 295-296)
+
+## § Signed-out upload survives the signin bounce via IndexedDB, NOT a pre-auth endpoint (fire-298)
+
+- To let a signed-out user's `/create` upload survive the signin/OAuth redirect, stash the file in an **IndexedDB** blob (fire-and-forget write BEFORE `navigate` to the auth flow) and **rehydrate it post-signin** — do NOT build a pre-auth upload endpoint (an unauthenticated write surface is an abuse vector + needs its own rate-limit/validation). The client owns the hand-off; the server only ever sees the authed upload. Pairs with MEMORY `[idbUp]`. (fire-298)
+
+## § Grep the flag + endpoint BEFORE building any backlog-claimed feature — the claim may be stale (fires 299-300)
+
+- Before fanning out to build ANY backlog-claimed feature, **grep the flag key + the endpoint path across `src/` + `libs/`** — a prior fire often already shipped it in a DIFFERENT structure/name, so the claim is stale (fire-299 found PUBLISH-1 already shipped and averted a full duplicate rebuild; fire-300 reconciled a money-path EPIC as 5/5 DONE against a backlog that read it as open). The backlog `[ ]` status is a CANDIDATE, never ground truth — reconcile against the live tree first. Companion to § Backlog-hygiene (evidence both ways) + MEMORY `[chkog]`. (fires 299-300)
+
+## § BACKLOG file-path anchors go STALE — re-verify every anchor against the live tree before READY-NOW (fire-301, loop-improvement)
+
+- A BACKLOG item's file:line anchor DECAYS as the tree moves — fire-301's dead-code slice pointed at `src/services/motion.ts` + `src/utils/json-ld.ts`, **neither of which exists** (renamed/removed by an intervening fire). **Rule (grooming role / role 2):** re-verify EVERY path anchor against the live tree (`grep`/`find`) before marking a slice `READY-NOW`; a stale anchor demotes the item to re-scan, never ships an agent at a phantom path. A **cleanup / dead-code** slice specifically must run a FRESH `knip` (or `detect-orphans.mjs`) this fire rather than trust a stored path — dead-code targets are the fastest-decaying anchors of all. (fire-301)

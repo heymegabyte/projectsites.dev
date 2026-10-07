@@ -44,7 +44,7 @@
 - [ ] **SIGNIN** — test-seam auth. State: `/create` authGuard'd (fire-113), signin→create proven. No active slice — watch the CF-bot-challenge seam (memory `golden-path-test-login-seam-cf-bot-challenged`).
 - [x] **AI-BUILD** — generation workflow. State: owner-notify SHIPPED (`site-generation.ts:167-259`). ✅ **AIBUILD-VERIFY DONE** (verified fire-163 — the "next-fire" claim was stale): `src/__tests__/site_generation_terminal_notify_event.test.ts` asserts `buildOwnerNotifyEvent('complete'|'failed')` emits the canonical `{name,subscriberId:orgId,payload}` + the live-URL `action_url` deep link + the degraded-quality framing + missing-slug omits `action_url` — **ran 4/4 green this fire**. Residual (NOT ready-now): AIBUILD-2 (public waiting→error 5th state).
 - [x] **VIEW-LIVE** — delivered-site health. ✅ **VIEWLIVE-1 DONE + prod-GREEN fire-163**: `scripts/verify-delivered-site.mjs` (377 lines, `npm run verify:delivered-site`) ran against prod — `projectsites` + `lone-mountain-global` both **HTTP 200 · x-ps-serve: wfp · 0 console · 0 failed-req**, favicon/apple-touch-icon/manifest all 200 (2 non-blocking WARN, 0 FAIL, exit 0). The money-path VIEW-LIVE leg genuinely serves live via WfP. Residual nicety: chase the soft WARN (a non-critical asset/threshold check) — non-blocking.
-- [~] **EDIT** — editor requirement-edit → live. **UNIT-causal LOCKED fire-164**: `publish_bolt_ownership.test.ts` gained the EDIT→publish FORWARD causal-chain test (the existing tests only covered the IDOR/security axis) — asserts `POST /api/sites/:id/publish-bolt` (1) D1 advances `current_build_version` to the new version + flips `status='published'` bound to the owned id, (2) the edited file is written under that SAME version's R2 prefix (version-consistency, no DB↔R2 drift), (3) the OWNED slug's host KV is PURGED (the "changed text is live NOW" guarantee). **Proven load-bearing**: regressing the handler's KV purge to a wrong key RED-failed the new test while all 6 security tests stayed green (the gap they miss), then reverted. 7/7 green, tsc 0. **REMAINING = the full real-browser E2E** (edit-in-embed → live-fetch asserts the changed TEXT renders) — needs the agent quota (Oct 7) or a browser-connected fire. · high.
+- [x] **EDIT** — editor requirement-edit → live. ✅ **DONE (reconciled fire-300/301 — the `[~]` "REMAINING E2E" was DRIFT).** **UNIT-causal LOCKED fire-164**: `publish_bolt_ownership.test.ts:215` gained the EDIT→publish FORWARD causal-chain test (the existing tests only covered the IDOR/security axis) — asserts `POST /api/sites/:id/publish-bolt` (1) D1 advances `current_build_version` to the new version + flips `status='published'` bound to the owned id, (2) the edited file is written under that SAME version's R2 prefix (version-consistency, no DB↔R2 drift), (3) the OWNED slug's host KV is PURGED (the "changed text is live NOW" guarantee). **Proven load-bearing**: regressing the handler's KV purge to a wrong key RED-failed the new test while all 6 security tests stayed green, then reverted. 7/7 green, tsc 0. **The full real-browser E2E ALSO exists** — `apps/project-sites/e2e/create-edit-publish-flow.spec.ts` (edit title in the `.bolt-frame` embed → re-publish → poll `{slug}.projectsites.dev` HTML → `.toContain(NEW_TITLE)`), cost-gated `E2E_REAL_BUILD=1`. NO remaining leg — do NOT re-queue (grep the spec/endpoint first per [[blkdr]]). · high.
 - [x] **PUBLISH-1** — promote → "View Live" propagation guard. ✅ **DONE end-to-end (reconciled fire-299 — the "GENUINE REMAINDER" label was DRIFT; a prior fire had shipped the WHOLE thing).** The backlog claimed this unstarted + multi-surface-heavy, but all three surfaces exist + are green: (1) **worker** `GET /api/sites/:id/live-check` in `src/routes/api.ts:1957` — auth-401 → `requireOwnedSite`-404 (IDOR) → flag-dark-404 (`publish_live_check`) → server-DERIVED-URL HEAD probe (redirect:manual + 5s abort → no SSRF) → `{live:(status===200),status,url}`, degrades to `{live:false,status:0}` on throw (never 500); **`live_check_route.test.ts` 6/6**. (2) **`ApiService.liveCheck(siteId)`** (api.service.ts:791) → `LiveCheckResult | null` (dark-404 → null sentinel) + the `liveCheckFixture` demo mock. (3) **hosting.component** `liveState` computed (off/checking/live) + `startLivePoll` (~12s × 5 ≈ 60s, visibility-aware) + the template "finishing deployment…" strip + DISABLED link while `checking`, revealing the "open" link only on `live:true`; **hosting.component.spec 4/4**. **Only remaining: flip `publish_live_check` ON (launch decision — a money-path production UX change + a known 3xx-redirect false-negative edge since `live` is strictly `status===200`; Brian-gated, NOT a loop-autonomous flip).** fire-299 nearly REBUILT both halves — tsc duplicate-key caught the worker dup, a code grep caught the FE dup (`[[check-origin-before-reimplementing-concurrent-loop-shipped-it]]` · `[[backlog-work-claim-must-be-reverified-against-code]]`). · DONE · high.
 
 ## ✅ DONE EPIC (fire-142): Editor "Resources" screen — all 4 tabs + cross-cutting COMPLETE (Brian /loop directive 2026-10-04 · fires 135-142)
@@ -824,12 +824,12 @@
 ## dead-code / hygiene
 
 <!-- fire-136 replenish — code-simplifier knip/ts-prune sweep (Cleanup category; VERIFY callsites before removing per knip-unused-not-always-dead) -->
-- [~] dead-code-136: verify-then-remove the top sweep candidates — fire-137 (`e2b2190ca`) removed the `safe`-tagged: 5 unused `motion.ts` anims (fadeRise/drawerSlide/dialogScaleFade/contentFade/buttonState) + `json-ld.ts` `localBusiness`+`LocalBusinessInput` (0 callers verified; tsc 0, 2458 Karma pass). REMAINING (`verify`-tagged, next cleanup fire): ui/card directives, ui/index utils, frontend deps (monaco/partysocket/yjs/qrcode/tw-animate-css), Storybook devDeps — grep callsites before removing.
-  - `frontend/src/app/animations/motion.ts` (fadeRise, drawerSlide, dialogScaleFade, contentFade, buttonState) — **safe** (unused animation exports, no internal refs)
-  - `frontend/src/app/lib/json-ld.ts` `localBusiness` builder — **safe** (no route calls it)
-  - `frontend/src/app/ui/card.ts` (HlmCard/CardTitle/CardDescription directives) — **verify** (Spartan re-exports; grep index consumption first)
-  - `frontend/src/app/ui/index.ts` (cn, buttonVariants, badgeVariants) — **verify** (may be aliased-consumed)
-  - `frontend/package.json` deps (monaco-editor, partysocket, yjs, tw-animate-css, qrcode) — **verify** (may be lazy/@defer-gated — grep before dropping)
+- [~] dead-code-136: verify-then-remove the top sweep candidates — fire-137 (`e2b2190ca`) removed the `safe`-tagged: 4 unused `motion.ts` anims (fadeRise/drawerSlide/dialogScaleFade/contentFade) + `json-ld.ts` `localBusiness`+`LocalBusinessInput` (0 callers verified; tsc 0, 2458 Karma pass). ⚠️ **ANCHOR CORRECTED (fire-301 groom):** the file paths are `apps/project-sites/frontend/src/app/{animations/motion.ts,lib/json-ld.ts}` (NOT `apps/project-sites/src/services/motion.ts` / `src/utils/json-ld.ts` — those paths do NOT exist; a brief restated them wrong). **FACT-FIX:** `buttonState` was NOT removed in fire-137 — it is STILL exported at `motion.ts:84` and has **0 consumers outside the file** (verified `grep -rln buttonState src | grep -v motion.ts` → 0) → it is genuinely dead and the fire-137 "removed buttonState" claim was wrong. REMAINING (`verify`-tagged, next cleanup fire): `buttonState` anim + ui/card directives + frontend deps (partysocket/yjs/tw-animate-css = 0 src refs; monaco/qrcode = 1 ref each KEEP) — grep callsites before removing.
+  - `frontend/src/app/animations/motion.ts` `buttonState` — **DEAD, verified** (exported L84, 0 consumers outside; `scaleFade`/`toastSlide`/`listStagger` have consumers → KEEP)
+  - `frontend/src/app/lib/json-ld.ts` — `localBusiness`+`LocalBusinessInput` ALREADY removed fire-137; the remaining exports (organization/softwareApplication/webPage/breadcrumbList/faqPage/person/graph) are LIVE → KEEP
+  - `frontend/src/app/ui/card.ts` (HlmCard/CardTitle/CardDescription directives) — **verify, 0 consumers** (`grep -rln ui/card src | grep -v ui/card.ts` → 0; confirm no Spartan dynamic re-export before deleting)
+  - `frontend/src/app/ui/index.ts` (cn, buttonVariants, badgeVariants) — **KEEP** (buttonVariants + badgeVariants each have 1 consumer; verified aliased-consumed)
+  - `frontend/package.json` deps — **DEAD candidates:** partysocket/yjs/tw-animate-css (0 src refs each); **KEEP:** monaco-editor + qrcode (1 ref each). Grep for `@defer`/lazy before dropping the 3 zero-ref deps.
   - Storybook devDeps (@storybook/addon-onboarding, eslint-plugin-storybook, @compodoc/compodoc, @types/dompurify) — **verify** (drop only if zero stories in repo)
   - cadence: next-2-fires · priority: med · category: dead-code · discovered_by: fire-136-cleanup-sweep
 - [ ] audit-dead-code — orphan sweep + verify-before-delete batch
@@ -1916,7 +1916,98 @@ Re-architect every workbench panel onto a shared gorgeous spine so chrome/tokens
 - [x] CONTRAST-GATE DONE (fire-133, `2c242fec0`) — `frontend/scripts/check-contrast-muted.mjs` bans the AA-failing `color: color-mix(in oklch, var(--ps-ink…) ≤49%, transparent)` TEXT-color pattern across `src/app/pages/admin`, wired into `build:prod` (after check:css-comments). Correctly scoped to TEXT `color:` only (negative lookbehind for `-` → `border-color`/`background-color` at low opacity are intentional + NOT flagged); fix hint points to the solid `--ps-bg` mix. Verified: PASS on current admin (0), FAILS on a planted text-color 45% (exit 1), IGNORES a planted border-color 10%. Locks in fire-132's 27-card sweep so the class can't silently return.
 - [x] CONTRAST-SWEEP-2 DONE + DEPLOYED (fire-134, `d1b8d2225`) — fixed all 9 non-admin failing text-contrast occurrences (domain-picker ×2, changelog ×2, super-admin ×3, developers, pricing) + a **10th** the broadened gate caught (developers `.dev-footer__sep` 25%). Agent confirmed EACH surface is dark-bg (`:host { background: var(--ps-bg) }` — marketing + super-admin all dark-first) so the solid `--ps-bg` mix (78%, ≥11:1 AA) applied uniformly. **Broadened CONTRAST-GATE from `pages/admin` → all of `src/app`** (comprehensive, dark-first). Gate PASS app-wide (0), tsc 0, build 0, frontend deployed to R2; public surfaces (pricing/changelog/developers) render 200. The opacity-on-muted-token contrast class is now CLOSED + structurally gated APP-WIDE.
 
-## ⭐ FRONTIER SNAPSHOT — fire-173 groom (lead-only coverage EXHAUSTED; READY-NOW for the Oct-7 agent fleet)
+## ⭐⭐ FRONTIER SNAPSHOT — fire-301 groom (money-path EPIC 5/5 CLOSED; starved categories now lead)
+
+> **Why this snapshot (supersedes the fire-173 block below):** fires 293-300 closed the money-path
+> causal-legs EPIC **5/5** (VIEWLIVE-1 · AIBUILD-VERIFY · SEARCH-DEDUP-GUARD · PUBLISH-1 fire-299 ·
+> EDIT-SAVE-CAUSAL fire-300) — do NOT re-queue any money-path leg (grep the flag/endpoint before
+> claiming a remainder per [[backlog-work-claim-must-be-reverified-against-code]]). fire-298 shipped
+> the signed-out `/create` upload surviving the OAuth bounce via IndexedDB ([[idbUp]]); fire-294 made
+> the dark-flag resolver return **200 `{enabled:false}`** (not 404) so the console stays clean
+> ([[dkRes]]). **WLK-39 (Embedded Claude Code) is implementation-COMPLETE but functionally BLOCKED on
+> Anthropic account credits + the gateway-auth token — Brian-gated, see §Brian-gated, NOT loop-doable.**
+> **Category starvation (last 8 fires): Testing · UX/a11y · Cleanup · Docs · Discovery all STARVED;
+> Product over-weighted.** The next waves below deliberately favor the starved five.
+
+> **✅ MARKED DONE this groom:** money-path EPIC 5/5 (already reconciled in the ACTIVE TOP EPIC block,
+> lines 42-48 — PUBLISH-1 + EDIT-SAVE-CAUSAL confirmed shipped, not re-opened) · the fire-173 READY-NOW
+> top-5's items #2 (EDIT-SAVE-CAUSAL) + #3 (PUBLISH-1) are now DONE and must not be read as frontier.
+> **✅ ANCHOR CORRECTED:** dead-code-136 (line ~827) — real paths are `frontend/src/app/{animations/
+> motion.ts,lib/json-ld.ts}` (the `apps/project-sites/src/services|utils/*` paths in the brief do NOT
+> exist); `buttonState` is still-present-and-dead (fire-137's "removed" claim was wrong).
+
+> **READY NOW — top 5** (ranked by money-path leverage × starved-category priority; all lead-doable,
+> no agent fleet required; EXCLUDES Brian-gated — those are in the subsection below):**
+> 1. **[cleanup] dead-code-136 surgical removal** — delete the 3 VERIFIED-dead units: `buttonState`
+>    (`frontend/src/app/animations/motion.ts:84`, 0 consumers) + `frontend/src/app/ui/card.ts`
+>    (0 consumers) + the 3 zero-src-ref deps (partysocket/yjs/tw-animate-css) from `frontend/
+>    package.json`. KEEP monaco/qrcode (1 ref) + scaleFade/toastSlide/listStagger (consumed).
+>    **Accept:** units removed, `grep -rln` confirms 0 callers pre-delete, `@defer`/lazy grep clean for
+>    the deps, tsc 0 + `ng build` prod + full Karma green. · category cleanup · anchor verified above.
+> 2. **[testing] Legacy-flag resolution lock** (line ~1595) — regression test asserting `resolveFlag`
+>    IGNORES the governance `feature_flags` table (prevents re-introducing the fire-81 adversarial HIGH).
+>    **Accept:** a worker Jest test seeds a legacy row with a DIVERGENT rollout and asserts resolution
+>    == registry default (not the legacy value); RED first by temporarily reading the legacy table,
+>    then GREEN. · category testing · anchor: the flag-resolution service + `src/__tests__`.
+> 3. **[testing] forms.component MCP-connect `data-testid` + lock** (line ~521) — fire-46 shipped
+>    `data-testid="mcp-${id}-connect"` in `settings.component.ts` but `forms.component.ts` coverage is
+>    UNVERIFIED. **Accept:** add the per-provider testids to `apps/project-sites/frontend/src/app/pages/
+>    admin/sections/forms.component.ts` (rendered from `mcp-providers.ts`) + a Karma spec asserting each
+>    provider row exposes its stable testid. · category testing · anchor verified.
+> 4. **[ux/a11y] Restore Preview device/responsive switcher** (line ~624) — `app/components/workbench/
+>    Preview.tsx:77` hard-codes `isDeviceModeOn=false` → the coded device list is orphaned (dead
+>    default, [[opt-in-prop-plus-uncalled-resolver-is-dead-default]]). **Accept:** wire a 6-breakpoint
+>    quick-toggle that flips `isDeviceModeOn` + resizes the preview frame; Vitest for the toggle; editor
+>    prod loads 200 with the control visible + functional. · category ux · anchor verified (L77/245/305).
+> 5. **[testing] E2E for the admin cockpit** (line ~545) — `apps/project-sites/frontend/src/app/pages/
+>    admin/sections/dashboard.component.ts` (operator cockpit / needs-attention queue / KPI tiles / CWV)
+>    has NO E2E. **Accept:** one homepage-start Playwright journey (goto `/` → signin seam → dashboard)
+>    asserting the KPI strip + attention queue render with real data, console-clean, axe-clean at 1280;
+>    add the FEATURES.md + COVERAGE.yml rows so `validate:e2e-inventory` passes. · category testing.
+
+> ### Brian-gated / externally-blocked (do NOT treat as READY — a fire must NOT touch these)
+> - **WLK-39 Resolution functional launch** — implementation COMPLETE (fires 174-186); BLOCKED on (a)
+>   Anthropic account OUT OF CREDITS and/or (b) provisioning a NEW `CF_AIG_TOKEN` gateway-auth secret
+>   (CF dashboard → AI Gateway → settings). Promoting `claude_code_panel`+`resolution_engine` is a
+>   money-path production UX flip = Brian-gated. See fire-187 note (line ~1962). [[AIG401]]
+> - **`publish_live_check` flag flip ON** — money-path prod UX change + a known 3xx-redirect
+>   false-negative edge (`live` is strictly `status===200`); Brian-gated, NOT a loop-autonomous flip
+>   (ACTIVE TOP EPIC line 48). The CODE is DONE + prod-deployed.
+> - **DEMO-0 / DEMO-1** — keep-existing-site vs deploy-curated-bundle + the A19 guest-admin call
+>   (lines 63-66) are explicit Brian decisions.
+> - **Stripe test-rail in CI (LB-1 / gp-05)** — needs `STRIPE_PRICE_ID_MONTHLY_WALLET` wiring + the
+>   Stripe test keys in CI (Blocked-user, line ~1028).
+> - **R2/S3 delivery creds** — launch task gated on Brian-provided credentials.
+
+> ### NEXT-WAVE replenish — fire-301 (starved-five concentrated; each self-contained, anchor-verified)
+> - **[testing] Drain the 7 stale E2E cohorts** (line ~533) — retarget/repair details-modal ·
+>   domain-files · ai-workflow + 4 more; run the FULL Vitest suite (not scoped — scoped runs hid 10
+>   pre-existing RED editor tests, [[FULL]]). **Accept:** 7 cohorts green or explicitly deleted-with-
+>   reason; `npm test` (editor) + full Jest (worker) green. · category testing.
+> - **[ux] Kill the remaining editor Refresh/Reconcile buttons** (line ~611) — BucketsPanel ·
+>   DatabasePanel · NamespaceSummary · ImportPanel · LockManager · ProjectHub · EnvAssignmentGrid still
+>   carry a manual refresh (a DEFECT per `real-time-data-no-manual-refresh`). **Accept:** each swaps to
+>   a visibility-aware poll / `PS_*` push; Vitest asserts no refresh control renders; editor prod 200. ·
+>   category ux · anchors in `app/components/workbench/`.
+> - **[a11y] Playwright a11y spec across the 4 CF-resource inspectors** (line ~672) — kv/r2/vectorize/
+>   queues now share one ARIA-1.2 listbox model; **Accept:** a Playwright a11y spec drives roving-
+>   tabindex + `role=listbox/option` keyboard nav across all 4 at 6 breakpoints (axe 0) + extract a
+>   shared `list-select` directive to dedupe the 4 copies (interconnectedness). · category a11y.
+> - **[docs] Reconcile the stale data-platform docs** — `docs/data-platform-NEXT-FIRE.md` +
+>   `docs/data-platform-FIRE7-code-browser.md` predate the per-site-D1 re-arch now shipped; **Accept:**
+>   fold their still-true content into `docs/data-platform-scope.md`, delete the superseded files (or
+>   stamp them DONE with a pointer), and confirm no CLAUDE.md link dangles. · category docs.
+> - **[cleanup] Prune `.claude/worktrees/agent-*` + regenerate lockfile** (line ~871) — ~68 leftover
+>   agent worktrees (stranding-incident class). **Accept:** `git worktree prune` + explicit remove/
+>   `branch -D`; `npm install --legacy-peer-deps` regenerates the lockfile clean (pnpm FAILS on the
+>   electron-builder SSH dep). · category cleanup/hygiene.
+> - **[discovery] FRESH module audit for the NEXT lead code slice** — the audited modules (per-site-DB,
+>   media, serving-mutation cache-bust, env-vars IDOR) are coverage-exhausted; **Accept:** run
+>   `scripts/detect-orphans.mjs` + a targeted read of ONE un-audited area (Angular admin Karma gaps OR
+>   `api.ts` billing/hostname handlers) and append 3-5 verified, anchor-carrying TODOs so the next
+>   quota-dead fire has clean lead work. · category discovery.
+
+## ⭐ FRONTIER SNAPSHOT — fire-173 groom (SUPERSEDED by fire-301 above — items #2/#3 are now DONE; kept for drive history)
 > **Why this snapshot:** fires 161-172 drove the lead-doable (no-agent) work to exhaustion — the Editor Resources screen is implemented + 4/4 live + pixel-proven; the per-site-DB (14 routes), media (12 routes), and serving-mutation cache-bust (publish-bolt/delete/deploy) route-coverage CLASSES are all COMPLETE; env-vars IDOR is covered. Further lead-only coverage-hunting would be make-work (anti-`feedback_grind_dont_defer` is NOT a licence to grind thin locks — `do not create inference work solely to consume tokens`). The genuine remaining frontier is **multi-agent** (dual-provider resolution, long browser E2E) → it needs the agent fleet (weekly quota resets **Oct 7, 4pm ET**). This block is the execution-ready hand-off so the fleet starts with ZERO re-discovery.
 > **READY-NOW top 5 (ranked by money-path leverage × directive priority):**
 > 1. **WLK-39 — Embedded Claude Code in the editor** (the Final Directive's §75 flagship). A first-class "Claude Code" surface beside Code/Preview/Data/Terminal, wired to the Resolution Engine (dual OpenAI+Anthropic research → Claude synthesis → Requirement Graph → bounded fan-out). **Inherently multi-agent** (the vertical IS the resolution pipeline). Anchors: `app/components/workbench/` (new panel beside ResourcesPanel) · `CAMPAIGN-cf-native-ai.md` §11-12 · the reconciled delta in `PENDING-DIRECTIVES.md` (Resolution-Engine pipeline · Capacity Broker · 20-pass visual ladder · DeepSeek/MiniMax/Gemini portfolio roles). Acceptance = the §75 vertical slice proven end-to-end (prompt → research → synthesis → edit → test → live), NOT a scaffold. **Must NOT ship as unwired scaffolding** (directive forbids it + `wire-same-fire`).

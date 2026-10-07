@@ -67,3 +67,53 @@ GUID = `changelog/post/<slug>/` unless noted. Sweep 1 (fire-54, 2026-09-29) — 
 - FEED OUTAGE: developers.cloudflare.com/changelog RSS WAF-blocked the default fetch UA; GitHub API returned stale v1.x data. No new releases captured (honest outage, NOT "0 releases"). Retry next cycle (~fire-92) with a real Chrome UA (fetch-defaults) or CF Browser Run.
 - STACK CURRENCY (projectsites.dev): wrangler ^4.44.0 · @cloudflare/workers-types ^4.20251011.0 · @cloudflare/containers ^0.3.2 · @cloudflare/playwright ^1.3.0 — all current; 0 blocking CVEs/deprecations.
 - Carry-open (prior sweeps): Browser Run multi-client sessions (PILOT pending in DUX), Workers tracing custom spans (PILOT), Workflow .subscribe() event streaming (BACKLOG), saga rollback handlers (BACKLOG).
+
+## fire-301 scan (2026-10-06)
+
+Last recorded scan: fire-88 (2026-10-02, feed outage — captured nothing). Web fetch of
+developers.cloudflare.com/changelog SUCCEEDED this fire (default UA served; no WAF block),
+so this sweep covers 2026-10-01 → 2026-10-06 — all genuinely new vs sweep-1 (ended 09-29).
+
+### Stack currency — VERDICT: CURRENT (no upgrade this fire)
+- **wrangler** `^4.44.0` (pinned) · installed `npx wrangler` resolves **4.63.0** — v4 major, current; no major behind. OK.
+- **@cloudflare/workers-types** `^4.20251011.0` — current (dated build, ~this month). OK.
+- **@cloudflare/containers** `^0.3.2` · **@cloudflare/playwright** `^1.3.0` — current, pre-1.0 container lib is latest line. OK.
+- **hono** `^4.4.0` · **@hono/zod-validator** `^0.8.0` · **hono-openapi** `^1.3.0` — Hono v4 major, current. OK.
+- **@project-sites/shared** `file:../../packages/shared` — local workspace link, no registry version to stale. N/A.
+- **No obviously-stale pin → zero backlog upgrade items opened.** 0 blocking CVEs/deprecations touching our pins.
+
+### Undispositioned carry-ins driven to disposition
+(prior sweeps left these as PILOT/BACKLOG "pending" — reconfirmed, each gets an explicit line)
+- Browser Run **multi-client sessions** — **PILOT (carry, still open)** — remains the right primary for DUX/long-trail; ride role-17 adoption. No new blocker.
+- Workers tracing **custom span APIs** — **PILOT (carry, still open)** — instrument site-gen + WfP dispatch when next touching the pipeline; `[obs]` doctrine.
+- Workflow **`.subscribe()` event streaming** — **BACKLOG (carry)** — still the clean replacement for live-build-stream polling; unblocked (no Queues dep). Ready when stream work recurs.
+- Workflow **saga rollback handlers** — **BACKLOG (carry)** — compensating cleanup for failed builds (R2 partials/D1 `error` rows); `[strnd]`.
+
+### New items dispositioned (2026-10-01 → 10-06)
+- 2026-10-06 · **AI Gateway: standardized provider-credential errors (HTTP 401, code `2009`)** · ai-gateway — **BACKLOG** — maps 1:1 to MEMORY `[AIG401]`; make the AIG auth-fallback branch key on 401+2009 deterministically instead of string-sniffing. Small (~0.5d).
+- 2026-10-01 · **`@cloudflare/workers-oauth-provider` v1** (split authz/resource API) · workers — **BACKLOG** — our MCP OAuth-first path (`/api/mcp/:provider/connect`, 501 fallback) could adopt the v1 provider to stop hand-rolling token exchange; ties to `MCP OAuth-first` gotcha. Medium (~1-2d, per-provider).
+- 2026-10-02 · **Rules `hash_in_range()` GA** (request sampling / % rollout) · rules — **WATCH** — edge-side percentage bucketing; our rollout lives in D1 `feature_flag_overrides` + `isFlagOn`, so only relevant if we ever push a flag decision to the edge WAF layer. Revisit if flag-at-edge is ever wanted.
+- 2026-10-01 · **Workers AI Clef decision models (27B + 9B flash, ms-latency)** · workers-ai — **WATCH** — candidate fast-path classifier (vertical classifier `[clsf]` / routing) on the free CF rail; gate any swap behind evals, same as the DeepSeek-V4/Qwen/GLM watch set. No swap now.
+- 2026-10-02 · **AI Gateway Web Search API (beta, 3 providers)** · ai-gateway — **WATCH** — could power AI-native generated-site features (live research widgets) through the existing AIG binding; beta + billing unclear, revisit at GA.
+- 2026-10-02 · **Workers Observability logs+traces datasets in Custom Dashboards** · analytics/workers — **WATCH** — dashboard-side QoL for the tracing pilot; no integration code. Pairs with the custom-span PILOT.
+- 2026-10-01 · **Durable Objects: pending I/O prevents idle eviction** · durable-objects — **WATCH** — automatic, zero work; benefits long-running SITE_BUILDER/psnotify tasks with no connected client. Verify no behavior change during next DO touch.
+- 2026-10-01 · **AI Search GA** (hybrid default; billing starts 2026-11-01) · ai-search — **WATCH** — possible managed RAG over site content/docs later; has a cost cliff Nov 1, so note before any pilot.
+- 2026-10-02 · **D1 US-jurisdiction DBs** + **KV namespace jurisdictions (eu/us/fedramp) GA** · d1/kv — **WATCH** — data-residency primitive for per-site D1 (`site_database_allocations`) if a customer ever demands US/EU residency; not a need today.
+- 2026-10-01 · **Artifacts versioned FS → open beta (Workers deploy integration)** · workers — **WATCH** — potential build-artifact store for generated-site versions vs current R2 `sites/{slug}/{version}/`; R2 path works, revisit only if versioning pain appears.
+- 2026-10-01 · **Fundamentals: API-Token-Provisioning role self-serve** · fundamentals — **WATCH** — ops QoL for minting scoped CF tokens (e.g. Browser Run Write); no product code.
+- 2026-10-02 · **Rules `coalesce()` (nil fallback)** + 2026-10-01 **Basin (Data Platform rebrand: Pipelines/Catalog/SQL GA)** · rules/basin — **REJECT** — Rules-engine helper + a data-lake product not in our Cloudflare-primitive stack (D1/R2/KV/DO/Workflows/WfP); no money-path tie.
+- Skipped as out-of-scope (counted, not dispositioned): DNS record-quota warnings, WAF F5 CVE-2026-94127 + Oct-12 rule merge, Magic Transit/WAN BGP-over-tunnel GA, Access strict-service-token setting, Analytics 30-day retention, Agents-SDK Pi Durable harness (Agents SDK, not our WfP Functions rail), Cloudflare Tunnel `--allowed-mail` — none touch our Worker/WfP/data/AI surfaces.
+
+### NEW next-wave DISCOVERY backlog candidates (CF-native, worth piloting)
+1. **AI-Gateway-native LLM auth + fallback hardening** — adopt the new 401/`2009` standardized
+   error (10-06) so the generation path's AIG→Workers-AI fallback (`[AIG401]`/`[WAIfb]`) triggers
+   on a deterministic contract, not a substring match. Protects the money path (site-gen never
+   stalls on a provider-credential hiccup; fails fast to the free CF rail). Effort: **S (~0.5d)**.
+2. **MCP connect on `@cloudflare/workers-oauth-provider` v1** — replace the hand-rolled OAuth
+   token-exchange behind `/api/mcp/:provider/connect` with the v1 provider's split authz/resource
+   API. Money path: more providers connect cleanly on the first try (fewer 501 paste-key
+   fallbacks → owners wire integrations → stickier paid sites). Effort: **M (~1-2d, per-provider)**.
+3. **Clef-flash vertical classifier on Workers AI** — pilot the 9B Clef decision model as the
+   fast-path for the vertical classifier (`[clsf]`) + model-router, behind an eval gate vs the
+   current Llama 3.1-8B. Money path: faster, cheaper first-pass classification on the free rail
+   shaves site-gen latency (closer to the <15-min delivery promise). Effort: **S-M (~1d + evals)**.
