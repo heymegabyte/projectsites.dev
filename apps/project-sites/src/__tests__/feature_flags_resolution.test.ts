@@ -117,6 +117,46 @@ describe('resolveFlag', () => {
     const state = await resolveFlag(env, KNOWN, {});
     expect(state.source).toBe('global');
   });
+
+  // ── Governance-table independence (fire-302) ──────────────────────────────
+  // Locks the PRIMARY contract: resolution is driven by the CODE registry +
+  // `flag_overrides`, NOT by the governance `feature_flags` D1 table (the
+  // /admin/feature-flags catalog row). A `feature_flags` row that DIVERGES from
+  // the registry default — WITHOUT a matching `flag_overrides` row — has ZERO
+  // effect: `resolveFlag` returns the REGISTRY default and never even SELECTs
+  // the governance table. Proof in services.ts: the ONLY D1 read is
+  // `fetchOverride` (`SELECT … FROM flag_overrides …`); the fallback is
+  // `def.default_enabled` from FLAG_REGISTRY. There is no code path that reads
+  // a `feature_flags` row into the resolved state.
+  const REGISTRY_DISABLED = 'claim_flow'; // registry default: enabled:false, rollout:0
+
+  it('IGNORES a divergent governance `feature_flags` row — returns the registry default, never queries feature_flags', async () => {
+    // Registry says claim_flow is OFF. There is NO flag_overrides row
+    // (overrideRow:null). A governance `feature_flags` row claiming enabled:true
+    // is deliberately NOT modeled here precisely BECAUSE the resolver never reads
+    // it — the stub only answers `flag_overrides` SELECTs (→ null). If the
+    // resolver were (wrongly) driven by the governance table, there would be a
+    // SELECT against `feature_flags`; we assert there is not.
+    const { env, prepares } = makeEnv({ cacheGet: null, overrideRow: null });
+    const def = FLAG_REGISTRY[REGISTRY_DISABLED];
+    expect(def.default_enabled).toBe(false); // guard: anchor flag really is registry-disabled
+
+    const state = await resolveFlag(env, REGISTRY_DISABLED, { siteId: 's1', orgId: 'o1' });
+
+    // Resolution tracks the CODE registry, not any governance row.
+    expect(state).toEqual({
+      enabled: def.default_enabled, // false — the registry default wins
+      rollout_percent: def.default_rollout_percent,
+      stage: def.stage,
+      source: 'registry', // NOT 'global'/'org'/'tenant' — no override, no governance read
+    });
+
+    // The ONLY D1 reads are override lookups against `flag_overrides`; the
+    // governance `feature_flags` table is NEVER queried by the resolver.
+    expect(prepares.length).toBeGreaterThan(0); // it DID hit D1 (for overrides)…
+    for (const sql of prepares) expect(sql).toContain('flag_overrides');
+    expect(prepares.some((sql) => /\bfeature_flags\b/.test(sql))).toBe(false);
+  });
 });
 
 describe('isFlagOn (rollout gating)', () => {
