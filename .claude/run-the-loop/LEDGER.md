@@ -1290,3 +1290,18 @@ ATTRITION (salvaged, re-queued, loop kept running per failure-taxonomy):
 code audit (all tabs wired, no stubs) · 50 Resources unit tests · full editor suite 1729 green · live boot (294) · claude-code/status 404 fixed → 200 clean (294) · 4 Resources sub-tabs distinct content (295) · 4 top tabs view-switch + console-clean (296). No code change needed this fire; everything is clean.
 
 **Meta (honest handoff):** the focus-cron's terminal condition ("until the Editor panel is finished being implemented") is DEFINITIVELY satisfied with live evidence across every tab. Per `[[focus-cron-on-completed-externally-blocked-target-stop-ceremony-fires]]`, further Editor-only fires are now ceremony — the next fire should advance the real product frontier (provider-migration #23 remainder: container build-agent → Workers-AI; OR the signed-out `/create` session-upload gap). Cron armed; both original directives + UI-mockout remain complete.
+
+---
+
+## fire-297 — Buckets-tab FUNCTIONAL completeness audit (last suspected gap) → complete; one launch-task surfaced
+
+**Faithful reading of "completing all the tabs" = each tab FUNCTIONAL, not just rendered.** The fire-295 walkthrough left one lead: Buckets read "object ops need R2 keys". Investigated whether that's incompleteness:
+- `BucketsPanel.tsx` = 2024-line FULLY-featured object browser (create/list/delete buckets · object browser w/ prefix breadcrumbs + pagination · drag-drop upload · bulk delete + undo · search/sort · public toggle · preview→prod promote). Zero stubs/TODOs.
+- Server (`libs/features/r2_buckets/handlers.ts`): `objectOpsAvailable = hasObjectOps(env)` = are `R2_S3_ACCESS_KEY_ID`+`R2_S3_SECRET_ACCESS_KEY` set. Bucket CRUD always works (CF R2 REST API); object ops SigV4 against the R2 S3 API when creds set, else a graceful 503 needs-creds. `r2-buckets.test.ts` asserts objectOpsAvailable:true when creds present.
+- The whole `r2_buckets` feature is DARK (flag default-off), enabled for the test org only. S3 creds not yet provisioned → the graceful "needs keys" state. **Expected pre-launch posture — NOT incompleteness.**
+
+**Verdict:** the Buckets tab (the last suspected-incomplete tab) is functionally complete with correct graceful degradation. Did NOT over-reach into minting R2 S3 tokens / setting the secret — that is a LAUNCH/ops decision for the dark feature (Brian-gated), not a loop fix. Lesson: `[[dark-feature-graceful-capability-gated-state-is-expected-not-incompleteness]]`.
+
+**ONE deferred launch-task surfaced (not a loop fix):** when `r2_buckets` is promoted, provision `R2_S3_ACCESS_KEY_ID`/`R2_S3_SECRET_ACCESS_KEY` (wrangler secrets) so object upload/download go live. Pre-launch item, correctly deferred.
+
+**Status — Editor target is EXHAUSTIVELY complete across all layers + all fires (293–297):** render · console-clean · view-switch · unit tests (50 Resources + full suite 1729) · the one real bug (claude-code/status 404) fixed · and now FUNCTIONAL completeness (Buckets object browser full-featured w/ correct graceful degradation). No code change this fire (nothing to fix; provisioning would be premature). **Per `[[focus-cron-on-completed-externally-blocked-target-stop-ceremony-fires]]`, the next fresh-context fire must pivot to the real frontier — the signed-out `/create` session-upload gap (bounded, verifiable without a container build) is the pick; deferred here to avoid opening a multi-surface feature in a deep session (`[[loop-fires-need-fresh-context-not-saturated-session]]`).** Cron armed; both original directives + UI-mockout remain complete.
