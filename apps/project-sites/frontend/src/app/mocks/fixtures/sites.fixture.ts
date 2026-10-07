@@ -46,6 +46,16 @@ export const sitesFixture: FixtureFactory<SitesListResponse> = (
 };
 
 /**
+ * Single-site detail — `GET /sites/:id` → `{ data: Site }`. The interceptor normalizes the path
+ * to the `:param` key, so the requested id isn't handed to the factory; this serves the canonical
+ * selected fixture site (SITES[0] = site-001). Closes the SILENT `getSite()` 404 that any per-site
+ * detail page (mcp-server, branches, copilot, dna, …) fires under `?mock=1`.
+ */
+export const siteDetailFixture: FixtureFactory<{ data: Site }> = (): { data: Site } => ({
+  data: SITES[0],
+});
+
+/**
  * 8 believable sites, newest-first, spanning every status + both plan tiers.
  * `[slug, business_name, address, status, plan, primary_hostname|null, buildVersion|null,
  *  phone|null, website|null]`, with `created_at`/`updated_at` descending from a recent anchor.

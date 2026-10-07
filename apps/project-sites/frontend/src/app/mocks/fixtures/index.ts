@@ -24,7 +24,7 @@
  *   via `?mock=1&state=…` so every UI state is demoable from mock data alone.
  */
 import { leadsFixture } from './leads.fixture';
-import { sitesFixture } from './sites.fixture';
+import { sitesFixture, siteDetailFixture } from './sites.fixture';
 import { subscriptionFixture, entitlementsFixture, walletFixture } from './billing.fixture';
 import { domainsSummaryFixture } from './domains-summary.fixture';
 import { meFixture } from './admin-me.fixture';
@@ -134,6 +134,7 @@ export type RoutePattern = string;
 export const FIXTURES: Readonly<Record<RoutePattern, FixtureFactory>> = {
   'GET /admin/leads': leadsFixture as FixtureFactory,
   'GET /sites': sitesFixture as FixtureFactory,
+  'GET /sites/:id': siteDetailFixture as FixtureFactory,
   'GET /billing/subscription': subscriptionFixture as FixtureFactory,
   'GET /billing/entitlements': entitlementsFixture as FixtureFactory,
   'GET /wallet': walletFixture as FixtureFactory,

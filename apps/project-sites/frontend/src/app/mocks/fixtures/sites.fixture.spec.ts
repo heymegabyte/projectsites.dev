@@ -1,5 +1,5 @@
-import { sitesFixture, type SitesListResponse } from './sites.fixture';
-import { toRegistryKey } from './index';
+import { sitesFixture, siteDetailFixture, type SitesListResponse } from './sites.fixture';
+import { toRegistryKey, FIXTURES } from './index';
 
 /**
  * sites.fixture — the mock body for GET /api/sites (the roster AdminStateService loads
@@ -63,5 +63,23 @@ describe('sitesFixture (worker-contract-shaped GET /sites, state variants)', () 
     // normalizer yields the key this fixture must be registered under — no registry dep.
     expect(toRegistryKey('GET', '/api/sites').key).toBe('GET /sites');
     expect(toRegistryKey('GET', '/api/sites?x=1').key).toBe('GET /sites');
+  });
+});
+
+describe('siteDetailFixture (GET /sites/:id — single-site detail; closes the silent getSite() 404)', () => {
+  it('returns the worker envelope { data: Site } for the canonical selected site', () => {
+    const res = siteDetailFixture('populated', q());
+    expect(typeof res.data.id).toBe('string');
+    expect(typeof res.data.slug).toBe('string');
+    expect(typeof res.data.business_name).toBe('string');
+  });
+
+  it('is wired into the STATIC registry under the :param key GET /sites/:id', () => {
+    // Assert the static FIXTURES map (deterministic; never findFixture — per the #35 flake fix).
+    expect(typeof (FIXTURES as Record<string, unknown>)['GET /sites/:id']).toBe('function');
+  });
+
+  it('a per-site detail path normalizes to a 2-seg key (distinct from /sites + /sites/:id/*)', () => {
+    expect(toRegistryKey('GET', '/api/sites/site-001').key).toBe('GET /sites/site-001');
   });
 });
