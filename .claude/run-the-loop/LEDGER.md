@@ -1358,3 +1358,8 @@ Pivot rationale: money-path EPIC closed (fire-300); fires 293-297 were Editor "c
 - **[docs + loop-improvement §7]** — captured fires 293-300 lessons into OPERATING-PRINCIPLES.md (dark-flag 200-false, nav-abort transients, dark-feature graceful state, IndexedDB upload, grep-before-build). §7 improvement: codified the STALE-ANCHOR rule (grooming must re-verify every anchor against the live tree; cleanup runs fresh knip) — found live this fire when the dead-code anchors pointed at non-existent paths.
 - Loop infra: replaced the stale narrow focus-cron (`a2c2e412`, "complete Editor Resources tabs" — fires 293-297 already did) with the canonical `/run-the-loop` cron `c352bf00` @ `4,19,34,49 * * * *`.
 - Gates: tsc 0 · jest 207 green · validate:features PASS · eslint 0 errors. BLOCKED/deferred: role 16 Long-Trail (no live checkpoint — needs dedicated fire) · role 17 Deep UI Explorer (CF_BROWSER_RUN_TOKEN unset).
+
+## fire-302 — lean chained fire: flag-resolution governance-table lock (2026-10-07)
+Chained in-session from fire-301 (CONTINUOUS mandate). Single delegated worker-test slice (Testing = most-starved category; test-only → no deploy, lead stays lean).
+- **[test]** Extended `feature_flags_resolution.test.ts`: locked that `resolveFlag` is driven by `FLAG_REGISTRY` + `flag_overrides` ONLY — a divergent governance `feature_flags` row with no matching override has ZERO effect (no `feature_flags` SELECT is even issued). RED-proven (flipped to invented "governance-wins" → 1 failed; restored → green). 127 flag tests green. Genuine gap: prior "registry fallback" test used an enabled flag + never probed the governance table.
+- Gate: jest 127 green. Committed 7931a0736. No deploy (test-only). Cron c352bf00 armed for fire-303.
