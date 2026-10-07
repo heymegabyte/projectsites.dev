@@ -2,13 +2,15 @@
  * GET /api/sites/:siteId/claude-code/status — WLK-39 S7-prep (the embedded "Claude Code" tab's
  * real dark-flag resolver, replacing the S0 default-OFF client constant).
  *
- * Contract this suite locks (mirrors the `per_site_data` dark-flag path):
- *   - Flag `claude_code_panel` OFF → 404 whose message says "not enabled" (never 403 — existence
- *     never leaked). This is the signal the admin translates to `{ enabled:false }` so the tab hides.
- *   - Authenticated + owned + flag ON → 200 with `{ data: { enabled: true } }` → the tab may render.
- *   - Cross-org / missing site → 404 (IDOR guard via assertSiteOwned).
+ * Contract this suite locks (a RESOLUTION endpoint — reports a boolean for the caller's OWN site,
+ * so an owned site gets the honest value, never a 404 for the off case):
+ *   - Authenticated + owned + flag OFF → 200 `{ data: { enabled: false } }` (console-clean dark path;
+ *     the admin keeps the tab hidden). NO browser 404.
+ *   - Authenticated + owned + flag ON → 200 `{ data: { enabled: true } }` → the tab may render.
+ *   - Cross-org / missing site → 404 "Site not found" (IDOR guard), FLAG-AGNOSTIC.
  *   - Unauthenticated → 401.
- *   - The flag gate runs BEFORE ownership (an off flag never even touches assertSiteOwned).
+ *   - Ownership runs BEFORE the flag resolve — a non-owner can never distinguish flag-off from
+ *     flag-on (both → the same 404), so returning the honest boolean to the owner leaks nothing.
  *
  * Mocks `isFlagOn` + `assertSiteOwned` at the module boundary (2-level `../` reaches src/ from
  * src/__tests__/; global `jest` for @swc hoisting — per apps/project-sites/CLAUDE.md gotchas 11+12).
@@ -49,30 +51,38 @@ describe('GET /api/sites/:siteId/claude-code/status', () => {
     mockAssertSiteOwned.mockResolvedValue(true);
   });
 
-  it('404s with "not enabled" when the flag is OFF (never leaks existence; ownership untouched)', async () => {
+  it('returns { data: { enabled: false } } (200, console-clean) when authed + owned + flag OFF', async () => {
     mockIsFlagOn.mockResolvedValue(false);
     const req = makeApp({ orgId: 'org-1' });
     const res = await req('/api/sites/site-1/claude-code/status');
-    expect(res.status).toBe(404);
-    const body = (await res.json()) as { error?: { message?: string } };
-    expect(body.error?.message).toMatch(/not enabled/i);
-    // The flag gate runs BEFORE ownership — an off flag never even touches assertSiteOwned.
-    expect(mockAssertSiteOwned).not.toHaveBeenCalled();
+    // A RESOLUTION endpoint answers the owner honestly — NO 404 for the dark case (no browser console
+    // error); the admin reads enabled:false and keeps the tab hidden.
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { data?: { enabled?: boolean } };
+    expect(body.data).toEqual({ enabled: false });
+    // Ownership runs BEFORE the flag resolve now.
+    expect(mockAssertSiteOwned).toHaveBeenCalledWith(expect.anything(), 'org-1', 'site-1');
   });
 
-  it('requires authentication (401 with no org)', async () => {
+  it('requires authentication (401 with no org — neither ownership nor flag touched)', async () => {
     const req = makeApp({});
     const res = await req('/api/sites/site-1/claude-code/status');
     expect(res.status).toBe(401);
+    expect(mockAssertSiteOwned).not.toHaveBeenCalled();
     expect(mockIsFlagOn).not.toHaveBeenCalled();
   });
 
-  it('404s for a cross-org / missing site (IDOR guard)', async () => {
+  it('404s "Site not found" for a cross-org / missing site, FLAG-AGNOSTIC (IDOR guard before flag)', async () => {
     mockAssertSiteOwned.mockResolvedValue(false);
     const req = makeApp({ orgId: 'intruder' });
     const res = await req('/api/sites/site-1/claude-code/status');
     expect(res.status).toBe(404);
+    const body = (await res.json()) as { error?: { message?: string } };
+    expect(body.error?.message).toMatch(/not found/i);
     expect(mockAssertSiteOwned).toHaveBeenCalledWith(expect.anything(), 'intruder', 'site-1');
+    // Ownership precedes the flag — a non-owner never even triggers flag resolution, so flag-off and
+    // flag-on are indistinguishable to them (both → this same 404). No info leak.
+    expect(mockIsFlagOn).not.toHaveBeenCalled();
   });
 
   it('returns { data: { enabled: true } } when authed + owned + flag ON', async () => {
