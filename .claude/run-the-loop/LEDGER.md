@@ -1226,3 +1226,19 @@ ATTRITION (salvaged, re-queued, loop kept running per failure-taxonomy):
 - **Headless prod `?mock=1` proof (local Playwright/Chromium):** 3/3 per-site surfaces — `/admin/mcp`, `/admin/sites`, `/admin/editor` — show `/api/sites/site-001` 404 = **NONE**, API 4xx = none, console errors = none, DEMO badge present.
 
 **Status:** "fully mock out the UI" is demo-complete end-to-end — every admin surface renders fixture data behind `?mock=1` with a DEMO badge, zero error toasts, zero console 404s. Both original directives (Editor panel finished 4-way · provider migration) remain complete. UI-mockout campaign CLOSED.
+
+---
+
+## fire-293 — Editor "Resources" screen reconfirm (with evidence) + test-infra hardening
+
+**Focus-cron target** (complete all Editor "Resources" tabs · finish the Editor panel) was proven finished in prior fires. Per `[[backlog-work-claim-must-be-reverified-against-code]]`, this fire RE-VERIFIED it live rather than trusting the prior claim:
+
+**Reconfirm evidence (target genuinely complete, no regression):**
+- `app/components/workbench/ResourcesPanel.tsx` (2258 lines): all 4 tabs wired — `SECTION_ORDER = ['media','files','buckets','automations']`, each with a render branch, full tab bar (labels + icons + roving-keyboard nav + aria-labelledby). `AutomationsPanel.tsx` (736 lines): loading / honest-empty / error / disabled states, optimistic retry-with-revert, visibility-aware silent background refresh. NO stubs/TODOs (the only "placeholder" hits are a search input attr + a deliberate upload-card comment).
+- Panel suites GREEN: 6 files / **50 tests** (ResourcesPanel a11y + files-paging, AutomationsPanel, buckets-empty-states, automations-filter, resources-env-sticky).
+
+**Slice shipped (`196c87638`) — editor test-infra hardening** (charter: "debugging · hardened error-handling"):
+- jsdom ships no canvas backend → `HTMLCanvasElement.prototype.getContext` emitted a "Not implemented" error on EVERY call (NebulaLoader's WebGL loader probes it at mount). Components already null-guard (CSS fallback), so only the error FLOOD was the problem — and per `[[canvas-mount-probe-blind-to-black-broken-shader]]` it would camouflage a real canvas failure.
+- Fix: stub `getContext` → `null` in `vitest.setup.ts` (the value components already handle; behaviour-preserving). Verified: **full editor suite 87 files / 1729 tests pass, canvas errors 0** (was a flood). Test-only file (not shipped) → the test run IS the verification.
+
+**Status:** Editor Resources screen + panel confirmed complete with fresh evidence; CI signal hardened. Real frontier for a fresh-context fire remains: provider-migration #23 remainder (container build-agent → Workers-AI; needs a build, credit-gated) · signed-out `/create` session-upload (multi-surface).
