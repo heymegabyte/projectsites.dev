@@ -137,4 +137,3 @@ siteDna.get('/api/site-dna/:siteId/history', async (c) => {
 });
 
 export { siteDna };
-export default siteDna;

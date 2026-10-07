@@ -1,40 +1,14 @@
 /**
  * @module middleware/error_taxonomy
- * @description Error-classification PREDICATES + the HTTP status → title/suggestion
- * copy tables for the branded error page. Pure data + pure predicates — no I/O, no
+ * @description Error-classification PREDICATES. Pure predicates — no I/O, no
  * logging, no response building (that lives in error_render / error_handler). The
  * handler keeps its original per-branch behavior; a unified classifier was tried
  * (fire-54) and rejected — it flattened branch-specific envelopes (AppError
- * `toJSON()`, Zod `details.issues`, generic-vs-raw internal messages).
+ * `toJSON()`, Zod `details.issues`, generic-vs-raw internal messages). The branded
+ * error page builds its own title/suggestion copy in `lib/error_pages.ts`.
  */
 
 import { ZodError } from 'zod';
-
-/** Human titles per HTTP status for the branded error page. */
-export const HTTP_ERROR_TITLES: Record<number, string> = {
-  400: 'Bad Request',
-  401: 'Not Authorized',
-  403: 'Forbidden',
-  404: 'Not Found',
-  409: 'Conflict',
-  413: 'Too Large',
-  429: 'Too Many Requests',
-  500: 'Server Error',
-  502: 'Bad Gateway',
-  503: 'Service Unavailable',
-};
-
-/** Next-step suggestions per HTTP status for the branded error page. */
-export const HTTP_ERROR_SUGGESTIONS: Record<number, string> = {
-  400: 'Check the request format and try again.',
-  401: 'Please <a href="https://projectsites.dev/" class="link">sign in</a> to continue.',
-  403: "You don't have permission to access this resource.",
-  404: 'This page doesn\'t exist. <a href="https://projectsites.dev/create" class="link">Build a site</a> instead?',
-  429: "You're sending too many requests. Wait a moment and try again.",
-  500: "Something went wrong on our end. We've been notified.",
-  502: 'Our upstream service is temporarily unavailable.',
-  503: "We're briefly offline for maintenance. Back shortly.",
-};
 
 /**
  * A ZodError, including cross-realm instances (a validation error thrown by a
