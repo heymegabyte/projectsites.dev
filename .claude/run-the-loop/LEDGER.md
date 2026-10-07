@@ -1333,3 +1333,17 @@ code audit (all tabs wired, no stubs) · 50 Resources unit tests · full editor 
 **Shipped (the real value):** corrected the drifted `BACKLOG.md` PUBLISH-1 entry → `[x] DONE end-to-end`, documenting all 3 shipped surfaces + their green tests + that the ONLY remainder is flipping `publish_live_check` ON (a money-path launch decision + a known 3xx-redirect false-negative edge since `live` is strictly `status===200` — Brian-gated, NOT a loop-autonomous flip). This prevents the next fire from rebuilding it too. Reinforced `[[backlog-work-claim-must-be-reverified-against-code]]` with the instance + a concrete pre-flight: **before building a flagged feature, `grep '<flag_key>' src libs` + `grep '<endpoint-path>'`** — a prior fire may have shipped it in a different structure, so a dup won't collide until tsc/build.
 
 **Lesson reaffirmed:** even a memory's OWN "genuinely remained" shortlist (fire-163's PUBLISH-1 claim) went stale — RECONCILE-ON-ORIENT applies to flagged-feature builds, grep-first. No code shipped (correctly — the feature exists); the value is an accurate frontier + averted waste (`[[check-origin-before-reimplementing-concurrent-loop-shipped-it]]`). Cron armed; Editor panel + both original directives + UI-mockout remain complete.
+
+---
+
+## fire-300 — money-path EPIC reconciled 5/5 DONE (EDIT-SAVE-CAUSAL was the last drifted "remainder")
+
+**Continued the fire-299 drift sweep** (grep-first per the hardened `[[backlog-work-claim-must-be-reverified-against-code]]`). EDIT-SAVE-CAUSAL was the prime suspect — its fire-163 shortlist-sibling PUBLISH-1 turned out fully shipped (fire-299), so I verified EDIT-SAVE-CAUSAL against code BEFORE assuming it open:
+- **unit-causal LOCKED:** `src/__tests__/publish_bolt_ownership.test.ts:215` — `describe('POST /api/sites/:id/publish-bolt — the EDIT→publish causal chain (persist · version-advance · cache-bust)')`.
+- **real-browser E2E EXISTS:** `apps/project-sites/e2e/create-edit-publish-flow.spec.ts` — create→build→view live→`/admin/editor` edit title to TESTTESTTEST via the `.bolt-frame` embed→poll served `{slug}.projectsites.dev` HTML→`.toContain(NEW_TITLE)`→explicit `publish-bolt` re-verify. Cost-gated `E2E_REAL_BUILD=1` (~$15/~40 min) so it runs on-demand; the unit-causal is the CI guard.
+
+→ EDIT-SAVE-CAUSAL is DONE both ways. So **BOTH** of fire-163's "ONLY two legs left" (PUBLISH-1 + EDIT-SAVE-CAUSAL) were already shipped — the **money-path causal-legs EPIC is 5/5 COMPLETE** (VIEWLIVE-1 · AIBUILD-VERIFY · SEARCH-DEDUP-GUARD · PUBLISH-1 · EDIT-SAVE-CAUSAL).
+
+**Shipped (loop-health):** corrected 3 drifted BACKLOG entries (the `[ ]` item L288, the frontier summary L42, the next-up note L1923) → all mark EDIT-SAVE-CAUSAL + the EPIC DONE with the exact test anchors + "do NOT re-queue". This stops future fires (and this cron) from re-building/re-probing shipped legs. No code shipped (correctly — everything's done); value = accurate frontier + averted waste.
+
+**Accurate "what's genuinely next" (for a fresh-context fire):** the money-path + Editor frontiers are complete; the remaining backlog is the BIG feature epics — CRAWL-3c…13 (crawler depth/retrieval/MCP), DEMO-1…7 (guest-browsable demo shell, Brian-gated A19 call), LB-1/2/3 (launch-bar: gp-05 Stripe money-path CI, 10-site gallery, gp-09 stability). Each is a dedicated fresh-session fire, NOT a deep-session slice (`[[loop-fires-need-fresh-context-not-saturated-session]]`). Cron armed; Editor panel + both original directives + UI-mockout remain complete.
