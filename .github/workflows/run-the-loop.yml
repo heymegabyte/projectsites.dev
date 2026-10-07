@@ -1,62 +1,24 @@
-# run-the-loop — cloud runner (slice 1, fire-59 epilogue)
-#
-# Fires one /run-the-loop cycle every 20 minutes on Max-subscription OAuth
-# (CLAUDE_CODE_OAUTH_TOKEN from `claude setup-token` — NOT an API key; API-key
-# billing at loop volume is $9.6K-27K/mo vs $200/mo Max, per RUNNER-AND-CRITICS.md).
-#
-# INERT until the CLAUDE_CODE_OAUTH_TOKEN repo secret exists — runs no-op green.
-# WHEN ENABLING: delete the Mac harness cron (CronDelete ed02a44b) — the repo-local
-# fire lease does NOT coalesce across machines; run ONE rail at a time until a
-# remote (KV) lease ships. Loop behavior is fully repo-defined
-# (.claude/commands/run-the-loop.md + .claude/run-the-loop/CONSTITUTION.md) —
-# editing those files updates the runner with zero infra change.
-
-name: run-the-loop
+name: Run the Loop
 
 on:
   schedule:
-    - cron: "4,19,34,49 * * * *" # 15-min cadence (Brian 2026-10-01), off-:00 minutes
-  workflow_dispatch: {}
-
-concurrency:
-  group: run-the-loop # queued ≤1; overlapping fires coalesce like the lease
-  cancel-in-progress: false
+    - cron: '2,17,32,47 * * * *'
+  workflow_dispatch:
+    inputs:
+      objective:
+        description: Optional focus for this one loop
+        type: string
+        default: ''
 
 permissions:
   contents: write
-  id-token: write
+  actions: read
 
 jobs:
-  fire:
-    runs-on: ubuntu-latest
-    timeout-minutes: 14 # under the 15m cadence so fires never stack
-    steps:
-      - name: Check OAuth token present
-        id: gate
-        env:
-          TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
-        run: |
-          if [ -z "$TOKEN" ]; then
-            echo "CLAUDE_CODE_OAUTH_TOKEN not set — runner inert (mint via: claude setup-token)" >&2
-            echo "skip=true" >> "$GITHUB_OUTPUT"
-          else
-            echo "skip=false" >> "$GITHUB_OUTPUT"
-          fi
-
-      - name: Checkout
-        if: steps.gate.outputs.skip != 'true'
-        uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5
-        with:
-          fetch-depth: 0
-
-      - name: Fire /run-the-loop
-        if: steps.gate.outputs.skip != 'true'
-        uses: anthropics/claude-code-action@97c53473391bff1901034d4b454b5bac7ab7a029 # v1
-        with:
-          claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
-          prompt: "/run-the-loop"
-          claude_args: "--max-turns 200"
-        env:
-          CLOUDFLARE_API_KEY: ${{ secrets.CLOUDFLARE_API_KEY }}
-          CLOUDFLARE_EMAIL: ${{ secrets.CLOUDFLARE_EMAIL }}
-          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+  loop:
+    uses: heymegabyte/agent-skills/.github/workflows/run-the-loop.yml@670a13e54f178e0c21ce94055a6a6c823e99a4e7
+    with:
+      project: heymegabyte/projectsites.dev
+      shared-revision: 670a13e54f178e0c21ce94055a6a6c823e99a4e7
+      runner-labels: '["self-hosted","linux","ubuntu","persistent","proxmox-vm","agent","codex"]'
+      objective: ${{ inputs.objective || '' }}
