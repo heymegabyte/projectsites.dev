@@ -1275,3 +1275,18 @@ ATTRITION (salvaged, re-queued, loop kept running per failure-taxonomy):
 **Averted a WRONG fix (the real lesson):** the FIRST probe (which navigated `/admin`→`/admin/editor`) reported `"Failed to check environment API key: TypeError: Failed to fetch"` from the editor's APIKeyManager — looked like a zero-console-errors violation to "fix." But (1) `curl .../api/check-env-key` → `200 {"isSet":true}` (endpoint works) and (2) a CLEAN SINGLE LOAD showed the error did NOT recur (`envKeyErrOnCleanLoad: NONE`). It was the probe's second `goto` aborting the first page's in-flight fetch — a navigation-abort artifact, not a defect. Downgrading that `console.error` would have masked nothing + dulled a real future signal. Lesson captured: `[[console-error-in-multi-nav-browser-probe-may-be-navigation-abort-transient]]`.
 
 **Status:** Editor Resources screen is now verified complete at the HIGHEST fidelity — code audit (4 tabs wired, no stubs) + 50 unit tests + full editor suite 1729 green + live boot (fire-294) + live tab-walkthrough console-clean (this fire) + the one real bug (claude-code/status 404) fixed (fire-294). No code change needed this fire; the apparent issue was a probe artifact. Cron armed; both original directives + UI-mockout remain complete.
+
+---
+
+## fire-296 — WHOLE Editor-panel top-tab live verification: Code · Preview · Database · Resources all clean
+
+**Extends fire-294/295 from "Resources screen" to the cron's broader phrase "the Editor PANEL is finished":** fire-294 fixed the Claude Code flag resolver + proved boot; fire-295 walked the 4 Resources sub-tabs; this fire live-verifies the 4 EDITOR TOP tabs (Code/Preview/Database/Resources) — the last unverified editor surface. Clean single load (fire-295 nav-abort lesson), `frameLocator('iframe[src*="editor.projectsites.dev"]')`.
+
+**Result — every top tab switches view correctly + is console/API-clean:**
+- Pass 1 (console/API gate): all 4 tabs click; **0 new console errors, 0 API failures per tab; clean boot** (bootConsoleErrors []).
+- Pass 2 (view-switch proof): all 4 tabs get `ps-tab-active` on click (switch logic runs) AND each distinct per-view marker renders — **Code** → CodeMirror/FileTree (`index.html`), **Preview** → preview iframe / preparing-state, **Database** → Tables·SQL·KV sub-nav, **Resources** → `#resources-tab-media`. (First pass's identical `bodyChars:2945` was coarse-signal noise — body innerText is dominated by constant chrome + Preview content is a nested iframe; the marker pass confirms the real switch.)
+
+**Status — the Editor panel is now EXHAUSTIVELY verified complete, live, at maximum fidelity:**
+code audit (all tabs wired, no stubs) · 50 Resources unit tests · full editor suite 1729 green · live boot (294) · claude-code/status 404 fixed → 200 clean (294) · 4 Resources sub-tabs distinct content (295) · 4 top tabs view-switch + console-clean (296). No code change needed this fire; everything is clean.
+
+**Meta (honest handoff):** the focus-cron's terminal condition ("until the Editor panel is finished being implemented") is DEFINITIVELY satisfied with live evidence across every tab. Per `[[focus-cron-on-completed-externally-blocked-target-stop-ceremony-fires]]`, further Editor-only fires are now ceremony — the next fire should advance the real product frontier (provider-migration #23 remainder: container build-agent → Workers-AI; OR the signed-out `/create` session-upload gap). Cron armed; both original directives + UI-mockout remain complete.
