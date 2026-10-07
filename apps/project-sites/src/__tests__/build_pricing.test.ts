@@ -141,7 +141,9 @@ describe('estimateBuildCostUsd — Σ per-model cost + container minutes', () =>
 
   it('ignores free Workers-AI rows in the total (they contribute $0)', () => {
     const cost = estimateBuildCostUsd(
-      { '@cf/meta/llama-3.3-70b-instruct-fp8-fast': { calls: 50, tokens_in: 9e6, tokens_out: 9e6 } },
+      {
+        '@cf/meta/llama-3.3-70b-instruct-fp8-fast': { calls: 50, tokens_in: 9e6, tokens_out: 9e6 },
+      },
       0,
     );
     expect(cost).toBe(0);
