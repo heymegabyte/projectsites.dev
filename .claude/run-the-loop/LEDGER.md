@@ -1305,3 +1305,19 @@ code audit (all tabs wired, no stubs) · 50 Resources unit tests · full editor 
 **ONE deferred launch-task surfaced (not a loop fix):** when `r2_buckets` is promoted, provision `R2_S3_ACCESS_KEY_ID`/`R2_S3_SECRET_ACCESS_KEY` (wrangler secrets) so object upload/download go live. Pre-launch item, correctly deferred.
 
 **Status — Editor target is EXHAUSTIVELY complete across all layers + all fires (293–297):** render · console-clean · view-switch · unit tests (50 Resources + full suite 1729) · the one real bug (claude-code/status 404) fixed · and now FUNCTIONAL completeness (Buckets object browser full-featured w/ correct graceful degradation). No code change this fire (nothing to fix; provisioning would be premature). **Per `[[focus-cron-on-completed-externally-blocked-target-stop-ceremony-fires]]`, the next fresh-context fire must pivot to the real frontier — the signed-out `/create` session-upload gap (bounded, verifiable without a container build) is the pick; deferred here to avoid opening a multi-surface feature in a deep session (`[[loop-fires-need-fresh-context-not-saturated-session]]`).** Cron armed; both original directives + UI-mockout remain complete.
+
+---
+
+## fire-298 — PIVOT to real frontier: signed-out /create upload survives the signin bounce ✅ SHIPPED
+
+**The Editor target is exhaustively done (293–297); per `[[focus-cron-on-completed-externally-blocked-target-stop-ceremony-fires]]` this fire PIVOTED to the real product frontier** — the signed-out `/create` upload gap (SUPREME embarrassingly-easy mandate). Re-verified the gap still exists in code (`[[backlog-work-claim-must-be-reverified-against-code]]`): the spec literally documented file uploads as DEFERRED ("a FileList can't survive a localStorage bounce").
+
+**Shipped (`7d3dd50a7`), frontend-only, no backend change:**
+- `create-file-stash.ts` — IndexedDB stash (holds File/Blob + survives the OAuth full-page reload, unlike localStorage). Best-effort (no-IDB/private-mode → graceful text-only fallback).
+- Wired 3 points in `create.component.ts`: signed-out branch fire-and-forgets `stashCreateFiles` before the SPA `/signin` redirect (navigate stays SYNC — write lands in ms, OAuth reload is a human click seconds later); post-signin pending-build auto-submit rehydrates in the BACKGROUND (IDB ~ms ≪ the 500ms submit delay — kept off the timer so `fakeAsync` tests pass) then runs the EXISTING authed upload path; consumed on read + cleared on draft-discard/success so a stale stash never bleeds onto a later build.
+
+**Two self-inflicted regressions caught + fixed mid-build** (ran full Karma per `[[handler-change-breaks-existing-contract-tests-run-full-suite]]`): (1) awaiting the stash broke 2 specs asserting synchronous `/signin` navigate → reverted to fire-and-forget + sync navigate; (2) wrapping the auto-submit in `restoreCreateFiles().then()` hung the text-only `tick(500)` test (real IDB promise never resolves under fakeAsync) → moved rehydrate to a parallel background promise. Lesson: `[[signed-out-upload-survives-auth-bounce-via-indexeddb-not-pre-auth-endpoint]]`.
+
+**Verification:** 6 new `create-file-stash` specs (round-trip/clear/empty/overwrite, real ChromeHeadless IDB); full Karma **2978 SUCCESS**; tsc 0. Deploy R2 **301/301 + CDN purged**. Prod-proof: `/create` renders console-clean at the prod origin + a real File round-trips IndexedDB there (name/type/size preserved).
+
+**Status:** the embarrassingly-easy gap is closed — a signed-out owner's logo/favicon/photos now survive sign-in + build into their site first-try. (Rehydrate's full OAuth-bounce E2E is impractical headlessly; covered by unit tests + the component spec's signed-out-branch coverage + the prod IDB-substrate proof.) Cron armed; both original directives + UI-mockout + the Editor panel remain complete.
