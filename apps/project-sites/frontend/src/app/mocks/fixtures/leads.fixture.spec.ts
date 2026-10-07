@@ -1,5 +1,5 @@
 import { leadsFixture, type LeadsListResponse } from './leads.fixture';
-import { toRegistryKey, findFixture } from './index';
+import { toRegistryKey, FIXTURES } from './index';
 
 /**
  * leads.fixture — the mock body for GET /api/admin/leads.
@@ -74,10 +74,12 @@ describe('leadsFixture (worker-contract-shaped, paginated, state variants)', () 
     expect(leads.some((l) => l.enrichedAt)).toBe(true);
   });
 
-  it('is reachable through the registry under GET /admin/leads', () => {
+  it('is wired through the registry under GET /admin/leads', () => {
+    // Assert against the STATIC FIXTURES map directly — deterministic + order-independent,
+    // unlike findFixture which consults the mutable EXTRA_FIXTURES seam a sibling spec could leak.
     const { key } = toRegistryKey('GET', '/api/admin/leads?onlyNoWebsite=true&offset=50');
     expect(key).toBe('GET /admin/leads');
-    expect(findFixture(key)).toBe(leadsFixture as never);
+    expect((FIXTURES as Record<string, unknown>)[key]).toBe(leadsFixture as unknown);
   });
 });
 

@@ -1,6 +1,6 @@
 import { orgFullOrganizationFixture } from './team.fixture';
 import type { FullOrganization } from '../../pages/auth/org-api.service';
-import { toRegistryKey, findFixture, registerFixtures } from './index';
+import { toRegistryKey, FIXTURES } from './index';
 
 /**
  * team.fixture — the mock body for the standalone admin Team section
@@ -124,10 +124,9 @@ describe('orgFullOrganizationFixture (GET /auth/organization/get-full-organizati
   });
 });
 
-describe('team fixture — registry-key normalization + reachability (orchestrator merges index.ts)', () => {
-  // index.ts is owned by the orchestrator (parallel-collision avoidance), so this slice
-  // does NOT add the shipped registry line. We assert the KEY normalization here, then
-  // prove reachability via the documented `registerFixtures` test seam.
+describe('team fixture — registry-key normalization + reachability (shipped FIXTURES map)', () => {
+  // We assert the KEY normalization here, then prove reachability by reading the shipped
+  // FIXTURES map directly (deterministic + order-independent, unlike the mutable findFixture seam).
   it('the OrgApiService URL normalizes to the expected registry key (query stripped, /api dropped)', () => {
     // OrgApiService builds `fetch('/api/auth/organization/get-full-organization')`.
     expect(toRegistryKey('GET', '/api/auth/organization/get-full-organization').key).toBe(
@@ -135,12 +134,8 @@ describe('team fixture — registry-key normalization + reachability (orchestrat
     );
   });
 
-  it('is reachable via the test seam under its static key', () => {
-    const dispose = registerFixtures({
-      'GET /auth/organization/get-full-organization': orgFullOrganizationFixture as never,
-    });
+  it('is wired under its static key in FIXTURES', () => {
     const { key } = toRegistryKey('GET', '/api/auth/organization/get-full-organization');
-    expect(findFixture(key)).toBe(orgFullOrganizationFixture as never);
-    dispose();
+    expect((FIXTURES as Record<string, unknown>)[key]).toBe(orgFullOrganizationFixture as unknown);
   });
 });

@@ -1,5 +1,5 @@
 import { auditFixture, type AuditLogsResponse } from './audit.fixture';
-import { toRegistryKey, findFixture, registerFixtures } from './index';
+import { toRegistryKey, FIXTURES } from './index';
 
 /**
  * audit.fixture — the mock body for GET /api/audit-logs (the admin `/admin/audit`
@@ -52,9 +52,14 @@ describe('auditFixture (worker-contract-shaped, paginated, state variants)', () 
   });
 
   it('is ordered newest-first (mirrors the worker ORDER BY created_at DESC)', () => {
+    // The store is built ONCE at module load, dating each row `Date.now() - minutesAgo` with
+    // Date.now() called PER ROW. Compare at WHOLE-SECOND granularity so a sub-millisecond build
+    // jitter between two rows can never flake the strict `>=` (today every seed differs by ≥60s,
+    // but a future tie must stay deterministic). Still proves the DESC ordering the component relies on.
     const { data } = auditFixture('populated', q('limit=500'));
+    const sec = (iso: string) => Math.floor(Date.parse(iso) / 1000);
     for (let i = 1; i < data.length; i++) {
-      expect(Date.parse(data[i - 1]!.created_at)).toBeGreaterThanOrEqual(Date.parse(data[i]!.created_at));
+      expect(sec(data[i - 1]!.created_at)).toBeGreaterThanOrEqual(sec(data[i]!.created_at));
     }
   });
 
@@ -119,16 +124,12 @@ describe('auditFixture (worker-contract-shaped, paginated, state variants)', () 
     expect(loading.data.length).toBe(populated.data.length);
   });
 
-  it('normalizes to the registry key GET /audit-logs (the orchestrator merges the line into index.ts)', () => {
-    // index.ts is owned by the orchestrator (parallel collision avoidance), so this
-    // slice does NOT add the shipped registry line. We assert the KEY normalization
-    // here, then prove reachability via the documented `registerFixtures` test seam —
-    // so the fixture is provably wireable without this spec editing the shipped map.
+  it('normalizes to the registry key GET /audit-logs + is wired to auditFixture in FIXTURES', () => {
+    // Assert against the STATIC registry map directly — the merged key always carries this
+    // factory regardless of Jasmine's spec order, and reading the map (not the mutable
+    // findFixture/EXTRA_FIXTURES seam a sibling spec could leak) is deterministic.
     const { key } = toRegistryKey('GET', '/api/audit-logs?limit=500');
     expect(key).toBe('GET /audit-logs');
-
-    const dispose = registerFixtures({ 'GET /audit-logs': auditFixture as never });
-    expect(findFixture(key)).toBe(auditFixture as never);
-    dispose();
+    expect((FIXTURES as Record<string, unknown>)[key]).toBe(auditFixture as unknown);
   });
 });

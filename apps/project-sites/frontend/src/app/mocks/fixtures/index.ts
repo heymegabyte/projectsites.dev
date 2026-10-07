@@ -33,7 +33,6 @@ import {
   snapshotMetricsFixture,
   snapshotsListFixture,
   githubStatusFixture,
-  aiLogsFixture,
   copilotConfigFixture,
   logsTailFixture,
   sparklineFixture,
@@ -44,6 +43,10 @@ import {
 import { deliverabilityFixture } from './deliverability.fixture';
 import { webhooksFixture, webhookDeliveriesFixture } from './webhooks.fixture';
 import { docsOpenApiFixture, docsStatsFixture, docsAppOverviewFixture } from './docs.fixture';
+import { appsInstallCountsFixture } from './apps.fixture';
+import { apiKeysFixture, sessionsFixture, notificationPrefsFixture } from './user-settings.fixture';
+// ai-logs: richer section fixture supersedes the thin per-site stub (+ a per-log detail route).
+import { aiLogsFixture, aiLogDetailFixture } from './ai-logs.fixture';
 import {
   aiSettingsFixture,
   teamFixture,
@@ -208,6 +211,7 @@ export const FIXTURES: Readonly<Record<RoutePattern, FixtureFactory>> = {
   'GET /sites/:id/snapshots': snapshotsListFixture as FixtureFactory,
   'GET /sites/:id/github/status': githubStatusFixture as FixtureFactory,
   'GET /sites/:id/ai-logs': aiLogsFixture as FixtureFactory,
+  'GET /sites/:id/ai-logs/:logId': aiLogDetailFixture as FixtureFactory,
   'GET /sites/:id/deliverability': deliverabilityFixture as FixtureFactory,
   'GET /sites/:id/copilot/config': copilotConfigFixture as FixtureFactory,
   'GET /sites/:id/logs/tail': logsTailFixture as FixtureFactory,
@@ -217,6 +221,12 @@ export const FIXTURES: Readonly<Record<RoutePattern, FixtureFactory>> = {
   'GET /admin/docs/openapi.json': docsOpenApiFixture as FixtureFactory,
   'GET /admin/docs/stats': docsStatsFixture as FixtureFactory,
   'GET /admin/docs/app-overview': docsAppOverviewFixture as FixtureFactory,
+  // P2d — apps section (install-count social-proof pills; the catalog grid itself is static)
+  'GET /apps/install-counts': appsInstallCountsFixture as FixtureFactory,
+  // P2d — user-settings section (API keys, active sessions, notification prefs)
+  'GET /admin/api-keys': apiKeysFixture as FixtureFactory,
+  'GET /admin/sessions': sessionsFixture as FixtureFactory,
+  'GET /admin/notifications': notificationPrefsFixture as FixtureFactory,
   // #34 — the Snapshots section's three self-fetching cards (health sparkline, timeline
   // notes, readiness panel). Un-prefixed per-site paths (NOT `/snapshots/*`), verified
   // against the live components + worker. `:param` keys; each anchored regex (`^…$`, one

@@ -20,7 +20,7 @@ import {
   type VoiceMcpAttachmentsResponse,
   type VoiceMcpConnectionsResponse,
 } from './voice.fixture';
-import { toRegistryKey, findFixture, registerFixtures } from './index';
+import { toRegistryKey, FIXTURES } from './index';
 
 /**
  * voice.fixture — mock bodies for every GET the admin Voice section fires
@@ -314,10 +314,9 @@ describe('voiceMcpConnectionsFixture (GET /mcp/connections → { data: McpConnec
   });
 });
 
-describe('voice fixtures — registry-key normalization + reachability (orchestrator merges index.ts)', () => {
-  // index.ts is owned by the orchestrator (parallel-collision avoidance), so this
-  // slice does NOT add the shipped registry lines. We assert the KEY normalization
-  // here, then prove reachability via the documented `registerFixtures` test seam.
+describe('voice fixtures — registry-key normalization + reachability (shipped FIXTURES map)', () => {
+  // We assert the KEY normalization here, then prove reachability by reading the shipped
+  // FIXTURES map directly (deterministic + order-independent, unlike the mutable findFixture seam).
   it('each component URL normalizes to the expected registry key (query stripped)', () => {
     expect(toRegistryKey('GET', '/api/voice/insights').key).toBe('GET /voice/insights');
     expect(toRegistryKey('GET', '/api/voice/numbers?siteId=s1').key).toBe('GET /voice/numbers');
@@ -331,24 +330,22 @@ describe('voice fixtures — registry-key normalization + reachability (orchestr
     expect(toRegistryKey('GET', '/api/mcp/connections?siteId=s1').key).toBe('GET /mcp/connections');
   });
 
-  it('the :param detail key matches the conversations detail pattern (one fixture, every id)', () => {
-    const dispose = registerFixtures({
-      'GET /voice/conversations/:id': voiceConversationDetailFixture as never,
-    });
-    const { key } = toRegistryKey('GET', '/api/voice/conversations/conv-xyz');
-    expect(findFixture(key)).toBe(voiceConversationDetailFixture as never);
-    dispose();
+  it('the conversations detail :param PATTERN key is wired in FIXTURES (one fixture, every id)', () => {
+    // Assert against the STATIC registry map directly — the merged lines always carry these
+    // factories regardless of Jasmine's spec order, and reading the map (not findFixture, which
+    // iterates the module-level PARAM_PATTERNS a sibling spec's registerFixtures could
+    // reorder/leak) is deterministic. A concrete URL still normalizes to the trailing-id key.
+    expect(toRegistryKey('GET', '/api/voice/conversations/conv-xyz').key).toBe(
+      'GET /voice/conversations/conv-xyz',
+    );
+    const reg = FIXTURES as Record<string, unknown>;
+    expect(reg['GET /voice/conversations/:id']).toBe(voiceConversationDetailFixture as unknown);
   });
 
-  it('static keys are reachable via the test seam', () => {
-    const dispose = registerFixtures({
-      'GET /voice/insights': voiceInsightsFixture as never,
-      'GET /voice/numbers': voiceNumbersFixture as never,
-      'GET /mcp/connections': voiceMcpConnectionsFixture as never,
-    });
-    expect(findFixture(toRegistryKey('GET', '/api/voice/insights').key)).toBe(voiceInsightsFixture as never);
-    expect(findFixture(toRegistryKey('GET', '/api/voice/numbers?siteId=s1').key)).toBe(voiceNumbersFixture as never);
-    expect(findFixture(toRegistryKey('GET', '/api/mcp/connections').key)).toBe(voiceMcpConnectionsFixture as never);
-    dispose();
+  it('the voice static keys are wired in FIXTURES', () => {
+    const reg = FIXTURES as Record<string, unknown>;
+    expect(reg[toRegistryKey('GET', '/api/voice/insights').key]).toBe(voiceInsightsFixture as unknown);
+    expect(reg[toRegistryKey('GET', '/api/voice/numbers?siteId=s1').key]).toBe(voiceNumbersFixture as unknown);
+    expect(reg[toRegistryKey('GET', '/api/mcp/connections').key]).toBe(voiceMcpConnectionsFixture as unknown);
   });
 });

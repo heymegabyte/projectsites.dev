@@ -6,7 +6,7 @@ import {
   type DocsStatsResponse,
   type DocsAppOverviewResponse,
 } from './docs.fixture';
-import { toRegistryKey, findFixture, registerFixtures } from './index';
+import { toRegistryKey, FIXTURES } from './index';
 
 /**
  * docs.fixture — the mock bodies for the admin **Docs** explorer (`/admin/docs`). Three
@@ -151,33 +151,27 @@ describe('docsAppOverviewFixture (envelope { data: { markdown, generated_at } })
   });
 });
 
-describe('docs fixtures — registry wiring (keys resolve through the interceptor normalizer)', () => {
-  // Mirror the real registry lines so the spec is RED until index.ts merges them, then GREEN.
-  let dispose: () => void;
-  beforeEach(() => {
-    dispose = registerFixtures({
-      'GET /admin/docs/openapi.json': docsOpenApiFixture as never,
-      'GET /admin/docs/stats': docsStatsFixture as never,
-      'GET /admin/docs/app-overview': docsAppOverviewFixture as never,
-    });
-  });
-  afterEach(() => dispose());
+describe('docs fixtures — registry wiring (the shipped FIXTURES map carries the three static keys)', () => {
+  // Assert against the STATIC registry map directly — the merged keys always carry these
+  // factories regardless of Jasmine's spec order, and reading the map (not findFixture) never
+  // touches the mutable registerFixtures/EXTRA_FIXTURES seam a sibling spec could leak.
+  const reg = FIXTURES as Record<string, unknown>;
 
-  it('GET /api/admin/docs/openapi.json resolves (the .json extension is preserved, not stripped)', () => {
+  it('GET /api/admin/docs/openapi.json normalizes + is wired (the .json extension is preserved)', () => {
     const { key } = toRegistryKey('GET', 'https://projectsites.dev/api/admin/docs/openapi.json');
     expect(key).toBe('GET /admin/docs/openapi.json');
-    expect(findFixture(key)).toBe(docsOpenApiFixture as never);
+    expect(reg[key]).toBe(docsOpenApiFixture as unknown);
   });
 
-  it('GET /api/admin/docs/stats resolves (query stripped)', () => {
+  it('GET /api/admin/docs/stats normalizes (query stripped) + is wired', () => {
     const { key } = toRegistryKey('GET', 'https://projectsites.dev/api/admin/docs/stats?t=1');
     expect(key).toBe('GET /admin/docs/stats');
-    expect(findFixture(key)).toBe(docsStatsFixture as never);
+    expect(reg[key]).toBe(docsStatsFixture as unknown);
   });
 
-  it('GET /api/admin/docs/app-overview resolves', () => {
+  it('GET /api/admin/docs/app-overview normalizes + is wired', () => {
     const { key } = toRegistryKey('GET', 'https://projectsites.dev/api/admin/docs/app-overview');
     expect(key).toBe('GET /admin/docs/app-overview');
-    expect(findFixture(key)).toBe(docsAppOverviewFixture as never);
+    expect(reg[key]).toBe(docsAppOverviewFixture as unknown);
   });
 });

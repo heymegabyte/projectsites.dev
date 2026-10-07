@@ -8,7 +8,7 @@ import {
   type OrgEnvVarsResponse,
   type OrgSecurityResponse,
 } from './settings.fixture';
-import { findFixture, toRegistryKey } from './index';
+import { FIXTURES, toRegistryKey } from './index';
 
 /**
  * settings.fixture — mock bodies for the admin Settings section's load-time reads. Each factory
@@ -76,15 +76,21 @@ describe('aiSettingsFixture (GET /sites/:id/ai-settings → { data: AiSettings }
     expect(b.data.enabled_mcps).not.toContain('tampered');
   });
 
-  it('is registered under the :param pattern GET /sites/:id/ai-settings (one body, every site id)', () => {
-    const key = toRegistryKey('GET', '/api/sites/site-001/ai-settings').key;
-    expect(key).toBe('GET /sites/site-001/ai-settings');
-    const hit = findFixture(key);
-    expect(hit).toBeDefined();
-    // The shipped fixture resolves (has `data.chat_system_prompt_default`), and a DIFFERENT id too.
-    const body = hit!('populated', q()) as AiSettingsResponse;
+  it('is wired under the :param pattern GET /sites/:id/ai-settings (one body, every site id)', () => {
+    // A concrete URL normalizes to the trailing-id key; the SHIPPED `:param` PATTERN key in the
+    // static FIXTURES map carries the factory (reading the map is deterministic + order-independent,
+    // unlike findFixture which iterates the mutable module-level PARAM_PATTERNS a sibling can leak).
+    // One pattern serving every id is exactly what the single pattern key in the map proves.
+    expect(toRegistryKey('GET', '/api/sites/site-001/ai-settings').key).toBe(
+      'GET /sites/site-001/ai-settings',
+    );
+    const factory = (FIXTURES as Record<string, (s: string, query: URLSearchParams) => unknown>)[
+      'GET /sites/:id/ai-settings'
+    ];
+    expect(typeof factory).toBe('function');
+    expect(factory).toBe(aiSettingsFixture as unknown as typeof factory);
+    const body = factory('populated', q()) as AiSettingsResponse;
     expect(typeof body.data.chat_system_prompt_default).toBe('string');
-    expect(findFixture(toRegistryKey('GET', '/api/sites/zzz/ai-settings').key)).toBeDefined();
   });
 });
 
@@ -113,9 +119,9 @@ describe('teamFixture (GET /team → { data: { members, invites } })', () => {
     expect(invites).toEqual([]);
   });
 
-  it('is registered under the static key GET /team', () => {
+  it('is wired under the static key GET /team', () => {
     expect(toRegistryKey('GET', '/api/team').key).toBe('GET /team');
-    expect(findFixture('GET /team')).toBeDefined();
+    expect((FIXTURES as Record<string, unknown>)['GET /team']).toBe(teamFixture as unknown);
   });
 });
 
@@ -147,10 +153,10 @@ describe('orgEnvVarsFixture (GET /env-vars → { vars })', () => {
     expect(orgEnvVarsFixture('empty', q('scope=org')).vars).toEqual([]);
   });
 
-  it('is registered under the static key GET /env-vars (query stripped before lookup)', () => {
+  it('is wired under the static key GET /env-vars (query stripped before lookup)', () => {
     // The ?scope=org query is normalized away — the key is scope-agnostic.
     expect(toRegistryKey('GET', '/api/env-vars?scope=org').key).toBe('GET /env-vars');
-    expect(findFixture('GET /env-vars')).toBeDefined();
+    expect((FIXTURES as Record<string, unknown>)['GET /env-vars']).toBe(orgEnvVarsFixture as unknown);
   });
 });
 
@@ -179,8 +185,8 @@ describe('orgSecurityFixture (GET /admin/security → { data: OrgSecurityRow })'
     expect(data.updated_at).toBeNull();
   });
 
-  it('is registered under the static key GET /admin/security', () => {
+  it('is wired under the static key GET /admin/security', () => {
     expect(toRegistryKey('GET', '/api/admin/security').key).toBe('GET /admin/security');
-    expect(findFixture('GET /admin/security')).toBeDefined();
+    expect((FIXTURES as Record<string, unknown>)['GET /admin/security']).toBe(orgSecurityFixture as unknown);
   });
 });

@@ -10,7 +10,7 @@ import {
   type SocialAutoPilotConfigResponse,
   type SocialPostAnalyticsResponse,
 } from './social.fixture';
-import { toRegistryKey, findFixture } from './index';
+import { toRegistryKey, FIXTURES } from './index';
 
 /**
  * social.fixture — mock bodies for every PRIMARY GET the admin Social section
@@ -225,42 +225,50 @@ describe('socialPostAnalyticsFixture (GET /social/posts/:id/analytics → { data
   });
 });
 
-describe('social fixtures — registry wiring (findFixture resolves every primary route)', () => {
-  it('GET /api/social/accounts → socialAccountsFixture', () => {
+describe('social fixtures — registry wiring (the shipped FIXTURES map carries every primary route)', () => {
+  // Assert against the STATIC registry map directly — the merged keys always carry these
+  // factories regardless of Jasmine's spec order, and reading the map (not findFixture, which
+  // iterates the module-level PARAM_PATTERNS a sibling spec's registerFixtures could
+  // reorder/leak) is deterministic. The four exact keys + the one `:param` analytics PATTERN.
+  const reg = FIXTURES as Record<string, unknown>;
+
+  it('GET /api/social/accounts normalizes + is wired to socialAccountsFixture', () => {
     const { key } = toRegistryKey('GET', 'https://projectsites.dev/api/social/accounts?site_id=abc');
     expect(key).toBe('GET /social/accounts');
-    expect(findFixture(key)).toBe(socialAccountsFixture as unknown as typeof socialAccountsFixture);
+    expect(reg[key]).toBe(socialAccountsFixture as unknown);
   });
 
-  it('GET /api/social/posts → socialPostsFixture', () => {
+  it('GET /api/social/posts normalizes + is wired to socialPostsFixture (exact key)', () => {
     const { key } = toRegistryKey('GET', 'https://projectsites.dev/api/social/posts?site_id=abc');
     expect(key).toBe('GET /social/posts');
-    expect(findFixture(key)).toBeDefined();
+    expect(reg[key]).toBe(socialPostsFixture as unknown);
   });
 
-  it('GET /api/social/best-times → socialBestTimesFixture', () => {
+  it('GET /api/social/best-times normalizes + is wired to socialBestTimesFixture', () => {
     const { key } = toRegistryKey('GET', 'https://projectsites.dev/api/social/best-times?platforms=twitter');
     expect(key).toBe('GET /social/best-times');
-    expect(findFixture(key)).toBeDefined();
+    expect(reg[key]).toBe(socialBestTimesFixture as unknown);
   });
 
-  it('GET /api/social/auto-pilot/config → socialAutoPilotConfigFixture', () => {
+  it('GET /api/social/auto-pilot/config normalizes + is wired to socialAutoPilotConfigFixture', () => {
     const { key } = toRegistryKey('GET', 'https://projectsites.dev/api/social/auto-pilot/config');
     expect(key).toBe('GET /social/auto-pilot/config');
-    expect(findFixture(key)).toBeDefined();
+    expect(reg[key]).toBe(socialAutoPilotConfigFixture as unknown);
   });
 
-  it('GET /api/social/posts/:id/analytics → socialPostAnalyticsFixture (:param pattern)', () => {
-    const { key } = toRegistryKey('GET', 'https://projectsites.dev/api/social/posts/post-123/analytics');
-    expect(key).toBe('GET /social/posts/post-123/analytics');
-    expect(findFixture(key)).toBeDefined();
-  });
-
-  it('the :param analytics pattern does NOT shadow the exact /social/posts list route', () => {
-    // Exact key must win over the param pattern so the list route stays correct.
-    const listKey = toRegistryKey('GET', 'https://projectsites.dev/api/social/posts').key;
-    expect(findFixture(listKey)).toBe(
-      socialPostsFixture as unknown as ReturnType<typeof findFixture>,
+  it('the :param analytics PATTERN GET /social/posts/:id/analytics is wired to socialPostAnalyticsFixture', () => {
+    // A concrete URL normalizes to the trailing-id key …
+    expect(toRegistryKey('GET', 'https://projectsites.dev/api/social/posts/post-123/analytics').key).toBe(
+      'GET /social/posts/post-123/analytics',
     );
+    // … and the SHIPPED pattern key carries the analytics fixture.
+    expect(reg['GET /social/posts/:id/analytics']).toBe(socialPostAnalyticsFixture as unknown);
+  });
+
+  it('the :param analytics pattern is a DISTINCT key from the exact /social/posts list route', () => {
+    // Two distinct registry keys — the exact list key and the trailing-id param pattern never
+    // collide, so findFixture's exact-first precedence keeps the list route correct at runtime.
+    expect(reg['GET /social/posts']).toBe(socialPostsFixture as unknown);
+    expect(reg['GET /social/posts']).not.toBe(reg['GET /social/posts/:id/analytics']);
   });
 });

@@ -3,7 +3,7 @@ import {
   type DeliverabilityResponse,
   type DeliverabilityReport,
 } from './deliverability.fixture';
-import { findFixture, toRegistryKey } from './index';
+import { FIXTURES, toRegistryKey } from './index';
 
 /**
  * deliverability.fixture — mock body for the admin **Email Deliverability** section
@@ -109,14 +109,17 @@ describe('deliverabilityFixture (GET /sites/:id/deliverability → { ok, report,
     );
   });
 
-  // RED until the orchestrator repoints the registry key at THIS richer, state-aware
-  // factory (currently the thin per-site.fixture `deliverabilityFixture` is wired);
-  // GREEN after the merge. Asserts the :param key resolves to a defined factory that
-  // serves the full worker envelope for an arbitrary site id.
+  // Assert against the STATIC registry map's PATTERN key directly — the merged `:param`
+  // line always carries this factory regardless of Jasmine's spec order, and reading the
+  // map (not findFixture, which iterates the module-level PARAM_PATTERNS a sibling spec's
+  // registerFixtures could reorder/leak) is deterministic. Serves the full worker envelope.
   it('is wired into the registry under the :param key GET /sites/:id/deliverability', () => {
-    const factory = findFixture('GET /sites/any-site/deliverability');
-    expect(factory).toBe(deliverabilityFixture as unknown as ReturnType<typeof findFixture>);
-    const res = factory!('populated', q()) as DeliverabilityResponse;
+    const factory = (FIXTURES as Record<string, (s: string, query: URLSearchParams) => unknown>)[
+      'GET /sites/:id/deliverability'
+    ];
+    expect(typeof factory).toBe('function');
+    expect(factory).toBe(deliverabilityFixture as unknown as typeof factory);
+    const res = factory('populated', q()) as DeliverabilityResponse;
     expect(res.ok).toBe(true);
     expect(res.report).not.toBeNull();
     expect(res.needsDomain).toBe(false);
