@@ -39,6 +39,7 @@ import {
   type ClaimBuildStatus,
 } from './claim-prefill';
 import { renderThemeDossier } from './theme-presets';
+import { stashCreateFiles, restoreCreateFiles, clearCreateFiles } from './create-file-stash';
 
 /**
  * Clean a URL for display and storage — strips tracking parameters (utm_*,
@@ -536,9 +537,25 @@ export class CreateComponent implements OnInit, AfterViewInit, OnDestroy {
       setTimeout(() => this.runAutofill(params['name'].trim()), 50);
     }
 
-    // Pending build: user was redirected to signin, now logged in — auto-submit
+    // Pending build: user was redirected to signin, now logged in — rehydrate any stashed uploads
+    // (a signed-out owner attached files before signing in) from IndexedDB FIRST, then auto-submit
+    // so they ride the normal authed upload path. The stash is consumed (cleared) once applied;
+    // best-effort — no stash / IDB unavailable just means a text-only submit, exactly as before.
     if (hasPendingBuild && this.auth.isLoggedIn() && this.businessName && this.businessAddress) {
       this.auth.setPendingBuild(false);
+      // Rehydrate any stashed uploads in the BACKGROUND — IDB resolves in ~ms, well inside the 500ms
+      // auto-submit delay, so the files are present by the time submitBuild runs. Kept OFF the submit
+      // timer so a text-only return (no stash) auto-submits on exactly the original schedule.
+      void restoreCreateFiles().then((stashed) => {
+        if (stashed) {
+          if (stashed.logo && !this.logoFile) this.logoFile = stashed.logo;
+          if (stashed.favicon && !this.faviconFile) this.faviconFile = stashed.favicon;
+          if (stashed.additional.length && this.additionalFiles.length === 0) {
+            this.additionalFiles = stashed.additional;
+          }
+        }
+        void clearCreateFiles(); // write-once-read-once — never re-apply on a later flow
+      });
       setTimeout(() => this.submitBuild(), 500);
     }
 
@@ -1669,6 +1686,9 @@ export class CreateComponent implements OnInit, AfterViewInit, OnDestroy {
 
   clearFormDraft(): void {
     localStorage.removeItem(CreateComponent.DRAFT_KEY);
+    // Discarding the draft (or a successful create, which calls this) also drops any stashed
+    // signin-bounce uploads so they can't bleed into a later build. Best-effort.
+    void clearCreateFiles();
   }
 
   /**
@@ -1942,8 +1962,11 @@ export class CreateComponent implements OnInit, AfterViewInit, OnDestroy {
     // additional_context, place_id, and Places types — ALONGSIDE name/address/phone/
     // website. The old persist dropped these four, so the returning auto-submit sent
     // the AI a thinner brief than the owner assembled (silent quality loss on exactly
-    // the owners who filled everything). File uploads are DEFERRED (a FileList can't
-    // survive a localStorage bounce — needs a session-upload hand-off, tracked separately).
+    // the owners who filled everything). File uploads ride a SESSION-UPLOAD HAND-OFF: a FileList
+    // can't survive the localStorage/OAuth bounce, but IndexedDB holds the Blobs — stash them now,
+    // then the post-signin auto-submit (pending-build branch in the constructor) rehydrates +
+    // uploads them via the normal authed path (see create-file-stash.ts). A signed-out owner who
+    // attached a logo/photos no longer loses them.
     if (!this.auth.isLoggedIn()) {
       this.auth.setMode('custom');
       const biz = this.selectedBusiness();
@@ -1958,6 +1981,19 @@ export class CreateComponent implements OnInit, AfterViewInit, OnDestroy {
         additional_context: this.additionalContext.trim() || undefined,
       });
       this.auth.setPendingBuild(true);
+      // Fire-and-forget the IDB hand-off: `/signin` is an SPA route (no page reload), so the write
+      // lands in a few ms — long before the user triggers the OAuth full-page reload seconds later.
+      // Stash the uploads if any; otherwise clear a stale stash so it can't rehydrate onto a later
+      // text-only build. Navigation stays synchronous (the redirect is never gated on storage).
+      if (this.hasFilesToUpload()) {
+        void stashCreateFiles({
+          logo: this.logoFile,
+          favicon: this.faviconFile,
+          additional: this.additionalFiles,
+        });
+      } else {
+        void clearCreateFiles();
+      }
       this.router.navigate(['/signin']);
       return;
     }
