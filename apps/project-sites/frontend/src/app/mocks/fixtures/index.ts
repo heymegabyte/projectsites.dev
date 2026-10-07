@@ -96,6 +96,9 @@ import {
   socialAutoPilotConfigFixture,
   socialPostAnalyticsFixture,
 } from './social.fixture';
+import { superAdminFlagsFixture, flagDetailFixture, flagAuditFixture } from './feature-flags.fixture';
+import { siteFeaturesFixture } from './site-features.fixture';
+import { snapshotMetricFixture, snapshotDownloadFixture, snapshotDiffFixture } from './snapshots.fixture';
 
 /** The demo-state knob from `?mock=1&state=…`. `populated` is the default. */
 export type MockState = 'empty' | 'loading' | 'error' | 'populated';
@@ -227,6 +230,16 @@ export const FIXTURES: Readonly<Record<RoutePattern, FixtureFactory>> = {
   'GET /admin/api-keys': apiKeysFixture as FixtureFactory,
   'GET /admin/sessions': sessionsFixture as FixtureFactory,
   'GET /admin/notifications': notificationPrefsFixture as FixtureFactory,
+  // tail — feature-flags section (super-admin control plane; /feature-flags/:key detail+docs is public)
+  'GET /super-admin/feature-flags': superAdminFlagsFixture as FixtureFactory,
+  'GET /feature-flags/:key': flagDetailFixture as FixtureFactory,
+  'GET /super-admin/feature-flags/:key/audit': flagAuditFixture as FixtureFactory,
+  // tail — site-features (plan-aware site feature list; {features,plan} envelope)
+  'GET /site-features': siteFeaturesFixture as FixtureFactory,
+  // tail — snapshots detail/download/diff (completes the section; distinct seg-counts, no shadow)
+  'GET /sites/:id/snapshots/:snapshotId/metrics': snapshotMetricFixture as FixtureFactory,
+  'GET /sites/:id/snapshots/:snapId/download': snapshotDownloadFixture as FixtureFactory,
+  'GET /sites/:id/snapshots/diff': snapshotDiffFixture as FixtureFactory,
   // #34 — the Snapshots section's three self-fetching cards (health sparkline, timeline
   // notes, readiness panel). Un-prefixed per-site paths (NOT `/snapshots/*`), verified
   // against the live components + worker. `:param` keys; each anchored regex (`^…$`, one
