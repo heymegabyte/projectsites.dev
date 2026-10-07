@@ -50,6 +50,7 @@ import {
   orgEnvVarsFixture,
   orgSecurityFixture,
 } from './settings.fixture';
+import { orgFullOrganizationFixture } from './team.fixture';
 import {
   multiUrlAnalyticsFixture,
   siteAnalyticsFixture,
@@ -193,6 +194,12 @@ export const FIXTURES: Readonly<Record<RoutePattern, FixtureFactory>> = {
   // MCP allow-list + the Forms designer all read it) — it fixes the fire-281 #34 toast.
   'GET /sites/:id/ai-settings': aiSettingsFixture as FixtureFactory,
   'GET /team': teamFixture as FixtureFactory,
+  // #37 native-fetch shim — the standalone admin Team SECTION reads this via
+  // `OrgApiService.getFullOrganization()`, which uses NATIVE `window.fetch` (bypassing
+  // the HttpClient interceptor). Now covered by `installMockFetch` (mocks/mock-fetch.ts),
+  // so `?mock=1` lights up the Team section. DIFFERENT surface + envelope from `GET /team`
+  // above (the Settings Team TAB) — see team.fixture.ts for the two-routes/two-envelopes note.
+  'GET /auth/organization/get-full-organization': orgFullOrganizationFixture as FixtureFactory,
   'GET /env-vars': orgEnvVarsFixture as FixtureFactory,
   'GET /admin/security': orgSecurityFixture as FixtureFactory,
   // P2c — #34 shell sweep: the remaining per-site GET reads fired on section/tab open so NO

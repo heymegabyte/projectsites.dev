@@ -36,6 +36,8 @@ import { GlobalErrorHandler } from './services/error-handler.service';
 import { retryInterceptor } from './interceptors/retry.interceptor';
 import { loadingInterceptor } from './interceptors/loading.interceptor';
 import { mockApiInterceptor } from './interceptors/mock-api.interceptor';
+import { MockModeService } from './mocks/mock-mode.service';
+import { installMockFetch } from './mocks/mock-fetch';
 import { SwUpdateService } from './services/sw-update.service';
 
 /** Preload translations before the app renders — prevents flash of raw keys.
@@ -177,6 +179,22 @@ export const appConfig: ApplicationConfig = {
       provide: APP_INITIALIZER,
       useFactory: (sw: SwUpdateService) => (): void => sw.init(),
       deps: [SwUpdateService],
+      multi: true,
+    },
+    {
+      /**
+       * Native-`fetch` mock shim (#37) — the twin of `mockApiInterceptor` for the
+       * services that bypass `HttpClient` (`OrgApiService`/`AuthApiService` use native
+       * `window.fetch` to round-trip the session cookie). `installMockFetch` wraps
+       * `window.fetch` ONLY under `?mock=1` (MockModeService.enabled()); REAL is the prod
+       * default, where it NO-OPs and `window.fetch` is left untouched (zero prod risk).
+       * An `APP_INITIALIZER` so it's installed ONCE before any component fires a request.
+       */
+      provide: APP_INITIALIZER,
+      useFactory: (mock: MockModeService) => (): void => {
+        installMockFetch(mock);
+      },
+      deps: [MockModeService],
       multi: true,
     },
   ],
