@@ -80,3 +80,29 @@ for (const kind of ['localStorage', 'sessionStorage'] as const) {
 const globalStub = globalThis as unknown as Record<string, unknown>;
 
 globalStub.crossOriginIsolated ??= false;
+
+/**
+ * jsdom ships no canvas backend (the `canvas` npm package is not installed), so
+ * `HTMLCanvasElement.prototype.getContext` hits jsdom's not-implemented path:
+ * it emits a "Not implemented: HTMLCanvasElement.prototype.getContext" error to
+ * the virtual console AND returns `null` on EVERY call.
+ *
+ * Editor components that progressively-enhance with a canvas — e.g.
+ * `app/components/chat/NebulaLoader.tsx` probes `getContext('webgl')` at mount —
+ * already guard the null return and fall back to CSS, so the context being
+ * absent is correct test behaviour. The ONLY effect of the not-implemented path
+ * is a FLOOD of benign errors on every workbench/chat suite that mounts such a
+ * component — noise that would camouflage a genuine canvas failure
+ * (cf. canvas-mount-probe-blind-to-black-broken-shader).
+ *
+ * Return `null` explicitly — the exact value the components already handle — so
+ * the not-implemented path never fires. No unit test can depend on a real
+ * context today (jsdom provides none), so this is strictly behaviour-preserving:
+ * same return value, minus the stderr flood.
+ */
+if (typeof HTMLCanvasElement !== 'undefined' && HTMLCanvasElement.prototype) {
+  HTMLCanvasElement.prototype.getContext =
+    function getContext(): null {
+      return null;
+    } as typeof HTMLCanvasElement.prototype.getContext;
+}
