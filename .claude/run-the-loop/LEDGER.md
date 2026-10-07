@@ -1242,3 +1242,20 @@ ATTRITION (salvaged, re-queued, loop kept running per failure-taxonomy):
 - Fix: stub `getContext` → `null` in `vitest.setup.ts` (the value components already handle; behaviour-preserving). Verified: **full editor suite 87 files / 1729 tests pass, canvas errors 0** (was a flood). Test-only file (not shipped) → the test run IS the verification.
 
 **Status:** Editor Resources screen + panel confirmed complete with fresh evidence; CI signal hardened. Real frontier for a fresh-context fire remains: provider-migration #23 remainder (container build-agent → Workers-AI; needs a build, credit-gated) · signed-out `/create` session-upload (multi-surface).
+
+---
+
+## fire-294 — LIVE Editor-panel browser verification → shipped a real fix
+
+**On-target, non-ceremony:** the focus-cron names the Editor panel; code + unit tests already proved it complete, so this fire did the one thing I hadn't — a REAL browser load of `/admin/editor` (Constitution: "visual inspection IS implementation"). It boots fully (9 bridge milestones incl. `PS_RES_MEDIA` = Resources panel active, `PS_CLAUDE_FLAG_REQUEST` = Claude Code panel resolving, 0 page errors) — but surfaced a **console 404 on every load** that unit tests + code audit MISSED.
+
+**Find:** the Claude Code panel's dark-flag resolver `GET /api/sites/:id/claude-code/status` returned `404 "not enabled"` when `claude_code_panel` is dark. The admin bridge handled it (tab hidden, `{silent:true}` no toast), but the browser auto-logs the 404 → violates the zero-console-errors gate on the WLK-39 flagship (`{silent:true}` can't suppress a browser's own 404 log).
+
+**Fix shipped (`main`, worker Version `cdba4bad`):** reorder the handler `auth→flag→ownership` ⇒ `auth→ownership→flag` + return `200 {data:{enabled:<bool>}}` for the OWNED site (dark → false). A RESOLUTION endpoint should report the boolean honestly (console-clean), unlike a DATA endpoint (`per_site_data`) which correctly 404s dark. Ownership-first ALSO closes a latent flag-scope IDOR (a non-owner could distinguish flag-off `404 "not enabled"` from flag-on `404 "Site not found"` on a victim site; now always the same flag-agnostic 404). Admin bridge already handles 200-false. Files: `claude_code_panel/handlers.ts` + route test + `registry.ts` + `docs.ts`.
+
+**Verification:**
+- Full worker Jest **920 suites / 14556 tests pass**; `validate:features` PASS; tsc 0.
+- Deploy `wrangler deploy --env production` → Version `cdba4bad`.
+- **Prod-proof:** direct curl (authed owner, flag dark) → `HTTP 200 {"data":{"enabled":false}}` (was 404); unauth → `401` (gate intact); re-run editor browser smoke → claude-code/status failures **NONE**, real 404s **[]** (the 7 "total" are benign `ERR_ABORTED` nav artifacts). Flagship Editor route is console-404-clean.
+
+**Lesson captured:** `[[dark-flag-resolution-endpoint-should-200-false-not-404-to-be-console-clean]]` (a flag-gated surface isn't "finished" until a real browser load shows zero console errors — jsdom units never catch a browser-logged 404).
