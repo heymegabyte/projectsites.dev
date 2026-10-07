@@ -1259,3 +1259,19 @@ ATTRITION (salvaged, re-queued, loop kept running per failure-taxonomy):
 - **Prod-proof:** direct curl (authed owner, flag dark) → `HTTP 200 {"data":{"enabled":false}}` (was 404); unauth → `401` (gate intact); re-run editor browser smoke → claude-code/status failures **NONE**, real 404s **[]** (the 7 "total" are benign `ERR_ABORTED` nav artifacts). Flagship Editor route is console-404-clean.
 
 **Lesson captured:** `[[dark-flag-resolution-endpoint-should-200-false-not-404-to-be-console-clean]]` (a flag-gated surface isn't "finished" until a real browser load shows zero console errors — jsdom units never catch a browser-logged 404).
+
+---
+
+## fire-295 — LIVE Resources-tab walkthrough: all 4 tabs verified in-browser, console-clean
+
+**On-target continuation of fire-294's live-verification win:** fire-294 proved the editor BOOTS; this fire actually CLICKED through all 4 Resources tabs in the real embedded editor iframe (the cron's literal ask: "complete all the tabs in the Editor Resources screen"). Authed via E2E_API_KEY (`ps_session` seed), `frameLocator('iframe[src*="editor.projectsites.dev"]')`, content read from the active `[aria-labelledby="resources-tab-<sec>"]` panel.
+
+**Result — every tab renders DISTINCT real content, ZERO console errors, ZERO API failures:**
+- **media** (1298 chars): library with All/Images/Video/Docs filters + uploaded assets + Upload.
+- **files** (67 chars): site files listing (`sites/…/index.html 195 B`).
+- **buckets** (418 chars): R2 buckets management ("1 bucket · object ops need R2 keys", New bucket, Live).
+- **automations** (209 chars): honest-empty state ("No automations yet · When your site runs…").
+
+**Averted a WRONG fix (the real lesson):** the FIRST probe (which navigated `/admin`→`/admin/editor`) reported `"Failed to check environment API key: TypeError: Failed to fetch"` from the editor's APIKeyManager — looked like a zero-console-errors violation to "fix." But (1) `curl .../api/check-env-key` → `200 {"isSet":true}` (endpoint works) and (2) a CLEAN SINGLE LOAD showed the error did NOT recur (`envKeyErrOnCleanLoad: NONE`). It was the probe's second `goto` aborting the first page's in-flight fetch — a navigation-abort artifact, not a defect. Downgrading that `console.error` would have masked nothing + dulled a real future signal. Lesson captured: `[[console-error-in-multi-nav-browser-probe-may-be-navigation-abort-transient]]`.
+
+**Status:** Editor Resources screen is now verified complete at the HIGHEST fidelity — code audit (4 tabs wired, no stubs) + 50 unit tests + full editor suite 1729 green + live boot (fire-294) + live tab-walkthrough console-clean (this fire) + the one real bug (claude-code/status 404) fixed (fire-294). No code change needed this fire; the apparent issue was a probe artifact. Cron armed; both original directives + UI-mockout remain complete.
