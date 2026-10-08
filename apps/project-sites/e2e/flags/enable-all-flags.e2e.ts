@@ -69,7 +69,7 @@ const SCREEN_DIR = 'e2e/screenshots/enable-all-flags';
  * Flags held back for safety — enabling any of these would arm a real,
  * irreversible external action that is NOT additionally secret-gated.
  */
-const SAFETY_HOLDS = new Set<string>(['voice_numbers', 'abandoned_build_nudge']);
+const SAFETY_HOLDS = new Set<string>(['abandoned_build_nudge']);
 
 /** The seam's one hardcoded identity (`src/services/auth.ts` TEST_LOGIN_EMAIL). */
 const TEST_LOGIN_EMAIL = 'brian@megabyte.space';
