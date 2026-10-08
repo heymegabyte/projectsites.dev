@@ -683,7 +683,10 @@ const ConnectionsEmpty = memo(({ providers }: { providers: string[] }) => {
             background: `radial-gradient(60% 60% at 50% 30%, color-mix(in oklch, ${PURPLE} 22%, transparent), transparent)`,
           }}
         />
-        <div className="relative i-ph:plugs-connected-duotone text-3xl text-bolt-elements-item-contentAccent" aria-hidden />
+        <div
+          className="relative i-ph:plugs-connected-duotone text-3xl text-bolt-elements-item-contentAccent"
+          aria-hidden
+        />
       </div>
       <div className="space-y-1">
         <p className="text-sm font-semibold text-bolt-elements-textPrimary">No connections yet</p>
@@ -702,7 +705,10 @@ const ConnectionsEmpty = memo(({ providers }: { providers: string[] }) => {
 ConnectionsEmpty.displayName = 'ConnectionsPanel.Empty';
 
 const ErrorCard = memo(({ message, onRetry }: { message: string; onRetry: () => void }) => (
-  <div className="flex-1 flex flex-col items-center justify-center gap-3 p-8 text-center" data-testid="connections-error">
+  <div
+    className="flex-1 flex flex-col items-center justify-center gap-3 p-8 text-center"
+    data-testid="connections-error"
+  >
     <div className="flex items-center justify-center h-12 w-12 rounded-2xl border border-red-400/30 bg-red-500/[0.07]">
       <div className="i-ph:warning-circle-duotone text-2xl text-red-400" aria-hidden />
     </div>
@@ -737,8 +743,8 @@ const DisabledCard = memo(() => (
     </div>
     <p className="text-sm font-semibold text-bolt-elements-textSecondary">Connections aren&rsquo;t enabled yet</p>
     <p className="text-[11px] text-bolt-elements-textTertiary max-w-[260px] leading-relaxed">
-      This is on the way. Once it&rsquo;s turned on, the apps + tools your site is connected to show up here — ready
-      to view and manage.
+      This is on the way. Once it&rsquo;s turned on, the apps + tools your site is connected to show up here — ready to
+      view and manage.
     </p>
   </div>
 ));
