@@ -50,12 +50,12 @@
 ## ✅ DONE EPIC (fire-142): Editor "Resources" screen — all 4 tabs + cross-cutting COMPLETE (Brian /loop directive 2026-10-04 · fires 135-142)
 > Brian's "complete all the tabs in the Resources screen … until the Editor panel is finished" = **ACHIEVED**. Every tab + the cross-cutting is functional, honest, stateful, a11y-aware, render-proven, and deployed to editor Pages. Residual polish (non-blocking) is demoted to the list below — pick up opportunistically.
 - [x] **Media tab** (135-137) — honest "N of total" + load-more (`MediaPageStats`), DOM-render 7/7. The completion pattern.
-- [x] **Automations tab** (138 triage `48c21de3c` `summarizeAutomations`+filter bar 9/9 · 139 retry `2fbea5979` `POST …/automations/:id/retry` flag-gated+IDOR+bridge+Re-run 6 jest/3 vitest) — read-only log → managed surface.
+- [x] **Automations tab** (138 triage `48c21de3c` `summarizeAutomations`+filter bar 9/9 · 139 retry `2fbea5979` `POST …/automations/:id/retry` flag-gated+IDOR+bridge+Re-run 6 jest/3 vitest · **fire-305 Cancel `5634b0154`** — `POST …/automations/:id/cancel` flag-gated+IDOR+armed-two-click guard + `requestAutomationCancel` bridge + `cancellingIds` spinner, migration `0659_workflow_jobs_cancellable.sql` APPLIED to prod, `site_automations_cancel_route.test.ts`) — read-only log → **FULLY managed surface (triage+retry+cancel)**. NOTE: cancel marks the D1 job `cancelled`; it does NOT yet TERMINATE the live CF Workflow (→ next-wave item).
 - [x] **Files tab** (140 `ea7ab8441`) — fixed a real >1000-object LYING-UNDERCOUNT (worker `truncated`+`cap` → bridge → editor "first 1000+ files") + `CopyFilePathButton`; 6 vitest + 8 jest.
 - [x] **Buckets tab** (141 `595e66ba4`) — audited complete (all ops stateful, both empty launchpads, no doomed controls) + render proof 6/6 (exported `BucketsEmpty`/`ObjectsEmpty`).
 - [x] **Cross-cutting** (142) — RES-OVERVIEW-RENDER (`4165947cf`, 4 render tests, asserts no Refresh button) + RES-ENV-STICKY (`b414b6bbf`, localStorage persistence survives remount, 3 tests) + RES-DETAIL-STATES (`4900a8734`, 4 render tests). tsc 0, vitest 11/11, deployed.
 - Residual POLISH (post-EPIC, non-blocking): FILES-PAGING (page past 1000: `site_db_handlers.ts` `/build-files` ~971 + Load-more); Automations full-tab browser proof + enable `site_automations` for a test org to prod-verify retry live; RES-A11Y-FOCUS (tablist roving + axe 6bp); RES-OVERVIEW-EMPTY-CTA (empty-registry launchpad); FILES-DELETE-UNDO (optimistic delete + undo).
-- [~] RES-AUTO (~line 255): SUPERSEDED by the Automations work (triage + retry shipped). Residual = Functions/Agents/Connections/Knowledge sub-surfaces still deferred.
+- [~] RES-AUTO (~line 255): SUPERSEDED by the Automations work (triage + retry + **cancel fire-305** shipped — the Automations tab is now a fully managed surface). Residual = Functions/Agents/Connections/Knowledge sub-surfaces still deferred.
 
 ## ⭐ EPIC: demo-UI at projectsites.projectsites.dev (Brian directive 2026-10-03 — "over the next few rounds, add ALL the UI to the site in DEMO form")
 > Dogfood: a REAL projectsites-hosted site at slug `projectsites` (→ `projectsites.projectsites.dev`) showcasing every UI surface in demo form. "Can't make it from the outside" = must be platform-hosted, not an external static page. Gap map + full surface inventory: fire-113 architect scan (LEDGER). `projectsites` slug is FREE (only `editor` reserved). Decompose/drain over fires; DEMO-0→1→2 are the sequential spine, DEMO-3..7 fan out.
@@ -1580,7 +1580,7 @@
 
 ### fire-80 next-wave (replenish — deduped against existing no-refresh/H1/DUX items)
 - [ ] **[no-refresh] Billing›Usage must self-update (FIX, not probe)** — the Billing›Usage view (upcoming-invoice + meter-events + per-project AI caps) has no visibility-aware poll; item #14 only PROBES it. Apply the `AdminStateService` 30-60s visibility-aware poll (pause on `document.hidden`, immediate-refresh on foreground) so caps/usage are always current without a reload. Acceptance: no manual refresh control on the Usage view; counts update live; `real-time-data-no-manual-refresh`. Category: product · M.
-- [ ] **[no-refresh] Editor Data (Tables) + Functions tabs real-time** — the existing editor no-refresh sweep (BucketsPanel/EnvAssignmentGrid/LockManager/NamespaceSummary) does NOT cover the Data-tab Tables grid (`GET /api/sites/:siteId/db/tables`) or the Functions tab; both are fetch-on-mount only. Add visibility-aware poll (or SSE for Functions deploy state) so table rows + function status stay current without a click. Acceptance: no manual Refresh on Data/Functions; `real-time-data-no-manual-refresh` + per-site D1 isolation preserved. Category: product · M.
+- [~] **[no-refresh] Editor Functions tab real-time** — NARROWED (fire-305 re-verify): the Data-tab **Tables grid is now DONE** — `SiteTablesPanel.tsx:241-243` carries a visibility-aware poll (pauses on `document.hidden` + mid-edit) with NO manual Refresh. Only the **Functions tab** remains fetch-on-mount. Add visibility-aware poll (or SSE for Functions deploy state) so function status stays current without a click. Acceptance: no manual Refresh on Functions; `real-time-data-no-manual-refresh` preserved. Category: product · S.
 - [ ] **[testing] Concrete frontend unit-coverage lift — real-time services** — the no-refresh work above adds polling logic with no matching Karma/Jasmine units. Add unit coverage for `AdminStateService` visibility-pause/resume + any new Billing-usage/Data-tab poll controllers (fake timers: hidden→paused, foreground→immediate-refresh, unsubscribe-on-destroy). Acceptance: ≥1 spec per new poll surface, `npm run test:ci` green. Category: testing · S. (Replaces the vague 'rotating uncovered area' discovery with a named target.)
 - [ ] **[intake] FILE 2 (F001–F100) absorb-verify next drain** — per DOWNLOADS-INTAKE-QUEUE drain order, FILE 2 (`projectsites-ai-shipping-claude-code-prompt.md`, status `queued`, 'Absorbed: LARGELY') is the next §0.5 intake-verify target: confirm F001–F035 required features + daily-publishing pipeline + analytics-work-discovery are in AWOS WALKTHROUGH/gp-register with NO duplication, then flip its row to `absorbed` + note the archive-copy removal. Append any genuinely-missing F-items to BACKLOG; do NOT re-import dupes. Category: discovery · S.
 - [ ] **[billing] periodLabel() past-date guard (DUX fire-80 P2)** — `billing.component.ts:~2098 periodLabel()` shows "Renews {date}" for an `active` sub with NO past-date guard; DUX (role-17) saw a live "Renews 2026-08-24" (~5 weeks past, today 2026-10-02). Repro: Billing›Subscription where `current_period_end` < now. Vision can't catch it (no "today" ref) — DOM+date reconcile did. Fix: past-date → "Renewal overdue"/staleness cue, or surface the lagging period-advance webhook. Seed-org today (low real-customer severity) but misleads any customer whose renewal webhook lags. Add a Jasmine unit (past `current_period_end` → overdue). Category: product · S.
@@ -1915,7 +1915,7 @@ Re-architect every workbench panel onto a shared gorgeous spine so chrome/tokens
 - [x] CONTRAST-GATE DONE (fire-133, `2c242fec0`) — `frontend/scripts/check-contrast-muted.mjs` bans the AA-failing `color: color-mix(in oklch, var(--ps-ink…) ≤49%, transparent)` TEXT-color pattern across `src/app/pages/admin`, wired into `build:prod` (after check:css-comments). Correctly scoped to TEXT `color:` only (negative lookbehind for `-` → `border-color`/`background-color` at low opacity are intentional + NOT flagged); fix hint points to the solid `--ps-bg` mix. Verified: PASS on current admin (0), FAILS on a planted text-color 45% (exit 1), IGNORES a planted border-color 10%. Locks in fire-132's 27-card sweep so the class can't silently return.
 - [x] CONTRAST-SWEEP-2 DONE + DEPLOYED (fire-134, `d1b8d2225`) — fixed all 9 non-admin failing text-contrast occurrences (domain-picker ×2, changelog ×2, super-admin ×3, developers, pricing) + a **10th** the broadened gate caught (developers `.dev-footer__sep` 25%). Agent confirmed EACH surface is dark-bg (`:host { background: var(--ps-bg) }` — marketing + super-admin all dark-first) so the solid `--ps-bg` mix (78%, ≥11:1 AA) applied uniformly. **Broadened CONTRAST-GATE from `pages/admin` → all of `src/app`** (comprehensive, dark-first). Gate PASS app-wide (0), tsc 0, build 0, frontend deployed to R2; public surfaces (pricing/changelog/developers) render 200. The opacity-on-muted-token contrast class is now CLOSED + structurally gated APP-WIDE.
 
-## ⭐⭐ FRONTIER SNAPSHOT — fire-301 groom (money-path EPIC 5/5 CLOSED; starved categories now lead)
+## ⭐⭐ FRONTIER SNAPSHOT — fire-301 groom (SUPERSEDED by the fire-305 snapshot at the END of this file — READ THAT FIRST; this block kept for drive history)
 
 > **Why this snapshot (supersedes the fire-173 block below):** fires 293-300 closed the money-path
 > causal-legs EPIC **5/5** (VIEWLIVE-1 · AIBUILD-VERIFY · SEARCH-DEDUP-GUARD · PUBLISH-1 fire-299 ·
@@ -2056,3 +2056,110 @@ Re-architect every workbench panel onto a shared gorgeous spine so chrome/tokens
 - [x] **Fleet execution contract reconciliation** — updated command + README to one GitHub-scheduled iteration, assigned-worktree-only changes, outer-runner publication, official compute routing and observed-evidence reporting. Docs-only; no runtime deployment. See LEDGER fire-304.
 - [ ] **D-64-1 / WS-LOOP-BROWSER-MAIN residual: provision browser prerequisites inside the assigned worktree** — supersedes the older main-checkout/opt-out recommendations above; never move a fleet run into another checkout. Reuse existing dependency/bootstrap scripts; assert dependencies and approved browser/vision access before resuming case-001 action 60. Acceptance remains the existing real CF-Browser-Run pass and coverage-ledger receipt; no browser coverage was run in fire-304.
 - [ ] **Current editor CI lint repair** — GitHub CI/CD run 37718168405 at `8f276b8c9` failed Run ESLint; observed errors include PanelShell.tsx, panel.spec.tsx, embedded-mode.ts and workbench.ts. Read root CLAUDE.md editor guidance; reproduce the exact CI lint command, repair in bounded slices, then require a fresh green CI run. Avoid unrelated formatting churn.
+
+## ⭐⭐ FRONTIER SNAPSHOT — fire-305 groom (desktop panel-finish + kill-features + flags-on reconciled; the CANONICAL frontier — read this first)
+
+> **Why this snapshot (supersedes the fire-301 block above):** the fire-303→305 desktop session SHIPPED +
+> DEPLOYED + PROD-VERIFIED a batch of work the backlog had NOT yet ticked. Reconciled below so no future
+> fire redoes it. Commits are on `main` (verify with `git log` before re-claiming any line per
+> [[backlog-work-claim-must-be-reverified-against-code]]).
+>
+> **✅ RECONCILED DONE this groom (shipped on main — do NOT re-open):**
+> - **Editor workbench panels FINISHED (fires 303-305):** Automations **Cancel** (`5634b0154`, full-stack
+>   `POST …/automations/:id/cancel` + bridge + armed-two-click UI + migration `0659_workflow_jobs_cancellable.sql`
+>   APPLIED to prod — line 53 ticked) · DatabasePanel KV **"Unlock" lying-green stub → honest state**
+>   (`e113f553d`) · LockManager dead markup → **real "Locked" badge** (now renders live `lockedItems`,
+>   `LockManager.tsx:21/35-68`) · KvBrowser empty-state **inline "Add key" CTA** (`database-kv-empty-add`,
+>   `KvBrowser.tsx:559-564`) · **Code-panel ProjectHub Promote button REMOVED** (`8af2e7316`, Brian request —
+>   publishing still lives in Source Control / Lifecycle / Buckets / ProjectHub).
+> - **Tinybird fully REMOVED** (`1e701d529`) — zero refs in `src/`, `frontend/src/`, `packages/`; analytics +
+>   activation-funnel now return **graceful `degraded:true` zero-state** (no 5xx, no dead refs). Already scrubbed
+>   from this backlog by fire-303 — nothing further to delete here.
+> - **Flags: 82 → 83/84 enabled via the real admin UI** (`8f276b8c9` — `voice_numbers` on). Only
+>   **`abandoned_build_nudge` held** (auto-outreach = Brian-gated, see blocked subsection).
+> - **3 features KILLED + scope-scrubbed (fire-303 `3fdd835b5`, do-NOT-reintroduce):** AI Visual Site Builder ·
+>   owner-SEO-editor journey · (Tinybird above). No stale backlog lines remain for these (grep-confirmed absent
+>   this groom).
+>
+> **⚠️ COLLISION reconciled:** the LEDGER's newest "fire-304 fleet execution contract reconciliation" is a
+> CONCURRENT GHA dispatch (docs-only), NOT this session's panel work (which also leased fire-304). BOTH landed on
+> main cleanly — no clobber. The §Fleet-execution-follow-up block above keeps the GHA dispatch's open items
+> (browser-prereqs-in-worktree + the editor CI-lint repair); this snapshot owns the product frontier.
+>
+> **⚠️ ANCHOR DRIFT CORRECTED (do NOT trust the fire-301 READY-NOW #1):** fire-301's "dead-code-136" (above)
+> is now LARGELY STALE — a fire-305 re-grep finds `card.ts` **already removed (MISSING)**, `buttonState` **0 refs
+> anywhere in `frontend/src`** (the `motion.ts:84` anchor no longer resolves), and `partysocket/yjs/tw-animate-css`
+> **NOT present in `frontend/package.json`**. If any fire picks it up it must RE-VERIFY first; it is probably a no-op.
+> Also: the editor "DataPanel.tsx" in older ledger notes is now **`SiteTablesPanel.tsx`** (renamed), and its Tables
+> grid ALREADY polls visibility-aware (`SiteTablesPanel.tsx:241-243`) → the old Data-tab no-refresh item is narrowed
+> to the Functions tab only (line ~1583).
+
+> **READY NOW — top 5** (ranked by money-path leverage; all lead-doable, no agent fleet required; EXCLUDES
+> Brian-gated — those are in the subsection below; every anchor grep-verified THIS groom):
+> 1. **[product] D1-backed analytics + activation-funnel rollups** (the #1 money-path visibility gap left by
+>    Tinybird removal) — both the admin analytics rollups AND the activation funnel now return a hardcoded
+>    `degraded:true` ZERO-state; an owner/operator sees empty "is my funnel converting?" surfaces. Swap in real
+>    D1 queries over the master-D1 `visitor_events` (+ `sites`/`subscriptions` for publishes/claims-by-source).
+>    **Accept:** `fetchActivationFunnel` (`apps/project-sites/src/services/activation_funnel_query.ts:66-72`) +
+>    `fetchPipeRows` (`apps/project-sites/src/services/analytics_query.ts:63-70`) return REAL D1 rows (drop the
+>    zero-funnel/`degraded:true` short-circuit for the populated path, keep `degraded` only for a genuine no-data
+>    account); worker Jest over a seeded SQLite harness asserts non-zero stages/rows; the admin
+>    `activation-funnel.component.ts` + `analytics.component.ts` render real counts; routes `/api/admin/activation-funnel`
+>    + `/api/admin/analytics/*` prod-verified (authed curl) returning populated data for a seeded org. · category product · anchors verified.
+> 2. **[testing] Cancel-route + armed-two-click regression lock** — fire-305 shipped the Automations **Cancel**
+>    full-stack but the bridge/UI armed-two-click guard (`AutomationsPanel.tsx:220-225` `cancellingIds` +
+>    first-click-arms/second-click-confirms) has worker-route tests only. **Accept:** a Vitest spec for
+>    `AutomationsPanel` asserts (a) first Cancel click ARMS (no request fired), (b) second click dispatches
+>    `requestAutomationCancel` once + shows the in-flight spinner, (c) a stray click mid-flight is ignored
+>    (idempotency); worker `site_automations_cancel_route.test.ts` stays green; `npm test` (editor) green. · category testing · anchors verified.
+> 3. **[testing] forms.component MCP-connect `data-testid` + lock** (line ~521) — fire-46 shipped
+>    `data-testid="mcp-${id}-connect"` in `settings.component.ts` but `forms.component.ts` coverage is UNVERIFIED.
+>    **Accept:** add the per-provider testids to `apps/project-sites/frontend/src/app/pages/admin/sections/forms.component.ts`
+>    (rendered from `mcp-providers.ts`) + a Karma spec asserting each provider row exposes its stable testid;
+>    `npm run test:ci` green. · category testing · anchor verified.
+> 4. **[ux/a11y] Restore Preview device/responsive switcher** (line ~624) — `app/components/workbench/Preview.tsx:77`
+>    hard-codes `const isDeviceModeOn: boolean = false` → the entire coded device/landscape/scaling machinery
+>    (L245/305/413/421/430/438/442/684) is orphaned (dead default, [[opt-in-prop-plus-uncalled-resolver-is-dead-default]]).
+>    **Accept:** wire a 6-breakpoint quick-toggle that flips `isDeviceModeOn` + resizes the preview frame; Vitest for
+>    the toggle; editor prod loads 200 with the control visible + functional. · category ux · anchor verified (L77 + 9 gated call-sites).
+> 5. **[testing] E2E for the admin cockpit** (line ~545) — `dashboard.component.ts` (operator cockpit / needs-
+>    attention queue / KPI tiles / CWV) has NO E2E. **Accept:** one homepage-start Playwright journey (goto `/` →
+>    signin seam → dashboard) asserting the KPI strip + attention queue render with real data, console-clean,
+>    axe-clean at 1280; add the `e2e/FEATURES.md` + `e2e/COVERAGE.yml` rows so `validate:e2e-inventory` passes. · category testing.
+
+> ### Brian-gated / externally-blocked (do NOT treat as READY — a fire must NOT touch these)
+> - **`abandoned_build_nudge` flag flip ON** — the ONE flag held at 83/84; it triggers AUTO-OUTREACH (unsolicited
+>   email/SMS to owners who abandoned a build) → a customer-facing comms decision, Brian-gated, NOT a loop flip.
+> - **DEMO-0 / DEMO-1** — keep-existing-site vs deploy-curated-bundle + the guest-admin call (lines 63-66) are Brian decisions.
+> - **Stripe test-rail in CI (LB-1 / gp-05)** — needs `STRIPE_PRICE_ID_MONTHLY_WALLET` + Stripe test keys in CI (Blocked-user, line ~1028).
+> - **R2/S3 delivery creds** — launch task gated on Brian-provided credentials.
+> - **WLK-39 Resolution + `publish_live_check` + `claim_flow` flag flips** — implementation COMPLETE; blocked on
+>   Anthropic credits / a new `CF_AIG_TOKEN` and/or a money-path prod-UX launch decision (see fire-187 line ~2052 + line 48).
+
+> ### NEXT-WAVE replenish — fire-305 (concentrated in the genuinely-open post-Tinybird + post-panel-finish areas)
+> - **[product] Automations Cancel must TERMINATE the live Workflow (flag-honored abort)** — fire-305's cancel marks
+>   the D1 job `cancelled` (migration `0659`) but does NOT abort the running CF Workflow instance; a cancelled
+>   long-build keeps burning compute. **Accept:** on cancel, call the Workflow terminate/`abort` path (or set an
+>   abort flag the build loop polls) so an in-flight automation actually STOPS; honor it behind the existing
+>   `site_automations` flag; worker test asserts terminate is invoked + the job lands `cancelled` without a late
+>   status revive. · category product · anchor: the automations cancel handler + `apps/project-sites/src/services` Workflow dispatch.
+> - **[docs/cleanup] Retire the Tinybird-removal JSDoc TODOs once the D1 rollups land** — `activation_funnel_query.ts:9,11,39,58`
+>   + `analytics_query.ts:9,10,47` carry "Tinybird removed — D1 source TODO" comments; the `outbox_dispatch.ts:10,23,45,59`
+>   comments too. **Accept:** when READY-NOW #1 ships the D1 queries, replace these TODO comments with the real
+>   source description so the codebase stops advertising a removed vendor; grep `-ri tinybird` across `src/` returns 0. · category docs/cleanup.
+> - **[product] Wire real KV add-on checkout when billing lands** — KvBrowser's "Add key" CTA + the KV surface are
+>   live, but there is NO KV-namespace entitlement/add-on in the claim/billing path (`claim_flow` gates
+>   custom-domain/AI-ops/email only, `registry.ts:62`). **Accept (gated on Stripe test-rail, so scope the
+>   decision-independent slice now):** add a `kv_addon` entitlement check + a 404-dark `kv_addon` flag so the KV
+>   write/add-key path server-guards on entitlement (returns a calm upgrade affordance, never a doomed control)
+>   when billing is ready; worker test for the entitlement gate (active OR trialing). · category product · anchor: `claim_flow` + `resolveActiveOrgPlan`.
+> - **[testing] LockManager + KvBrowser honest-state render locks** — fire-305 replaced the KV "Unlock" lying-green
+>   stub + gave LockManager a real "Locked" badge + KvBrowser its empty CTA, but these honesty fixes lack render
+>   specs. **Accept:** Vitest asserts (a) LockManager with 0 locked items shows the honest empty state (not dead
+>   markup) and with ≥1 shows the "Locked" badge row; (b) KvBrowser's first-load no-keys state renders
+>   `database-kv-empty-add`; (c) the DatabasePanel KV state shows the honest (non-lying) label. Prevents regression
+>   of the exact stubs just killed. · category testing · anchors verified (`LockManager.tsx:21/35-68`, `KvBrowser.tsx:559-564`).
+> - **[discovery] FRESH module audit for the NEXT lead code slice** — the audited modules (per-site-DB, media,
+>   serving-mutation cache-bust, env-vars IDOR) are coverage-exhausted. **Accept:** run `scripts/detect-orphans.mjs`
+>   + a targeted read of ONE un-audited area (Angular admin Karma gaps OR `api.ts` billing/hostname handlers) and
+>   append 3-5 verified, anchor-carrying TODOs so the next quota-dead fire has clean lead work. · category discovery.
