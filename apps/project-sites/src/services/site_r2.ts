@@ -337,7 +337,39 @@ export async function ensureDefaultSiteR2(
     [siteId],
   );
   const displayName = existing?.display_name ?? 'uploads';
-  return provisionSiteR2(env, { displayName, isDefault: true, orgId, siteId, tenantId });
+  const preview = await provisionSiteR2(env, {
+    displayName,
+    environment: 'preview',
+    isDefault: true,
+    orgId,
+    siteId,
+    tenantId,
+  });
+  if (!preview.ok) return preview;
+
+  // Every site also gets a PRODUCTION site bucket, so the Buckets tab always lists BOTH the
+  // preview AND production site buckets — never just one (Brian 2026-10-08). These are the
+  // site's OWN isolated buckets; the shared platform bucket (project-sites-production) holds
+  // every site's content and stays FORBIDDEN-denylisted, so we never expose it. `promote`
+  // copies preview → production. Idempotent, and non-fatal: a failed production provision
+  // still returns the preview default the handler needs.
+  const existingProduction = await dbQueryOne<{ id: string }>(
+    env.DB,
+    `SELECT id FROM site_r2_allocations
+       WHERE site_id = ? AND environment = 'production' AND status = 'active' AND deleted_at IS NULL`,
+    [siteId],
+  );
+  if (!existingProduction) {
+    await provisionSiteR2(env, {
+      displayName: 'production',
+      environment: 'production',
+      orgId,
+      siteId,
+      tenantId,
+    });
+  }
+
+  return preview;
 }
 
 /**
