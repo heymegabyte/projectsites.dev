@@ -16,12 +16,7 @@
  *   5. `removeConnection` / `restoreConnection` are a sound optimistic-remove + exact-position undo pair.
  */
 import { describe, expect, it } from 'vitest';
-import {
-  deriveConnectionsState,
-  providerLabel,
-  removeConnection,
-  restoreConnection,
-} from '../ConnectionsPanel';
+import { deriveConnectionsState, providerLabel, removeConnection, restoreConnection } from '../ConnectionsPanel';
 import type { ConnectionEntry } from '~/lib/embed/embedded-mode';
 
 /** Build a ConnectionEntry with the fields the panel reads. */
