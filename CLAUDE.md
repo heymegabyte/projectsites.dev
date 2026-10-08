@@ -114,6 +114,8 @@ Status machine: `draft → collecting → imaging → generating → published |
   id (a Worker can't statically bind thousands of per-site D1s). Flag `per_site_data` (DARK → 404). Platform
   per-site data (`form_submissions`/`visitor_events`) STAYS in the master D1 — the `data-overview` surface, not this.
 - **Removed — never reintroduce**: Supabase, phone-OTP (legacy Twilio SMS auth removed; Twilio VOICE is KEPT — `src/services/twilio.ts` + `routes/voice*`), Lago/Unkey/Nango/Inngest/Novu (Novu replaced by psnotify; Postiz KEPT as an HTTP-boundary transition social scheduler at social.projectsites.dev),
+  **Tinybird + ClickHouse** (removed 2026-10-07, Brian directive — `services/tinybird.ts` + all call sites + `TINYBIRD_*` secrets gone; analytics/observability plane is D1 + Cloudflare RUM/Analytics Engine + PostHog + Sentry; 2 operator-only admin surfaces degrade to graceful-empty until D1 rollups land — fix is D1, never re-add Tinybird),
+  **AI Visual Site Builder** (Puck/React Flow — removed 2026-10-07, Brian directive; had ZERO code; bolt.diy is the only visual-edit surface) + the **owner-facing post-gen SEO-editor journey** (GP-24/CBD-gap-4 — removed; generation-side SEO build-validators STAY),
   **AI Agents** (the `/admin/ai-endpoints` UI-authored AI-endpoint feature + `ai_endpoints` D1 table + the
   `/api/ai/:slug/:endpoint` dispatcher — replaced by code-defined **Functions** on Cloudflare Workers for
   Platforms; owners define endpoints in a `functions/` folder in their site code, not a dashboard form. See
