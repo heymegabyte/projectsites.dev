@@ -177,4 +177,24 @@ describe('LockManager — visibility-aware poll', () => {
     expect(screen.getByText('locked-file.ts')).toBeTruthy();
     expect(screen.getByText('locked-folder')).toBeTruthy();
   });
+
+  /*
+   * L1 (finish): each row carries a real per-item lock-state badge — never the old empty,
+   * contentless `<span>` placeholder that rendered an invisible element + signalled an
+   * unfinished row. Two locked items (file + folder) ⇒ two "Locked" badges with real text.
+   */
+  it('renders a "Locked" status badge on each locked row (no empty placeholder span)', () => {
+    const { container } = render(<LockManager />);
+
+    // Two locked items in the fixture → two badges, each with visible text (not an empty node).
+    const badges = screen.getAllByText('Locked');
+    expect(badges).toHaveLength(2);
+    badges.forEach((b) => expect(b.textContent).toContain('Locked'));
+
+    // The badge is on-brand (accent token), NOT the old raw-red placeholder styling.
+    badges.forEach((b) => expect(b.className).toContain('text-bolt-elements-item-contentAccent'));
+
+    // Regression guard: the stale `bg-red-500` placeholder styling is gone from every row.
+    expect(container.querySelector('li .bg-red-500\\/10')).toBeNull();
+  });
 });

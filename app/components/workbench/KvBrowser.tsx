@@ -548,11 +548,21 @@ export const KvBrowser = memo(() => {
             <ul className="max-h-full flex-1 overflow-auto modern-scrollbar rounded-md border border-bolt-elements-borderColor/40">
               {keys.length === 0 && !keysLoading && (
                 <li
-                  className="flex flex-col items-center gap-2 px-3 py-8 text-center text-[11px] text-bolt-elements-textTertiary"
+                  className="flex flex-col items-center gap-3 px-3 py-8 text-center text-[11px] text-bolt-elements-textTertiary"
                   data-testid="database-kv-empty"
                 >
                   <div className="i-ph:key text-2xl" />
                   <span>No keys yet. Add your first key to get started.</span>
+                  <button
+                    type="button"
+                    onClick={beginAdd}
+                    data-testid="database-kv-empty-add"
+                    aria-label="Add your first key"
+                    title="Add a new key to your site's KV"
+                    className="min-h-[24px] rounded-md border border-bolt-elements-item-contentAccent/40 px-2.5 py-1 text-[11px] font-medium text-bolt-elements-item-contentAccent hover:bg-bolt-elements-item-contentAccent/10 transition-colors flex items-center gap-1 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-bolt-elements-item-contentAccent cursor-pointer"
+                  >
+                    <div className="i-ph:plus" /> Add key
+                  </button>
                 </li>
               )}
               {keys.map((k) => (

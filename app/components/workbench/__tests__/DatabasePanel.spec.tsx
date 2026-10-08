@@ -7,22 +7,34 @@
  * The panel is the ONE data surface: a CONCISE sub-nav BUTTON bar (Tables · SQL · KV) over the site's
  * OWN per-site D1. Tables renders SiteTablesPanel (+ an actions toolbar: Seed with AI / Import / New
  * table / History as buttons, NOT nav entries); SQL is a normal always-visible entry (no Advanced
- * toggle); KV is a $10/mo locked-upsell (honest, never a dead control) until purchased.
+ * toggle); KV is an HONEST "not yet available" add-on preview (never a fake paywall).
+ *
+ * KV honesty (fire — lying-green stub removed): the per-site KV add-on has NO configured Stripe price and
+ * the embed bridge carries NO checkout message, so there is no real way to buy it from the editor today.
+ * The old card promised "$10/mo" + an "Unlock" button whose onClick only wrote a localStorage flag and
+ * swapped in the browser — a purchase that never happened (and the browser itself was still dark behind
+ * `per_site_kv`). That deception is gone: the KV view now shows an honest, non-deceptive "on the way"
+ * preview. It makes NO purchase claim, exposes NO "Unlock"/buy control, and persists NO
+ * "purchased/unlocked" flag. It keeps the genuine value proposition + a read-only live preview of the
+ * site's REAL keys (so it's never a dead wall). When billing actually ships, wiring a real checkout is a
+ * separate task; until then the control cannot imply a purchase occurred.
  *
  * Strategy: mock the embed bridge + virtualizer exactly as SiteTablesPanel.spec does, so the embedded
- * SiteTablesPanel mounts cleanly. localStorage is mocked so the KV-unlock preference is deterministic.
+ * SiteTablesPanel mounts cleanly. localStorage is mocked so we can assert NO purchase flag is ever set.
  *
  * Cases:
  *  1. Sub-nav is concise — Tables + SQL + KV render; there is NO Advanced toggle and NO schema/seed/forms.
  *  2. Tables view shows the actions toolbar (Seed with AI / Import / New table / History) as buttons.
  *  3. An action button opens a modal overlay hosting the corresponding panel (Import shown here).
  *  4. SQL is a first-class entry — selecting it mounts the SQL navigator (textarea + run + Ask toggle).
- *  5. KV manager — shows the $10/mo locked-upsell with an Unlock control (never a dead control).
- *  6. KV manager — clicking Unlock swaps the upsell for the REAL per-site KV browser.
- *  7. KV locked-upsell — a READ-ONLY free preview lists the site's REAL KV keys (never a dead paywall):
- *     it asks the EXISTING per-site bridge (PS_RES_DETAIL kind:'kv', action:'list'), renders real key
- *     names read-only, shows an honest "empty so far" when there are none, and stays a clean upsell (no
- *     broken preview) when the flag is dark. No value reads, no writes from the locked card.
+ *  5. KV manager — shows the HONEST "not yet available" add-on preview, with NO price claim and NO
+ *     buy/unlock control (the deceptive fake-purchase is gone; never a dead control).
+ *  6. KV manager — REGRESSION: there is no clickable "Unlock" control, and merely rendering the KV view
+ *     never writes a "purchased/unlocked" localStorage flag (nothing was bought, so nothing may pretend it).
+ *  7. KV preview — a READ-ONLY live preview lists the site's REAL KV keys (never a dead wall): it asks the
+ *     EXISTING per-site bridge (PS_RES_DETAIL kind:'kv', action:'list'), renders real key names read-only,
+ *     shows an honest "empty so far" when there are none, and stays a clean card (no broken preview) when
+ *     the flag is dark. No value reads, no writes from the preview.
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { render, screen, cleanup, fireEvent, within, act, waitFor } from '@testing-library/react';
@@ -332,42 +344,55 @@ describe('DatabasePanel — consolidated per-site data surface (concise nav)', (
     expect((screen.getByTestId('database-sql-run') as HTMLButtonElement).disabled).toBe(false);
   });
 
-  it('KV manager shows the $10/mo locked-upsell (honest, not a dead control)', () => {
+  it('KV manager shows the HONEST "not yet available" add-on preview — no price claim, no buy/unlock control', () => {
     render(<DatabasePanel />);
 
     fireEvent.click(screen.getByTestId('panel-segnav-kv'));
 
     const kv = screen.getByTestId('database-kv');
-    expect(within(kv).getByText('$10')).toBeTruthy();
-    expect(within(kv).getByTestId('database-kv-unlock')).toBeTruthy();
 
-    // The honest note is always present on the locked card (never dead-air).
-    expect(within(kv).getByTestId('database-kv-note')).toBeTruthy();
+    // Honest status is always present — the owner is told plainly where this stands (never dead-air).
+    const note = within(kv).getByTestId('database-kv-note');
+    expect(note).toBeTruthy();
+
+    // It states KV isn't yet available and that there's nothing to buy/set up here (no purchase claim).
+    expect(note.textContent).toMatch(/yet available/i);
+    expect(note.textContent).toMatch(/nothing to buy/i);
+
+    /*
+     * The deceptive fake-purchase is GONE: no "$10/mo" price promise and no buy/unlock control, because
+     * there is no real checkout path (no configured price, no embed-bridge checkout message). A control
+     * that implied a purchase would be a lie.
+     */
+    expect(within(kv).queryByTestId('database-kv-unlock')).toBeNull();
+    expect(within(kv).queryByText('$10')).toBeNull();
+    expect(within(kv).queryByText(/\/\s*month/i)).toBeNull();
+
+    // No checkout/purchase is ever initiated over the bridge from the KV view.
+    const purchaseMsg = postToParentSpy.mock.calls.find((c) =>
+      /checkout|purchase|billing|unlock/i.test((c[0] as { type?: string })?.type ?? ''),
+    );
+    expect(purchaseMsg).toBeUndefined();
   });
 
-  it('KV manager swaps the upsell for the REAL per-site KV browser once unlocked', () => {
+  it('REGRESSION: rendering the KV view never writes a "purchased/unlocked" flag (nothing was bought)', () => {
     render(<DatabasePanel />);
 
     fireEvent.click(screen.getByTestId('panel-segnav-kv'));
-    fireEvent.click(screen.getByTestId('database-kv-unlock'));
 
-    // The locked-upsell card is gone; the real per-site KV browser is mounted (recycled KvBrowser).
-    expect(screen.queryByTestId('database-kv')).toBeNull();
-    expect(screen.getByTestId('database-kv-browser')).toBeTruthy();
+    // There is no clickable buy/unlock control to fire a fake purchase…
+    expect(screen.queryByTestId('database-kv-unlock')).toBeNull();
 
-    // The browser lists keys over the per-site bridge (PS_RES_DETAIL kind:'kv', action:'list').
-    const listCall = postToParentSpy.mock.calls.find(
-      (c) => (c[0] as { type?: string; kind?: string })?.type === 'PS_RES_DETAIL_REQUEST',
-    );
-    expect(listCall).toBeTruthy();
-    expect((listCall?.[0] as { kind?: string })?.kind).toBe('kv');
-
-    // The unlock persists.
-    expect(store.ps_database_kv_unlocked).toBe('1');
+    /*
+     * …and the dead "purchased" localStorage flag the old stub flipped is never set. The honest "not yet
+     * available" card does not pretend a purchase occurred, so no key implies entitlement.
+     */
+    expect(store.ps_database_kv_unlocked).toBeUndefined();
+    expect(Object.keys(store).some((k) => /unlock|purchas|paid|bought/i.test(k))).toBe(false);
   });
 });
 
-// ─── KV locked-upsell — read-only free preview (never a dead paywall) ───────────
+// ─── KV add-on preview — read-only live key list (never a dead wall) ────────────
 
 /** Find the most recent `PS_RES_DETAIL_REQUEST` of a given kv action; returns its correlationId. */
 function lastKvDetail(action: 'list' | 'get'): string | undefined {
@@ -400,23 +425,26 @@ async function replyKvList(
   });
 }
 
-describe('DatabasePanel — KV locked-upsell read-only preview (never a dead paywall)', () => {
+describe('DatabasePanel — KV add-on read-only preview (never a dead wall)', () => {
   it('lists the site REAL KV keys read-only via the existing PS_RES_DETAIL kv:list bridge', async () => {
     render(<DatabasePanel />);
     fireEvent.click(screen.getByTestId('panel-segnav-kv'));
 
-    // The locked card must ASK the same per-site bridge KvBrowser uses — no new endpoint, read-only list.
+    // The card must ASK the same per-site bridge KvBrowser uses — no new endpoint, read-only list.
     await waitFor(() => expect(lastKvDetail('list')).toBeTruthy());
 
     await replyKvList(lastKvDetail('list'), {
       keys: [{ name: 'feature:new-hero' }, { name: 'session:abc123', expiration: 4102444800 }],
     });
 
-    // Real key names render inside the read-only preview; the upsell + Unlock still stand beside them.
+    // Real key names render inside the read-only preview; the honest status note stands beside them.
     const preview = screen.getByTestId('database-kv-preview');
     expect(within(preview).getByText('feature:new-hero')).toBeTruthy();
     expect(within(preview).getByText('session:abc123')).toBeTruthy();
-    expect(screen.getByTestId('database-kv-unlock')).toBeTruthy();
+    expect(screen.getByTestId('database-kv-note')).toBeTruthy();
+
+    // No deceptive buy/unlock control beside the preview.
+    expect(screen.queryByTestId('database-kv-unlock')).toBeNull();
 
     // Read-only: the preview must NOT read a value (no kv:get) and must NOT expose write controls.
     expect(lastKvDetail('get')).toBeUndefined();
@@ -433,22 +461,23 @@ describe('DatabasePanel — KV locked-upsell read-only preview (never a dead pay
 
     expect(screen.getByTestId('database-kv-preview-empty')).toBeTruthy();
 
-    // Still a live upsell beneath the honest empty state.
-    expect(screen.getByTestId('database-kv-unlock')).toBeTruthy();
+    // Still an honest status note beneath the empty state — no fake buy control.
+    expect(screen.getByTestId('database-kv-note')).toBeTruthy();
+    expect(screen.queryByTestId('database-kv-unlock')).toBeNull();
   });
 
-  it('stays a clean upsell (no broken preview) when per_site_kv is dark', async () => {
+  it('stays a clean card (no broken preview) when per_site_kv is dark', async () => {
     render(<DatabasePanel />);
     fireEvent.click(screen.getByTestId('panel-segnav-kv'));
 
     await waitFor(() => expect(lastKvDetail('list')).toBeTruthy());
 
-    // Dark flag → enabled:false. The preview hides entirely; the upsell + honest note remain.
+    // Dark flag → enabled:false. The preview hides entirely; the honest status note remains.
     await replyKvList(lastKvDetail('list'), { enabled: false });
 
     expect(screen.queryByTestId('database-kv-preview')).toBeNull();
     expect(screen.queryByTestId('database-kv-preview-empty')).toBeNull();
-    expect(screen.getByTestId('database-kv-unlock')).toBeTruthy();
     expect(screen.getByTestId('database-kv-note')).toBeTruthy();
+    expect(screen.queryByTestId('database-kv-unlock')).toBeNull();
   });
 });

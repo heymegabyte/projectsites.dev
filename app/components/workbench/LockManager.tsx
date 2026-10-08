@@ -268,13 +268,17 @@ export function LockManager() {
                 <span id={`item-label-${item.path}`} className="truncate flex-1 text-xs" title={item.path}>
                   {item.path.replace('/home/project/', '')}
                 </span>
-                {/* ... rest of the item details and buttons ... */}
+                {/* Per-row lock-state badge — every item in this list is locked, so the honest datum is
+                    the lock state itself (the item carries no owner/reason). On-brand tokens, never raw red. */}
                 <span
                   className={classNames(
-                    'inline-flex items-center px-1 rounded-sm text-xs',
-                    'bg-red-500/10 text-red-500',
+                    'shrink-0 inline-flex items-center gap-1 px-1.5 py-0.5 rounded-sm text-[10px] font-medium uppercase tracking-wide',
+                    'bg-bolt-elements-item-contentAccent/10 text-bolt-elements-item-contentAccent',
                   )}
-                ></span>
+                >
+                  <span className="i-ph:lock-simple-fill text-[10px]" aria-hidden="true" />
+                  Locked
+                </span>
                 <button
                   className="flex items-center px-1 py-0.5 text-xs rounded bg-transparent hover:bg-bolt-elements-background-depth-3"
                   onClick={() => {

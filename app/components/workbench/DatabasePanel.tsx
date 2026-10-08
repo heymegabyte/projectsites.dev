@@ -17,10 +17,14 @@
  *    editor (syntax-highlighted + schema-completing, query history, saved queries, EXPLAIN cost hint, typed
  *    result grid) RE-POINTED at the site's OWN D1 via the per-site adapter (`PS_RES_MUTATE { kind:'d1',
  *    action:'exec' }` → `data_d1_exec`). Mutating statements are confirm-gated; `rowsWritten` is truth.
- *  - **KV** — the site's OWN KV, a **$10/mo Stripe add-on**. Until unlocked this is an honest LOCKED-UPSELL
- *    card (never a dead/mock control); once unlocked it renders the REAL per-site KV browser
- *    ({@link KvBrowser}, `PS_RES_DETAIL/MUTATE { kind:'kv' }`), DARK behind `per_site_kv` (a 404 → honest
- *    "not enabled yet").
+ *  - **KV** — the site's OWN KV, a PLANNED add-on. There is no configured price for it and the embed
+ *    bridge carries no checkout, so there is no real way to buy it here yet — this view is therefore an
+ *    HONEST "on the way" state ({@link KvManager}) that makes NO purchase claim and exposes NO buy/unlock
+ *    control (the former "$10/mo · Unlock" card faked a purchase via a localStorage flag — removed). It
+ *    still carries a read-only LIVE PREVIEW of the site's REAL keys (`PS_RES_DETAIL { kind:'kv',
+ *    action:'list' }`) so it is never a dead wall. The REAL per-site KV browser ({@link KvBrowser},
+ *    `PS_RES_DETAIL/MUTATE { kind:'kv' }`, DARK behind `per_site_kv`) stays imported for when real
+ *    billing ships and it can be mounted honestly.
  *
  * Isolation is SERVER-resolved for every sub-view: the worker resolves the site's CF ids from the
  * registry for the OWNED site+environment; this panel never sees or sends a CF id it could tamper with.
@@ -76,10 +80,14 @@ const SUB_NAV: readonly SubNavItem[] = [
 ];
 
 /**
- * Keep FormBuilder referenced so it stays importable/interconnected (it is deliberately not a nav entry
- * per Brian 2026-09-27, but must remain reachable code — never orphaned). Tree-shaken from the render path.
+ * Keep these referenced so they stay importable/interconnected but out of the current render path
+ * (tree-shaken). `FormBuilder` is deliberately not a nav entry (Brian 2026-09-27). `KvBrowser` is the REAL
+ * per-site KV UI, retained here but NOT mounted: the KV view is an honest "not yet available" state until
+ * a real purchase path exists (no configured price, no embed-bridge checkout today), so mounting the
+ * browser would imply an entitlement nobody bought. When real KV billing ships, wire checkout and mount
+ * {@link KvBrowser} from {@link KvManager} — it must never be reached via a fake client-side "unlock".
  */
-export const DATABASE_UNWIRED_BUT_REACHABLE = { FormBuilder } as const;
+export const DATABASE_UNWIRED_BUT_REACHABLE = { FormBuilder, KvBrowser } as const;
 
 // ── Container ────────────────────────────────────────────────────────────────
 
@@ -279,102 +287,72 @@ const TableActionOverlay = memo(
 
 TableActionOverlay.displayName = 'DatabasePanel.TableActionOverlay';
 
-// ── KV manager (honest $10/mo locked-upsell gate → the REAL per-site KV browser once unlocked) ────
-
-/** localStorage key remembering that the owner unlocked the KV add-on (so it survives sub-nav switches). */
-const KV_UNLOCKED_KEY = 'ps_database_kv_unlocked';
-
-function readKvUnlocked(): boolean {
-  try {
-    return localStorage.getItem(KV_UNLOCKED_KEY) === '1';
-  } catch {
-    return false;
-  }
-}
-
-function writeKvUnlocked(on: boolean): void {
-  try {
-    localStorage.setItem(KV_UNLOCKED_KEY, on ? '1' : '0');
-  } catch {
-    // localStorage unavailable (private mode) — the unlock still holds for the session
-  }
-}
+// ── KV manager (HONEST "on the way" add-on preview — NO fake purchase, NO fake unlock) ────
 
 /**
- * The KV manager gate. The site's OWN Cloudflare KV is a **$10/mo Stripe add-on** (per the resource
- * model). Until unlocked this renders an HONEST locked-upsell card — never a dead/mock control. The card
- * carries a **read-only free preview** ({@link KvLockedPreview}) that lists the site's REAL KV keys via the
- * SAME per-site bridge the browser uses (`PS_RES_DETAIL { kind:'kv', action:'list' }` — no new endpoint,
- * list-only, zero value reads, zero write controls), so the paywall shows genuine value instead of a wall.
- * Once unlocked it mounts the REAL {@link KvBrowser}, which manages the site's OWN server-resolved KV
- * namespace (`PS_RES_DETAIL/MUTATE { kind:'kv' }`) and itself renders an honest "not enabled yet" state
- * while `per_site_kv` is dark.
+ * The KV manager view. The site's OWN Cloudflare KV is a planned add-on — but there is NO configured
+ * Stripe price for it and the editor's embed bridge carries NO checkout message, so there is NO real way
+ * to buy it from here today. The previous version faked it: a "$10/mo" card whose "Unlock" button only
+ * wrote a localStorage flag (`ps_database_kv_unlocked`) and swapped in {@link KvBrowser} — a purchase that
+ * never happened (and the browser was itself still dark behind `per_site_kv`, so the owner "bought"
+ * nothing). That lying-green stub is REMOVED.
+ *
+ * This renders an HONEST, non-deceptive state instead: it tells the owner plainly that KV is on the way,
+ * keeps the genuine value proposition, and carries a **read-only live preview** ({@link KvLockedPreview})
+ * of the site's REAL keys via the SAME per-site bridge the browser uses (`PS_RES_DETAIL { kind:'kv',
+ * action:'list' }` — list-only, zero value reads, zero write controls), so it is never a dead wall. It
+ * makes NO purchase claim, exposes NO buy/unlock control, and persists NO "purchased/unlocked" flag —
+ * nothing was bought, so nothing pretends it was. When billing actually ships, wiring a real checkout
+ * (and only then mounting {@link KvBrowser}) is a separate task; {@link KvBrowser} stays imported so it
+ * remains reachable for that work.
  */
 const KvManager = memo(() => {
-  const [unlocked, setUnlocked] = useState<boolean>(() => readKvUnlocked());
-
-  const onUnlock = useCallback(() => {
-    setUnlocked(true);
-    writeKvUnlocked(true);
-  }, []);
-
-  if (unlocked) {
-    return <KvBrowser />;
-  }
-
   return (
     <div className="h-full flex flex-col items-center justify-center gap-4 p-8 text-center" data-testid="database-kv">
       <div className="relative">
         <div className="i-ph:key-duotone text-5xl text-bolt-elements-item-contentAccent" />
-        <div className="absolute -bottom-1 -right-1 i-ph:lock-simple-fill text-lg text-bolt-elements-textTertiary" />
+        <div className="absolute -bottom-1 -right-1 i-ph:clock-countdown-fill text-lg text-bolt-elements-textTertiary" />
       </div>
 
       <div className="space-y-1 max-w-[340px]">
-        <h3 className="text-base font-semibold text-bolt-elements-textPrimary">Add key-value storage</h3>
+        <h3 className="text-base font-semibold text-bolt-elements-textPrimary">Key-value storage</h3>
         <p className="text-[12px] text-bolt-elements-textSecondary">
           Fast, simple storage for settings, feature flags, sessions, and cached data — right beside your database.
         </p>
       </div>
 
-      <div className="flex items-baseline gap-1">
-        <span className="text-2xl font-bold text-bolt-elements-textPrimary">$10</span>
-        <span className="text-[12px] text-bolt-elements-textTertiary">/ month</span>
-      </div>
-
-      <button
-        type="button"
-        onClick={onUnlock}
-        data-testid="database-kv-unlock"
-        className="min-h-[24px] text-[13px] font-semibold px-5 py-2.5 rounded-lg bg-bolt-elements-item-contentAccent text-[#061018] hover:shadow-[0_4px_20px_-4px_rgba(0,229,255,0.6)] hover:-translate-y-px active:translate-y-0 transition-all duration-150 motion-reduce:transition-none motion-reduce:hover:translate-y-0 flex items-center gap-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-offset-bolt-elements-background-depth-1 focus-visible:ring-bolt-elements-item-contentAccent cursor-pointer"
-      >
-        <div className="i-ph:lock-key-open" aria-hidden /> Unlock KV storage
-      </button>
-
       <ul className="text-left text-[11px] text-bolt-elements-textTertiary space-y-1.5 max-w-[300px]">
         <li className="flex items-start gap-2">
           <div className="i-ph:check-circle text-bolt-elements-item-contentAccent mt-0.5 shrink-0" />
-          <span>Both your live site and its preview get their own KV — set up automatically.</span>
+          <span>Both your live site and its preview will get their own KV — set up automatically.</span>
         </li>
         <li className="flex items-start gap-2">
           <div className="i-ph:check-circle text-bolt-elements-item-contentAccent mt-0.5 shrink-0" />
-          <span>Browse, add, and edit keys here once it's on — no config, no dashboards.</span>
+          <span>Browse, add, and edit keys right here once it&rsquo;s on — no config, no dashboards.</span>
         </li>
         <li className="flex items-start gap-2">
           <div className="i-ph:check-circle text-bolt-elements-item-contentAccent mt-0.5 shrink-0" />
-          <span>Cancel anytime — your database keeps working without it.</span>
+          <span>Nothing to set up now — we&rsquo;ll turn it on for your site; your database works regardless.</span>
         </li>
       </ul>
 
-      {/* Read-only free preview of the site's REAL KV keys — makes the paywall never a dead wall. */}
+      {/* Read-only live preview of the site's REAL KV keys — so this is never a dead wall. */}
       <KvLockedPreview />
 
+      {/*
+       * The single honest status line. It states plainly that KV is not yet available and makes NO claim
+       * that anything was or can be purchased here — the deceptive "$10/mo · Unlock" promise is gone.
+       */}
       <div
         className="mt-1 border border-bolt-elements-borderColor rounded-md bg-bolt-elements-background-depth-2 px-3 py-2 text-[11px] text-bolt-elements-textSecondary flex items-center gap-2"
         data-testid="database-kv-note"
         role="status"
       >
         <div className="i-ph:sparkle text-bolt-elements-item-contentAccent" />
-        <span>Unlock to open the key browser — your site&rsquo;s KV turns on automatically once billing lands.</span>
+        <span>
+          Key-value storage isn&rsquo;t yet available &mdash; it&rsquo;s on the way. We&rsquo;ll turn it on for your
+          site automatically; there&rsquo;s nothing to buy or set up here.
+        </span>
       </div>
     </div>
   );
@@ -382,12 +360,12 @@ const KvManager = memo(() => {
 
 KvManager.displayName = 'DatabasePanel.KvManager';
 
-// ── Read-only free KV preview (inside the locked-upsell — never a dead paywall) ──
+// ── Read-only free KV preview (inside the "on the way" card — never a dead wall) ──
 
-/** How many real keys to preview inside the locked card (list-only, bounded). */
+/** How many real keys to preview inside the card (list-only, bounded). */
 const KV_PREVIEW_LIMIT = 8;
 
-/** A dark-flag 404 reply carries this in its message → the preview hides (the upsell stays clean). */
+/** A dark-flag 404 reply carries this in its message → the preview hides (the card stays clean). */
 const KV_PREVIEW_DISABLED = 'not enabled';
 const KV_PREVIEW_TIMEOUT_MS = 30_000;
 
@@ -409,14 +387,15 @@ type PreviewState =
   | { status: 'loading' }
   | { status: 'ready'; keys: KvPreviewKey[] }
   | { status: 'empty' }
-  | { status: 'hidden' }; // dark flag / not-embedded / transport error → render nothing (upsell only)
+  | { status: 'hidden' }; // dark flag / not-embedded / transport error → render nothing (status note only)
 
 /**
- * The locked KV card's READ-ONLY free preview. On mount it asks the SAME per-site bridge the real browser
- * uses — `PS_RES_DETAIL { kind:'kv', action:'list' }` (no new endpoint) — and lists the site's REAL key
- * names. It is strictly list-only: it never reads a value (no `get`) and renders no write controls. Honest
- * states only: real keys → a read-only list; none → "empty so far"; the `per_site_kv` flag dark (or any
- * transport failure / non-embedded) → nothing, so the surrounding upsell stays a clean, non-broken card.
+ * The KV "on the way" card's READ-ONLY free preview. On mount it asks the SAME per-site bridge the real
+ * browser uses — `PS_RES_DETAIL { kind:'kv', action:'list' }` (no new endpoint) — and lists the site's
+ * REAL key names. It is strictly list-only: it never reads a value (no `get`) and renders no write
+ * controls. Honest states only: real keys → a read-only list; none → "empty so far"; the `per_site_kv`
+ * flag dark (or any transport failure / non-embedded) → nothing, so the surrounding card stays clean and
+ * non-broken.
  *
  * Bridge plumbing mirrors {@link KvBrowser}: ONE {@link onParentMessage} listener resolves replies by
  * correlationId through a live ref (empty-deps stale-ref safe). Expiration is formatted with the shared
@@ -458,7 +437,7 @@ const KvLockedPreview = memo(() => {
   }, []);
 
   useEffect(() => {
-    // Not embedded → no admin bridge to answer; keep the upsell clean (no broken preview).
+    // Not embedded → no admin bridge to answer; keep the card clean (no broken preview).
     if (!isEmbedded) {
       setState({ status: 'hidden' });
 
@@ -496,14 +475,14 @@ const KvLockedPreview = memo(() => {
 
         const detail = msg as ResDetailResponseMessage;
 
-        // Dark flag (enabled:false OR a "not enabled" 404) → hide the preview; the upsell carries the message.
+        // Dark flag (enabled:false OR a "not enabled" 404) → hide the preview; the status note carries the message.
         if (detail.enabled === false || (!!detail.error && detail.error.includes(KV_PREVIEW_DISABLED))) {
           setState({ status: 'hidden' });
 
           return;
         }
 
-        // Any other transport error → hide silently (never a broken/doomed preview beside a paywall).
+        // Any other transport error → hide silently (never a broken/doomed preview beside the status note).
         if (detail.error) {
           setState({ status: 'hidden' });
 
@@ -533,7 +512,7 @@ const KvLockedPreview = memo(() => {
     };
   }, []);
 
-  // Dark / error / not-embedded → render nothing so the surrounding upsell stays a clean card.
+  // Dark / error / not-embedded → render nothing so the surrounding card stays clean.
   if (state.status === 'hidden') {
     return null;
   }
@@ -557,12 +536,12 @@ const KvLockedPreview = memo(() => {
         data-testid="database-kv-preview-empty"
       >
         <div className="i-ph:eye text-bolt-elements-item-contentAccent" aria-hidden />
-        <span>Your KV is empty so far — unlock it to add your first key.</span>
+        <span>Your KV is empty so far — you&rsquo;ll add your first key here once it&rsquo;s on.</span>
       </div>
     );
   }
 
-  // Real keys → a compact, READ-ONLY list (no value reads, no write controls) proving the paywall isn't dead.
+  // Real keys → a compact, READ-ONLY list (no value reads, no write controls) proving the card isn't a dead wall.
   return (
     <div
       className="w-full max-w-[340px] rounded-md border border-bolt-elements-borderColor/60 bg-bolt-elements-background-depth-2 overflow-hidden"
@@ -590,7 +569,7 @@ const KvLockedPreview = memo(() => {
       </ul>
       <div className="px-3 py-1.5 text-[10px] text-bolt-elements-textTertiary border-t border-bolt-elements-borderColor/40 flex items-center gap-1.5">
         <div className="i-ph:lock-simple shrink-0" aria-hidden />
-        <span>Unlock to view values and add, edit, or delete keys.</span>
+        <span>You&rsquo;ll view values and add, edit, or delete keys here once it&rsquo;s on.</span>
       </div>
     </div>
   );
