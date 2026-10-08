@@ -2,21 +2,19 @@
  * @module services/analytics_query
  *
  * @description
- * Thin fail-soft reader for the raw-rollup Tinybird pipes (events_by_tenant_daily,
- * site_publishes_by_source). Wraps {@link queryTinybirdPipe} and maps its typed
- * result to `{ rows, degraded }` — `degraded:true` (empty rows) whenever Tinybird
- * is unconfigured or the read fails, so admin endpoints render a zero-state
- * instead of 5xx-ing. Unlike {@link fetchActivationFunnel} (which projects onto a
- * canonical stage set), these pipes return raw grouped rows passed straight
- * through. Reused by every rollup endpoint — one read-and-degrade definition.
+ * Fail-soft reader for the admin raw-rollup surfaces (events_by_tenant_daily,
+ * site_publishes_by_source, claims_by_source). Returns `{ rows, degraded }` —
+ * the shaped result the admin endpoints render against.
  *
- * @see services/tinybird.ts (queryTinybirdPipe — the read seam)
- * @see tinybird/pipes/events_by_tenant_daily.pipe
- * @see tinybird/pipes/site_publishes_by_source.pipe
+ * Tinybird removed — D1 source TODO: the former OLAP pipe reads were deleted, so
+ * {@link fetchPipeRows} now returns the degraded zero-state (empty rows) for every
+ * pipe until a D1-backed rollup query replaces it. The admin dashboard already
+ * renders an empty rollup on `degraded:true`, so this is graceful (no 5xx, no
+ * dangling network dependency). The row TYPES are preserved so consumers compile
+ * unchanged.
  */
 
 import type { Env } from '../types/env.js';
-import { queryTinybirdPipe } from './tinybird.js';
 
 /** A row from `events_by_tenant_daily` (per-tenant/day/type event counts). */
 export interface EventsDailyRow {
@@ -46,28 +44,27 @@ export interface ClaimsBySourceRow {
 /** Result of a rollup read — the rows, plus whether the data is the degraded zero-state. */
 export interface PipeReadResult<T> {
   rows: T[];
-  /** True when Tinybird was unconfigured OR the read failed (rows is then `[]`). */
+  /** True while the rollup has no backing source (Tinybird removed — D1 source TODO). */
   degraded: boolean;
 }
 
 /**
- * Read a raw-rollup pipe, fail-soft. Drops undefined/empty params (handled by the
- * read seam). Never throws.
+ * Read a raw-rollup surface, fail-soft. Never throws.
  *
- * @param env - Worker env.
- * @param pipe - Pipe name (no `.json` suffix).
- * @param params - Pipe query params (`tenant_id`, `days`, `event`, `source`, …).
- * @param deps - Optional `{ fetchImpl }` for tests.
- * @returns `{ rows, degraded }` — `rows:[]` + `degraded:true` on any non-ok read.
- * @example
- * const { rows, degraded } = await fetchPipeRows<EventsDailyRow>(env, 'events_by_tenant_daily', { tenant_id, days: 30 });
+ * Tinybird removed — D1 source TODO: currently always returns the degraded
+ * zero-state (`rows:[]`, `degraded:true`) because the OLAP pipe reads were
+ * deleted. Swap in a D1-backed query here when the rollup moves to the master D1.
+ *
+ * @param _env - Worker env (unused until a D1 rollup lands).
+ * @param _pipe - Rollup name (kept for the eventual D1 query dispatch).
+ * @param _params - Rollup query params (`tenant_id`, `days`, `event`, `source`, …).
+ * @returns `{ rows: [], degraded: true }` until a D1 source replaces the pipe.
  */
 export async function fetchPipeRows<T>(
-  env: Env,
-  pipe: string,
-  params: Record<string, string | number | undefined> = {},
-  deps: { fetchImpl?: typeof fetch } = {},
+  _env: Env,
+  _pipe: string,
+  _params: Record<string, string | number | undefined> = {},
 ): Promise<PipeReadResult<T>> {
-  const res = await queryTinybirdPipe<T>(env, pipe, params, deps);
-  return { rows: res.ok ? res.data : [], degraded: !res.ok };
+  // Tinybird removed — D1 source TODO. Degrade gracefully to an empty rollup.
+  return { rows: [], degraded: true };
 }

@@ -655,9 +655,9 @@ app.route('/', visionQa); // /api/vision-qa — Browser Rendering screenshot + W
 app.route('/', adminLeads); // /api/admin/leads/scan — Super-Admin lead scanner (flag: lead_scanner)
 app.route('/', scanProfilesRoutes); // /api/admin/scan-profiles{,/:id} — lead-scanner scan-profile CRUD (flag: scan_profiles)
 app.route('/', adminOutbox); // /api/admin/outbox — Super-Admin event-bus DLQ observability (read-only)
-app.route('/', adminFunnel); // /api/admin/activation-funnel — Super-Admin revenue-funnel rollup (Tinybird, read-only)
+app.route('/', adminFunnel); // /api/admin/activation-funnel — Super-Admin revenue-funnel rollup (read-only; Tinybird removed — D1 source TODO)
 app.route('/', adminBuildMetrics); // /api/admin/build-metrics/summary — Super-Admin generation speed + cost rollup (build_metrics D1, read-only)
-app.route('/', adminAnalytics); // /api/admin/analytics/* — Super-Admin events-daily + publishes-by-source + claims-by-source rollups (Tinybird, read-only)
+app.route('/', adminAnalytics); // /api/admin/analytics/* — Super-Admin events-daily + publishes-by-source + claims-by-source rollups (read-only; Tinybird removed — D1 source TODO)
 app.route('/', claimRoutes); // /api/claim/:shortlink — claimyour.site funnel: resolve→click→session START→redirect /create
 app.route('/', claimFlowRoutes); // POST /api/sites/:siteId/claim/checkout — paid-claim ($29/mo) Stripe checkout; existing checkout.session.completed webhook marks the site claimed (flag claim_flow, DARK)
 app.route('/', siteRollbackRoutes); // /api/sites/:id/history + /api/sites/:id/rollback — GitHub repo rollback (flag: github_repo_sync)
@@ -2566,8 +2566,8 @@ export default {
       }
     }
 
-    // Every 5 min — drain the event_bus outbox to its backends (Tinybird analytics
-    // + Hatchet orchestration). Env-gated adapters no-op when unconfigured, so this
+    // Every 5 min — drain the event_bus outbox to its backends (Hatchet
+    // orchestration). Env-gated adapters no-op when unconfigured, so this
     // is safe on a fresh deploy. Off the hot path (cron only). Idempotent + FIFO
     // with a dead-letter gate (see event_bus.nextOutboxAction). Repurposes the
     // former no-op */5 slot.

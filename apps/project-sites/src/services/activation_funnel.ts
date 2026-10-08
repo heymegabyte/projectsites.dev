@@ -4,10 +4,7 @@
  * @description
  * The revenue-funnel definition (§9 golden path) as a tested SSOT: the ordered
  * milestones a tenant passes through from discovery to paid, expressed over the
- * `event_bus` event types. The Tinybird `activation_funnel` pipe queries exactly
- * this event set — keep the pipe's `WHERE event IN (...)` in lockstep with
- * {@link ACTIVATION_STAGES} so the analytics surface and the domain model never
- * drift.
+ * `event_bus` event types.
  *
  *   lead.discovered → site.claim.started → site.published → subscription.active
  *   (discovered)      (engaged)            (delivered)       (converted/paid)
@@ -15,7 +12,6 @@
  * Pure + total — no I/O, no clock. Used by the admin activation dashboard to
  * place any event on the funnel and to drive per-stage conversion rollups.
  *
- * @see tinybird/pipes/activation_funnel.pipe
  * @see services/event_bus.ts (EVENT_TYPES)
  */
 
@@ -49,11 +45,10 @@ export const ACTIVATION_EVENTS: readonly EventType[] = ACTIVATION_STAGES.map((s)
  * paths emit that). Both mean "a site went live", so the funnel's Delivered stage
  * counts EITHER (the pipe canonicalizes `site.generated` → `site.published`).
  *
- * AL-472: `site.published` FROZE in Tinybird at 2026-09-06 (last7d=0) while
- * `site.generated` kept flowing (Catbird 09-13) → the funnel Delivered under-counted
- * 106 vs 155 published in D1. Counting the union restores it (verified 106→151,
- * 7d 0→45 on live data). Keep this in lockstep with the pipe's `WHERE event IN`
- * + `multiIf` in tinybird/pipes/activation_funnel.pipe.
+ * AL-472: `site.published` FROZE at 2026-09-06 (last7d=0) while `site.generated`
+ * kept flowing (Catbird 09-13) → the funnel Delivered under-counted 106 vs 155
+ * published in D1. Counting the union restores it (verified 106→151, 7d 0→45 on
+ * live data). The two delivery events canonicalize to the same Delivered stage.
  */
 export const DELIVERED_EVENTS: readonly EventType[] = ['site.published', 'site.generated'];
 

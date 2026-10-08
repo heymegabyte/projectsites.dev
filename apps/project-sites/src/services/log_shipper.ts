@@ -4,7 +4,7 @@
  *
  * Provides a pure builder function and typed constants for constructing
  * per-target log shipping configuration. Supports Axiom, Workers Tracing,
- * Sentry, and Tinybird as log targets.
+ * and Sentry as log targets.
  *
  * ## Usage
  *
@@ -21,7 +21,7 @@
 // ---------------------------------------------------------------------------
 
 /** Supported log shipping destinations. */
-export type LogTarget = 'axiom' | 'workers-tracing' | 'sentry' | 'tinybird';
+export type LogTarget = 'axiom' | 'workers-tracing' | 'sentry';
 
 /** Resolved log shipper configuration. */
 export interface LogShipConfig {
@@ -49,12 +49,10 @@ export interface LogShipConfig {
  * | `axiom`            | 100        | Streams-friendly, up to 1 MB payload |
  * | `workers-tracing`  | 50         | OTLP span batch ceiling              |
  * | `sentry`           | 10         | Sentry envelope recommends small     |
- * | `tinybird`         | 500        | High-throughput, append-only         |
  */
 export const DEFAULT_BATCH_SIZE: Record<LogTarget, number> = Object.freeze({
   axiom: 100,
   sentry: 10,
-  tinybird: 500,
   'workers-tracing': 50,
 });
 
@@ -66,12 +64,10 @@ export const DEFAULT_BATCH_SIZE: Record<LogTarget, number> = Object.freeze({
  * | `axiom`            | 5 000    | Sub-second latency at small scale         |
  * | `workers-tracing`  | 2 000    | Hot path; fire as fast as OTLP collector  |
  * | `sentry`           | 10 000   | Envelope timeout (Sentry recommends 15s)  |
- * | `tinybird`         | 3 000    | High-volume; trade latency for throughput |
  */
 export const DEFAULT_FLUSH_INTERVAL_MS: Record<LogTarget, number> = Object.freeze({
   axiom: 5_000,
   sentry: 10_000,
-  tinybird: 3_000,
   'workers-tracing': 2_000,
 });
 

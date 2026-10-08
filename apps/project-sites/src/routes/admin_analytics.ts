@@ -6,8 +6,8 @@
  * - `GET /api/admin/analytics/publishes-by-source` → site_publishes_by_source pipe
  *
  * Both return `{ rows, degraded, count }` via {@link fetchPipeRows} — `degraded`
- * flags the zero-state (Tinybird unconfigured/down) so the dashboard renders an
- * empty rollup instead of an error. Gate (in order): auth (401) → super-admin
+ * flags the zero-state (Tinybird removed — D1 source TODO) so the dashboard renders
+ * an empty rollup instead of an error. Gate (in order): auth (401) → super-admin
  * (403). Operator-only, no feature flag — mirrors `admin_outbox` / `admin_funnel`.
  *
  * @packageDocumentation

@@ -3,14 +3,13 @@ import {
   dispatchOutboxEvent,
   drainOutbox,
   assessDrainHealth,
-  OUTBOX_TINYBIRD_DATASOURCE,
 } from '../services/outbox_dispatch';
 import type { ProjectSitesEvent } from '../services/event_bus';
 
 /**
- * Outbox dispatch router — fans event_bus events to Tinybird (all)
- * + Hatchet (orchestration types). Pure router + DI'd adapters; D1 stubbed for
- * the drain. No real network/DB.
+ * Outbox dispatch router — fans event_bus events to Hatchet (orchestration types
+ * only). Tinybird removed: pure-analytics events now fan to NO backend. Pure router
+ * + DI'd adapter; D1 stubbed for the drain. No real network/DB.
  */
 function ev(type: string, over: Partial<ProjectSitesEvent> = {}): ProjectSitesEvent {
   return {
@@ -29,77 +28,41 @@ function ev(type: string, over: Partial<ProjectSitesEvent> = {}): ProjectSitesEv
     ...over,
   } as ProjectSitesEvent;
 }
-const ENV = { TINYBIRD_API_HOST: 'https://api.x.tinybird.co', TINYBIRD_PASSWORD: 'p.tok' } as never;
+const ENV = {} as never;
 
 describe('eventDispatchTargets', () => {
-  it('routes EVERY event to Tinybird', () => {
-    expect(eventDispatchTargets(ev('site.created'))).toContain('tinybird');
-    expect(eventDispatchTargets(ev('site.published'))).toContain('tinybird');
+  it('routes orchestration types to Hatchet only', () => {
+    expect(eventDispatchTargets(ev('site.published'))).toEqual(['hatchet']);
+    expect(eventDispatchTargets(ev('invoice.paid'))).toEqual(['hatchet']);
   });
-  // Routing table per src/services/outbox_dispatch.ts:
-  // baseline = ['tinybird'] for EVERY event (analytics), with 'hatchet'
-  // appended for orchestration types only.
-  it('adds Hatchet for orchestration types', () => {
-    expect(eventDispatchTargets(ev('site.published'))).toEqual(['tinybird', 'hatchet']);
-    expect(eventDispatchTargets(ev('invoice.paid'))).toEqual(['tinybird', 'hatchet']);
-  });
-  it('does NOT route pure-analytics types to Hatchet', () => {
-    expect(eventDispatchTargets(ev('site.created'))).toEqual(['tinybird']);
+  it('routes a pure-analytics event to NO backend (Tinybird removed)', () => {
+    expect(eventDispatchTargets(ev('site.created'))).toEqual([]);
   });
 });
 
 describe('dispatchOutboxEvent', () => {
   it('skips an unconfigured backend (not a failure) → ok with no attempts', async () => {
-    const r = await dispatchOutboxEvent({} as never, ev('site.published'));
+    const r = await dispatchOutboxEvent(ENV, ev('site.published'));
     expect(r.ok).toBe(true);
     expect(r.attempted).toEqual([]);
   });
 
-  it('sends an analytics event to Tinybird only, tenant-tagged', async () => {
-    const ingest = jest.fn().mockResolvedValue({ ok: true, status: 202 });
+  it('a pure-analytics event has no targets → ok, nothing attempted', async () => {
     const push = jest.fn();
-    const r = await dispatchOutboxEvent(ENV, ev('site.created'), {
-      ingestTinybird: ingest as never,
-      pushHatchet: push as never,
-    });
+    const r = await dispatchOutboxEvent(ENV, ev('site.created'), { pushHatchet: push as never });
     expect(r.ok).toBe(true);
-    expect(r.attempted).toEqual(['tinybird']);
+    expect(r.attempted).toEqual([]);
     expect(push).not.toHaveBeenCalled();
-    const [, ds, row] = ingest.mock.calls[0];
-    expect(ds).toBe(OUTBOX_TINYBIRD_DATASOURCE);
-    expect(row.tenant_id).toBe('t1');
-    expect(row.event).toBe('site.created');
-    expect(row.event_id).toBe('evt_1');
   });
 
-  it('carries the event data as a JSON `payload` string (high-cardinality signal)', async () => {
-    const ingest = jest.fn().mockResolvedValue({ ok: true, status: 202 });
-    const data = { slug: 'acme', version: 'v1', source: 'bolt-embedded' };
-    await dispatchOutboxEvent(ENV, ev('site.published', { data }), {
-      ingestTinybird: ingest as never,
-      pushHatchet: jest.fn().mockResolvedValue({ ok: true }) as never,
-    });
-    const row = ingest.mock.calls[0][2];
-    expect(typeof row.payload).toBe('string');
-    expect(JSON.parse(row.payload)).toEqual(data);
-  });
-
-  it('defaults payload to "{}" when the event carries no data', async () => {
-    const ingest = jest.fn().mockResolvedValue({ ok: true });
-    await dispatchOutboxEvent(ENV, ev('site.created'), { ingestTinybird: ingest as never });
-    expect(ingest.mock.calls[0][2].payload).toBe('{}');
-  });
-
-  it('fans an orchestration event to BOTH backends', async () => {
-    const ingest = jest.fn().mockResolvedValue({ ok: true });
+  it('sends an orchestration event to Hatchet, tenant-tagged', async () => {
     const push = jest.fn().mockResolvedValue({ ok: true, status: 200 });
-    const env = { ...(ENV as object), HATCHET_API_TOKEN: hatchetTok() } as never;
+    const env = { HATCHET_API_TOKEN: hatchetTok() } as never;
     const r = await dispatchOutboxEvent(env, ev('site.published'), {
-      ingestTinybird: ingest as never,
       pushHatchet: push as never,
     });
     expect(r.ok).toBe(true);
-    expect(r.attempted).toEqual(['tinybird', 'hatchet']);
+    expect(r.attempted).toEqual(['hatchet']);
     expect(push).toHaveBeenCalled();
     const [, key, , opts] = push.mock.calls[0];
     expect(key).toBe('site.published');
@@ -107,24 +70,13 @@ describe('dispatchOutboxEvent', () => {
     expect(opts.metadata.site_id).toBe('s1');
   });
 
-  it('reports a configured-backend rejection as not-ok (row will retry)', async () => {
-    const ingest = jest.fn().mockResolvedValue({ ok: false, reason: 'http_error' });
-    const r = await dispatchOutboxEvent(ENV, ev('site.created'), {
-      ingestTinybird: ingest as never,
-    });
-    expect(r.ok).toBe(false);
-    expect(r.failures[0]).toEqual({ target: 'tinybird', reason: 'http_error' });
-  });
-
   // Regression (incident 2026-09-06): a Hatchet http_error must NOT fail the row.
-  // Tinybird (REQUIRED) landed → ok:true; the Hatchet miss is a SOFT failure only,
-  // so the drain marks the row dispatched instead of re-ingesting Tinybird on retry.
-  it('keeps ok:true when Tinybird lands but a best-effort Hatchet push fails', async () => {
-    const ingest = jest.fn().mockResolvedValue({ ok: true, status: 202 });
+  // Hatchet is best-effort, so the miss is a SOFT failure only (row stays ok:true),
+  // and the drain marks the row dispatched instead of redelivering on retry.
+  it('keeps ok:true when a best-effort Hatchet push fails (soft failure)', async () => {
     const push = jest.fn().mockResolvedValue({ ok: false, reason: 'http_error', status: 401 });
-    const env = { ...(ENV as object), HATCHET_API_TOKEN: hatchetTok() } as never;
+    const env = { HATCHET_API_TOKEN: hatchetTok() } as never;
     const r = await dispatchOutboxEvent(env, ev('site.published'), {
-      ingestTinybird: ingest as never,
       pushHatchet: push as never,
     });
     expect(r.ok).toBe(true);
@@ -154,36 +106,23 @@ describe('drainOutbox', () => {
   }
 
   it('dispatches pending rows + marks them dispatched', async () => {
+    // A pure-analytics event has no backend, so it dispatches cleanly (nothing to send).
     const { db: DB, updates } = db([ev('site.created', { id: 'e1' })]);
-    const env = { ...(ENV as object), DB } as never;
-    const summary = await drainOutbox(env, {
-      ingestTinybird: (async () => ({ ok: true })) as never,
-      now: () => 'NOW',
-    });
+    const env = { DB } as never;
+    const summary = await drainOutbox(env, { now: () => 'NOW' });
     expect(summary.read).toBe(1);
     expect(summary.dispatched).toBe(1);
     expect(summary.failed).toBe(0);
     expect(updates).toContain('NOW'); // markDispatched bound dispatched_at first
   });
 
-  it('marks a row failed when its configured backend rejects', async () => {
-    const { db: DB } = db([ev('site.created', { id: 'e1' })]);
-    const env = { ...(ENV as object), DB } as never;
-    const summary = await drainOutbox(env, {
-      ingestTinybird: (async () => ({ ok: false, reason: 'http_error' })) as never,
-    });
-    expect(summary.failed).toBe(1);
-    expect(summary.dispatched).toBe(0);
-  });
-
-  // Regression (incident 2026-09-06): Tinybird OK + Hatchet http_error → the row is
-  // DISPATCHED (not failed), counted under softFailed. Prevents the retry loop that
-  // re-ingested Tinybird once per drain until the row dead-lettered.
-  it('marks the row dispatched (softFailed) when only best-effort Hatchet fails', async () => {
+  // Regression (incident 2026-09-06): Hatchet http_error → the row is DISPATCHED
+  // (not failed), counted under softFailed. Prevents the retry loop that redelivered
+  // orchestration once per drain until the row dead-lettered.
+  it('marks the row dispatched (softFailed) when best-effort Hatchet fails', async () => {
     const { db: DB, updates } = db([ev('site.published', { id: 'e1' })]);
-    const env = { ...(ENV as object), HATCHET_API_TOKEN: hatchetTok(), DB } as never;
+    const env = { HATCHET_API_TOKEN: hatchetTok(), DB } as never;
     const summary = await drainOutbox(env, {
-      ingestTinybird: (async () => ({ ok: true, status: 202 })) as never,
       pushHatchet: (async () => ({ ok: false, reason: 'http_error', status: 401 })) as never,
       now: () => 'NOW',
     });
@@ -234,7 +173,7 @@ describe('assessDrainHealth', () => {
   it('warns on soft failures (best-effort backend down) without flagging row failures', () => {
     const h = assessDrainHealth({ read: 4, dispatched: 4, failed: 0, softFailed: 4 });
     expect(h.level).toBe('warn');
-    expect(h.hasFailures).toBe(false); // no ROW failures — Tinybird landed
+    expect(h.hasFailures).toBe(false); // no ROW failures — the row still dispatched
     expect(h.message).toContain('best-effort backend failure');
   });
 

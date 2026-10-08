@@ -119,10 +119,10 @@ export async function createSite(
     }
   }
 
-  // Emit site.created onto the durable bus (drained to Tinybird activation
-  // analytics + Hatchet orchestration). Idempotent per site id; tryEmitEvent
-  // never throws. waitUntil'd under a request so it never blocks the response;
-  // awaited inline for a non-request caller (workflow) so the row still lands.
+  // Emit site.created onto the durable bus (drained to Hatchet orchestration).
+  // Idempotent per site id; tryEmitEvent never throws. waitUntil'd under a request
+  // so it never blocks the response; awaited inline for a non-request caller
+  // (workflow) so the row still lands.
   const emit = tryEmitEvent(
     env,
     {

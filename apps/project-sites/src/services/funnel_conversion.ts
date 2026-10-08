@@ -7,7 +7,7 @@
  * the funnel leaks. For each stage it computes step retention (this stage ÷ the
  * one above) and reach (this stage ÷ the top), plus the overall discovered→
  * converted rate. No I/O, no clock — fed by {@link fetchActivationFunnel}'s
- * stages so the admin endpoint enriches without a second Tinybird round-trip.
+ * stages so the admin endpoint enriches without a second round-trip.
  *
  * Rates are percentages rounded to 1 dp. A zero denominator yields `null` for
  * the step rate (undefined, not 0 — "no upstream traffic" ≠ "0% converted") and

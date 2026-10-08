@@ -7,7 +7,7 @@
  * {@link writeOutbox} by hand. It stamps `id`/`time`, derives a deterministic
  * idempotency key from the type + caller-supplied scope (so a retry of the same
  * logical transition is a no-op INSERT), and writes the durable outbox row. The
- * every-5-min cron then drains it to Tinybird + Hatchet (`outbox_dispatch`).
+ * every-5-min cron then drains it to Hatchet (`outbox_dispatch`).
  *
  * `tryEmitEvent` NEVER throws — wrap transition emits in it under `ctx.waitUntil`
  * so a bus/DB hiccup can never break the user-facing request.

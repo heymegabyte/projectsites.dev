@@ -478,7 +478,7 @@ socialPostRoutes.post(
  *
  * Returns research-backed best times (day name + hour) from the pure-calendar
  * social_post_scheduler. Each entry: `{ day: 'Mon', hour: 9, label: 'Mon 9 AM' }`.
- * Future: personalized from Tinybird engagement data (Tier 3).
+ * Future: personalized from engagement data (Tier 3).
  *
  * @throws 401 when auth context is missing.
  */

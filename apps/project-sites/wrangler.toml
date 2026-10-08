@@ -1232,7 +1232,7 @@ namespace = "project-sites-endpoints"
 
 # Cron triggers:
 #   * * * * *    — Pulse Social due-post sweep (every minute, capped 25/run)
-#   */5 * * * *  — drain the event_bus outbox → Tinybird + Hatchet (outbox_dispatch.drainOutbox)
+#   */5 * * * *  — drain the event_bus outbox → Hatchet (outbox_dispatch.drainOutbox)
 #   */30 * * * * — verify hostnames + unstick stuck builds
 #   0 * * * *    — Drive re-sync + Pulse Social hourly analytics poll
 #   0 14 * * 1   — Mon 14:00 UTC (9 AM ET) weekly summary digest emails (#96)

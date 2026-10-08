@@ -3,7 +3,7 @@ import { subscriptionEventType } from '../routes/webhooks';
 /**
  * subscriptionEventType — the pure Stripe-status → billing-bus-event mapper that
  * the /webhooks/stripe handler uses to emit subscription lifecycle events onto
- * the durable outbox (drained to Tinybird analytics + Hatchet orchestration).
+ * the durable outbox (drained to Hatchet orchestration).
  * Pure + total: same status → same event type (or null to skip), no I/O.
  */
 describe('subscriptionEventType', () => {

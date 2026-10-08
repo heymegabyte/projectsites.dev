@@ -278,7 +278,7 @@ export const SERVICE_REGISTRY: readonly ServiceRegistryEntry[] = [
   },
   {
     id: 'traces-langfuse',
-    name: 'Langfuse — LLM tracing (Tinybird-direct, v2)',
+    name: 'Langfuse — LLM tracing (v2)',
     domain: 'traces.projectsites.dev',
     category: 'observability',
     runtime: 'cloudflare-container',

@@ -159,8 +159,8 @@ adminLeads.post('/api/admin/leads/scan', async (c) => {
   );
 
   // Emit a lead.discovered batch event onto the durable bus when the scan added
-  // leads — feeds Tinybird analytics + Hatchet outreach orchestration. Idempotent
-  // per requestId (a retried scan request never double-emits); never throws.
+  // leads — feeds Hatchet outreach orchestration. Idempotent per requestId (a
+  // retried scan request never double-emits); never throws.
   if (summary.created > 0) {
     await tryEmitEvent(
       c.env,

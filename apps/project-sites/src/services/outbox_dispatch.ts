@@ -2,29 +2,26 @@
  * Outbox dispatch router — fans each durable `event_bus` event to its backends.
  *
  * @remarks
- * The outbox (`event_bus.ts`) is the durable event log; this is the missing
- * dispatcher that drains it. Routing is PURE + total ({@link eventDispatchTargets}):
- *  - **Tinybird** receives EVERY event — the analytics OLAP warehouse captures all
- *    telemetry for high-cardinality per-tenant queries (`INFRA_NOTES.md`).
+ * The outbox (`event_bus.ts`) is the durable event log; this is the dispatcher
+ * that drains it. Routing is PURE + total ({@link eventDispatchTargets}):
  *  - **Hatchet** receives only ORCHESTRATION-relevant types (build/publish/claim/
  *    billing transitions that trigger durable workflows) — not pure analytics noise.
- * Both targets are env-gated adapters that no-op when unconfigured, so on a fresh
- * deploy the dispatcher safely marks rows dispatched (nothing to deliver) rather
- * than wedging the outbox. Never throws.
+ *    A pure-analytics event (e.g. `site.created`) now fans to NO backend.
+ * Tinybird removed — the analytics OLAP sink was deleted; events are no longer
+ * ingested into a warehouse (a D1-backed rollup is the TODO replacement). Hatchet
+ * is an env-gated adapter that no-ops when unconfigured, so on a fresh deploy — and
+ * for every pure-analytics event — the dispatcher safely marks rows dispatched
+ * (nothing to deliver) rather than wedging the outbox. Never throws.
  *
  * @packageDocumentation
  */
 import type { Env } from '../types/env.js';
 import type { ProjectSitesEvent, EventType } from './event_bus.js';
 import { readPendingOutbox, markDispatched, markFailed, nextOutboxAction } from './event_bus.js';
-import { ingestTinybirdEvent, resolveTinybird } from './tinybird.js';
 import { pushHatchetEvent, resolveHatchet } from './hatchet.js';
 
-/** Where an event is fanned. */
-export type DispatchTarget = 'tinybird' | 'hatchet';
-
-/** Tinybird datasource that receives the unified event stream. */
-export const OUTBOX_TINYBIRD_DATASOURCE = 'projectsites_events';
+/** Where an event is fanned. (Tinybird removed — Hatchet is the only sink.) */
+export type DispatchTarget = 'hatchet';
 
 /** Event types that trigger durable Hatchet workflows (orchestration, not analytics). */
 const HATCHET_EVENT_TYPES: ReadonlySet<EventType> = new Set<EventType>([
@@ -44,43 +41,28 @@ const HATCHET_EVENT_TYPES: ReadonlySet<EventType> = new Set<EventType>([
 ]);
 
 /**
- * Targets whose failure MUST retry the outbox row. Tinybird is the analytics SSOT
- * — EVERY event must land there (it feeds the activation funnel + all telemetry),
- * so a Tinybird rejection keeps the row drainable for redelivery.
- *
- * Hatchet is deliberately NOT required: it is best-effort orchestration for a
- * subset of types. A Hatchet failure is recorded as a SOFT failure (logged +
- * surfaced in drain health) but does NOT fail the row — otherwise the drain
- * re-dispatches and RE-INGESTS Tinybird on every retry (duplicate analytics rows)
- * until the row dead-letters. Incident 2026-09-06: a stale `HATCHET_API_TOKEN`
- * returned `http_error` on every push, so one `lead.discovered` ingested to
- * Tinybird 3× (and climbing) while the funnel's distinct-site count masked it.
- */
-const REQUIRED_TARGETS: ReadonlySet<DispatchTarget> = new Set<DispatchTarget>(['tinybird']);
-
-/**
- * Decide which backends an event fans to. Pure + total. Tinybird gets everything
- * (analytics); Hatchet gets orchestration types only.
+ * Decide which backends an event fans to. Pure + total. Hatchet gets orchestration
+ * types only; every other event fans to NO backend (Tinybird analytics sink removed).
  *
  * @param event - The outbox event.
- * @returns The ordered list of {@link DispatchTarget}s (Tinybird first).
- * @example eventDispatchTargets({ type:'site.published', ... }) // ['tinybird','hatchet']
+ * @returns The list of {@link DispatchTarget}s — `['hatchet']` for orchestration
+ *   types, `[]` otherwise.
+ * @example eventDispatchTargets({ type:'site.published', ... }) // ['hatchet']
+ * @example eventDispatchTargets({ type:'site.created', ... })   // []
  */
 export function eventDispatchTargets(event: ProjectSitesEvent): DispatchTarget[] {
-  const targets: DispatchTarget[] = ['tinybird'];
-  if (HATCHET_EVENT_TYPES.has(event.type)) targets.push('hatchet');
-  return targets;
+  return HATCHET_EVENT_TYPES.has(event.type) ? ['hatchet'] : [];
 }
 
 /** Result of dispatching one event. */
 export interface DispatchResult {
-  /** True when every REQUIRED target accepted. A best-effort (soft) target's
-   *  failure does NOT flip this — see {@link REQUIRED_TARGETS}. An unconfigured
-   *  target is a no-op skip (never a failure). */
+  /** Always true now — Hatchet is best-effort (no REQUIRED target since Tinybird
+   *  was removed), so a row is never retried on a dispatch miss. An unconfigured
+   *  backend is a no-op skip. */
   ok: boolean;
   /** Targets actually attempted (configured ones only). */
   attempted: DispatchTarget[];
-  /** REQUIRED-target failures (→ `markFailed`, the row retries). */
+  /** Hard failures that retry the row. Empty now (nothing is REQUIRED). */
   failures: { target: DispatchTarget; reason: string }[];
   /** Best-effort target failures (Hatchet): logged + surfaced in drain health,
    *  but the row is still marked dispatched — they never strand it. */
@@ -89,14 +71,15 @@ export interface DispatchResult {
 
 /** Injectable adapter seams (default to the real ones) for testability. */
 export interface DispatchDeps {
-  ingestTinybird?: typeof ingestTinybirdEvent;
   pushHatchet?: typeof pushHatchetEvent;
 }
 
 /**
  * Dispatch ONE event to its configured backends. Never throws. An unconfigured
  * backend is SKIPPED (not a failure) so the row still completes on a fresh deploy.
- * `ok` is false only when a CONFIGURED backend rejected — the row then retries.
+ * Hatchet is best-effort: a rejection is a SOFT failure (the row is still marked
+ * dispatched, so the drain never re-delivers just because orchestration failed —
+ * preserving the incident-2026-09-06 fix). `ok` is therefore always true.
  *
  * @param env - Worker env.
  * @param event - The outbox event.
@@ -108,48 +91,26 @@ export async function dispatchOutboxEvent(
   event: ProjectSitesEvent,
   deps: DispatchDeps = {},
 ): Promise<DispatchResult> {
-  const ingest = deps.ingestTinybird ?? ingestTinybirdEvent;
   const push = deps.pushHatchet ?? pushHatchetEvent;
   const targets = eventDispatchTargets(event);
   const attempted: DispatchTarget[] = [];
   const failures: { target: DispatchTarget; reason: string }[] = [];
   const softFailures: { target: DispatchTarget; reason: string }[] = [];
-  // Route a failure to `failures` (retries the row) or `softFailures` (logged,
-  // row still dispatched) by whether the target is REQUIRED.
-  const recordFailure = (target: DispatchTarget, reason: string) =>
-    (REQUIRED_TARGETS.has(target) ? failures : softFailures).push({ target, reason });
 
   const meta = { tenant_id: event.tenantId, ...(event.siteId ? { site_id: event.siteId } : {}) };
-
-  if (targets.includes('tinybird') && resolveTinybird(env)) {
-    attempted.push('tinybird');
-    // This object is the SSOT for the projectsites_events NDJSON row — keep it in
-    // lockstep with tinybird/datasources/projectsites_events.datasource. `payload`
-    // carries the event `data` (JSON string) so pipes can slice by source/slug/
-    // plan/leadId (high-cardinality activation analytics), not just event type.
-    const r = await ingest(env, OUTBOX_TINYBIRD_DATASOURCE, {
-      site_id: event.siteId ?? '',
-      tenant_id: event.tenantId,
-      event: event.type,
-      timestamp: event.time,
-      event_id: event.id,
-      trace_id: event.traceId,
-      producer: event.producer,
-      payload: JSON.stringify(event.data ?? {}),
-    });
-    if (!r.ok) recordFailure('tinybird', r.reason ?? 'unknown');
-  }
 
   if (targets.includes('hatchet') && resolveHatchet(env)) {
     attempted.push('hatchet');
     const r = await push(env, event.type, event as unknown as Record<string, unknown>, {
       metadata: meta,
     });
-    if (!r.ok) recordFailure('hatchet', r.reason ?? 'unknown');
+    // Hatchet is best-effort — a miss is a SOFT failure, never a row-retry (a retry
+    // would redeliver orchestration for an event that already landed everywhere else).
+    if (!r.ok) softFailures.push({ target: 'hatchet', reason: r.reason ?? 'unknown' });
   }
 
-  // `ok` gates ONLY on REQUIRED-target failures — a soft (Hatchet) failure is
-  // surfaced but never retries the row (a retry would re-ingest Tinybird).
+  // Nothing is REQUIRED anymore, so `ok` is always true — a soft (Hatchet) failure
+  // is surfaced in drain health but never retries the row.
   return { ok: failures.length === 0, attempted, failures, softFailures };
 }
 
@@ -198,7 +159,7 @@ export function assessDrainHealth(summary: DrainSummary, limit = 50): DrainHealt
     parts.push(`${summary.failed} event(s) failed dispatch (retrying → dead-letter)`);
   if (softFailed > 0)
     parts.push(
-      `${softFailed} event(s) hit a best-effort backend failure (e.g. Hatchet) — analytics landed, orchestration skipped`,
+      `${softFailed} event(s) hit a best-effort backend failure (e.g. Hatchet) — orchestration skipped`,
     );
   if (atCapacity) parts.push(`drain hit its ${limit}-row page — outbox may be backing up`);
   const message =
@@ -239,9 +200,9 @@ export async function drainOutbox(
       if (res.ok) {
         await markDispatched(env, event.id, now());
         dispatched++;
-        // Row delivered (every REQUIRED target accepted). A best-effort target
-        // (Hatchet) still failing is surfaced but must NOT re-fail the row —
-        // re-failing re-drains it and RE-INGESTS Tinybird on every retry.
+        // Row delivered. A best-effort target (Hatchet) still failing is surfaced
+        // but must NOT re-fail the row — re-failing re-drains it and redelivers
+        // orchestration on every retry.
         if (res.softFailures.length > 0) {
           softFailed++;
           console.warn(

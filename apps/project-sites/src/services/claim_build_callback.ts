@@ -93,9 +93,9 @@ export async function maybeCompleteClaimBuild(
     },
   );
 
-  // Emit the terminal golden-path event onto the durable bus (drained to Tinybird
-  // analytics + Hatchet orchestration). Idempotent per siteId so a callback replay
-  // never double-emits; fire-and-forget (tryEmitEvent never throws).
+  // Emit the terminal golden-path event onto the durable bus (drained to Hatchet
+  // orchestration). Idempotent per siteId so a callback replay never double-emits;
+  // fire-and-forget (tryEmitEvent never throws).
   await tryEmitEvent(
     env,
     {

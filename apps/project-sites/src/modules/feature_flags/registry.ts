@@ -801,7 +801,7 @@ export const FLAG_REGISTRY: Record<string, FlagDefinition> = {
     default_enabled: true,
     default_rollout_percent: 100,
     description:
-      "Native social media posting (instant + scheduled) across 14 platforms. CF Workflows v2 + Upstash + D1 + Tinybird. Its route checks isFlagOn('social_publishing_native'); the flag was never in FLAG_REGISTRY so resolveFlag short-circuited it dead. Registered 2026-08-13 (default-off = promotable dark-launch).",
+      "Native social media posting (instant + scheduled) across 14 platforms. CF Workflows v2 + Upstash + D1. Its route checks isFlagOn('social_publishing_native'); the flag was never in FLAG_REGISTRY so resolveFlag short-circuited it dead. Registered 2026-08-13 (default-off = promotable dark-launch).",
     key: 'social_publishing_native',
     owner_email: 'brian@megabyte.space',
     stage: 'experimental',

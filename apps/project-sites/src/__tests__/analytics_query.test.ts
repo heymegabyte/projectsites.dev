@@ -1,68 +1,32 @@
 /**
- * fetchPipeRows — fail-soft raw-rollup pipe reader. Maps queryTinybirdPipe's
- * typed result to { rows, degraded }: rows on ok, []+degraded on any non-ok.
+ * fetchPipeRows — fail-soft raw-rollup reader. Tinybird removed — D1 source TODO:
+ * now always returns the degraded zero-state ({ rows: [], degraded: true }) until
+ * a D1-backed rollup replaces the deleted OLAP pipe reads.
  */
 import { fetchPipeRows, type EventsDailyRow } from '../services/analytics_query.js';
 
-const ENV = { TINYBIRD_API_HOST: 'https://api.x.tinybird.co', TINYBIRD_PASSWORD: 'p.tok' } as never;
-
-function okRes(rows: unknown[]): Response {
-  return { ok: true, status: 200, json: async () => ({ data: rows }) } as unknown as Response;
-}
+const ENV = {} as never;
 
 describe('fetchPipeRows', () => {
-  it('returns the pipe rows (not degraded) on a successful read', async () => {
-    const rows = [{ tenant_id: 't1', day: '2026-06-20', event: 'site.published', events: 4 }];
-    const fetchImpl = jest.fn().mockResolvedValue(okRes(rows));
-    const r = await fetchPipeRows<EventsDailyRow>(
-      ENV,
-      'events_by_tenant_daily',
-      { tenant_id: 't1', days: 30 },
-      { fetchImpl: fetchImpl as never },
-    );
-    expect(r.degraded).toBe(false);
-    expect(r.rows).toEqual(rows);
-    // params reach the pipe URL (read seam drops nothing defined)
-    const [url] = fetchImpl.mock.calls[0];
-    expect(url).toContain('/v0/pipes/events_by_tenant_daily.json?');
-    expect(url).toContain('tenant_id=t1');
-    expect(url).toContain('days=30');
-  });
-
-  it('degrades to [] when Tinybird is unconfigured', async () => {
-    const r = await fetchPipeRows({} as never, 'events_by_tenant_daily', { tenant_id: 't1' });
+  it('returns the degraded zero-state (Tinybird removed — D1 source TODO)', async () => {
+    const r = await fetchPipeRows<EventsDailyRow>(ENV, 'events_by_tenant_daily', {
+      tenant_id: 't1',
+      days: 30,
+    });
     expect(r).toEqual({ rows: [], degraded: true });
   });
 
-  it('degrades to [] when the pipe read errors (never throws)', async () => {
-    const fetchImpl = jest
-      .fn()
-      .mockResolvedValue({ ok: false, status: 500, json: async () => ({}) } as unknown as Response);
-    const r = await fetchPipeRows(
-      ENV,
-      'site_publishes_by_source',
-      {},
-      { fetchImpl: fetchImpl as never },
-    );
-    expect(r).toEqual({ rows: [], degraded: true });
-  });
-
-  it('flows the claims-by-source source + campaign params to the pipe URL', async () => {
-    const rows = [
-      { tenant_id: 't1', day: '2026-06-20', source: 'twitter', campaign: 'spring', claims: 5 },
-    ];
-    const fetchImpl = jest.fn().mockResolvedValue(okRes(rows));
-    const r = await fetchPipeRows(
-      ENV,
-      'claims_by_source',
-      { tenant_id: 't1', days: 30, source: 'twitter', campaign: 'spring' },
-      { fetchImpl: fetchImpl as never },
-    );
-    expect(r.degraded).toBe(false);
-    expect(r.rows).toEqual(rows);
-    const [url] = fetchImpl.mock.calls[0];
-    expect(url).toContain('/v0/pipes/claims_by_source.json?');
-    expect(url).toContain('source=twitter');
-    expect(url).toContain('campaign=spring');
+  it('degrades for every rollup name, never throws', async () => {
+    expect(await fetchPipeRows(ENV, 'site_publishes_by_source', {})).toEqual({
+      rows: [],
+      degraded: true,
+    });
+    expect(
+      await fetchPipeRows(ENV, 'claims_by_source', {
+        tenant_id: 't1',
+        source: 'twitter',
+        campaign: 'spring',
+      }),
+    ).toEqual({ rows: [], degraded: true });
   });
 });

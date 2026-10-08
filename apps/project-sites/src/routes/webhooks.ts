@@ -83,7 +83,7 @@ export function subscriptionEventType(
 
 /**
  * Best-effort emit of a billing-lifecycle event onto the durable outbox (drained
- * every 5 min to Tinybird analytics + Hatchet billing orchestration). Idempotent
+ * every 5 min to Hatchet billing orchestration). Idempotent
  * per Stripe event id — a webhook replay never double-emits. Fire-and-forget via
  * `waitUntil` so it never blocks or fails the webhook ack (`tryEmitEvent` already
  * never throws). Skips silently when no `orgId` is known — the bus requires a

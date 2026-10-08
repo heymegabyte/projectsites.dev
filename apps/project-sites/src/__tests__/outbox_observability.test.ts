@@ -61,7 +61,7 @@ describe('readFailedOutbox', () => {
         type: 'invoice.paid',
         tenant_id: 't1',
         attempts: MAX_OUTBOX_ATTEMPTS,
-        last_error: 'tinybird:500',
+        last_error: 'hatchet:500',
         created_at: '2026-06-20T00:00:00Z',
       },
       {
@@ -78,7 +78,7 @@ describe('readFailedOutbox', () => {
       expect.objectContaining({
         id: 'a',
         tenantId: 't1',
-        lastError: 'tinybird:500',
+        lastError: 'hatchet:500',
         deadLettered: true,
       }),
     );

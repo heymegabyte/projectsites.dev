@@ -31,12 +31,8 @@ describe('DEFAULT_BATCH_SIZE', () => {
     expect(DEFAULT_BATCH_SIZE.sentry).toBe(10);
   });
 
-  it('has tinybird at 500', () => {
-    expect(DEFAULT_BATCH_SIZE.tinybird).toBe(500);
-  });
-
   it('covers every key in LogTarget', () => {
-    const targets: LogTarget[] = ['axiom', 'workers-tracing', 'sentry', 'tinybird'];
+    const targets: LogTarget[] = ['axiom', 'workers-tracing', 'sentry'];
     for (const t of targets) {
       expect(typeof DEFAULT_BATCH_SIZE[t]).toBe('number');
     }
@@ -64,12 +60,8 @@ describe('DEFAULT_FLUSH_INTERVAL_MS', () => {
     expect(DEFAULT_FLUSH_INTERVAL_MS.sentry).toBe(10_000);
   });
 
-  it('has tinybird at 3_000', () => {
-    expect(DEFAULT_FLUSH_INTERVAL_MS.tinybird).toBe(3_000);
-  });
-
   it('covers every key in LogTarget', () => {
-    const targets: LogTarget[] = ['axiom', 'workers-tracing', 'sentry', 'tinybird'];
+    const targets: LogTarget[] = ['axiom', 'workers-tracing', 'sentry'];
     for (const t of targets) {
       expect(typeof DEFAULT_FLUSH_INTERVAL_MS[t]).toBe('number');
     }
@@ -114,12 +106,6 @@ describe('buildShipConfig', () => {
     expect(config.flushIntervalMs).toBe(DEFAULT_FLUSH_INTERVAL_MS.sentry);
   });
 
-  it('applies tinybird defaults', () => {
-    const config = buildShipConfig('tinybird', endpoint, apiKey);
-    expect(config.batchSize).toBe(DEFAULT_BATCH_SIZE.tinybird);
-    expect(config.flushIntervalMs).toBe(DEFAULT_FLUSH_INTERVAL_MS.tinybird);
-  });
-
   it('preserves endpoint exactly', () => {
     const config = buildShipConfig('axiom', endpoint, apiKey);
     expect(config.endpoint).toBe(endpoint);
@@ -151,7 +137,7 @@ describe('buildShipConfig', () => {
 
 describe('LogTarget exhaustiveness', () => {
   it('every LogTarget produces a valid config', () => {
-    const targets: LogTarget[] = ['axiom', 'workers-tracing', 'sentry', 'tinybird'];
+    const targets: LogTarget[] = ['axiom', 'workers-tracing', 'sentry'];
 
     for (const target of targets) {
       const config = buildShipConfig(target, 'https://example.com/ingest', 'key');

@@ -6,8 +6,8 @@
  * A publish transition (the embedded-bolt publish route, a future workflow
  * finalizer) builds the event through `buildSitePublishedEvent` and emits it via
  * `tryEmitEvent` — so the durable outbox drains the SAME shape to every consumer
- * (Tinybird activation analytics + Hatchet orchestration + the async job plane).
- * One builder keeps the emit shape from drifting across callers.
+ * (Hatchet orchestration + the async job plane). One builder keeps the emit shape
+ * from drifting across callers.
  *
  * Idempotency is scoped to `(siteId, version)` via {@link sitePublishedScope}:
  * each version-publish emits exactly once, but a retry/replay of the SAME version

@@ -3,8 +3,8 @@
  *
  * Pure mapper: Listmonk webhook events → analytics-tracker event shapes.
  * Listmonk delivers raw open/click webhook payloads; this module normalises
- * them into the flat {@link AnalyticsEvent} shape that Tinybird + PostHog
- * consume so campaign engagement flows into the dashboard.
+ * them into the flat {@link AnalyticsEvent} shape that PostHog consumes so
+ * campaign engagement flows into the dashboard.
  *
  * All exports are pure + deterministic — no I/O, no clock (timestamps are
  * accepted as inputs, never generated internally).

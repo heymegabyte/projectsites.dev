@@ -4,9 +4,9 @@
  * Pure computation from observable signals (dormancy, activation trend, billing
  * status). No ML, no I/O — transparent, explainable, unit-testable.
  *
- * The nightly cron (outside this module) queries D1/Tinybird for the input
- * signals, calls `computeChurnRisk`, and persists the score + factors. This
- * module owns only the scoring algorithm.
+ * The nightly cron (outside this module) queries D1 for the input signals, calls
+ * `computeChurnRisk`, and persists the score + factors. This module owns only the
+ * scoring algorithm.
  *
  * @packageDocumentation
  */

@@ -1,12 +1,11 @@
 /**
- * Super-Admin activation-funnel route (§9) — the first consumer of the Tinybird
- * analytics layer.
+ * Super-Admin activation-funnel route (§9).
  *
  * `GET /api/admin/activation-funnel` returns the per-tenant revenue funnel
- * (discovered → engaged → delivered → converted) from the `activation_funnel`
- * pipe via {@link fetchActivationFunnel}. Always returns all four stages in
- * order; `degraded:true` signals the zero fallback (Tinybird unconfigured/down)
- * so the dashboard renders the funnel even before analytics is live.
+ * (discovered → engaged → delivered → converted) via {@link fetchActivationFunnel}.
+ * Always returns all four stages in order; `degraded:true` signals the zero
+ * fallback (Tinybird removed — D1 source TODO) so the dashboard renders the funnel
+ * even before a backing analytics source is live.
  *
  * Gate (in order): auth required (401) → super-admin (403). No feature flag —
  * operator-only diagnostics, mirroring `admin_outbox`.

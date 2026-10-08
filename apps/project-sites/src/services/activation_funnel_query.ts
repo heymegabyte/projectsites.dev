@@ -2,24 +2,23 @@
  * @module services/activation_funnel_query
  *
  * @description
- * The I/O layer over the `activation_funnel` Tinybird pipe (§9). Keeps the pure
- * funnel SSOT ({@link activation_funnel.ts}) free of network/clock — this module
- * does the read and the fail-soft shaping the admin endpoint needs.
+ * The I/O layer over the activation funnel (§9). Keeps the pure funnel SSOT
+ * ({@link activation_funnel.ts}) free of network/clock — this module does the
+ * read and the fail-soft shaping the admin endpoint needs.
  *
- * Fail-soft: when Tinybird is unconfigured OR the read fails, return a ZERO
- * funnel (every {@link ACTIVATION_STAGES} stage at 0) instead of an error — the
- * activation dashboard always renders the four stages, even before Tinybird is
- * live or during an outage. Only `degraded` flags the difference.
+ * Tinybird removed — D1 source TODO: the OLAP `activation_funnel` pipe read was
+ * deleted, so {@link fetchActivationFunnel} returns the ZERO funnel (every
+ * {@link ACTIVATION_STAGES} stage at 0, `degraded:true`) until a D1-backed funnel
+ * query replaces it. The activation dashboard already renders the four stages on
+ * `degraded:true`, so this is graceful (no 5xx, no dangling network dependency).
  *
  * @see services/activation_funnel.ts (the stage SSOT)
- * @see tinybird/pipes/activation_funnel.pipe
  */
 
 import type { Env } from '../types/env.js';
-import { queryTinybirdPipe } from './tinybird.js';
 import { ACTIVATION_STAGES } from './activation_funnel.js';
 
-/** One funnel stage row as returned by the pipe (or the zero fallback). */
+/** One funnel stage row (currently always the zero fallback). */
 export interface ActivationFunnelRow {
   /** The stage's bus event type (`lead.discovered`, …). */
   stage: string;
@@ -37,24 +36,11 @@ export interface ActivationFunnelRow {
 export interface ActivationFunnelResult {
   /** Stages in funnel order (top → bottom), always all {@link ACTIVATION_STAGES}. */
   stages: ActivationFunnelRow[];
-  /** True when the data is the zero fallback (Tinybird unconfigured or read failed). */
+  /** True while the funnel has no backing source (Tinybird removed — D1 source TODO). */
   degraded: boolean;
 }
 
-/** Raw row shape the pipe emits (counts arrive as strings or numbers from TB). */
-interface PipeRow {
-  stage?: string;
-  ordinal?: number | string;
-  events?: number | string;
-  sites?: number | string;
-}
-
-function toNum(v: number | string | undefined): number {
-  const n = typeof v === 'string' ? Number(v) : v;
-  return Number.isFinite(n) ? (n as number) : 0;
-}
-
-/** The zero funnel — every stage at 0 (for unconfigured/degraded reads). */
+/** The zero funnel — every stage at 0 (for the degraded read). */
 function zeroFunnel(): ActivationFunnelRow[] {
   return ACTIVATION_STAGES.map((s) => ({
     stage: s.event,
@@ -66,52 +52,21 @@ function zeroFunnel(): ActivationFunnelRow[] {
 }
 
 /**
- * Read the per-tenant activation funnel. Always returns all four stages in order;
- * stages the pipe didn't report (no events yet) come back at 0. Never throws.
+ * Read the per-tenant activation funnel. Always returns all four stages in order.
+ * Never throws.
  *
- * @param env - Worker env.
- * @param opts - `{ tenantId?, days? }` — narrows the pipe query.
- * @param deps - Optional `{ fetchImpl }` for tests.
- * @returns An {@link ActivationFunnelResult} (`degraded:true` on the zero fallback).
- * @example
- * const { stages, degraded } = await fetchActivationFunnel(env, { tenantId, days: 30 });
+ * Tinybird removed — D1 source TODO: currently always returns the zero funnel
+ * (`degraded:true`) because the OLAP pipe read was deleted. Swap in a D1-backed
+ * funnel query here when the funnel moves to the master D1.
+ *
+ * @param _env - Worker env (unused until a D1 funnel query lands).
+ * @param _opts - `{ tenantId?, days? }` — kept for the eventual D1 query.
+ * @returns An {@link ActivationFunnelResult} — the zero funnel, `degraded:true`.
  */
 export async function fetchActivationFunnel(
-  env: Env,
-  opts: { tenantId?: string; days?: number } = {},
-  deps: { fetchImpl?: typeof fetch } = {},
+  _env: Env,
+  _opts: { tenantId?: string; days?: number } = {},
 ): Promise<ActivationFunnelResult> {
-  const res = await queryTinybirdPipe<PipeRow>(
-    env,
-    'activation_funnel',
-    { tenant_id: opts.tenantId, days: opts.days },
-    deps,
-  );
-  if (!res.ok) return { stages: zeroFunnel(), degraded: true };
-
-  // The pipe GROUPs BY tenant_id, so a GLOBAL query (no tenant_id) returns one row
-  // PER (tenant, stage). SUM per stage across tenants — event_id + site_id are each
-  // unique to a single tenant, so summing per-tenant DISTINCT counts equals the
-  // global DISTINCT total. (A prior last-wins `set` here silently collapsed the
-  // global funnel to ONE arbitrary tenant's count — masked while Tinybird was empty,
-  // exposed by the AL-051 backfill: 103 published sites read as Delivered=2.)
-  const byStage = new Map<string, { events: number; sites: number }>();
-  for (const row of res.data) {
-    if (!row.stage) continue;
-    const agg = byStage.get(row.stage) ?? { events: 0, sites: 0 };
-    agg.events += toNum(row.events);
-    agg.sites += toNum(row.sites);
-    byStage.set(row.stage, agg);
-  }
-  const stages = ACTIVATION_STAGES.map((s) => {
-    const agg = byStage.get(s.event);
-    return {
-      stage: s.event,
-      label: s.label,
-      ordinal: s.ordinal,
-      events: agg?.events ?? 0,
-      sites: agg?.sites ?? 0,
-    };
-  });
-  return { stages, degraded: false };
+  // Tinybird removed — D1 source TODO. Degrade gracefully to the zero funnel.
+  return { stages: zeroFunnel(), degraded: true };
 }

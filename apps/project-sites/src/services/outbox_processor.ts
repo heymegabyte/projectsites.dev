@@ -8,7 +8,7 @@
  * ## Why this exists alongside `outbox_dispatch.ts`
  *
  * {@link ../services/outbox_dispatch | `drainOutbox`} is the PRODUCTION drain —
- * it takes the full Worker `env` and fans each event to Tinybird + Hatchet. This
+ * it takes the full Worker `env` and fans each event to Hatchet. This
  * module is the framework-agnostic core: it depends only on a D1-shaped `db` and
  * an injected `deliver(event) => Promise<void>`, so a unit test (or a future
  * Queue consumer with a different sink) drives the whole state machine with no

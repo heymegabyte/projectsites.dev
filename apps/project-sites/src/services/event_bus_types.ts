@@ -1,4 +1,4 @@
-/** Event bus typed envelope for outbox->Tinybird. Pure, never throws. */
+/** Event bus typed envelope for the durable outbox. Pure, never throws. */
 export const EVENT_PRODUCERS = [
   'projectsites',
   'twenty',

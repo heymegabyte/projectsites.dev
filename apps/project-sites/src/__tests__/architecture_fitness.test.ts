@@ -124,18 +124,6 @@ describe('architecture fitness — reliability invariants (idempotency + DLQ, co
 describe('architecture fitness — optional-vendor adapters stay env-gated + fail-soft (infra LAW)', () => {
   const readSrc = (rel: string): string => readFileSync(join(SRC, rel), 'utf8');
 
-  it('tinybird OLAP adapter is env-gated (host + token from env, no hardcoded ingest URL literal)', () => {
-    const src = readSrc('services/tinybird.ts');
-    expect(src).toMatch(/TINYBIRD_API_HOST/); // host comes from env, never hardcoded
-    expect(src).toMatch(/TINYBIRD_TOKEN|TINYBIRD_PASSWORD|TINYBIRD_MCP_TOKEN/); // token comes from env
-    expect(src).not.toMatch(/['"]https?:\/\/[^'"\s]*tinybird/i); // no hardcoded ingest URL string literal (a doc-comment example is fine)
-  });
-
-  it('tinybird ingest is fail-soft — never throws into the caller (no-op when unconfigured)', () => {
-    // Per fail-fast-build-fail-soft-prod: an optional analytics backend must degrade, never crash the hot path.
-    expect(readSrc('services/tinybird.ts')).not.toMatch(/\bthrow\s+new\b/);
-  });
-
   it('hatchet adapter is Hatchet Cloud — server_url rides in the JWT, never a Fly host (LAW: Hatchet=Cloud not Fly)', () => {
     expect(readSrc('services/hatchet.ts')).not.toMatch(/fly\.(io|dev)/i);
   });

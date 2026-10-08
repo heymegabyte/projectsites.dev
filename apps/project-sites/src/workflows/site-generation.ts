@@ -2526,8 +2526,8 @@ export class SiteGenerationWorkflow extends WorkflowEntrypoint<Env, SiteGenerati
         }
 
         // Emit site.generated onto the durable bus — the build produced + uploaded
-        // a published bundle. Drained to Tinybird (build-funnel analytics) + Hatchet
-        // (post-publish orchestration: QA, search-submit, promotion). Idempotent per
+        // a published bundle. Drained to Hatchet (post-publish orchestration: QA,
+        // search-submit, promotion). Idempotent per
         // (siteId, version) so a re-run of the SAME version is a no-op while a genuine
         // rebuild (new version) emits afresh; tryEmitEvent never throws.
         await tryEmitEvent(

@@ -126,8 +126,8 @@ claimRoutes.get('/api/claim/:shortlink', async (c) => {
         });
 
         // Normalize click attribution (utm_* + referer) so the golden-path event
-        // carries source/medium/campaign — flows through the outbox payload column
-        // into Tinybird so the activation funnel can answer "which campaigns convert".
+        // carries source/medium/campaign through the outbox payload column (for the
+        // activation funnel's "which campaigns convert" question).
         const attribution = buildClaimAttribution({
           shortlink,
           query: c.req.query(),
@@ -136,8 +136,8 @@ claimRoutes.get('/api/claim/:shortlink', async (c) => {
         });
 
         // Emit the golden-path event onto the durable bus (drained every 5 min to
-        // Tinybird analytics + Hatchet orchestration). Idempotent per shortlink so
-        // a re-click never double-emits; fire-and-forget so it never blocks the 302.
+        // Hatchet orchestration). Idempotent per shortlink so a re-click never
+        // double-emits; fire-and-forget so it never blocks the 302.
         if (execCtx) {
           execCtx.waitUntil(
             tryEmitEvent(
@@ -270,8 +270,8 @@ claimRoutes.post('/api/claim/:shortlink/adopt', async (c) => {
   if (result.transferred) {
     // The claim funnel's conversion moment: the visitor adopted the platform-
     // built site into THEIR org. Emit site.claim.completed onto the durable bus
-    // (Tinybird conversion analytics + Hatchet onboarding orchestration).
-    // tenantId is the NEW owner org. Idempotent per (shortlink, siteId) — a
+    // (Hatchet onboarding orchestration). tenantId is the NEW owner org.
+    // Idempotent per (shortlink, siteId) — a
     // re-adopt returns transferred:false so this only fires on the real transfer;
     // never throws. Awaited inline so the event lands before we ack the claim.
     await tryEmitEvent(

@@ -3779,8 +3779,8 @@ api.post('/api/sites/:id/publish-bolt', async (c) => {
   });
 
   // Emit the golden-path `site.published` event onto the durable bus (§9). The
-  // outbox cron drains it to Tinybird activation analytics + Hatchet + the
-  // lifecycle-email job plane. Idempotent per (siteId, version) so a
+  // outbox cron drains it to Hatchet + the lifecycle-email job plane. Idempotent
+  // per (siteId, version) so a
   // re-publish of the same version is a no-op; waitUntil'd so a bus/DB hiccup
   // never breaks the publish response (tryEmitEvent never throws).
   c.executionCtx.waitUntil(
