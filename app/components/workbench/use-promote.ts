@@ -5,8 +5,8 @@
  * This is the SINGLE source of truth for promoting the site's Preview working tree to Production. It owns
  * the whole state machine (idle -> submitting -> success | failed | commit_ok_deploy_failed), the
  * disabled-WITH-reason gate ({@link promoteGate}), and the `PS_PROMOTE_REQUEST` write bridge. BOTH the
- * Source Control panel ({@link ./SourceControlPanel}) and the editor's main-header control
- * ({@link ./PromoteHeaderControl}) consume THIS hook — neither re-implements the machine, so there is
+ * Source Control panel ({@link ./SourceControlPanel}) and the other promote surfaces (Lifecycle,
+ * Buckets, ProjectHub) consume THIS hook — none re-implements the machine, so there is
  * exactly one promote path (interconnectedness; no forked state).
  *
  * INVARIANTS (never violated here):
@@ -146,7 +146,7 @@ export interface UsePromote {
 /**
  * The SHARED promote flow. Loads Preview/release state over the parent-session bridge, computes the
  * disabled-WITH-reason gate, and runs the honest-outcome `PS_PROMOTE_REQUEST` write. Consumed unchanged by
- * {@link SourceControlPanel} and {@link PromoteHeaderControl} so the state machine is never forked.
+ * {@link SourceControlPanel} (and the Lifecycle / Buckets / ProjectHub promote surfaces) so the state machine is never forked.
  */
 export function usePromote(): UsePromote {
   const [promote, setPromote] = useState<PromoteState>({ status: 'idle' });

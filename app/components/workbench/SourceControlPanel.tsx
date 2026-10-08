@@ -11,8 +11,8 @@
  *   - Save/generate → Preview only; Restore targets PREVIEW only (opens the last-published main-base copy
  *     back into the workbench, exactly like picking it in the tree — no commit, no deploy).
  *   - The ONLY Production mutation is the Promote button, whose state machine + gate + `PS_PROMOTE_REQUEST`
- *     write live in the SHARED {@link ./use-promote} hook — the SAME hook the editor's main-header
- *     {@link ./PromoteHeaderControl} consumes, so the two never diverge (one promote path, never forked).
+ *     write live in the SHARED {@link ./use-promote} hook — the SAME hook every other promote surface
+ *     (Lifecycle, Buckets, ProjectHub) consumes, so they never diverge (one promote path, never forked).
  *
  * DATA SOURCES:
  *   - CHANGED FILES = a diff of the PREVIEW working tree against the last-published MAIN BASE. The Preview
@@ -243,8 +243,8 @@ type HistoryState =
 
 /*
  * The Promote → Production state machine ({@link PromoteState}) + gate + `doPromote` now live in the
- * SHARED {@link usePromote} hook, consumed by BOTH this panel and the editor's main-header
- * {@link PromoteHeaderControl}. There is exactly one promote path — it is never forked here.
+ * SHARED {@link usePromote} hook, consumed by this panel and the other promote surfaces
+ * (Lifecycle, Buckets, ProjectHub). There is exactly one promote path — it is never forked here.
  */
 
 // ── Per-status color tokens for the change badges (cyan/green/red/purple — no raw hex) ─────────────
@@ -284,9 +284,9 @@ export const SourceControlPanel = memo(() => {
   const [restored, setRestored] = useState<string | null>(null);
 
   /*
-   * The SHARED promote flow — the SAME hook the editor's main-header {@link PromoteHeaderControl}
+   * The SHARED promote flow — the SAME hook every other promote surface (Lifecycle, Buckets, ProjectHub)
    * consumes. It owns the state machine + the disabled-WITH-reason gate + the `PS_PROMOTE_REQUEST` write,
-   * so this panel and the header can never diverge. `promoteSync` is the hook's own sync summary; the
+   * so this panel and those surfaces can never diverge. `promoteSync` is the hook's own sync summary; the
    * panel keeps its `sync` state for the header badge but reconciles the two below.
    */
   const { promote, lastResult, canPromote, promoteReason, doPromote, dismiss: dismissPromote } = usePromote();
