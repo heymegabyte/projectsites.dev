@@ -432,7 +432,10 @@ const FunctionsEmpty = memo(({ wfpConfigured }: { wfpConfigured: boolean }) => (
           background: `radial-gradient(60% 60% at 50% 30%, color-mix(in oklch, ${PURPLE} 22%, transparent), transparent)`,
         }}
       />
-      <div className="relative i-ph:brackets-curly-duotone text-3xl text-bolt-elements-item-contentAccent" aria-hidden />
+      <div
+        className="relative i-ph:brackets-curly-duotone text-3xl text-bolt-elements-item-contentAccent"
+        aria-hidden
+      />
     </div>
     <div className="space-y-1">
       <p className="text-sm font-semibold text-bolt-elements-textPrimary">No functions yet</p>
