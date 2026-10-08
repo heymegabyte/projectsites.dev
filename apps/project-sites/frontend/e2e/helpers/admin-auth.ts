@@ -13,7 +13,7 @@
  *
  * Ref memory: `golden-path-test-login-seam-cf-bot-challenged` (the working recipe).
  */
-import { execSync } from 'node:child_process';
+import { execFileSync } from 'node:child_process';
 
 import type { Page } from '@playwright/test';
 
@@ -36,12 +36,13 @@ export function filterConsoleNoise(errors: string[]): string[] {
 
 /** E2E test password: env first, then `get-secret`. Returns null when unobtainable (caller skips). */
 export function getTestPassword(): string | null {
-  const fromEnv = process.env.E2E_TEST_PASSWORD ?? process.env.TEST_USER_PASSWORD;
+  const fromEnv = process.env.E2E_TEST_PASSWORD || process.env.TEST_USER_PASSWORD;
   if (fromEnv) return fromEnv;
   try {
-    const out = execSync('/Users/Apple/.local/bin/get-secret E2E_TEST_PASSWORD', {
+    const out = execFileSync('get-secret', ['E2E_TEST_PASSWORD'], {
       encoding: 'utf8',
       timeout: 5000,
+      stdio: ['ignore', 'pipe', 'ignore'],
     }).trim();
     if (out) return out;
   } catch {

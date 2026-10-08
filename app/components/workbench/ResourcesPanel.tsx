@@ -43,6 +43,7 @@ import {
 import { ResourceOverviewPanel } from './ResourceOverviewPanel';
 import { BucketsPanel } from './BucketsPanel';
 import { AutomationsPanel } from './AutomationsPanel';
+import { FunctionsPanel } from './FunctionsPanel';
 import { PanelLoading, PanelShell } from './panel';
 
 // ── Types ────────────────────────────────────────────────────────────────────
@@ -108,10 +109,10 @@ export function persistResEnv(env: ResourceEnvironment): void {
 }
 
 /** The asset sections this panel surfaces. */
-type Section = 'media' | 'files' | 'buckets' | 'automations';
+type Section = 'media' | 'files' | 'buckets' | 'automations' | 'functions';
 
 /** Render order of the section tabs — the single source of truth for roving + ARIA wiring. */
-const SECTION_ORDER: readonly Section[] = ['media', 'files', 'buckets', 'automations'];
+const SECTION_ORDER: readonly Section[] = ['media', 'files', 'buckets', 'automations', 'functions'];
 
 /** Stable DOM id for a section tab (so `aria-controls` ↔ the panel's `id`/`aria-labelledby` agree). */
 const sectionTabId = (s: Section) => `resources-tab-${s}`;
@@ -1313,9 +1314,12 @@ export const ResourcesPanel = memo(() => {
         ) : section === 'buckets' ? (
           // Buckets — the per-site R2 manager. Self-managing (its own load/refresh + object browser).
           <BucketsPanel />
-        ) : (
+        ) : section === 'automations' ? (
           // Automations — the per-site workflow/automation log. Self-managing (own load/refresh).
           <AutomationsPanel />
+        ) : (
+          // Functions — the per-site code-defined WfP Functions list. Self-managing (own load/refresh).
+          <FunctionsPanel />
         )}
       </div>
 
@@ -1364,10 +1368,10 @@ const Header = memo(
         }}
       />
       {/* Top chrome (icon · title · storage · env · Advanced) is media/files-specific — the
-          Buckets AND Automations tabs render their OWN full header, so hide this row there to avoid
-          a double header. The tab strip below stays on every tab. Data stays current via the
+          Buckets, Automations AND Functions tabs render their OWN full header, so hide this row there
+          to avoid a double header. The tab strip below stays on every tab. Data stays current via the
           panel's visibility-aware poll — no manual Refresh control (real-time rule). */}
-      {section !== 'buckets' && section !== 'automations' && (
+      {section !== 'buckets' && section !== 'automations' && section !== 'functions' && (
         <div className="relative flex items-center gap-3 px-4 pt-3">
           <div className="flex items-center justify-center h-9 w-9 rounded-xl border border-bolt-elements-item-contentAccent/30 bg-bolt-elements-item-contentAccent/[0.08] shadow-inner shadow-bolt-elements-item-contentAccent/10 shrink-0">
             <div className="i-ph:images-square-duotone text-xl text-bolt-elements-item-contentAccent" />
@@ -1425,11 +1429,11 @@ const Header = memo(
         </div>
       )}
 
-      {/* Section tabs — Media library | Site files | Buckets */}
+      {/* Section tabs — Media library | Site files | Buckets | Automations | Functions */}
       <div
         className={classNames(
           'relative flex items-center gap-1 px-4 pb-2',
-          section === 'buckets' || section === 'automations' ? 'pt-3' : 'pt-2.5',
+          section === 'buckets' || section === 'automations' || section === 'functions' ? 'pt-3' : 'pt-2.5',
         )}
         role="tablist"
         aria-label="Resource sections"
@@ -1440,6 +1444,7 @@ const Header = memo(
             { value: 'files', label: 'Site files', icon: 'i-ph:folder-open' },
             { value: 'buckets', label: 'Buckets', icon: 'i-ph:hard-drives' },
             { value: 'automations', label: 'Automations', icon: 'i-ph:lightning' },
+            { value: 'functions', label: 'Functions', icon: 'i-ph:brackets-curly' },
           ] as const
         ).map((tab) => {
           const active = section === tab.value;

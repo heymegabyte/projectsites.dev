@@ -203,6 +203,19 @@ const TAB_PROBES = [
       'resources-error',           // outer error
     ],
   },
+  {
+    name: 'functions',
+    tabTestId: 'resources-section-functions',
+    candidates: [
+      'functions-list',            // has code-defined functions (deployed worker + crons)
+      'functions-empty',           // honest empty launchpad (define them in functions/)
+      'functions-skeleton',        // still loading
+      'functions-disabled',        // flag off (site_functions dark)
+      'functions-error',           // bridge error
+      'resources-disabled',        // outer disabled
+      'resources-error',           // outer error
+    ],
+  },
 ];
 
 /**

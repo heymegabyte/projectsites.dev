@@ -779,6 +779,15 @@ export const FLAG_REGISTRY: Record<string, FlagDefinition> = {
     owner_email: 'brian@megabyte.space',
     stage: 'experimental',
   },
+  site_functions: {
+    default_enabled: false,
+    default_rollout_percent: 0,
+    description:
+      "Owner-facing Functions panel (Resources sub-tab #5) — a read-only list of a site's CODE-DEFINED Functions on Workers-for-Platforms so the owner can see what's deployed + its status.\n\n• Worker: libs/features/site_functions/handlers.ts mounts GET /api/sites/:siteId/functions returning {data:[{id,kind,name,status,cron,bundleBytes,deployed_at}], functionsDeployed, wfpConfigured}.\n• Data sources are AUTHORITATIVE + PERSISTED (never fabricated): the http deployment unit comes from sites.functions_deployed_at + the R2 last-good bundle (readFunctionsBundle → bundle bytes); each scheduled entry is a real site_functions_schedules cron row (WfP has no native cron → platform cron dispatcher).\n• Doctrine (ADR-0035): Functions are authored in a functions/ folder in the editor, NOT a dashboard form — so this is a READ/MANAGE VIEW, not an authoring form. No writes.\n• Gate order: flag (404, never 403 — existence never leaked) → auth (401) → assertSiteOwned (404 cross-org IDOR guard) → read.\n• Honest-empty [] when the site has no deployed functions worker and no cron schedules; off (default, DARK): the endpoint 404s for everyone and the panel self-hides.",
+    key: 'site_functions',
+    owner_email: 'brian@megabyte.space',
+    stage: 'experimental',
+  },
   social_autopilot: {
     default_enabled: true,
     default_rollout_percent: 100,
