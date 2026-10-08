@@ -15,14 +15,12 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import React from 'react';
 
-const { requestAutomations, requestAutomationRetry, requestAutomationCancel, postToastToParent } = vi.hoisted(
-  () => ({
-    requestAutomations: vi.fn(),
-    requestAutomationRetry: vi.fn(),
-    requestAutomationCancel: vi.fn(),
-    postToastToParent: vi.fn(),
-  }),
-);
+const { requestAutomations, requestAutomationRetry, requestAutomationCancel, postToastToParent } = vi.hoisted(() => ({
+  requestAutomations: vi.fn(),
+  requestAutomationRetry: vi.fn(),
+  requestAutomationCancel: vi.fn(),
+  postToastToParent: vi.fn(),
+}));
 
 vi.mock('~/lib/embed/embedded-mode', () => ({
   isEmbedded: true,

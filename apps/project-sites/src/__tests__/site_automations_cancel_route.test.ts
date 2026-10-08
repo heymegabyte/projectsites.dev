@@ -55,7 +55,11 @@ function makeDbStub(job: JobRow | null, instancePointer = 'inst-1') {
     prepare(sql: string) {
       const isJob = /FROM workflow_jobs/i.test(sql);
       const isSitePtr = /latest_workflow_instance\s+FROM sites/i.test(sql);
-      const firstRow = isJob ? job : isSitePtr ? { latest_workflow_instance: instancePointer } : null;
+      const firstRow = isJob
+        ? job
+        : isSitePtr
+          ? { latest_workflow_instance: instancePointer }
+          : null;
       const results = firstRow ? [firstRow] : [];
       return {
         bind(...params: unknown[]) {
@@ -161,7 +165,9 @@ describe('POST /api/sites/:siteId/automations/:id/cancel', () => {
     expect(body.ok).toBe(true);
     expect(body.status).toBe('cancelled');
     // The job row was flipped to cancelled AND cancel_requested was set (the workflow honors it).
-    const flipped = runs.find((r) => /UPDATE workflow_jobs/i.test(r.sql) && /cancelled/i.test(r.sql));
+    const flipped = runs.find(
+      (r) => /UPDATE workflow_jobs/i.test(r.sql) && /cancelled/i.test(r.sql),
+    );
     expect(flipped).toBeTruthy();
     expect(flipped!.sql).toMatch(/cancel_requested/i);
     // Best-effort terminate of the resolved instance, exactly once.
@@ -202,7 +208,9 @@ describe('POST /api/sites/:siteId/automations/:id/cancel', () => {
     const res = await req('/api/sites/site-1/automations/job-1/cancel');
     expect(res.status).toBe(200);
     expect(((await res.json()) as { ok: boolean }).ok).toBe(true);
-    expect(runs.find((r) => /UPDATE workflow_jobs/i.test(r.sql) && /cancelled/i.test(r.sql))).toBeTruthy();
+    expect(
+      runs.find((r) => /UPDATE workflow_jobs/i.test(r.sql) && /cancelled/i.test(r.sql)),
+    ).toBeTruthy();
   });
 
   it('is graceful when terminate() throws (already terminal instance) — still 200, row cancel stands', async () => {
@@ -215,6 +223,8 @@ describe('POST /api/sites/:siteId/automations/:id/cancel', () => {
     expect(res.status).toBe(200);
     expect(((await res.json()) as { ok: boolean }).ok).toBe(true);
     expect(terminate).toHaveBeenCalledTimes(1);
-    expect(runs.find((r) => /UPDATE workflow_jobs/i.test(r.sql) && /cancelled/i.test(r.sql))).toBeTruthy();
+    expect(
+      runs.find((r) => /UPDATE workflow_jobs/i.test(r.sql) && /cancelled/i.test(r.sql)),
+    ).toBeTruthy();
   });
 });

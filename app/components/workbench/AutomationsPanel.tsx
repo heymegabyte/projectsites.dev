@@ -316,7 +316,7 @@ export const AutomationsPanel = memo(() => {
 
       // Remember the pre-cancel status so an error can revert to EXACTLY what it was (running/queued).
       const prevStatus =
-        state.status === 'ready' ? state.automations.find((a) => a.id === id)?.status ?? 'running' : 'running';
+        state.status === 'ready' ? (state.automations.find((a) => a.id === id)?.status ?? 'running') : 'running';
 
       setCancellingIds((cur) => new Set(cur).add(id));
       // Optimistic: show the row as cancelled immediately so the UI responds the instant it's confirmed.
@@ -683,7 +683,11 @@ const AutomationRow = memo(
             disabled={cancelling}
             data-testid="automation-cancel"
             aria-label={
-              cancelling ? 'Cancelling automation' : cancelArmed ? 'Confirm cancel this automation' : 'Cancel this automation'
+              cancelling
+                ? 'Cancelling automation'
+                : cancelArmed
+                  ? 'Confirm cancel this automation'
+                  : 'Cancel this automation'
             }
             title={cancelling ? 'Cancelling…' : cancelArmed ? 'Click again to confirm' : 'Cancel this automation'}
             className={classNames(
