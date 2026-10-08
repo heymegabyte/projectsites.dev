@@ -57,10 +57,7 @@ const mockReadBundle = readFunctionsBundle as jest.Mock;
  *   - SELECT cron FROM site_functions_schedules …   → the schedule rows
  * Captures bind params for assertions.
  */
-function makeDbStub(opts: {
-  functionsDeployedAt: string | null;
-  schedules: { cron: string }[];
-}) {
+function makeDbStub(opts: { functionsDeployedAt: string | null; schedules: { cron: string }[] }) {
   const calls: { sql: string; params: unknown[] }[] = [];
   const db = {
     prepare(sql: string) {

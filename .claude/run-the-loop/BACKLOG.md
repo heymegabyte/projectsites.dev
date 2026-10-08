@@ -2175,5 +2175,10 @@ Re-architect every workbench panel onto a shared gorgeous spine so chrome/tokens
 
 ## fire-307 follow-up — production E2E portability
 
-- [ ] E2E-AUTH-PORTABLE: reuse helpers/admin-auth getTestPassword in money-path-nav-create.e2e.ts and money-path-funnel.e2e.ts; both retain macOS-only broker paths. Acceptance: synthetic regression checks plus an authenticated live money-path run with credentials available.
+- [~] E2E-AUTH-PORTABLE: code consolidation complete fire-308 (`6a7ff0b4c`); both money-path specs reuse helpers/admin-auth getTestPassword. Synthetic lookup + wiring regressions pass. Remaining acceptance: authenticated live money-path run; blocked this fire by absent frontend dependencies and unavailable E2E password. Do not mark DONE from source checks.
 - [ ] E2E-PROD-FAILURES-307: triage fresh run 37793228665 failures (features, sparkline, tags, team dialog, webhooks, landmarks, integration logos, notification bell); re-confirm each live before repairs. Do not infer product defects from credential failures alone.
+
+## fire-308 follow-up — fresh CI and verification evidence
+
+- [ ] CI-CONTAINER-MOCK-308: reproduce GitHub run 37848103525 worker failure in src/__tests__/platform_root_landings.test.ts (Container extends undefined through app_runtime_subclasses → routes/apps → index). Reuse existing Cloudflare runtime mocks; acceptance: affected suite and full worker unit gate pass without hiding app routes. cadence once · priority high · category testing.
+- [ ] LOOP-RECENCY-SUFFIX-308: inspect scripts/loop-recent-fires.mjs numeric-token parsing: git reports fire-306 from newer fire-306b while LEDGER numeric max is 307. Acceptance: suffix IDs retain chronological context and mismatch diagnostics distinguish older-number/newer-commit from unpublished work; add synthetic history fixture. cadence once · priority med · category loop-improvement.

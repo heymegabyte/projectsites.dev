@@ -17,7 +17,7 @@
  */
 import * as fs from 'node:fs';
 import * as path from 'node:path';
-import { execSync } from 'node:child_process';
+import { getTestPassword } from './helpers/admin-auth';
 
 import { test, expect } from '@playwright/test';
 
@@ -54,25 +54,6 @@ function mkScreenshotDir(): void {
   }
 }
 
-function getPassword(): string | null {
-  // 1. Env var primary
-  const fromEnv = process.env.E2E_TEST_PASSWORD ?? process.env.TEST_USER_PASSWORD;
-  if (fromEnv) return fromEnv;
-
-  // 2. get-secret fallback
-  try {
-    const result = execSync('/Users/Apple/.local/bin/get-secret E2E_TEST_PASSWORD', {
-      encoding: 'utf8',
-      timeout: 5000,
-    }).trim();
-    if (result) return result;
-  } catch {
-    // not found
-  }
-
-  return null;
-}
-
 // ---------------------------------------------------------------------------
 // Spec
 // ---------------------------------------------------------------------------
@@ -80,7 +61,7 @@ function getPassword(): string | null {
 test.describe('money-path: nav-create CTA opens /create overlay', () => {
   test('nav-create opens /admin/create overlay and close returns to /admin', async ({ page }) => {
     // --- Password bootstrap ---
-    const password = getPassword();
+    const password = getTestPassword();
     if (!password) {
       test.skip(true, 'BLOCKED: E2E_TEST_PASSWORD not set — no auth credentials available');
       return;

@@ -71,15 +71,21 @@ describe('deriveFunctionsState', () => {
 
   it('maps a successful reply → ready with the functions list + both deploy signals', () => {
     const functions = [httpFn('site-abc'), cronFn('0 * * * *')];
-    expect(
-      deriveFunctionsState({ ok: true, functions, functionsDeployed: true, wfpConfigured: true }),
-    ).toEqual({ status: 'ready', functions, functionsDeployed: true, wfpConfigured: true });
+    expect(deriveFunctionsState({ ok: true, functions, functionsDeployed: true, wfpConfigured: true })).toEqual({
+      status: 'ready',
+      functions,
+      functionsDeployed: true,
+      wfpConfigured: true,
+    });
   });
 
   it('honest-empty: ok:true + no functions → ready with [] (a valid state, not an error)', () => {
-    expect(
-      deriveFunctionsState({ ok: true, functions: [], functionsDeployed: false, wfpConfigured: true }),
-    ).toEqual({ status: 'ready', functions: [], functionsDeployed: false, wfpConfigured: true });
+    expect(deriveFunctionsState({ ok: true, functions: [], functionsDeployed: false, wfpConfigured: true })).toEqual({
+      status: 'ready',
+      functions: [],
+      functionsDeployed: false,
+      wfpConfigured: true,
+    });
   });
 
   it('defaults the deploy signals to false when the reply omits them (never undefined)', () => {

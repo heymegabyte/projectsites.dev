@@ -14,7 +14,7 @@
  *            --project=chromium --retries=0 --reporter=line
  */
 import path from 'path';
-import { execSync } from 'child_process';
+import { getTestPassword } from './helpers/admin-auth';
 import { test, expect, type Page } from '@playwright/test';
 
 // ── Config ──────────────────────────────────────────────────────────────────
@@ -35,21 +35,6 @@ const CONSOLE_NOISE = [
   'googletagmanager',
   'googleanalytics',
 ];
-
-/** Returns null when the password is unobtainable */
-function getPassword(): string | null {
-  if (process.env.E2E_TEST_PASSWORD) return process.env.E2E_TEST_PASSWORD;
-  if (process.env.TEST_USER_PASSWORD) return process.env.TEST_USER_PASSWORD;
-  try {
-    const result = execSync('/Users/Apple/.local/bin/get-secret E2E_TEST_PASSWORD', {
-      encoding: 'utf8',
-      stdio: ['pipe', 'pipe', 'pipe'],
-    }).trim();
-    return result || null;
-  } catch {
-    return null;
-  }
-}
 
 async function screenshot(page: Page, name: string): Promise<void> {
   await page.screenshot({
@@ -109,7 +94,7 @@ test.describe('Money-path funnel: homepage → search → signin → create entr
 
   // ── STEP 4-6: authenticated path ────────────────────────────────────────
   test('step 4-6: auth seeds and admin create-entry reached', async ({ page }) => {
-    const password = getPassword();
+    const password = getTestPassword();
     if (!password) {
       test.skip(true, 'E2E_TEST_PASSWORD not available');
       return;

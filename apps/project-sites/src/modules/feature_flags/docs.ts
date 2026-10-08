@@ -1068,7 +1068,7 @@ export const FLAG_DOCS: Record<string, FlagDocs> = {
       "The fifth Resources sub-tab (beside Media / Files / Buckets / Automations): a read-only discovery view listing a site's CODE-DEFINED Functions on Workers-for-Platforms. Doctrine (ADR-0035, docs/FUNCTIONS-CONVERGENCE.md): owners author a functions/ folder in the editor, NOT a dashboard form — so this LISTS what the functions plane HAS, it is not an authoring form. Every row is sourced from an authoritative persisted signal, never fabricated: the http deployment unit from sites.functions_deployed_at + the R2 last-good bundle (readFunctionsBundle → byte size), and one scheduled entry per real site_functions_schedules cron row (WfP has no native cron → the platform cron dispatcher fires them). Site-scoped + ownership-guarded (assertSiteOwned) so it never exposes another tenant's functions; the flag gate runs first so an off flag is a hard 404 (existence never leaked). A site with no deployed functions worker and no schedules returns an honest-empty []. No mutations.",
     smoke_test: [
       'GET /api/sites/:siteId/functions (flag on, owned, deployed) → 200 {data:[{kind:http},…cron rows], functionsDeployed:true}',
-      'Flag off → 404; unauth → 401; another org\'s siteId → 404',
+      "Flag off → 404; unauth → 401; another org's siteId → 404",
       'A site with no deployed functions + no crons → 200 {data:[], functionsDeployed:false} (honest-empty)',
       'UI: editor Resources → Functions tab renders the list, or an honest empty/disabled card',
     ],
