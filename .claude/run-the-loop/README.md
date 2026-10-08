@@ -9,7 +9,8 @@
 > Organization — three nested loops (micro/product/org), visual-first closed-loop
 > development, golden paths as executable product design, the Browser Operating Layer, the
 > Project Genome, and the 15-minute heartbeat. This README is only the operational wrapper
-> (file map · fire protocol · standing invariants). Conflicts → the constitution wins;
+> (file map · fire protocol · standing invariants). Product-doctrine conflicts → the constitution wins; fleet execution authority above
+> still governs scheduling, workspace, publication and compute;
 > where it is silent on an operational safety fact, this file + `./OPERATING-PRINCIPLES.md`
 > bind.
 >
@@ -153,5 +154,6 @@
 
 ## Fire numbering
 
-- This fire: **fire-59** (constitution bootstrap). Next: **fire-60**. Format
-  `fire-<n>-<slug>` everywhere: lease claims, LEDGER headings, commit messages.
+- Run `node scripts/loop-recent-fires.mjs` before selecting the next numeric fire ID;
+  cross-check actual git history. Fire-59 was the constitution bootstrap, not the current fire.
+  Use `fire-<n>-<slug>` everywhere: lease claims, LEDGER headings, commit messages.
