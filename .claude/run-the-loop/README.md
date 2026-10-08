@@ -1,6 +1,10 @@
 # /run-the-loop — Canonical Home
 
-> **`CONSTITUTION.md` GOVERNS — read it first, every fire.** As of fire-59 (2026-09-30) the
+> **Fleet execution authority:** the execution contract at the top of
+> `.claude/commands/run-the-loop.md` governs scheduling, workspace, publication, and
+> compute routing over conflicting legacy instructions in these docs.
+>
+> **`CONSTITUTION.md` GOVERNS product doctrine — read it first, every fire.** As of fire-59 (2026-09-30) the
 > loop runs under [`./CONSTITUTION.md`](./CONSTITUTION.md): the Autonomous Visual Product
 > Organization — three nested loops (micro/product/org), visual-first closed-loop
 > development, golden paths as executable product design, the Browser Operating Layer, the
@@ -75,12 +79,15 @@
    LIVE: WfP → `x-ps-serve: wfp` + styled 200; admin → real-browser click-around; verify
    Angular deploy by HASH, not grep; 0 console errors, axe-clean. Reconcile
    display-vs-store on every data surface (`groundTruth>0 && display==0` = lying-empty).
-7. **Commit main + push** — straight to `main`; `git add -f` (`.gitignore` blocks `*.md`);
-   conventional-commit + gitmoji IS the PR description; rebase if rejected, NEVER
-   force-push main; merge + delete every worktree AND its branch this fire.
+7. **Commit verified changes** — stage only your paths in the assigned worktree;
+   use `git add -f` for ignored markdown. The outer fleet runner publishes by ordinary
+   fast-forward to main. Do not push, mutate another checkout, or delete worktrees.
+   Failed publication retains commits for the next iteration to inspect and recover.
 8. **Append the LEDGER entry** — `./LEDGER.md`: fire id · what shipped · SHAs · prod proof.
    Tick BACKLOG items (Done only when Acceptance met, with closing SHA + prod proof).
-9. **Release the lease** — `node scripts/loop-fire-lock.mjs release fire-<n>-<slug>`.
+9. **Release the lease and return** — `node scripts/loop-fire-lock.mjs release fire-<n>-<slug>`.
+   Write the non-secret runner `agent-report.json` with observed checks/deployment and
+   blockers. End this iteration; GitHub schedules the next one.
 
 ## Product direction (Brian 2026-10-01 — steers every fire's ranking)
 
@@ -100,14 +107,13 @@
 
 ## Standing invariants
 
-- **Cadence: THIS Claude Code session's harness cron (interim, Brian 2026-10-01 pm).**
-  Job `589089ab` @ `4,19,34,49` fires `/run-the-loop` INTO the open interactive session when
-  idle — visible, zero local daemon, zero new auth. NO launchd/plist/cron on the Mac (removed:
-  it fired invisibly + locally, both rejected). Limitation accepted: only while this session is
-  open + the Mac awake. **DOGFOOD PLAN: migrate to ProjectSites' OWN agent runner once the
-  Browser Operating Layer / autonomous-operations rail ships** (`./BROWSER-OPERATING-LAYER.md`) —
-  "we'll dogfood our own service once it's ready." Cloud interim (GHA `run-the-loop.yml` OR a
-  CF Cron-Triggered container) stays dark until `CLAUDE_CODE_OAUTH_TOKEN` is minted.
+- **Cadence and execution authority:** GitHub Actions owns scheduling/history via
+  `.github/workflows/run-the-loop.yml` (`2,17,32,47 * * * *` UTC), calling the shared
+  fleet workflow at an immutable SHA. Each dispatch runs ONE iteration in its assigned
+  isolated worktree. No session cron or chained fires. Machine configuration/profile
+  and shared `control-plane/FLEET.md` govern runtime routing and persistent state.
+  The execution contract at the top of `.claude/commands/run-the-loop.md` overrides
+  legacy session/main-checkout instructions in the remaining loop docs.
 - **Fire budget ~3M subagent tokens (heavy roster)** — Brian 2026-10-01. Evaluator sweep +
   builders + champion/challenger + multi-critic vision allowed every fire; report spend in
   the LEDGER entry.

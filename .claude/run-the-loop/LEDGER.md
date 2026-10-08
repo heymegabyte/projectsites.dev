@@ -1376,3 +1376,11 @@ Direct directive (not a scheduled fire). Lease fire-303-remove-tinybird-features
 - Durable layer: memory `[[tinybird-always-never-clickhouse]]` reversed for projectsites (Plane scope flagged open); CLAUDE.md "Removed — never reintroduce" updated (Tinybird/ClickHouse + Visual Builder + SEO-editor).
 
 - fire-303 follow-up (non-interactive default): enabled `voice_numbers` via the real admin UI (83/84 on); `abandoned_build_nudge` remains HELD (auto-fires real owner outreach — needs explicit go). Authed ground-truth: voice_numbers=on, nudge=off.
+
+## fire-304 — fleet execution contract reconciliation (2026-10-07)
+
+- Docs + loop-improvement slice: command and README now match the active pinned GitHub fleet workflow: exactly one iteration, isolated assigned worktree, local verified commits, outer-runner main publication, official subscription/direct DeepSeek routing; no session cron, local AI Gateway, Browser Harness or credential mutation.
+- Recovery/orientation: clean detached worktree at `8f276b8c9`, fetched origin/main matches; worktree list contains only this run plus canonical checkout. Log scan found only the current project run receipt, no prior failed project receipts or retained failed worktree to recover. Prior loop Actions successes were inspected as history, not proof of publication.
+- Verification: `node --test scripts/loop-backlog-hygiene.test.mjs scripts/__tests__/loop-fire-lock.smoke.mjs` passed 8/8; `git diff --check` passed. Independent read-only adversarial review corrected residual publication/workspace language. Homepage curl returned HTTP 200; this is availability evidence only.
+- Limitations: no root or worker node_modules directories found. No authenticated golden journey, browser session, screenshot/vision review or runtime deployment performed. Docs-only change; publication remains the outer runner's responsibility. Current CI/CD run `37718168405` has existing editor ESLint failures, recorded in backlog.
+- Next unmet unit: provision approved browser prerequisites in the assigned worktree (existing D-64-1/WS-LOOP-BROWSER-MAIN acceptance), then resume checkpointed case; repair current CI lint failures with fresh verification.
