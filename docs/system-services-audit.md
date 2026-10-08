@@ -68,7 +68,7 @@ Analytics Engine `ANALYTICS` · Workflows `SITE_WORKFLOW`, `SOCIAL_PUBLISH_WORKF
   outranks `operational` so a partial-data fleet never reports "all operational". No lying-green.
 - **Health coverage gap.** `/health/deep` only pings d1/kv/r2/ai. Workflows, Queues,
   Browser, Vectorize, Dispatch, Analytics Engine, and external vendors (Stripe, SES,
-  PostHog, Sentry, Tinybird…) have **no live check** → must show **Unknown + why + last
+  PostHog, Sentry…) have **no live check** → must show **Unknown + why + last
   evidence**, not a green "UP".
 - **Registry↔binding drift.** Confirm every `wrangler.toml` binding has a registry entry
   and vice-versa (a binding with no entry = invisible; an entry with no binding = phantom).

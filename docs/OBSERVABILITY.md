@@ -1,6 +1,6 @@
 # Observability & Analytics
 
-Single reference for logging, tracing, product analytics, error tracking, the analytics warehouse, and AI observability on projectsites.dev. Cloudflare-first: **Workers Analytics Engine is the default analytics plane**; the Axiom + ClickHouse-on-Fly stack below is the documented **Fly escape-hatch** (as-deployed per `ARCHITECTURE.md` + `DEPLOYMENT.md`) used for high-volume structured logs/warehouse where Analytics Engine isn't enough.
+Single reference for logging, tracing, product analytics, error tracking, the analytics warehouse, and AI observability on projectsites.dev. Cloudflare-first: **Workers Analytics Engine + RUM is the analytics plane** (alongside D1 `visitor_events` + PostHog product events); the Axiom + ClickHouse-on-Fly stack below is the documented **Fly escape-hatch** (as-deployed per `ARCHITECTURE.md` + `DEPLOYMENT.md`) used for high-volume structured logs/warehouse where Analytics Engine isn't enough. **Tinybird is REMOVED (2026-10-07, Brian directive) — do not reintroduce it or any ClickHouse-managed-alt as a promotion path.**
 
 ## Stack at a glance
 
@@ -9,11 +9,10 @@ Single reference for logging, tracing, product analytics, error tracking, the an
 | **PostHog Cloud** | Product analytics, flags, session replay, FE error capture | `https://us.i.posthog.com` (`/capture`, `/batch`, `/decide?v=3`) | Funnels, conversion, flag eval, FE errors, replay | High-volume logs, infra metrics |
 | **Axiom** | Primary structured log store | `logs.projectsites.dev` (Axiom Play UI, behind CF Access); ingest `https://api.axiom.co/v1/datasets/{dataset}/ingest` | Every request/response + job log, real-time tail, trace correlation | Product funnels, identity analytics |
 | **OpenTelemetry** | Correlation + transport (no storage) | Workers Tracing → Axiom OTLP `https://api.axiom.co/v1/traces` | trace_id/span_id on every log+event, AI/D1/R2 spans | Storage — transport only |
-| **ClickHouse (Fly.io)** | High-volume analytics warehouse | Single-node Fly VM, HTTP API port 8123 | `page_views`, `events`, `site_builds` at scale; tenant export/delete | Transactional writes, auth state |
-| **Tinybird** | Managed ClickHouse alt (promotion path) | Tinybird Cloud, Events API + Pipe endpoints | Zero-ops / global replication / instant REST; default <100M events/day | — |
+| **ClickHouse (Fly.io)** | High-volume analytics warehouse (Fly escape-hatch only) | Single-node Fly VM, HTTP API port 8123 | `page_views`, `events`, `site_builds` at scale; tenant export/delete | Transactional writes, auth state |
 | **Sentry** | Exception tracking — **LIVE / retained** | `@sentry/cloudflare` (`withSentry`); `SENTRY_DSN` via wrangler secret; `SENTRY_RELEASE` | Unhandled exceptions, grouping, release tracking | High-volume logs, funnels |
 
-Sentry is production (service-registry, `env.ts`, wrangler `SENTRY_DSN`) — focus it on exceptions; Workers Tracing handles I/O spans. ClickHouse default >100M events/day; Tinybird below or zero-ops.
+Sentry is production (service-registry, `env.ts`, wrangler `SENTRY_DSN`) — focus it on exceptions; Workers Tracing handles I/O spans. CF Analytics Engine + RUM is the default plane; the Fly ClickHouse VM is the escape-hatch for >100M events/day. (Tinybird removed 2026-10-07 — no managed-ClickHouse promotion path.)
 
 ## Correlation / trace-id flow
 
@@ -53,9 +52,9 @@ No Node SDK — raw `fetch` + `ctx.waitUntil` (fire-and-forget); helpers in `src
 
 No SDK — raw `fetch` POST of a JSON array; auto-detects fields. Middleware `src/middleware/axiom_logger.ts`, `app.use('*', axiomLogger)` after request-id, fire-and-forget via `waitUntil`. **Required fields:** `_time` (ISO8601), `level`, `service`(=`project-sites`), `env`, `message`, `trace_id`, `span_id`, `request_id` (+`X-Request-Id` header), `tenant_id`, `user_id`, `method`, `path`, `status`, `duration_ms`, `cf_ray` (`CF-Ray`), `service_version` (`env.CF_VERSION_METADATA.id`). Optional: `site_id`, `workflow_id`, `ai_model`, `ai_tokens_in/out`, `error_code`, `error_type`, `cache_hit`. **Retention:** prod 30d, preview 7d, dev 3d. Bills on ingest only.
 
-## ClickHouse / Tinybird (analytics warehouse)
+## ClickHouse (analytics warehouse — Fly escape-hatch; Tinybird removed)
 
-Single-node Fly VM `projectsites-clickhouse`, region `iad`, image `clickhouse/clickhouse-server:24.6-alpine`, volume `clickhouse_data` 50gb at `/var/lib/clickhouse`, port 8123, `auto_stop_machines=false`, `min_machines_running=1`. Worker talks HTTP API only — `src/lib/clickhouse.ts` (`clickhouseQuery`, `clickhouseInsert`) with `X-ClickHouse-User`/`X-ClickHouse-Key`, NDJSON `INSERT … FORMAT JSONEachRow`. **Every table requires `tenant_id UUID NOT NULL`** (isolation, GDPR). Tables (MergeTree, `PARTITION BY toYYYYMM`, 2yr TTL): `page_views`, `events`, `site_builds` (`ReplacingMergeTree`). GDPR export `FORMAT CSVWithNames`; erase via `ALTER TABLE … DELETE WHERE tenant_id=…` + `OPTIMIZE … FINAL`. Backup `clickhouse-backup` → R2 `project-sites-production` path `clickhouse-backups/`, daily 03:00 UTC, keep 7. **Tinybird** is the managed promotion path (export CSV → `tb datasource append` → repoint `CLICKHOUSE_HOST`); prefer Tinybird <100M events/day, Fly >100M/day.
+Single-node Fly VM `projectsites-clickhouse`, region `iad`, image `clickhouse/clickhouse-server:24.6-alpine`, volume `clickhouse_data` 50gb at `/var/lib/clickhouse`, port 8123, `auto_stop_machines=false`, `min_machines_running=1`. Worker talks HTTP API only — `src/lib/clickhouse.ts` (`clickhouseQuery`, `clickhouseInsert`) with `X-ClickHouse-User`/`X-ClickHouse-Key`, NDJSON `INSERT … FORMAT JSONEachRow`. **Every table requires `tenant_id UUID NOT NULL`** (isolation, GDPR). Tables (MergeTree, `PARTITION BY toYYYYMM`, 2yr TTL): `page_views`, `events`, `site_builds` (`ReplacingMergeTree`). GDPR export `FORMAT CSVWithNames`; erase via `ALTER TABLE … DELETE WHERE tenant_id=…` + `OPTIMIZE … FINAL`. Backup `clickhouse-backup` → R2 `project-sites-production` path `clickhouse-backups/`, daily 03:00 UTC, keep 7. (The former Tinybird managed promotion path is REMOVED 2026-10-07 — CF Analytics Engine + RUM is the default plane; the Fly ClickHouse VM is the only warehouse escape-hatch.)
 
 ### Analytics ingestion pipeline
 

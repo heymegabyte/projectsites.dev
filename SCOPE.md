@@ -24,15 +24,16 @@ not the engineering aesthetic.
   Neon (Postgres via Hyperdrive) · Upstash (Redis) · Fly.io (always-on/stateful) · Coolify (self-host >$50/mo).
   **Never** default to Cloud Run / AWS / Vercel / Supabase.
 - **Data placement.** D1 (simple relational) · Neon (true Postgres) · Upstash (Redis) ·
-  **Tinybird for OLAP — never ClickHouse Cloud**. Logical multi-tenancy (`site_id`/`org_id` scoping,
-  one shared DB per many customers); dedicated isolation only for enterprise/compliance.
+  **Cloudflare Analytics Engine for high-volume/OLAP events — never ClickHouse Cloud, never Tinybird**.
+  Logical multi-tenancy (`site_id`/`org_id` scoping, one shared DB per many customers); dedicated
+  isolation only for enterprise/compliance.
 - **Frontend.** Angular 22 (admin/large apps) · React 19 + Vite (small marketing sites). Spartan UI
   only (no PrimeNG/Material). SSR/SSG mandatory for marketing.
 - **Auth.** Better Auth (app IdP + enterprise SSO/SAML) · OpenFGA (authz) · WorkOS (enterprise SSO/SCIM only) ·
   CF Access (internal) · native tenant API tokens (`api_tokens.ts`). `orgId` is server-derived (`c.get('orgId')`), **never** a client header (IDOR).
 - **Payments.** Square-class for accept-money; Stripe for SaaS billing/payouts. Usage metering = Stripe Meter Events (`StripeMetersProvider`) over ProjectSites' canonical D1 ledger; Stripe = collection rail; billing-provider abstraction defaults to noop.
 - **Observability.** Sentry (errors, platform-only — never on customer sites) · Langfuse (AI traces) ·
-  PostHog Cloud (product analytics) · Tinybird (high-volume events) · OTel (traces/metrics/logs).
+  PostHog Cloud (product analytics) · Cloudflare Analytics Engine + RUM (high-volume events) · OTel (traces/metrics/logs).
 - **AI.** Every model call through AI Gateway. Provider tiers: CF/edge model → DeepSeek (volume) →
   Anthropic/OpenAI/Gemini (premium/vision). Promptfoo for evals. AI is permanent + foundational, never optional.
 - **Quality gates (build-breaking).** Zod at every boundary · every post-launch feature behind a typed flag
@@ -42,7 +43,10 @@ not the engineering aesthetic.
 - **Removed — never reintroduce:** Novu (→ psnotify) · Resend/Postmark (→ SES + Listmonk) · Supabase ·
   Lago/OpenMeter/Metronome (→ Stripe Meter Events) · Unkey (→ native `api_tokens`) · Nango (→ native MCP OAuth) ·
   Inngest/Trigger.dev (→ CF Workflows/Queues + Hatchet) · Postiz (→ native social) · Firecrawl/Crawlee (→ Deepcrawl) ·
-  Astro/Nitro/MJML · Skyvern-as-product (internal-only). CI gates block some of these.
+  **Tinybird / ClickHouse** (→ CF Analytics Engine + RUM + D1 + PostHog) · **AI Visual Site Builder (Puck + React Flow / GrapesJS)**
+  (killed — bolt.diy editor is the only visual-edit surface) · **owner-facing post-generation SEO-editor journey**
+  (killed — generation-side SEO build-validators STAY) · Astro/Nitro/MJML · Skyvern-as-product (internal-only).
+  CI gates block some of these. (Last three: Brian directive 2026-10-07, fire-302+.)
 
 ---
 
@@ -84,9 +88,8 @@ not the engineering aesthetic.
 ### Monumental initiatives (1–3 dev-months each — scope as dedicated arcs, not loop passes)
 1. Workers-for-Platforms CF-native full-stack hosting substrate → **Functions** (IN PROGRESS): the removed "AI Agents" dashboard feature is replaced by a code-defined `functions/` folder in the site (file-based routing, JS/TS, npm) hosted on WfP + dispatched at `{slug}.projectsites.dev/api/*`. Spec: ADR-0035 (folder) / ADR-0055 (DECISIONS.md); ledger: `apps/project-sites/docs/FUNCTIONS-CONVERGENCE.md`.
 2. Public Developer API platform (native `api_tokens` + Scalar + Stainless SDKs).
-3. AI-powered visual site builder (Puck + React Flow).
-4. Site Analytics Suite (CF Analytics Engine-first).
-5. Instant preview environments.
+3. Site Analytics Suite (CF Analytics Engine-first).
+4. Instant preview environments.
 - Plus Chatwoot support platform (5-phase roadmap) + the Integrations roadmap (Plane · Twenty · Listmonk · whole-app):
   each app gets a typed, Zod-validated, AGPL-isolated HTTP client + HMAC webhook receiver + rate-limit/retry/idempotency wrapper.
 
@@ -108,7 +111,7 @@ not the engineering aesthetic.
 - **Case-study / showcase pages** — need the real org's consent + approved logo/copy (e.g. njsk.org).
 - **Voice carrier polish** — STIR/SHAKEN attestation + number port-in (voice go-live itself is LIVE).
 - **Enterprise auth** — self-host Better Auth OSS on CF Containers + SCIM.
-- **Dedicated sessions** — frontend perf wave (~30h: zoneless CD, SSR/SSG shell, OnPush, `@defer`, INP<150ms, subscribe-leak fixes, bundle-split) · Puck builder + OpenFGA authz model.
+- **Dedicated sessions** — frontend perf wave (~30h: zoneless CD, SSR/SSG shell, OnPush, `@defer`, INP<150ms, subscribe-leak fixes, bundle-split) · OpenFGA authz model.
 
 ---
 

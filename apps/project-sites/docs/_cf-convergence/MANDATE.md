@@ -173,8 +173,10 @@ implement the safe code path, mark the exact unverified live step, continue inde
   host Access-teammates share ONE workspace; MCP clients need Managed OAuth + allowlisted redirect URIs.
   Issue #268: self-hosted cost responses are discarded → custom actual-cost metering is REQUIRED, not
   preexisting. DataForSEO returns task-level USD cost + account usage.
-- **claimyour.site** (private): AGPL Dub fork on Neon/Upstash/Tinybird + `@dub/*`, `claimyour.site/{key}`
-  redirects. **Slink** (MIT): Workers/KV short-link, single admin password/API key, overwrites, hit
+- **claimyour.site** (private): AGPL Dub fork on Neon/Upstash + `@dub/*`, `claimyour.site/{key}`
+  redirects. (Upstream Dub uses Tinybird for click analytics; OUR convergence does NOT reintroduce
+  Tinybird/ClickHouse — analytics is CF Analytics Engine + RUM + D1, removed 2026-10-07.) **Slink**
+  (MIT): Workers/KV short-link, single admin password/API key, overwrites, hit
   counter, one-time links — unsuitable for multi-tenant as-is. KV is eventually consistent → needs an
   authoritative claim/write model + a product migration, not a rename.
 - **EmDash**: Astro CMS on Workers/D1/R2 + KV sessions + sandboxed plugins via Dynamic Worker Loaders

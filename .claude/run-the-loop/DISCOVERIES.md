@@ -7,6 +7,26 @@
 
 ---
 
+## ⛔ Removed — do not reintroduce (Brian directive 2026-10-07, fire-302+)
+
+> Killed from the roadmap. A future fire MUST NOT rediscover, re-promote, or rebuild these.
+> Mirrors the root `CLAUDE.md` / `SCOPE.md` "Removed — never reintroduce" pattern. If an audit
+> surfaces one of these as a "gap", the correct disposition is **rejected**, not **missing**.
+
+- **AI Visual Site Builder (Puck + React Flow / GrapesJS)** — the drag-and-drop visual page
+  builder is killed. The bolt.diy editor is the ONLY visual-edit surface; never build a parallel
+  Puck/React-Flow/GrapesJS builder. (Was SCOPE monumental-initiative #3 + the parked dedicated
+  session; had ZERO shipped code.)
+- **Owner-facing post-generation SEO-editor journey** (was CBD-gap-4 / gp-register GP-24) — the
+  owner "edit a page's SEO meta → publish → before/after" surface is killed. **Generation-side SEO
+  build-validators STAY** (`build_validators.ts` title/meta/JSON-LD/canonical gates run every build);
+  only the post-gen owner-facing SEO EDITOR is removed.
+- **Tinybird / ClickHouse** (any OLAP/analytics warehouse) — removed as the analytics/observability
+  sink. The data plane is now **D1 + Cloudflare (RUM / Analytics Engine) + PostHog (product events)**.
+  Never reintroduce a Tinybird or ClickHouse datasource, pipe, token, or MCP.
+
+---
+
 ## fire-50 DESIGN Recs (need a design call before coding)
 
 - **Served-time meta-desc validation** — per-route descriptions are client-set (CSR); the build

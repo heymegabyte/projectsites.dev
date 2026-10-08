@@ -51,9 +51,10 @@ types — no more:**
 1. **Custom** — the app's own container (Cloudflare Workers Container).
 2. **Upstash** — Redis (caching / rate-limit / queues), when the app requires it.
 3. **Neon** — Postgres (system of record).
-4. **Tinybird** — analytics / event data, when the app requires it.
+4. **Cloudflare Analytics Engine** (+ RUM + D1) — analytics / event data, when the app requires
+   it. (Tinybird/ClickHouse removed 2026-10-07 — Brian directive.)
 
-If an app needs anything OUTSIDE this set (its own bespoke Cube/ClickHouse analytics
+If an app needs anything OUTSIDE this set (its own bespoke Cube/ClickHouse/Tinybird analytics
 backend, a second custom service, extra Hub services, etc.), it is **NOT supportable** and
 must not be added.
 

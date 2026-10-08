@@ -208,7 +208,7 @@ migration — deploy with eyes on it).
 
 ## Postgres — ALWAYS Neon + Hyperdrive (LAW)
 
-- **Every Postgres database is hosted on Neon.** Never self-host Postgres on the Coolify box, never Fly Postgres. Tinybird/ClickHouse is the analytics OLAP store; Neon is the OLTP store.
+- **Every Postgres database is hosted on Neon.** Never self-host Postgres on the Coolify box, never Fly Postgres. **Cloudflare Analytics Engine** (+ RUM + D1) is the analytics store (Tinybird/ClickHouse removed 2026-10-07); Neon is the OLTP store.
 - **Hyperdrive fronts every Worker→Neon connection** to pool + cache + cut connection latency from the edge. Shard-level Hyperdrive bindings, never one config per site (per `projectsites-cloudflare-first` § Postgres path).
 - **A FRESH Neon Postgres database per application type.** Each distinct app/service gets its own Neon database (not a shared one): projectsites.dev core, the email/listmonk plane, the jobs plane, events, llm-ops, analytics-meta, etc. — each isolated. New app type ⇒ new Neon DB + new Hyperdrive binding. Naming: `neon-{app}-{env}` (e.g. `neon-projectsites-prod`, `neon-listmonk-prod`).
 - D1 stays the edge-hot relational store (tenants/hostnames/flags/rollups); Neon is the escape hatch for true Postgres workloads + per-app isolation.
@@ -226,7 +226,7 @@ All `*.megabyte.space` / internal `*.projectsites.dev` service subdomains are **
 | `events.projectsites.dev` | **Inngest** (self-hosted) | event-driven workflows / fan-out | edge Worker emits; Neon DB `neon-events-prod` |
 | `scan.projectsites.dev` / internal | **Skyvern** | heavy logged-in 12-step agent flows ONLY (CF Access, internal) | NOT default architecture; product uses `browser.projectsites.dev` for routine work |
 | `browser.projectsites.dev` | **Browserless / Playwright grid** | screenshots / visual-QA / scrape fallback tier | the CF-first browser abstraction's self-hosted fallback |
-| (analytics) | **Tinybird** (managed, us-east AWS) | ClickHouse OLAP for high-cardinality per-tenant analytics (Plane H) | secrets stored: `TINYBIRD_*` in get-secret |
+| (analytics) | **Cloudflare Analytics Engine + RUM** | high-cardinality per-tenant analytics (Tinybird/ClickHouse removed 2026-10-07) | native CF bindings; no external secrets |
 | (jobs/orchestration) | **Hatchet** (cloud-hosted, NOT Fly yet) | durable task orchestration | secrets: `HATCHET_API_TOKEN`, `HATCHET_MANAGEMENT_TOKEN` in get-secret |
 
 ### Candidate add-ons (per the brainstorm, lower priority)
@@ -243,4 +243,4 @@ text-embeddings-inference (BGE) · Whisper + Piper/XTTS TTS · Real-ESRGAN + rem
 
 ## Secrets stored this session (get-secret + chezmoi age-encrypted)
 
-`TINYBIRD_API_HOST` · `TINYBIRD_MCP_SERVER` · `TINYBIRD_MCP_TOKEN` · `TINYBIRD_PORT` · `TINYBIRD_HOST` · `TINYBIRD_USERNAME` · `TINYBIRD_PASSWORD` · `TINYBIRD_WORKSPACE_ID` · `HATCHET_API_TOKEN` · `HATCHET_MANAGEMENT_TOKEN` · `CF_API_TOKEN_PROJECTSITES_DEPLOY`. Push to prod Worker secrets when the consuming code lands (`wrangler secret put`, minted-token recipe in `secret-provisioning`).
+`HATCHET_API_TOKEN` · `HATCHET_MANAGEMENT_TOKEN` · `CF_API_TOKEN_PROJECTSITES_DEPLOY`. Push to prod Worker secrets when the consuming code lands (`wrangler secret put`, minted-token recipe in `secret-provisioning`). (The `TINYBIRD_*` secrets are retired — Tinybird/ClickHouse removed 2026-10-07; analytics is CF Analytics Engine + RUM.)

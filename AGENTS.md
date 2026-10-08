@@ -42,8 +42,9 @@ npm run build       # remix vite:build → build/client
 ## Non-obvious invariants (break these = broken build/prod)
 
 - **Cloudflare-first.** Workers/D1/R2/KV/Durable Objects/Workflows first. Neon (Postgres) /
-  Upstash (Redis) / Tinybird (OLAP) are escape hatches only. Self-hosted app SKUs obey the
-  **4-service rule** (see README).
+  Upstash (Redis) are escape hatches only; **Cloudflare Analytics Engine + RUM** is the OLAP/analytics
+  plane (Tinybird/ClickHouse removed 2026-10-07). Self-hosted app SKUs obey the **4-service rule**
+  (see README).
 - **Zod at every trust boundary**; infer types via `z.infer`, never hand-duplicate. Runtime
   validation is not optional because a TS type says so.
 - **Feature modules**: new capabilities live in `apps/project-sites/libs/features/<slug>/` with a

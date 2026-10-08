@@ -690,7 +690,7 @@ Fly.io VMs have persistent processes, native volumes, and multi-process support 
 5. Verify event counts and query performance.
 6. Decommission Fly ClickHouse VM and volume.
 
-**Alternative:** If volume requirements stay moderate (<50M events/day), migrate to Tinybird managed service instead. See [ClickHouse Tinybird promotion path](./OBSERVABILITY.md).
+**Note (2026-10-07):** Tinybird and ClickHouse are REMOVED as the analytics warehouse (Brian directive). The analytics data plane is now **Cloudflare Analytics Engine + RUM + D1 + PostHog (product events)** — do not migrate to or reintroduce a Tinybird/ClickHouse datasource. See [`OBSERVABILITY.md`](./OBSERVABILITY.md).
 
 ### Chatwoot
 

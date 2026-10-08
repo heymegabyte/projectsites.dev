@@ -467,8 +467,9 @@ builds it into its own managed registry, no external registry needed.
 
 An app is only supportable if its ENTIRE data/service plane fits within FOUR service types:
 (1) **Custom** (its own CF Workers Container), (2) **Upstash** Redis, (3) **Neon** Postgres,
-(4) **Tinybird** analytics. Anything outside that set (bespoke ClickHouse/Cube, a second custom
-service, extra Hub services) = **NOT supportable**; do not add it.
+(4) **Cloudflare Analytics Engine** analytics (Tinybird/ClickHouse removed 2026-10-07). Anything
+outside that set (bespoke ClickHouse/Cube/Tinybird, a second custom service, extra Hub services)
+= **NOT supportable**; do not add it.
 
 ## The apps
 

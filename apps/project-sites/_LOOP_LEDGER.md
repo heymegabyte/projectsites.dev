@@ -148,32 +148,12 @@ This is the revenue-facing product layer ON TOP of the native `api_tokens` key-m
 Free tier gets a generous monthly quota. The API IS the paid-tier differentiator — any
 integration, any agent, any automation runs through it.
 
-### 3. AI-Powered Visual Site Builder [2 dev-months]
+### 3. AI-Powered Visual Site Builder — ⛔ KILLED (Brian directive 2026-10-07, fire-302+)
 
-**What:** A drag-and-drop visual page builder (GrapesJS) where AI generates sections and the
-site owner visually rearranges, tweaks, and publishes. This is the third editor view alongside
-code (Monaco) and preview (iframe) — the one non-technical owners actually use.
-
-**Already in place:**
-- `src/services/ide_sandbox.ts` (19K) — sandboxed code execution
-- `src/services/bolt_*.ts` + `editor_chats.ts` — bolt.diy editor integration
-- `src/services/visual_point_edit.ts` feature module — visual editing primitives
-- `src/services/build_validators.ts` (33K) — 13 quality gates that would validate builder output
-- `src/services/site_serving.ts` — the serve path a builder-published site takes
-- `libs/features/generative_ui_stream/` — streaming UI generation
-- `libs/features/edge_personalization/` — per-visitor content adaptation
-
-**Implementation spine:**
-1. GrapesJS integration with custom block types matching generated-site components
-2. Block catalog — heroes, stats, testimonials, pricing tables, FAQ, contact forms, galleries
-3. AI section generation — "add a testimonial section with 3 quotes from my Yelp reviews"
-4. Drag-to-rearrange → updates the Vite+React source (AST-aware, not regex)
-5. Visual-to-code round-trip — edit visually or in code, never out of sync
-6. Real-time preview as-you-edit (iframe hot-reload via Vite HMR)
-7. Undo/redo with version snapshots (reusing `site_branches.ts` + R2 versioning)
-8. Publish-from-builder — one button, same deploy pipeline as AI-generated sites
-9. Component marketplace — community-contributed blocks, installable per site
-10. Mobile-responsive editing — resize the canvas, see breakpoints live
+**REMOVED from the roadmap — do not reintroduce.** The drag-and-drop visual page builder
+(Puck / React Flow / GrapesJS) is killed. The bolt.diy editor is the ONLY visual-edit surface;
+never build a parallel Puck/React-Flow/GrapesJS builder. Had ZERO shipped builder code. See
+`.claude/run-the-loop/DISCOVERIES.md` § Removed + root `SCOPE.md` § Removed.
 
 ### 4. Site Analytics Suite — CF Analytics Engine First [1–2 dev-months]
 
@@ -654,7 +634,7 @@ images per site" invariant is data-driven.
 ## 🛠 Dedicated (real, but needs a supervised focused session)
 
 - [ ] Frontend perf wave (~30h, all-or-nothing): ag-grid→TanStack on both admin grids · zoneless CD · SSR/SSG marketing shell · OnPush on 104 components · `@defer` below-fold · INP <150ms · fix ~30 `.subscribe()` leaks · `@Input()`→signal · `@ngx-translate`→`@angular/localize` · design-token drift · bundle-split Monaco/ECharts/Uppy. [parked]
-- [ ] **Puck** visual page/block builder + **OpenFGA** authz model (orgs/sites/roles/agents) — each a focused session. [parked]
+- [ ] **OpenFGA** authz model (orgs/sites/roles/agents) — a focused session. [parked] (The Puck visual page/block builder that was paired here is KILLED — Brian directive 2026-10-07; see `SCOPE.md` § Removed.)
 
 ---
 

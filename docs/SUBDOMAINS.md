@@ -101,8 +101,8 @@ How earlier service suggestions resolved — adopted, built-native, or deferred:
 
 Loop `987b2ba5` drives each to a live 200 login page. HOSTING (Brian 2026-06-26):
 **CloudFlare Workers Containers** (NOT Fly) + **Neon** (Postgres) + **Upstash** (Redis) +
-**Tinybird** (managed ClickHouse, replaces self-hosted analytics). Each = a Container
-Durable Object (Dockerfile + wrangler `[[containers]]` binding) + explicit
+**Cloudflare Analytics Engine + RUM** (the analytics data plane; Tinybird/ClickHouse removed).
+Each = a Container Durable Object (Dockerfile + wrangler `[[containers]]` binding) + explicit
 `<sub>.projectsites.dev/*` route beating the wildcard + DNS. All currently **404**.
 
 | Subdomain | Service | What it is | Status |
@@ -114,6 +114,6 @@ Durable Object (Dockerfile + wrangler `[[containers]]` binding) + explicit
 | Enterprise SSO / SCIM | **Better Auth** | Enterprise SSO + SCIM provisioning | **code built** — `auth/better-auth.ts` (ADR-0006), dark behind `BETTER_AUTH_*` |
 
 Per-deploy (CF Workers Container): official image → `Dockerfile` + `wrangler.toml` `[[containers]]`
-+ a Container-DO class → Neon DB `projectsites_<svc>` → Upstash Redis → analytics → Tinybird
++ a Container-DO class → Neon DB `projectsites_<svc>` → Upstash Redis → analytics → CF Analytics Engine
 → `wrangler secret put` → first-boot migrate → explicit CF route + DNS → verify `200` login.
 NOTE: `infra/fly/plane/fly.toml` is the Fly-era draft — convert to a CF Container next fire.
