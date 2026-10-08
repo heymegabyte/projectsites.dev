@@ -315,7 +315,7 @@ interface PsMessage {
   readonly q?: string;
   /** PS_RES_MEDIA (Resources tab, delete): the media asset id to soft-delete. */
   readonly assetId?: string;
-  /** PS_RES_AUTOMATION_RETRY (Resources → Automations): the failed workflow_jobs instance id to re-run. */
+  /** PS_RES_AUTOMATION_RETRY / PS_RES_AUTOMATION_CANCEL (Resources → Automations): the workflow_jobs instance id to re-run / cancel. */
   readonly automationId?: string;
   /**
    * PS_RES_MEDIA_UPLOAD (Resources tab): the upload's display file name — reuses the shared `name`
@@ -3291,6 +3291,59 @@ export class BoltEmbedService {
                   reply({ ok: false, error: m });
                 } else {
                   reply({ ok: false, error: 'Could not re-run this automation.' });
+                }
+              },
+            });
+          break;
+        }
+        case 'PS_RES_AUTOMATION_CANCEL': {
+          // Resources → Automations (CANCEL) — the MIRROR of PS_RES_AUTOMATION_RETRY. The embedded
+          // editor has no cross-origin session, so it asks US (we hold currentSite + the ApiService
+          // bearer) to CANCEL one running/queued automation by flipping its workflow_jobs row to
+          // cancelled + best-effort terminating the instance via
+          // POST /api/sites/:id/automations/:automationId/cancel (slice 4). Reply
+          // PS_RES_AUTOMATION_CANCEL_RESULT. DARK behind `site_automations` → a 404 translates to
+          // {ok:false,enabled:false}; a 409 (job already terminal) surfaces its human message.
+          const iframe = this.iframeEl;
+          const site = this.currentSite;
+          const cid = msg.correlationId;
+          const reply = (payload: Record<string, unknown>): void => {
+            iframe?.contentWindow?.postMessage(
+              { type: 'PS_RES_AUTOMATION_CANCEL_RESULT', correlationId: cid, ...payload },
+              EDITOR_BASE,
+            );
+          };
+          if (!site) {
+            reply({ ok: false, error: 'No site selected' });
+            break;
+          }
+          const automationId = typeof msg.automationId === 'string' ? msg.automationId : '';
+          if (!automationId) {
+            reply({ ok: false, error: 'Missing automation id' });
+            break;
+          }
+          // Worker `.../cancel` → `{ ok:true, status:'cancelled' }` (200).
+          this.api
+            .post<{ ok?: boolean; status?: string }>(
+              `/sites/${site.id}/automations/${encodeURIComponent(automationId)}/cancel`,
+              {},
+              { silent: true },
+            )
+            .subscribe({
+              next: (res) => reply({ ok: true, status: res?.status ?? 'cancelled' }),
+              error: (err: unknown) => {
+                // 404 = dark/absent flag (friendly disabled). A 409 carries a human "already <status>"
+                // message the editor surfaces verbatim (e.g. the job already finished).
+                if (err instanceof HttpErrorResponse && err.status === 404) {
+                  reply({ ok: false, enabled: false });
+                } else if (err instanceof HttpErrorResponse && err.status === 409) {
+                  const m =
+                    typeof err.error?.error?.message === 'string'
+                      ? err.error.error.message
+                      : 'This automation can no longer be cancelled.';
+                  reply({ ok: false, error: m });
+                } else {
+                  reply({ ok: false, error: 'Could not cancel this automation.' });
                 }
               },
             });

@@ -45,3 +45,26 @@ export const RetryAutomationResponse = z.object({
   status: z.literal('building'),
 });
 export type RetryAutomationResponse = z.infer<typeof RetryAutomationResponse>;
+
+/**
+ * Route params for POST /api/sites/:siteId/automations/:id/cancel — the CANCEL mutation.
+ * Same shape as {@link RetryAutomationParams} (both ids opaque non-empty strings — site id +
+ * the running/queued `workflow_jobs` instance id); the handler owns ownership + flag gating.
+ */
+export const CancelAutomationParams = z.object({
+  siteId: z.string().min(1).max(128),
+  id: z.string().min(1).max(128),
+});
+export type CancelAutomationParams = z.infer<typeof CancelAutomationParams>;
+
+/**
+ * Response envelope for the cancel mutation. The job row is flipped to the terminal
+ * `cancelled` state (+ `cancel_requested=1`); the CF Workflow instance is best-effort
+ * terminated. Never fakes success — the row cancel is the authoritative, honest outcome.
+ */
+export const CancelAutomationResponse = z.object({
+  ok: z.literal(true),
+  /** The terminal status the job was flipped to. */
+  status: z.literal('cancelled'),
+});
+export type CancelAutomationResponse = z.infer<typeof CancelAutomationResponse>;

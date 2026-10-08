@@ -28,6 +28,7 @@ import { PanelShell, PanelHeader } from './panel';
 import {
   isEmbedded,
   postToastToParent,
+  requestAutomationCancel,
   requestAutomationRetry,
   requestAutomations,
   type AutomationEntry,
@@ -213,6 +214,19 @@ export const AutomationsPanel = memo(() => {
   const [retryingIds, setRetryingIds] = useState<ReadonlySet<string>>(() => new Set());
 
   /**
+   * Ids currently mid-cancel — the Cancel button shows a spinner + is disabled while the
+   * cancel is in flight (idempotency guard against a double-fire, mirroring `retryingIds`).
+   */
+  const [cancellingIds, setCancellingIds] = useState<ReadonlySet<string>>(() => new Set());
+
+  /**
+   * Ids whose Cancel control is ARMED (first click) and awaiting a confirming second click —
+   * the lightweight in-row confirm for this destructive-ish action (per `embarrassingly-easy`:
+   * guard a stop without a heavyweight modal; a stray click can't abort a build).
+   */
+  const [armedCancelIds, setArmedCancelIds] = useState<ReadonlySet<string>>(() => new Set());
+
+  /**
    * Re-run a failed automation. Optimistically flips the row to `running` (the rebuild is
    * dispatching), calls the parent bridge op, and on error reverts the row to `failed` +
    * toasts the reason (per `embarrassingly-easy` — instant feedback, reversible, never a
@@ -271,6 +285,89 @@ export const AutomationsPanel = memo(() => {
       });
     }
   }, []);
+
+  /**
+   * Cancel a running/queued automation — the MIRROR of {@link retryAutomation}. Two-step: the FIRST
+   * click just ARMS the row's Cancel control (asks to confirm — never a surprise stop); a confirming
+   * SECOND click runs here. Optimistically flips the row to `cancelled` (it's stopping), calls the
+   * parent bridge op, and on error reverts the row to `running` + toasts the reason (per
+   * `embarrassingly-easy` — instant feedback, reversible, never a dead control). The visibility-aware
+   * poll reconciles the real status shortly after. Disarms the control whatever the outcome.
+   */
+  const cancelAutomation = useCallback(
+    async (id: string) => {
+      if (!isEmbedded) {
+        return;
+      }
+
+      // First click arms; the confirming second click proceeds (the control re-renders its label).
+      if (!armedCancelIds.has(id)) {
+        setArmedCancelIds((cur) => new Set(cur).add(id));
+        return;
+      }
+
+      // Consume the armed state immediately so the button can't double-fire.
+      setArmedCancelIds((cur) => {
+        const next = new Set(cur);
+        next.delete(id);
+
+        return next;
+      });
+
+      // Remember the pre-cancel status so an error can revert to EXACTLY what it was (running/queued).
+      const prevStatus =
+        state.status === 'ready' ? state.automations.find((a) => a.id === id)?.status ?? 'running' : 'running';
+
+      setCancellingIds((cur) => new Set(cur).add(id));
+      // Optimistic: show the row as cancelled immediately so the UI responds the instant it's confirmed.
+      setState((cur) =>
+        cur.status === 'ready'
+          ? {
+              ...cur,
+              automations: cur.automations.map((a) => (a.id === id ? { ...a, status: 'cancelled' } : a)),
+            }
+          : cur,
+      );
+
+      try {
+        const reply = await requestAutomationCancel(id);
+
+        if (reply.ok) {
+          postToastToParent('success', 'Cancelling — this automation is stopping.');
+          return;
+        }
+
+        // Revert the optimistic flip back to the prior in-flight status so Cancel stays available.
+        setState((cur) =>
+          cur.status === 'ready'
+            ? {
+                ...cur,
+                automations: cur.automations.map((a) => (a.id === id ? { ...a, status: prevStatus } : a)),
+              }
+            : cur,
+        );
+        postToastToParent('error', reply.error || 'Could not cancel this automation.');
+      } catch (err) {
+        setState((cur) =>
+          cur.status === 'ready'
+            ? {
+                ...cur,
+                automations: cur.automations.map((a) => (a.id === id ? { ...a, status: prevStatus } : a)),
+              }
+            : cur,
+        );
+        postToastToParent('error', err instanceof Error ? err.message : 'Could not cancel this automation.');
+      } finally {
+        setCancellingIds((cur) => {
+          const next = new Set(cur);
+          next.delete(id);
+
+          return next;
+        });
+      }
+    },
+    [armedCancelIds, state],
+  );
 
   /** Load (or reload) the site's automations. */
   const loadAutomations = useCallback(async () => {
@@ -404,6 +501,9 @@ export const AutomationsPanel = memo(() => {
                   automation={a}
                   retrying={retryingIds.has(a.id)}
                   onRetry={() => void retryAutomation(a.id)}
+                  cancelling={cancellingIds.has(a.id)}
+                  cancelArmed={armedCancelIds.has(a.id)}
+                  onCancel={() => void cancelAutomation(a.id)}
                 />
               ))}
             </ul>
@@ -524,12 +624,29 @@ AutomationsFilterBar.displayName = 'AutomationsPanel.FilterBar';
 // ── Row ──────────────────────────────────────────────────────────────────────
 
 const AutomationRow = memo(
-  ({ automation, retrying, onRetry }: { automation: AutomationEntry; retrying: boolean; onRetry: () => void }) => {
+  ({
+    automation,
+    retrying,
+    onRetry,
+    cancelling,
+    cancelArmed,
+    onCancel,
+  }: {
+    automation: AutomationEntry;
+    retrying: boolean;
+    onRetry: () => void;
+    cancelling: boolean;
+    cancelArmed: boolean;
+    onCancel: () => void;
+  }) => {
     const sm = statusMeta(automation.status);
     const created = formatRelativeTime(automation.created_at);
     const finished = formatRelativeTime(automation.finished_at);
     // Only a FAILED automation can be re-run (per statusBucket — the triage grouping).
     const canRetry = statusBucket(automation.status) === 'failed';
+    // Only an IN-FLIGHT automation (running / queued / pending / processing — the "running" bucket)
+    // can be cancelled. Retry (failed) + cancel (running) are disjoint — a row never offers both.
+    const canCancel = statusBucket(automation.status) === 'running';
 
     return (
       <li
@@ -557,6 +674,43 @@ const AutomationRow = memo(
             {!created && !finished && <span>{automation.id}</span>}
           </p>
         </div>
+
+        {/* Cancel — only on IN-FLIGHT rows: stop a running/queued job (two-step confirm, destructive accent). */}
+        {canCancel && (
+          <button
+            type="button"
+            onClick={onCancel}
+            disabled={cancelling}
+            data-testid="automation-cancel"
+            aria-label={
+              cancelling ? 'Cancelling automation' : cancelArmed ? 'Confirm cancel this automation' : 'Cancel this automation'
+            }
+            title={cancelling ? 'Cancelling…' : cancelArmed ? 'Click again to confirm' : 'Cancel this automation'}
+            className={classNames(
+              'inline-flex items-center justify-center gap-1 rounded-md border font-medium shrink-0 select-none',
+              'transition-colors duration-150 motion-reduce:transition-none',
+              'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-1 focus-visible:ring-offset-bolt-elements-background-depth-1 focus-visible:ring-red-400',
+              'min-h-[24px] px-1.5 py-0.5 text-[10px]',
+              cancelling
+                ? 'border-red-400/40 text-red-400/70 cursor-wait'
+                : cancelArmed
+                  ? 'border-red-400/70 bg-red-500/[0.14] text-red-300 cursor-pointer hover:bg-red-500/[0.2]'
+                  : 'border-red-400/40 text-red-400 cursor-pointer hover:bg-red-500/[0.12] hover:border-red-400/60',
+            )}
+          >
+            <div
+              className={classNames(
+                cancelling ? 'i-ph:circle-notch animate-spin motion-reduce:animate-none' : 'i-ph:x-circle',
+                'text-[11px]',
+              )}
+              aria-hidden
+            />
+            {/* Reserve the widest label ("Cancelling…") so the button never resizes across its states. */}
+            <span className="inline-block text-center min-w-[7ch]">
+              {cancelling ? 'Cancelling…' : cancelArmed ? 'Confirm?' : 'Cancel'}
+            </span>
+          </button>
+        )}
 
         {/* Re-run — only on FAILED rows: turns the log into a managed surface (re-dispatch the build). */}
         {canRetry && (

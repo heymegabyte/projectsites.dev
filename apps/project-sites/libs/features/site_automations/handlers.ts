@@ -22,6 +22,15 @@
  *     Re-dispatches the site's SITE_WORKFLOW the SAME way POST /api/sites/:id/reset does
  *     (reDispatchSiteWorkflow). Refuses with 409 when a build is already in flight.
  *     Returns: { ok:true, status:'building' }
+ *
+ *   POST /api/sites/:siteId/automations/:id/cancel  (RES-AUTO slice 4 — the CANCEL mutation)
+ *     Flag: site_automations — 404 if off (gated identically to the GET/retry)
+ *     Auth: orgId from c.get('orgId') — 401 if missing
+ *     Owner: assertSiteOwned — 404 if cross-org / missing (IDOR guard)
+ *     Loads the owned `workflow_jobs` row; only a running/queued (in-flight) job is cancellable
+ *     (409 otherwise). Flips the row to status='cancelled' + cancel_requested=1 and best-effort
+ *     terminates the CF Workflow instance (cancelSiteWorkflow). Never fakes success.
+ *     Returns: { ok:true, status:'cancelled' }
  */
 import { Hono } from 'hono';
 import { conflict } from '@project-sites/shared';
@@ -29,8 +38,15 @@ import type { Env, Variables } from '../../../src/types/env.js';
 import { isFlagOn } from '../../../src/modules/feature_flags/services.js';
 import { assertSiteOwned } from '../../../src/services/site_ownership.js';
 import { dbQueryOne } from '../../../src/services/db.js';
-import { listSiteAutomations, reDispatchSiteWorkflow, type RetryableSite } from './service.js';
-import { RetryAutomationParams } from './schemas.js';
+import {
+  cancelSiteWorkflow,
+  isCancellableJobStatus,
+  listSiteAutomations,
+  reDispatchSiteWorkflow,
+  type CancellableJob,
+  type RetryableSite,
+} from './service.js';
+import { CancelAutomationParams, RetryAutomationParams } from './schemas.js';
 
 const FLAG_KEY = 'site_automations';
 
@@ -120,6 +136,75 @@ siteAutomations.post('/api/sites/:siteId/automations/:id/retry', async (c) => {
     actorId: c.get('userId') ?? null,
     requestId: c.get('requestId') ?? null,
     automationId,
+  });
+
+  return c.json({ ok: true, status: result.status }, 200);
+});
+
+/**
+ * POST /api/sites/:siteId/automations/:id/cancel — cancel a RUNNING/QUEUED automation. The MIRROR
+ * of the retry route (same gate order): flip the owned `workflow_jobs` row to the terminal
+ * `cancelled` state + raise `cancel_requested`, then best-effort terminate the CF Workflow instance
+ * (cancelSiteWorkflow). Gated by the SAME flag as the GET/retry (404 when off); IDOR-guarded via
+ * assertSiteOwned; refuses (409) when the job is already terminal (success/failed/cancelled) so a
+ * stale click can't "cancel" a finished job. Never fakes success — the row flip is authoritative.
+ */
+siteAutomations.post('/api/sites/:siteId/automations/:id/cancel', async (c) => {
+  // ── Feature flag gate (identical to the GET/retry — never leaks existence) ──
+  if (!(await isFlagOn(c.env, FLAG_KEY, {}))) {
+    return c.json({ error: { code: 'NOT_FOUND' } }, 404);
+  }
+
+  // ── Auth ─────────────────────────────────────────────────────────────────
+  const orgId = c.get('orgId');
+  if (!orgId) {
+    return c.json({ error: { code: 'UNAUTHORIZED' } }, 401);
+  }
+
+  // ── Validate params (Zod boundary) ───────────────────────────────────────
+  const parsed = CancelAutomationParams.safeParse(c.req.param());
+  if (!parsed.success) {
+    return c.json({ error: { code: 'BAD_REQUEST' } }, 400);
+  }
+  const { siteId, id: automationId } = parsed.data;
+
+  // ── Ownership check (IDOR guard) ─────────────────────────────────────────
+  if (!(await assertSiteOwned(c.env, orgId, siteId))) {
+    return c.json({ error: { code: 'NOT_FOUND' } }, 404);
+  }
+
+  // Load the targeted job, hard-scoped to the OWNED site so another site's job can't be cancelled.
+  const job = await dbQueryOne<CancellableJob>(
+    c.env.DB,
+    `SELECT id, site_id, status
+       FROM workflow_jobs
+      WHERE id = ? AND site_id = ? AND deleted_at IS NULL`,
+    [automationId, siteId],
+  );
+  if (!job) {
+    // Owned site per assertSiteOwned, but no such job row for it → 404 (not a cross-tenant leak).
+    return c.json({ error: { code: 'NOT_FOUND' } }, 404);
+  }
+
+  // Only an in-flight job is cancellable — a terminal row can't be "cancelled" (mirrors retry's 409).
+  if (!isCancellableJobStatus(job.status)) {
+    throw conflict(
+      `This automation is already ${job.status} — only a running or queued automation can be cancelled.`,
+    );
+  }
+
+  // Resolve the slug for a human audit message (best-effort; never blocks the cancel).
+  const site = await dbQueryOne<{ slug: string | null }>(
+    c.env.DB,
+    'SELECT slug FROM sites WHERE id = ? LIMIT 1',
+    [siteId],
+  );
+
+  const result = await cancelSiteWorkflow(c.env, siteId, job, {
+    orgId,
+    actorId: c.get('userId') ?? null,
+    requestId: c.get('requestId') ?? null,
+    slug: site?.slug ?? null,
   });
 
   return c.json({ ok: true, status: result.status }, 200);

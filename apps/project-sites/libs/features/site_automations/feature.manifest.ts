@@ -22,6 +22,7 @@ export default defineFeatureManifest({
   apiRoutes: [
     'GET /api/sites/:siteId/automations',
     'POST /api/sites/:siteId/automations/:id/retry',
+    'POST /api/sites/:siteId/automations/:id/cancel',
   ],
 
   permissions: ['sites:read', 'sites:write'],
@@ -31,6 +32,7 @@ export default defineFeatureManifest({
   unitTests: [
     'src/__tests__/site_automations_route.test.ts',
     'src/__tests__/site_automations_retry_route.test.ts',
+    'src/__tests__/site_automations_cancel_route.test.ts',
   ],
   integrationTests: [],
   testStatus: 'passing',

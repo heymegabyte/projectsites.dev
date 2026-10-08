@@ -15,16 +15,20 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import React from 'react';
 
-const { requestAutomations, requestAutomationRetry, postToastToParent } = vi.hoisted(() => ({
-  requestAutomations: vi.fn(),
-  requestAutomationRetry: vi.fn(),
-  postToastToParent: vi.fn(),
-}));
+const { requestAutomations, requestAutomationRetry, requestAutomationCancel, postToastToParent } = vi.hoisted(
+  () => ({
+    requestAutomations: vi.fn(),
+    requestAutomationRetry: vi.fn(),
+    requestAutomationCancel: vi.fn(),
+    postToastToParent: vi.fn(),
+  }),
+);
 
 vi.mock('~/lib/embed/embedded-mode', () => ({
   isEmbedded: true,
   requestAutomations,
   requestAutomationRetry,
+  requestAutomationCancel,
   postToastToParent,
 }));
 
@@ -37,6 +41,7 @@ import { AutomationsPanel } from './AutomationsPanel';
 beforeEach(() => {
   requestAutomations.mockReset();
   requestAutomationRetry.mockReset();
+  requestAutomationCancel.mockReset();
   postToastToParent.mockReset();
 });
 
@@ -260,5 +265,132 @@ describe('AutomationsPanel — Re-run (retry mutation)', () => {
     expect(postToastToParent).toHaveBeenCalledWith('error', expect.stringMatching(/already in progress/i));
     // The row reverts to failed → the Re-run control is still available for another try.
     await waitFor(() => expect(screen.getByTestId('automation-retry')).toBeTruthy());
+  });
+});
+
+describe('AutomationsPanel — Cancel (cancel mutation)', () => {
+  const runningRow = {
+    id: 'job-running',
+    type: 'site-generation',
+    status: 'running',
+    created_at: new Date(Date.now() - 60_000).toISOString(),
+    finished_at: null,
+  };
+  const queuedRow = {
+    id: 'job-queued',
+    type: 'image-generation',
+    status: 'queued',
+    created_at: new Date().toISOString(),
+    finished_at: null,
+  };
+  const okRow = {
+    id: 'job-ok',
+    type: 'deploy',
+    status: 'success',
+    created_at: new Date().toISOString(),
+    finished_at: new Date().toISOString(),
+  };
+  const failedRow = {
+    id: 'job-failed',
+    type: 'site-generation',
+    status: 'failed',
+    created_at: new Date().toISOString(),
+    finished_at: new Date().toISOString(),
+  };
+
+  it('shows a Cancel control ONLY on running/queued rows (not on succeeded/failed)', async () => {
+    requestAutomations.mockResolvedValue({
+      type: 'PS_RES_AUTOMATIONS_RESULT',
+      ok: true,
+      automations: [runningRow, queuedRow, okRow, failedRow],
+    });
+
+    render(<AutomationsPanel />);
+    await waitFor(() => expect(screen.getByTestId('automations-list')).toBeTruthy());
+
+    // One Cancel control per in-flight row (running + queued) — not on the terminal rows.
+    const cancels = screen.getAllByTestId('automation-cancel');
+    expect(cancels.length).toBe(2);
+    // The terminal failed row still shows its Re-run control (cancel + retry are disjoint).
+    expect(screen.getByTestId('automation-retry')).toBeTruthy();
+  });
+
+  it('requires a two-step confirm: first click arms, does NOT call the bridge', async () => {
+    requestAutomations.mockResolvedValue({
+      type: 'PS_RES_AUTOMATIONS_RESULT',
+      ok: true,
+      automations: [runningRow],
+    });
+
+    render(<AutomationsPanel />);
+    await waitFor(() => expect(screen.getByTestId('automation-cancel')).toBeTruthy());
+
+    await act(async () => {
+      fireEvent.click(screen.getByTestId('automation-cancel'));
+    });
+
+    // Armed (asks to confirm) — the destructive op is NOT yet sent.
+    expect(requestAutomationCancel).not.toHaveBeenCalled();
+    expect(screen.getByTestId('automation-cancel').textContent).toMatch(/confirm|sure/i);
+  });
+
+  it('second click confirms → calls the bridge op with the job id + optimistically flips to cancelled', async () => {
+    requestAutomations.mockResolvedValue({
+      type: 'PS_RES_AUTOMATIONS_RESULT',
+      ok: true,
+      automations: [runningRow],
+    });
+    requestAutomationCancel.mockResolvedValue({
+      type: 'PS_RES_AUTOMATION_CANCEL_RESULT',
+      ok: true,
+      status: 'cancelled',
+    });
+
+    render(<AutomationsPanel />);
+    await waitFor(() => expect(screen.getByTestId('automation-cancel')).toBeTruthy());
+
+    // Arm, then confirm.
+    await act(async () => {
+      fireEvent.click(screen.getByTestId('automation-cancel'));
+    });
+    await act(async () => {
+      fireEvent.click(screen.getByTestId('automation-cancel'));
+    });
+
+    expect(requestAutomationCancel).toHaveBeenCalledWith('job-running');
+    // Optimistic: the row is no longer in-flight (flipped to cancelled) → the Cancel control is gone.
+    await waitFor(() => expect(screen.queryByTestId('automation-cancel')).toBeNull());
+    expect(postToastToParent).toHaveBeenCalledWith('success', expect.stringMatching(/cancel/i));
+  });
+
+  it('reverts + keeps the Cancel control + toasts on a cancel error (no optimistic flip stuck)', async () => {
+    requestAutomations.mockResolvedValue({
+      type: 'PS_RES_AUTOMATIONS_RESULT',
+      ok: true,
+      automations: [runningRow],
+    });
+    requestAutomationCancel.mockResolvedValue({
+      type: 'PS_RES_AUTOMATION_CANCEL_RESULT',
+      ok: false,
+      error: 'This automation is already success.',
+    });
+
+    render(<AutomationsPanel />);
+    await waitFor(() => expect(screen.getByTestId('automation-cancel')).toBeTruthy());
+
+    await act(async () => {
+      fireEvent.click(screen.getByTestId('automation-cancel'));
+    });
+    await act(async () => {
+      fireEvent.click(screen.getByTestId('automation-cancel'));
+    });
+
+    expect(requestAutomationCancel).toHaveBeenCalledWith('job-running');
+    expect(postToastToParent).toHaveBeenCalledWith('error', expect.stringMatching(/already success/i));
+    // The row reverts to running → the Cancel control is still available for another try.
+    await waitFor(() => expect(screen.getByTestId('automation-cancel')).toBeTruthy());
+    // And it re-disarmed back to the plain "Cancel" label (not stuck in the confirm state).
+    expect(screen.getByTestId('automation-cancel').textContent).toMatch(/cancel/i);
+    expect(screen.getByTestId('automation-cancel').textContent).not.toMatch(/confirm|sure/i);
   });
 });

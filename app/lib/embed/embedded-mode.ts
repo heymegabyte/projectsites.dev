@@ -2075,6 +2075,31 @@ export interface AutomationRetryResponseMessage {
   error?: string;
 }
 
+/**
+ * Child → Parent: CANCEL one automation — stop a RUNNING/QUEUED job by flipping its
+ * `workflow_jobs` row to `cancelled` + best-effort terminating the CF Workflow instance. The
+ * admin proxies to `POST /api/sites/:id/automations/:automationId/cancel` (RES-AUTO slice 4).
+ * Mirrors {@link AutomationRetryRequestMessage} 1:1.
+ */
+export interface AutomationCancelRequestMessage {
+  type: 'PS_RES_AUTOMATION_CANCEL';
+  correlationId: string;
+  /** The running/queued `workflow_jobs` instance id to cancel. */
+  automationId: string;
+}
+
+/** Parent → Child: the admin's reply to {@link AutomationCancelRequestMessage}. */
+export interface AutomationCancelResponseMessage {
+  type: 'PS_RES_AUTOMATION_CANCEL_RESULT';
+  correlationId?: string;
+  ok: boolean;
+  /** The terminal status the job flipped to on success (`'cancelled'`). */
+  status?: string;
+  /** `false` when the surface's flag is off (dark-flag 404). */
+  enabled?: boolean;
+  error?: string;
+}
+
 /*
  * ── Resources Buckets bridge messages (Resources → Buckets tab) ─────────────────────────────────
  *
@@ -2393,6 +2418,7 @@ export type ParentToChildMessage =
   | ResSiteFilesResponseMessage
   | AutomationsResponseMessage
   | AutomationRetryResponseMessage
+  | AutomationCancelResponseMessage
   | R2ResponseMessage
   | BucketUploadResponseMessage
   | BucketDownloadResponseMessage
@@ -2439,6 +2465,7 @@ export type ChildToParentMessage =
   | ResSiteFilesRequestMessage
   | AutomationsRequestMessage
   | AutomationRetryRequestMessage
+  | AutomationCancelRequestMessage
   | R2RequestMessage
   | BucketUploadRequestMessage
   | BucketDownloadRequestMessage
@@ -3236,6 +3263,20 @@ export function requestAutomationRetry(automationId: string): Promise<Automation
   return requestFromParent<AutomationRetryResponseMessage>(
     { type: 'PS_RES_AUTOMATION_RETRY', correlationId: nextBridgeCorrelationId(), automationId },
     'PS_RES_AUTOMATION_RETRY_RESULT',
+  );
+}
+
+/**
+ * Resources → Automations: ask the parent admin to CANCEL one running/queued automation (stop the
+ * job + best-effort terminate the workflow instance). Resolves with the parent's
+ * {@link AutomationCancelResponseMessage} (the admin proxies to
+ * `POST /api/sites/:id/automations/:automationId/cancel`). DARK behind `site_automations` →
+ * `{ok:false, enabled:false}`. Mirrors {@link requestAutomationRetry}.
+ */
+export function requestAutomationCancel(automationId: string): Promise<AutomationCancelResponseMessage> {
+  return requestFromParent<AutomationCancelResponseMessage>(
+    { type: 'PS_RES_AUTOMATION_CANCEL', correlationId: nextBridgeCorrelationId(), automationId },
+    'PS_RES_AUTOMATION_CANCEL_RESULT',
   );
 }
 

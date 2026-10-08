@@ -171,3 +171,121 @@ export async function reDispatchSiteWorkflow(
 
   return { status: 'building', workflowInstanceId };
 }
+
+/** The one `workflow_jobs` row the cancel needs (the owned job targeted by id + site). */
+export interface CancellableJob {
+  id: string;
+  site_id: string;
+  status: string;
+}
+
+/**
+ * The raw `workflow_jobs` states that are still in flight → cancellable. A terminal row
+ * (`success`/`failed`/`cancelled`) is NOT cancellable (the handler 409s). `building`/`generating`
+ * are accepted defensively — they're SITE statuses, not job statuses, but a future job writer
+ * could use them and a cancel of an in-flight job should never be refused on a technicality.
+ */
+const CANCELLABLE_JOB_STATES: ReadonlySet<string> = new Set([
+  'queued',
+  'running',
+  'pending',
+  'processing',
+  'building',
+  'generating',
+]);
+
+/** Whether a `workflow_jobs.status` is an in-flight (cancellable) state (pure — testable). */
+export function isCancellableJobStatus(status: string | null | undefined): boolean {
+  return CANCELLABLE_JOB_STATES.has((status || '').toLowerCase());
+}
+
+/** Outcome of a cancel (surfaced to the caller + the UI). */
+export interface CancelResult {
+  /** The terminal status the job row was flipped to. */
+  status: 'cancelled';
+  /** Whether the CF Workflow instance was cleanly terminated (best-effort; false when unbound / already terminal). */
+  terminated: boolean;
+}
+
+/**
+ * Cancel a running/queued automation — the CANCEL action behind the Automations panel. The
+ * MIRROR of {@link reDispatchSiteWorkflow} (reuse-not-reimplement): flip the `workflow_jobs` row
+ * to the terminal `status='cancelled'` + set `cancel_requested=1` (so a long-running instance the
+ * binding can't cleanly abort mid-step can poll + bail cooperatively), best-effort TERMINATE the CF
+ * Workflow instance (resolved from `sites.latest_workflow_instance`, falling back to the site id —
+ * the SAME resolution `GET /api/sites/:id/workflow` uses), and write the audit trail. Graceful when
+ * `env.SITE_WORKFLOW` is unbound or `terminate()` throws (CF throws for an already terminal/complete
+ * instance) — the row cancel + flag still stand. NEVER fakes success: the row flip is the
+ * authoritative, honest outcome; `terminated` reports whether the instance abort landed.
+ *
+ * Ownership + flag gating + the cancellable-state check are the CALLER's responsibility
+ * (`assertSiteOwned` + `isFlagOn` + the 409 guard in the handler) — this service assumes the job is
+ * owned and in a cancellable state.
+ *
+ * @param env - Worker env (uses `env.DB` + optional `env.SITE_WORKFLOW`).
+ * @param siteId - The owned site id the job belongs to (from `assertSiteOwned`).
+ * @param job - The owned, cancellable `workflow_jobs` row.
+ * @param ctx - The requesting actor + the site slug (for the audit record).
+ * @returns `{ status:'cancelled', terminated }`.
+ */
+export async function cancelSiteWorkflow(
+  env: Env,
+  siteId: string,
+  job: CancellableJob,
+  ctx: { orgId: string; actorId: string | null; requestId: string | null; slug: string | null },
+): Promise<CancelResult> {
+  // Flip the job to the terminal cancelled state + raise the cooperative cancel flag FIRST, so the
+  // UI + any polling instance see it immediately (mirrors reDispatch flipping the site to building).
+  await env.DB.prepare(
+    "UPDATE workflow_jobs SET status = 'cancelled', cancel_requested = 1, completed_at = datetime('now'), updated_at = datetime('now') WHERE id = ? AND site_id = ?",
+  )
+    .bind(job.id, siteId)
+    .run();
+
+  let terminated = false;
+
+  if (env.SITE_WORKFLOW) {
+    // Resolve the site's MOST RECENT instance the SAME way the status endpoint does
+    // (latest_workflow_instance pointer → bare siteId fallback), then best-effort terminate it.
+    let instanceId = siteId;
+
+    try {
+      const pointer = await env.DB.prepare('SELECT latest_workflow_instance FROM sites WHERE id = ? LIMIT 1')
+        .bind(siteId)
+        .first<{ latest_workflow_instance: string | null }>();
+      instanceId = pointer?.latest_workflow_instance || siteId;
+    } catch {
+      // Keep the bare siteId fallback — the row cancel already stands.
+    }
+
+    try {
+      const instance = await env.SITE_WORKFLOW.get(instanceId);
+      await instance.terminate();
+      terminated = true;
+    } catch {
+      // CF throws when the instance is already errored/terminated/complete, or when it can't be
+      // resolved — the cooperative cancel_requested flag covers that case (graceful, not faked).
+      terminated = false;
+    }
+  }
+
+  await writeAuditLog(env.DB, {
+    org_id: ctx.orgId,
+    actor_id: ctx.actorId,
+    action: 'automation.cancel',
+    message: terminated
+      ? `Automation '${job.id}' cancelled for '${ctx.slug ?? siteId}' — workflow instance terminated`
+      : `Automation '${job.id}' cancel requested for '${ctx.slug ?? siteId}' — row cancelled + cancel_requested flag set (instance abort unavailable)`,
+    target_type: 'site',
+    target_id: siteId,
+    metadata_json: {
+      site_id: siteId,
+      slug: ctx.slug ?? undefined,
+      automation_id: job.id,
+      terminated,
+    },
+    request_id: ctx.requestId ?? undefined,
+  });
+
+  return { status: 'cancelled', terminated };
+}
