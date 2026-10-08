@@ -16,9 +16,9 @@ permissions:
 
 jobs:
   loop:
-    uses: heymegabyte/agent-skills/.github/workflows/run-the-loop.yml@670a13e54f178e0c21ce94055a6a6c823e99a4e7
+    uses: heymegabyte/agent-skills/.github/workflows/run-the-loop.yml@7c2206d032a803bb8012e495ff4a010cd5ed985f
     with:
       project: heymegabyte/projectsites.dev
-      shared-revision: 670a13e54f178e0c21ce94055a6a6c823e99a4e7
+      shared-revision: 7c2206d032a803bb8012e495ff4a010cd5ed985f
       runner-labels: '["self-hosted","linux","ubuntu","persistent","proxmox-vm","agent","codex"]'
       objective: ${{ inputs.objective || '' }}
