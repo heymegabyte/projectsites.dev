@@ -3312,6 +3312,20 @@ api.post('/api/sites/:id/deploy', async (c) => {
     .bind(version, siteId)
     .run();
 
+  // First production deploy → materialize the site's PRODUCTION R2 bucket (idempotent,
+  // non-blocking, non-throwing). NOT created lazily on a Buckets-tab view (Brian 2026-10-08)
+  // — only here, when the site actually ships to production. Subsequent publishes no-op.
+  {
+    const pubOrgId = c.get('orgId') ?? null;
+    if (pubOrgId) {
+      const ensureProd = import('../services/site_r2.js')
+        .then((m) => m.ensureProductionSiteR2(c.env, siteId, pubOrgId, pubOrgId))
+        .catch(() => undefined);
+      if (c.executionCtx?.waitUntil) c.executionCtx.waitUntil(ensureProd);
+      else await ensureProd;
+    }
+  }
+
   // Fire-and-forget in-app notification to the publisher (bell + channels).
   // Safe no-op when notifications are unconfigured; never blocks the publish response.
   try {
@@ -3693,6 +3707,20 @@ api.post('/api/sites/:id/publish-bolt', async (c) => {
   )
     .bind(version, siteId)
     .run();
+
+  // First production deploy → materialize the site's PRODUCTION R2 bucket (idempotent,
+  // non-blocking, non-throwing). NOT created lazily on a Buckets-tab view (Brian 2026-10-08)
+  // — only here, when the site actually ships to production. Subsequent publishes no-op.
+  {
+    const pubOrgId = c.get('orgId') ?? null;
+    if (pubOrgId) {
+      const ensureProd = import('../services/site_r2.js')
+        .then((m) => m.ensureProductionSiteR2(c.env, siteId, pubOrgId, pubOrgId))
+        .catch(() => undefined);
+      if (c.executionCtx?.waitUntil) c.executionCtx.waitUntil(ensureProd);
+      else await ensureProd;
+    }
+  }
 
   // Stage 2.2d — bolt-editor publish → functions deploy. The bolt tree is uploaded
   // as raw files (no container/esbuild in the Worker), so a `functions/` folder is

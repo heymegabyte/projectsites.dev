@@ -337,39 +337,42 @@ export async function ensureDefaultSiteR2(
     [siteId],
   );
   const displayName = existing?.display_name ?? 'uploads';
-  const preview = await provisionSiteR2(env, {
-    displayName,
-    environment: 'preview',
-    isDefault: true,
-    orgId,
-    siteId,
-    tenantId,
-  });
-  if (!preview.ok) return preview;
+  return provisionSiteR2(env, { displayName, isDefault: true, orgId, siteId, tenantId });
+}
 
-  // Every site also gets a PRODUCTION site bucket, so the Buckets tab always lists BOTH the
-  // preview AND production site buckets — never just one (Brian 2026-10-08). These are the
-  // site's OWN isolated buckets; the shared platform bucket (project-sites-production) holds
-  // every site's content and stays FORBIDDEN-denylisted, so we never expose it. `promote`
-  // copies preview → production. Idempotent, and non-fatal: a failed production provision
-  // still returns the preview default the handler needs.
-  const existingProduction = await dbQueryOne<{ id: string }>(
-    env.DB,
-    `SELECT id FROM site_r2_allocations
-       WHERE site_id = ? AND environment = 'production' AND status = 'active' AND deleted_at IS NULL`,
-    [siteId],
-  );
-  if (!existingProduction) {
-    await provisionSiteR2(env, {
+/**
+ * Ensure the site's PRODUCTION bucket exists — called from the first production DEPLOY path,
+ * NOT lazily on a Buckets-tab view (Brian 2026-10-08: don't materialize the production bucket
+ * until the site is actually deployed to production the first time). Idempotent + non-fatal:
+ * returns the existing production allocation if present, provisions it otherwise, and NEVER
+ * throws into the deploy flow. A site that has never shipped to production simply shows its
+ * preview bucket only; once it deploys, the Buckets tab lists preview + production.
+ */
+export async function ensureProductionSiteR2(
+  env: Env,
+  siteId: string,
+  tenantId: string,
+  orgId: string | null,
+): Promise<boolean> {
+  try {
+    const existing = await dbQueryOne<{ id: string }>(
+      env.DB,
+      `SELECT id FROM site_r2_allocations
+         WHERE site_id = ? AND environment = 'production' AND status = 'active' AND deleted_at IS NULL`,
+      [siteId],
+    );
+    if (existing) return true;
+    const result = await provisionSiteR2(env, {
       displayName: 'production',
       environment: 'production',
       orgId,
       siteId,
       tenantId,
     });
+    return result.ok;
+  } catch {
+    return false;
   }
-
-  return preview;
 }
 
 /**
