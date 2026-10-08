@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtempSync, writeFileSync, rmSync } from 'node:fs';
+import { mkdtempSync, writeFileSync, rmSync, readFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { execFileSync } from 'node:child_process';
@@ -33,3 +33,12 @@ test('missing, failed and empty brokers return null', () => {
   assert.equal(lookup({}, '#!/bin/sh\nexit 1\n'), null);
   assert.equal(lookup({}, '#!/bin/sh\nprintf " \\n"\n'), null);
 });
+
+for (const spec of ['money-path-nav-create.e2e.ts', 'money-path-funnel.e2e.ts']) {
+  test(`${spec} uses the portable shared password lookup`, () => {
+    const source = readFileSync(new URL(`../../apps/project-sites/frontend/e2e/${spec}`, import.meta.url), 'utf8');
+    assert.match(source, /import \{ getTestPassword \} from ['"]\.\/helpers\/admin-auth['"]/);
+    assert.match(source, /const password = getTestPassword\(\)/);
+    assert.doesNotMatch(source, /execSync|function getPassword|\/Users\/Apple/);
+  });
+}
