@@ -83,6 +83,52 @@ async function firstFoundTestId(frame, testids, timeoutMs = 8000) {
 }
 
 /**
+ * Click an element RELIABLY inside the cross-origin WebContainer iframe.
+ * Native `el.click()` (run via evaluate in the frame) fires a real click that
+ * React's delegated root listener catches — more reliable than a coordinate
+ * force-click (which can land on the WRONG element in a cross-origin iframe —
+ * fire-156) or a bare dispatchEvent. Falls through both as backups.
+ * @param {import('@playwright/test').FrameLocator} frame
+ * @param {string} sel
+ */
+async function clickReliably(frame, sel) {
+  const loc = frame.locator(sel).first();
+  try {
+    await loc.evaluate((el) => el.click());
+    return;
+  } catch {
+    /* try next */
+  }
+  try {
+    await loc.dispatchEvent('click');
+    return;
+  } catch {
+    /* try next */
+  }
+  await loc.click({ force: true, timeout: 8000 });
+}
+
+/**
+ * HONEST active-view check. The workbench top-nav tab reflects `selectedView` via
+ * `aria-pressed` (Workbench.client.tsx:451). Every panel stays MOUNTED and inactive
+ * layers are `opacity-0 pointer-events-none` (PanelLayer, :653-663) — so Playwright
+ * `isVisible()` + `state:'attached'` BOTH return true for a hidden Resources panel
+ * (opacity is not part of their visibility model). `aria-pressed === 'true'` is the
+ * only signal that the Resources view is actually SHOWING, not just mounted-transparent.
+ * @param {import('@playwright/test').FrameLocator} frame
+ * @param {string} sel
+ * @returns {Promise<boolean>}
+ */
+async function topTabActive(frame, sel) {
+  try {
+    const v = await frame.locator(sel).first().getAttribute('aria-pressed');
+    return v === 'true';
+  } catch {
+    return false;
+  }
+}
+
+/**
  * Save a screenshot with a numeric prefix.
  * @param {import('@playwright/test').Page} page
  * @param {string} label   e.g. '01-admin-shell'
@@ -185,11 +231,24 @@ function classifyFoundTestId(found) {
  * @param {string[]} consoleErrors - accumulates console errors during the run
  * @returns {Promise<Array<{name: string, pass: boolean, state: string, found: string|null, errors: number, screenshot: string}>>}
  */
-async function verifyResourcesSubTabs(page, frame, consoleErrors) {
+async function verifyResourcesSubTabs(page, frame, consoleErrors, resourcesTabSel) {
   const tabResults = [];
 
   for (const probe of TAB_PROBES) {
     console.log(`\n  ─── Sub-tab: ${probe.name} ───`);
+
+    // The editor auto-switches to Preview once the dev server boots (hasPreview →
+    // setSelectedView('preview'), Workbench.client.tsx), which yanks us out of the
+    // Resources view mid-run. Re-assert Resources is the ACTIVE view and restore it if
+    // not — BEFORE measuring this sub-tab's console errors, so stray Preview-iframe errors
+    // aren't mis-attributed to the sub-tab, and the sub-tab is probed while genuinely showing.
+    if (resourcesTabSel && !(await topTabActive(frame, resourcesTabSel))) {
+      console.log(`  [${probe.name}] Resources view not active (preview auto-switch?) — restoring …`);
+      await clickReliably(frame, resourcesTabSel);
+      await page.waitForTimeout(1200);
+      console.log(`  [${probe.name}] Resources active after restore: ${await topTabActive(frame, resourcesTabSel)}`);
+    }
+
     const errsBefore = consoleErrors.length;
 
     // Click the sub-tab. A NORMAL click hangs inside the cross-origin WebContainer iframe
@@ -198,14 +257,10 @@ async function verifyResourcesSubTabs(page, frame, consoleErrors) {
     try {
       const tabBtn = frame.locator(`[data-testid="${probe.tabTestId}"]`).first();
       await tabBtn.waitFor({ timeout: 5000, state: 'visible' });
-      try {
-        // dispatchEvent targets the element DIRECTLY (precise) — a coordinate-based force-click in
-        // the cross-origin WebContainer iframe can land on the wrong element (it hit the Preview
-        // top-nav tab in fire-156, switching the whole view). Force-click only as a fallback.
-        await tabBtn.dispatchEvent('click');
-      } catch {
-        await tabBtn.click({ force: true, timeout: 8000 });
-      }
+      // Native el.click() (precise, triggers React's delegated onClick) → dispatchEvent →
+      // force-click. A coordinate force-click in the cross-origin iframe can land on the
+      // wrong element (it hit the Preview top-nav tab in fire-156), so it's the LAST resort.
+      await clickReliably(frame, `[data-testid="${probe.tabTestId}"]`);
       await page.waitForTimeout(1500); // let the switched sub-tab's content mount before probing
       console.log(`  [${probe.name}] Tab clicked`);
     } catch (err) {
@@ -224,6 +279,19 @@ async function verifyResourcesSubTabs(page, frame, consoleErrors) {
 
     // Wait for panel to settle
     await page.waitForTimeout(3000);
+
+    // POST-click restore: the one-time preview auto-switch (hasPreview → 'preview') often
+    // fires right as the LAST sub-tab (automations) is probed — the dev server finishes
+    // booting mid-interaction — yanking the view to Preview AFTER the pre-click check passed.
+    // Restore Resources + re-select this sub-tab (up to 2x) so we screenshot the REAL sub-tab,
+    // not the Preview iframe (whose site JS also inflates the console-error count).
+    for (let fix = 0; fix < 2 && resourcesTabSel && !(await topTabActive(frame, resourcesTabSel)); fix++) {
+      console.log(`  [${probe.name}] View yanked off Resources after click — restoring + re-selecting …`);
+      await clickReliably(frame, resourcesTabSel);
+      await page.waitForTimeout(1000);
+      await clickReliably(frame, `[data-testid="${probe.tabTestId}"]`);
+      await page.waitForTimeout(1500);
+    }
 
     // Probe for any expected testid
     const found = await firstFoundTestId(frame, probe.candidates, 8000);
@@ -363,6 +431,8 @@ async function pathA_adminEmbed(pw) {
     console.log('[A] Attempting to reach Resources tab inside iframe …');
     const frame = page.frameLocator('.bolt-frame');
     let resourcesTabVisible = false;
+    let resourcesViewActive = false; // HONEST: aria-pressed on the top-nav tab, NOT opacity-0 isVisible
+    let resourcesTabSel = null;
 
     const resourcesSelectors = [
       'button:has-text("Resources")',
@@ -379,26 +449,20 @@ async function pathA_adminEmbed(pw) {
         await frame.locator(sel).waitFor({ timeout: 5000, state: 'visible' });
         console.log(`[A] Resources tab found via: ${sel}`);
         resourcesTabVisible = true;
-        // The cross-origin WebContainer iframe hangs normal actionability, so a plain .click()
-        // on the top-level Resources nav silently no-ops (the view stayed on Code — fire-154).
-        // Force-click (+ dispatchEvent fallback), then CONFIRM the Resources panel actually opened
-        // (a sub-tab becomes visible); retry once before giving up.
-        const openResources = async () => {
-          try {
-            await frame.locator(sel).first().click({ force: true, timeout: 8000 });
-          } catch {
-            await frame.locator(sel).first().dispatchEvent('click');
-          }
-          await page.waitForTimeout(2500);
-        };
-        await openResources();
-        const panelOpen = async () =>
-          frame.locator('[data-testid="resources-section-media"]').first().isVisible().catch(() => false);
-        if (!(await panelOpen())) {
-          console.log('[A] Resources panel not open after first click — retrying …');
-          await openResources();
+        resourcesTabSel = sel;
+        // Click + CONFIRM the view ACTUALLY switched (top-nav tab aria-pressed='true').
+        // The old probe checked isVisible() on `resources-section-media`, but every panel
+        // stays mounted and the inactive Resources layer is opacity-0 → isVisible()=true
+        // even while Code is the showing view (fire-306 caught this lying-green: 4/4 "PASS"
+        // while every screenshot showed package.json). Retry the reliable click up to 4x.
+        for (let attempt = 1; attempt <= 4 && !resourcesViewActive; attempt++) {
+          await clickReliably(frame, sel);
+          await page.waitForTimeout(1200);
+          resourcesViewActive = await topTabActive(frame, sel);
+          console.log(`[A] Resources top-nav tab active (aria-pressed) after click #${attempt}: ${resourcesViewActive}`);
         }
-        console.log(`[A] Resources panel open after click: ${await panelOpen()}`);
+        // Let the just-activated panel settle past its 300ms opacity fade before the shot.
+        await page.waitForTimeout(600);
         screenshots.push(await shot(page, '07a-resources-tab-clicked'));
         break;
       } catch {
@@ -420,6 +484,19 @@ async function pathA_adminEmbed(pw) {
       return {
         ok: false,
         verdict: 'EDITOR_UI_NOT_READY — iframe present but editor UI not painting within allotted time.',
+        screenshots,
+      };
+    }
+
+    // HONEST gate: the Resources tab was found + clicked, but did the VIEW actually switch?
+    // If aria-pressed never became true, the Resources panel is NOT the showing view (Code
+    // stayed active) — report that truthfully instead of green-lighting opacity-0 sub-tabs.
+    if (!resourcesViewActive) {
+      screenshots.push(await shot(page, '08a-resources-view-not-active'));
+      return {
+        ok: false,
+        verdict:
+          'RESOURCES_VIEW_DID_NOT_ACTIVATE — clicked the Resources top-nav tab but aria-pressed never became true; Code remained the showing panel. The always-mounted opacity-0 PanelLayer makes attached/isVisible on sub-tab testids a FALSE-GREEN; this gate catches the real state (fire-306).',
         screenshots,
       };
     }
@@ -446,7 +523,7 @@ async function pathA_adminEmbed(pw) {
 
     console.log(`[A] Resources sub-tab controls reachable (found: ${resourcesPanelTestId})`);
 
-    const tabResults = await verifyResourcesSubTabs(page, frame, consoleErrors);
+    const tabResults = await verifyResourcesSubTabs(page, frame, consoleErrors, resourcesTabSel);
     const tabScreenshots = tabResults.map((t) => t.screenshot);
 
     // Summarise
