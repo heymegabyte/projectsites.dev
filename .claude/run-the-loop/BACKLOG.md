@@ -2172,3 +2172,8 @@ Re-architect every workbench panel onto a shared gorgeous spine so chrome/tokens
 
 - [x] **Retire stale scheduling and fire-number guidance** — README now derives numbering from recent-fire/git evidence; backlog no longer directs a session focus-cron, chained fires or replacement cloud-runner credentials. Docs-only verification; see LEDGER fire-306.
 - [ ] **Fleet finalizer failure diagnosis** — GitHub loop run 37719202103 failed “Ensure every run has a summary and structured record” although its local receipt says success. Its commit `5daa40424` is confirmed in fetched main. Inspect finalizer logs in the shared fleet repository during an authorized control-plane task; preserve published work and do not equate receipt success with workflow success. No control-plane files changed here.
+
+## fire-307 follow-up — production E2E portability
+
+- [ ] E2E-AUTH-PORTABLE: reuse helpers/admin-auth getTestPassword in money-path-nav-create.e2e.ts and money-path-funnel.e2e.ts; both retain macOS-only broker paths. Acceptance: synthetic regression checks plus an authenticated live money-path run with credentials available.
+- [ ] E2E-PROD-FAILURES-307: triage fresh run 37793228665 failures (features, sparkline, tags, team dialog, webhooks, landmarks, integration logos, notification bell); re-confirm each live before repairs. Do not infer product defects from credential failures alone.

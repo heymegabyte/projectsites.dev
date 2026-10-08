@@ -1397,3 +1397,10 @@ Interactive desktop fire (user "run /run-the-loop" after the panel work). Lean p
 - Recovery: inspected git/worktree list, local prior receipt and GitHub history; no retained failed project worktree found. Prior run 37719202103 failed its finalizer despite local success; actual `5daa40424` is present in fetched main. Added a deduplicated finalizer diagnosis follow-up without changing the external control plane.
 - Verification: dependency-free loop tests passed 8/8; whitespace check passed. Independent read-only adversarial reviewer found precedence/publication residuals, corrected before commit. Homepage returned HTTP 200 (availability only).
 - Limitations: dependencies absent; no authenticated golden journey, screenshots, vision, product tests or deployment. Existing CI/CD run 37724904167 failed Run ESLint. Product frontier remains unmet; this docs slice is not product acceptance. Commit SHA is the commit containing this entry; publication belongs to the outer runner.
+
+## fire-307 — portable admin E2E credentials (2026-10-08)
+
+- Shipped `5f3f0929b`: shared admin-auth broker resolves through PATH with execFileSync, no shell, bounded timeout and suppressed stderr; empty primary password permits legacy env fallback.
+- Loop improvement: dependency-free Node regression test executes the actual TypeScript helper against synthetic PATH brokers; two failures reproduced before repair, 12 focused tests pass afterward (auth + backlog + lease).
+- Orientation: Actions run 37793228665 failed; observed macOS-only broker error and other unresolved prod failures. Prior receipts inspected; actual prior commits present in assigned HEAD, no retained failed worktree found.
+- No app runtime changes or deployment; frontend node_modules absent, authenticated browser/vision/long journey not run. Product acceptance remains open. Two duplicate lookups and fresh failure triage replenished BACKLOG. Official subscription review invoked through cr; no paid API fallback. Publication belongs to outer runner.
