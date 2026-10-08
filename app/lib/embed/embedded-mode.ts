@@ -2156,6 +2156,95 @@ export interface FunctionsResponseMessage {
 }
 
 /*
+ * ── Resources Connections bridge messages (Resources → Connections tab) ──────────────────────────
+ *
+ * The per-site MCP (Model Context Protocol) CONNECTIONS log (Resources sub-tab #6, beside Media /
+ * Files / Buckets / Automations / Functions). Lists the providers a site has connected (Mailchimp,
+ * Stripe, HubSpot, GitHub, …) with status + connected-at, and lets the owner DISCONNECT one. The
+ * embedded editor has no cross-origin session, so the admin (which holds `selectedSite` + the
+ * bearer) proxies to the worker's `GET /api/sites/:id/mcp/connections` (list) +
+ * `DELETE /api/sites/:id/mcp/connections/:id` (disconnect). Access tokens are NEVER returned
+ * (server-side guarantee). The mcp/connections ENDPOINT is org+user+siteOwned-guarded (shared with
+ * the admin, NOT flag-gated); the editor TAB is DARK behind the `site_connections` flag, which the
+ * admin bridge resolves via `GET /api/feature-flags/site_connections` — off → `{ok:false,
+ * enabled:false}` → the panel shows a friendly "not enabled" card + the tab self-hides. A real
+ * failure is `{ok:false, error}` (never `enabled:false`). Mirrors the `site_functions` bridge.
+ */
+
+/** One connected MCP provider, shaped for the Connections panel list (mirrors the worker row). */
+export interface ConnectionEntry {
+  /** Stable connection row id (the `mcp_connections.id` — used as the disconnect target). */
+  id: string;
+  /** The provider key (e.g. `mailchimp`, `stripe`, `github`). */
+  provider: string;
+  /** Owner-set display name for the connection, when present (else fall back to the provider). */
+  display_name?: string | null;
+  /** Connection status — `active` for a live connection (the list route only returns active rows). */
+  status: string;
+  /** Safe, non-secret account metadata the provider returned (never tokens); shape is provider-specific. */
+  metadata?: unknown;
+  /** ISO timestamp the connection was established, or `null` when unknown. */
+  connected_at?: string | null;
+}
+
+/**
+ * One provider from the catalog (the set of connectable MCP providers). Surfaced so the empty state
+ * can name a few real providers instead of a generic "connect something" — the worker returns these
+ * as a bare string[] (`allProviders()`); the admin bridge forwards them verbatim.
+ */
+export type ConnectionProvider = string;
+
+/** Child → Parent: ask the admin to list this site's active MCP connections (read; no payload). */
+export interface ConnectionsRequestMessage {
+  type: 'PS_RES_CONNECTIONS';
+  correlationId: string;
+}
+
+/** Parent → Child: the admin's reply to {@link ConnectionsRequestMessage}. */
+export interface ConnectionsResponseMessage {
+  type: 'PS_RES_CONNECTIONS_RESULT';
+  correlationId?: string;
+  ok: boolean;
+
+  /** The site's active MCP provider connections (tokens never included). */
+  connections?: ConnectionEntry[];
+
+  /** The connectable-provider catalog (bare keys) — used to make the empty state concrete. */
+  providers?: ConnectionProvider[];
+
+  /** `false` when the `site_connections` flag is off (the dark gate) → the surface stays hidden. */
+  enabled?: boolean;
+  error?: string;
+}
+
+/**
+ * Child → Parent: ask the admin to DISCONNECT (revoke) one MCP connection by its row id. The admin
+ * proxies to `DELETE /api/sites/:id/mcp/connections/:id` (clears the encrypted tokens + audit-logs
+ * `mcp.disconnected`). DARK behind `site_connections` → `{ok:false, enabled:false}`.
+ */
+export interface ConnectionDisconnectRequestMessage {
+  type: 'PS_RES_CONNECTION_DISCONNECT';
+  correlationId: string;
+
+  /** The `mcp_connections.id` of the connection to revoke. */
+  connectionId: string;
+}
+
+/** Parent → Child: the admin's reply to {@link ConnectionDisconnectRequestMessage}. */
+export interface ConnectionDisconnectResponseMessage {
+  type: 'PS_RES_CONNECTION_DISCONNECT_RESULT';
+  correlationId?: string;
+  ok: boolean;
+
+  /** `true` when the connection was revoked (mirrors the worker `{data:{revoked:true}}`). */
+  revoked?: boolean;
+
+  /** `false` when the `site_connections` flag is off (the dark gate) → the surface stays hidden. */
+  enabled?: boolean;
+  error?: string;
+}
+
+/*
  * ── Resources Buckets bridge messages (Resources → Buckets tab) ─────────────────────────────────
  *
  * The per-site R2 Buckets surface. The embedded editor has no cross-origin session, so the admin
@@ -2475,6 +2564,8 @@ export type ParentToChildMessage =
   | AutomationRetryResponseMessage
   | AutomationCancelResponseMessage
   | FunctionsResponseMessage
+  | ConnectionsResponseMessage
+  | ConnectionDisconnectResponseMessage
   | R2ResponseMessage
   | BucketUploadResponseMessage
   | BucketDownloadResponseMessage
@@ -2523,6 +2614,8 @@ export type ChildToParentMessage =
   | AutomationRetryRequestMessage
   | AutomationCancelRequestMessage
   | FunctionsRequestMessage
+  | ConnectionsRequestMessage
+  | ConnectionDisconnectRequestMessage
   | R2RequestMessage
   | BucketUploadRequestMessage
   | BucketDownloadRequestMessage
@@ -3347,6 +3440,32 @@ export function requestFunctions(): Promise<FunctionsResponseMessage> {
   return requestFromParent<FunctionsResponseMessage>(
     { type: 'PS_RES_FUNCTIONS', correlationId: nextBridgeCorrelationId() },
     'PS_RES_FUNCTIONS_RESULT',
+  );
+}
+
+/**
+ * Resources → Connections: ask the parent admin to list THIS site's active MCP connections
+ * (read-only). Resolves with the parent's {@link ConnectionsResponseMessage} (the admin resolves the
+ * `site_connections` dark-flag, then proxies to `GET /api/sites/:id/mcp/connections`). DARK →
+ * `{ok:false, enabled:false}`. Tokens are never returned. Mirrors {@link requestFunctions}.
+ */
+export function requestConnections(): Promise<ConnectionsResponseMessage> {
+  return requestFromParent<ConnectionsResponseMessage>(
+    { type: 'PS_RES_CONNECTIONS', correlationId: nextBridgeCorrelationId() },
+    'PS_RES_CONNECTIONS_RESULT',
+  );
+}
+
+/**
+ * Resources → Connections: ask the parent admin to DISCONNECT (revoke) one MCP connection by its row
+ * id. Resolves with the parent's {@link ConnectionDisconnectResponseMessage} (the admin proxies to
+ * `DELETE /api/sites/:id/mcp/connections/:id`). DARK behind `site_connections` → `{ok:false,
+ * enabled:false}`. Mirrors {@link requestAutomationCancel}.
+ */
+export function disconnectConnection(connectionId: string): Promise<ConnectionDisconnectResponseMessage> {
+  return requestFromParent<ConnectionDisconnectResponseMessage>(
+    { type: 'PS_RES_CONNECTION_DISCONNECT', correlationId: nextBridgeCorrelationId(), connectionId },
+    'PS_RES_CONNECTION_DISCONNECT_RESULT',
   );
 }
 

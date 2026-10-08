@@ -28,7 +28,7 @@ import { Injectable, effect, inject, signal } from '@angular/core';
 import { DomSanitizer, type SafeResourceUrl } from '@angular/platform-browser';
 import { forkJoin, of } from 'rxjs';
 import { catchError } from 'rxjs/operators';
-import { ApiService } from './api.service';
+import { ApiService, flagEnabled, type ResolvedFlagResponse } from './api.service';
 import { resolveResourceKind } from './ps-bridge';
 import { ToastService } from './toast.service';
 import { DomainMenuService } from '../components/domain-menu/domain-menu.service';
@@ -317,6 +317,8 @@ interface PsMessage {
   readonly assetId?: string;
   /** PS_RES_AUTOMATION_RETRY / PS_RES_AUTOMATION_CANCEL (Resources → Automations): the workflow_jobs instance id to re-run / cancel. */
   readonly automationId?: string;
+  /** PS_RES_CONNECTION_DISCONNECT (Resources → Connections): the mcp_connections row id to revoke. */
+  readonly connectionId?: string;
   /**
    * PS_RES_MEDIA_UPLOAD (Resources tab): the upload's display file name — reuses the shared `name`
    * field above (also used by PS_VEC_REQUEST / PS_VIEW_REQUEST), so no separate declaration.
@@ -3404,6 +3406,128 @@ export class BoltEmbedService {
                 }
               },
             });
+          break;
+        }
+        case 'PS_RES_CONNECTIONS': {
+          // Resources → Connections — the embedded editor has no cross-origin session, so it asks US
+          // (we hold currentSite + the ApiService bearer) to list the site's active MCP connections.
+          // Reply PS_RES_CONNECTIONS_RESULT. The mcp/connections ENDPOINT is NOT flag-gated (shared
+          // with the admin's /admin/mcp surface), so the editor TAB is gated HERE: we resolve the
+          // `site_connections` dark-flag via GET /api/feature-flags/:key FIRST — off → {enabled:false}
+          // (friendly "not enabled" card + the tab self-hides), on → proxy GET
+          // /api/sites/:id/mcp/connections → {data:{providers,connections:[{id,provider,display_name,
+          // status,metadata,connected_at}]}} (tokens never returned). Mirrors PS_CLAUDE_FLAG_REQUEST's
+          // resolve-then-fetch gate + PS_RES_FUNCTIONS's reply shape.
+          const iframe = this.iframeEl;
+          const site = this.currentSite;
+          const cid = msg.correlationId;
+          const reply = (payload: Record<string, unknown>): void => {
+            iframe?.contentWindow?.postMessage(
+              { type: 'PS_RES_CONNECTIONS_RESULT', correlationId: cid, ...payload },
+              EDITOR_BASE,
+            );
+          };
+          if (!site) {
+            reply({ ok: false, error: 'No site selected' });
+            break;
+          }
+          // Gate the TAB on the `site_connections` flag (the endpoint itself is shared/un-gated). A
+          // dark/default flag (enabled:false or rollout 0) → the panel's friendly disabled card; a
+          // transport hiccup on the resolve ALSO fails safe to disabled (never a scary error). Only an
+          // ON flag proceeds to the real list fetch.
+          this.api.getFeatureFlag('site_connections').subscribe({
+            next: (res: ResolvedFlagResponse) => {
+              if (!flagEnabled(res)) {
+                reply({ ok: false, enabled: false });
+                return;
+              }
+              // Flag ON → list the site's active MCP connections (tokens never returned by the worker).
+              this.api
+                .get<{
+                  data?: {
+                    providers?: string[];
+                    connections?: Array<{
+                      id: string;
+                      provider: string;
+                      display_name?: string | null;
+                      status: string;
+                      metadata?: unknown;
+                      connected_at?: string | null;
+                    }>;
+                  };
+                }>(`/sites/${site.id}/mcp/connections`, undefined, { silent: true })
+                .subscribe({
+                  next: (listRes) =>
+                    reply({
+                      ok: true,
+                      connections: listRes?.data?.connections ?? [],
+                      providers: listRes?.data?.providers ?? [],
+                    }),
+                  // A 404 here is a cross-org/missing site (siteOwned guard) — treat as disabled (the
+                  // panel self-hides) rather than a scary error; any other failure is a real error.
+                  error: (err: unknown) => {
+                    if (err instanceof HttpErrorResponse && err.status === 404) {
+                      reply({ ok: false, enabled: false });
+                    } else {
+                      reply({ ok: false, error: 'Could not load connections.' });
+                    }
+                  },
+                });
+            },
+            // The flag resolve itself failed (unknown flag 404 / transport) → fail safe to disabled.
+            error: () => reply({ ok: false, enabled: false }),
+          });
+          break;
+        }
+        case 'PS_RES_CONNECTION_DISCONNECT': {
+          // Resources → Connections (DISCONNECT) — the embedded editor asks US to REVOKE one MCP
+          // connection by its row id via DELETE /api/sites/:id/mcp/connections/:id (clears the
+          // encrypted tokens + audit-logs mcp.disconnected). Reply PS_RES_CONNECTION_DISCONNECT_RESULT.
+          // Gated on the `site_connections` flag FIRST (same as the list case); off → {enabled:false}.
+          // Mirrors PS_RES_AUTOMATION_CANCEL.
+          const iframe = this.iframeEl;
+          const site = this.currentSite;
+          const cid = msg.correlationId;
+          const reply = (payload: Record<string, unknown>): void => {
+            iframe?.contentWindow?.postMessage(
+              { type: 'PS_RES_CONNECTION_DISCONNECT_RESULT', correlationId: cid, ...payload },
+              EDITOR_BASE,
+            );
+          };
+          if (!site) {
+            reply({ ok: false, error: 'No site selected' });
+            break;
+          }
+          const connectionId = typeof msg.connectionId === 'string' ? msg.connectionId : '';
+          if (!connectionId) {
+            reply({ ok: false, error: 'Missing connection id' });
+            break;
+          }
+          this.api.getFeatureFlag('site_connections').subscribe({
+            next: (res: ResolvedFlagResponse) => {
+              if (!flagEnabled(res)) {
+                reply({ ok: false, enabled: false });
+                return;
+              }
+              // Worker `DELETE .../:id` → `{ data:{ revoked:true } }`.
+              this.api
+                .delete<{ data?: { revoked?: boolean } }>(
+                  `/sites/${site.id}/mcp/connections/${encodeURIComponent(connectionId)}`,
+                  { silent: true },
+                )
+                .subscribe({
+                  next: (delRes) => reply({ ok: true, revoked: delRes?.data?.revoked ?? true }),
+                  error: (err: unknown) => {
+                    if (err instanceof HttpErrorResponse && err.status === 404) {
+                      reply({ ok: false, enabled: false });
+                    } else {
+                      reply({ ok: false, error: 'Could not disconnect this connection.' });
+                    }
+                  },
+                });
+            },
+            error: () => reply({ ok: false, enabled: false }),
+          });
           break;
         }
         case 'PS_R2': {

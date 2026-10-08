@@ -44,6 +44,7 @@ import { ResourceOverviewPanel } from './ResourceOverviewPanel';
 import { BucketsPanel } from './BucketsPanel';
 import { AutomationsPanel } from './AutomationsPanel';
 import { FunctionsPanel } from './FunctionsPanel';
+import { ConnectionsPanel } from './ConnectionsPanel';
 import { PanelLoading, PanelShell } from './panel';
 
 // ── Types ────────────────────────────────────────────────────────────────────
@@ -109,10 +110,10 @@ export function persistResEnv(env: ResourceEnvironment): void {
 }
 
 /** The asset sections this panel surfaces. */
-type Section = 'media' | 'files' | 'buckets' | 'automations' | 'functions';
+type Section = 'media' | 'files' | 'buckets' | 'automations' | 'functions' | 'connections';
 
 /** Render order of the section tabs — the single source of truth for roving + ARIA wiring. */
-const SECTION_ORDER: readonly Section[] = ['media', 'files', 'buckets', 'automations', 'functions'];
+const SECTION_ORDER: readonly Section[] = ['media', 'files', 'buckets', 'automations', 'functions', 'connections'];
 
 /** Stable DOM id for a section tab (so `aria-controls` ↔ the panel's `id`/`aria-labelledby` agree). */
 const sectionTabId = (s: Section) => `resources-tab-${s}`;
@@ -1317,9 +1318,12 @@ export const ResourcesPanel = memo(() => {
         ) : section === 'automations' ? (
           // Automations — the per-site workflow/automation log. Self-managing (own load/refresh).
           <AutomationsPanel />
-        ) : (
+        ) : section === 'functions' ? (
           // Functions — the per-site code-defined WfP Functions list. Self-managing (own load/refresh).
           <FunctionsPanel />
+        ) : (
+          // Connections — the per-site MCP provider connections (list + disconnect). Self-managing.
+          <ConnectionsPanel />
         )}
       </div>
 
@@ -1429,11 +1433,13 @@ const Header = memo(
         </div>
       )}
 
-      {/* Section tabs — Media library | Site files | Buckets | Automations | Functions */}
+      {/* Section tabs — Media library | Site files | Buckets | Automations | Functions | Connections */}
       <div
         className={classNames(
           'relative flex items-center gap-1 px-4 pb-2',
-          section === 'buckets' || section === 'automations' || section === 'functions' ? 'pt-3' : 'pt-2.5',
+          section === 'buckets' || section === 'automations' || section === 'functions' || section === 'connections'
+            ? 'pt-3'
+            : 'pt-2.5',
         )}
         role="tablist"
         aria-label="Resource sections"
@@ -1445,6 +1451,7 @@ const Header = memo(
             { value: 'buckets', label: 'Buckets', icon: 'i-ph:hard-drives' },
             { value: 'automations', label: 'Automations', icon: 'i-ph:lightning' },
             { value: 'functions', label: 'Functions', icon: 'i-ph:brackets-curly' },
+            { value: 'connections', label: 'Connections', icon: 'i-ph:plugs-connected' },
           ] as const
         ).map((tab) => {
           const active = section === tab.value;

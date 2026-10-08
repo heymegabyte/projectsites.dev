@@ -1023,6 +1023,23 @@ export const FLAG_DOCS: Record<string, FlagDocs> = {
       'A site with no jobs → 200 {data:[]} (honest-empty, not an error)',
     ],
   },
+  site_connections: {
+    checklist: [
+      "Owner-facing Connections panel (Resources sub-tab #6) — list a site's connected MCP providers + disconnect one",
+      'Data: reuses the EXISTING GET /api/sites/:siteId/mcp/connections (list) + DELETE …/:id (revoke); tokens NEVER returned',
+      'Gates ONLY the editor TAB (the mcp/connections endpoint is shared with /admin/mcp, NOT flag-gated)',
+      'Admin bridge (PS_RES_CONNECTIONS) resolves this flag via GET /api/feature-flags/site_connections BEFORE the fetch',
+      'Off (default, DARK): tab disabled/hidden, friendly "not enabled" card; honest-empty [] when no connections',
+    ],
+    explanation:
+      "The sixth Resources sub-tab (beside Media / Files / Buckets / Automations / Functions): a list of the apps + tools a site has connected over MCP (Model Context Protocol) — Mailchimp, Stripe, HubSpot, GitHub, … — with a status chip + connected-at, and a per-row Disconnect. It CONSUMES the existing, already-shipped worker routes (GET /api/sites/:siteId/mcp/connections for the list; DELETE /api/sites/:siteId/mcp/connections/:id to revoke, which clears the encrypted tokens + audit-logs mcp.disconnected). Access tokens are NEVER returned (server-side guarantee). Connect/OAuth itself stays the separate existing /api/mcp/:provider/connect flow — this panel does NOT add new OAuth. Because that endpoint is shared with the admin's /admin/mcp surface it is NOT flag-gated; this flag gates ONLY the editor Resources → Connections TAB, which the admin bridge (bolt-embed.service.ts) resolves via GET /api/feature-flags/site_connections before the list fetch — off → {ok:false, enabled:false} → the panel shows a friendly 'not enabled' card and the tab self-hides (never a 403/leak). A site with no active connections renders an honest-empty state.",
+    smoke_test: [
+      'Flag on, owned site with connections → editor Resources → Connections lists them (status + connected-at)',
+      'Flag off (default) → the bridge resolve returns enabled:false → the Connections tab shows the disabled card',
+      'A site with no connections → honest-empty launchpad (Connect from Settings → Connections)',
+      'Disconnect a row → DELETE …/mcp/connections/:id → row drops; a failure restores it + toasts',
+    ],
+  },
   site_doctor: {
     checklist: [
       'Owner-facing A–F site health report with a 0-100 score',

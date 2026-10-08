@@ -216,6 +216,19 @@ const TAB_PROBES = [
       'resources-error',           // outer error
     ],
   },
+  {
+    name: 'connections',
+    tabTestId: 'resources-section-connections',
+    candidates: [
+      'connections-list',          // has connected MCP providers (data)
+      'connections-empty',         // honest empty launchpad (connect from Settings → Connections)
+      'connections-skeleton',      // still loading
+      'connections-disabled',      // flag off (site_connections dark)
+      'connections-error',         // bridge error
+      'resources-disabled',        // outer disabled
+      'resources-error',           // outer error
+    ],
+  },
 ];
 
 /**

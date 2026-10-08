@@ -770,6 +770,15 @@ export const FLAG_REGISTRY: Record<string, FlagDefinition> = {
     // complete the Resources screen alongside its sibling live tab r2_buckets (per reversible-flag-flip-ship).
     stage: 'beta',
   },
+  site_connections: {
+    default_enabled: false,
+    default_rollout_percent: 0,
+    description:
+      "Owner-facing Connections panel (Resources sub-tab #6, beside Media / Files / Buckets / Automations / Functions) — a list of the apps + tools a site has connected over MCP (Model Context Protocol) so the owner can see what's linked + disconnect one.\n\n• Data: reuses the EXISTING, un-gated worker route GET /api/sites/:siteId/mcp/connections → {data:{providers, connections:[{id,provider,display_name,status,metadata,connected_at}]}} (org+user+siteOwned-guarded; access tokens NEVER returned) + DELETE /api/sites/:siteId/mcp/connections/:id to revoke (clears encrypted tokens + audit-logs mcp.disconnected). Connect/OAuth itself stays the separate existing /api/mcp/:provider/connect flow — this panel does NOT add new OAuth.\n• Gating: the mcp/connections ENDPOINT is shared with the admin's /admin/mcp surface, so it is NOT flag-gated; this flag gates ONLY the editor Resources → Connections TAB. The admin bridge (bolt-embed.service.ts PS_RES_CONNECTIONS) resolves this flag via GET /api/feature-flags/site_connections BEFORE the list fetch — off → {ok:false, enabled:false} → the panel shows a friendly 'not enabled' card + the tab self-hides (never a 403/leak).\n• Honest-empty [] when the site has no active connections; off (default, DARK): the editor tab is disabled/hidden, the shared admin surface is unaffected.",
+    key: 'site_connections',
+    owner_email: 'brian@megabyte.space',
+    stage: 'experimental',
+  },
   site_doctor: {
     default_enabled: false,
     default_rollout_percent: 0,
