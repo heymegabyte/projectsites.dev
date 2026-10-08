@@ -2101,6 +2101,61 @@ export interface AutomationCancelResponseMessage {
 }
 
 /*
+ * ── Resources Functions bridge messages (Resources → Functions tab) ──────────────────────────────
+ *
+ * The per-site CODE-DEFINED Functions log (Resources sub-tab #5, beside Media / Files / Buckets /
+ * Automations). The embedded editor has no cross-origin session, so the admin (which holds
+ * `selectedSite` + the bearer) proxies the read to the worker's `GET /api/sites/:id/functions`.
+ * Read-only — one request verb, no mutation (per ADR-0035, Functions are code-defined in a
+ * `functions/` folder, NOT a dashboard form). DARK behind the `site_functions` flag → a 404 whose
+ * reply carries `{ok:false, enabled:false}` → the surface shows a friendly "not enabled" card.
+ */
+
+/** One code-defined Function, shaped for the Functions panel list (mirrors the worker). */
+export interface FunctionEntry {
+  /** Stable row id (the WfP script name for `http`, a `cron:<expr>` key for `scheduled`). */
+  id: string;
+  /** `http` (the bundled functions worker) | `scheduled` (a declared cron). */
+  kind: 'http' | 'scheduled';
+  /** Human label — the WfP script name, or the cron expression for a scheduled function. */
+  name: string;
+  /** `deployed` when a live functions worker backs it on WfP, else `not_deployed`. */
+  status: 'deployed' | 'not_deployed';
+  /** For `scheduled`: the 5-field cron expression. `null` for `http`. */
+  cron: string | null;
+  /** For `http`: the deployed bundle size in bytes (from the R2 bundle). `null` otherwise. */
+  bundleBytes: number | null;
+  /** ISO timestamp the functions worker was last deployed, or `null` when never / removed. */
+  deployed_at: string | null;
+}
+
+/** Child → Parent: ask the admin to list this site's code-defined Functions (read-only; no payload). */
+export interface FunctionsRequestMessage {
+  type: 'PS_RES_FUNCTIONS';
+  correlationId: string;
+}
+
+/** Parent → Child: the admin's reply to {@link FunctionsRequestMessage}. */
+export interface FunctionsResponseMessage {
+  type: 'PS_RES_FUNCTIONS_RESULT';
+  correlationId?: string;
+  ok: boolean;
+
+  /** The site's code-defined Functions (its deployed worker + declared crons). */
+  functions?: FunctionEntry[];
+
+  /** Whether a live Functions Worker is deployed for this site (the deploy signal). */
+  functionsDeployed?: boolean;
+
+  /** Whether Workers-for-Platforms is provisioned on this deployment. */
+  wfpConfigured?: boolean;
+
+  /** `false` when the surface's flag is off (the dark-flag 404) → the surface stays hidden. */
+  enabled?: boolean;
+  error?: string;
+}
+
+/*
  * ── Resources Buckets bridge messages (Resources → Buckets tab) ─────────────────────────────────
  *
  * The per-site R2 Buckets surface. The embedded editor has no cross-origin session, so the admin
@@ -2419,6 +2474,7 @@ export type ParentToChildMessage =
   | AutomationsResponseMessage
   | AutomationRetryResponseMessage
   | AutomationCancelResponseMessage
+  | FunctionsResponseMessage
   | R2ResponseMessage
   | BucketUploadResponseMessage
   | BucketDownloadResponseMessage
@@ -2466,6 +2522,7 @@ export type ChildToParentMessage =
   | AutomationsRequestMessage
   | AutomationRetryRequestMessage
   | AutomationCancelRequestMessage
+  | FunctionsRequestMessage
   | R2RequestMessage
   | BucketUploadRequestMessage
   | BucketDownloadRequestMessage
@@ -3277,6 +3334,19 @@ export function requestAutomationCancel(automationId: string): Promise<Automatio
   return requestFromParent<AutomationCancelResponseMessage>(
     { type: 'PS_RES_AUTOMATION_CANCEL', correlationId: nextBridgeCorrelationId(), automationId },
     'PS_RES_AUTOMATION_CANCEL_RESULT',
+  );
+}
+
+/**
+ * Resources → Functions: ask the parent admin to list THIS site's code-defined Functions
+ * (read-only). Resolves with the parent's {@link FunctionsResponseMessage} (the admin proxies to
+ * `GET /api/sites/:id/functions`). DARK behind `site_functions` → `{ok:false, enabled:false}`.
+ * Per ADR-0035 Functions are authored in a `functions/` folder, so this is a read view — no writes.
+ */
+export function requestFunctions(): Promise<FunctionsResponseMessage> {
+  return requestFromParent<FunctionsResponseMessage>(
+    { type: 'PS_RES_FUNCTIONS', correlationId: nextBridgeCorrelationId() },
+    'PS_RES_FUNCTIONS_RESULT',
   );
 }
 
