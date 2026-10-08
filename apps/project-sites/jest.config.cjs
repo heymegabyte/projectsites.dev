@@ -9,17 +9,21 @@ const config = {
   // via ../index). Passes locally, failed CI Unit Tests repeatedly. Recycling
   // keeps per-worker heap bounded so the heavy import always has headroom.
   workerIdleMemoryLimit: '512MB',
-  // Exit after the run completes instead of FAILING on a leaked handle/timer. A flaky
-  // "a worker process has failed to exit gracefully and has been force exited" (an unref'd
-  // timer / open handle in a suite's teardown) was failing the CI "Test worker package"
-  // step — 14551 tests PASS / 0 fail, but the post-run open-handle wait times out and jest
-  // force-exits the worker, marking a suite (platform_root_landings) FAILED. That blocks the
-  // TEST-GATED worker deploy (project-sites.yaml), so prod got stuck on stale workers and a
-  // newly-added flag (e.g. site_connections) intermittently resolved `unknown_flag` (404) —
-  // disabling its feature. forceExit lets jest exit after the passing tests without that
-  // failure. TODO(fire-306e): find + unref the actual leak via `jest --detectOpenHandles`
-  // and remove this.
-  forceExit: true,
+  // forceExit REMOVED (fire-306e → resolved): the flaky "a worker process has failed to exit
+  // gracefully and has been force exited … Active timers … ensure .unref() was called"
+  // force-exit — which passed 14562 tests / 0 fail but intermittently marked a suite
+  // (platform_root_landings, just the last ../index-importing suite in the --runInBand run)
+  // FAILED and blocked the TEST-GATED worker deploy (project-sites.yaml) — was NOT a teardown
+  // gap in any suite. ROOT CAUSE: libs/features/system_status/service.ts `probeOne` cleared its
+  // 5s abort `setTimeout` only on the fetch SUCCESS line, so the two reject-path unit tests
+  // ("times out" / "network error as down") skipped the clear and leaked up to 5 dangling 5s
+  // timers per probeAll call. Whether those were still pending at process exit depended on when
+  // jest scheduled that suite in the ~46s run → the intermittent force-exit (reproduced locally
+  // 2/5 runs with forceExit off). Fixed by moving the clearTimeout into a `finally` (the pattern
+  // every sibling abort-timer already uses: import_crawler / credit_monitor / external_llm / api).
+  // With that fix the full suite exits cleanly on its own (verified 6/6 local --runInBand runs,
+  // 0 leak warnings), so forceExit is unnecessary AND its removal restores jest's open-handle
+  // detection as a guard that will FAIL CI if a future change leaks a timer instead of masking it.
   // `.mjs` added so a `.test.ts` can import a pure sibling `scripts/*.mjs` module (e.g.
   // sanitize-manifest.mjs, imported by container-server.mjs) and exercise its LOGIC under
   // the primary `test:unit` gate — @swc/jest transcompiles the ESM `export` to CJS. No

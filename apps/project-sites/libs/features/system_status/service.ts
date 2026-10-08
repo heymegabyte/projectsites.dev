@@ -24,16 +24,23 @@ export const INTEGRATION_TARGETS: HealthTarget[] = [
  */
 async function probeOne(target: HealthTarget, fetchImpl: typeof fetch): Promise<IntegrationStatus> {
   const start = Date.now();
+  // `controller` + `timeout` live OUTSIDE the try so the `finally` clears the abort
+  // timer on BOTH paths. If `clearTimeout` sits only on the success line, a thrown/
+  // rejected fetch (network error / AbortError) skips it and the 5s timer dangles as an
+  // active handle until it fires — one per INTEGRATION_TARGET, per call. In the Jest
+  // fleet that surfaces as the intermittent "A worker process has failed to exit
+  // gracefully … Active timers … ensure .unref() was called" force-exit (the dangling
+  // timers are still pending at process exit when this suite's reject-path tests land
+  // late in the --runInBand run). Same fix as import_crawler/credit_monitor/external_llm.
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 5_000);
   try {
-    const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 5_000);
     // target.url is ONLY ever a hardcoded platform-infra health endpoint from the
     // INTEGRATION_TARGETS const above — never user-influenced, so there is no SSRF
     // surface. These are first-party hosts (some resolve to private infra), so
     // safeFetch's public-host guard would wrongly block them; a plain fetch is correct.
     // safe-fetch-ok: fixed first-party INTEGRATION_TARGETS host, not user-influenced
     const res = await fetchImpl(target.url, { signal: controller.signal, redirect: 'follow' });
-    clearTimeout(timeout);
     const latencyMs = Date.now() - start;
     if (res.ok) {
       return { name: target.name, url: target.url, status: 'healthy', latencyMs };
@@ -50,6 +57,8 @@ async function probeOne(target: HealthTarget, fetchImpl: typeof fetch): Promise<
     const msg = err instanceof Error ? err.message : String(err);
     const status = msg.includes('abort') ? 'degraded' : 'down';
     return { name: target.name, url: target.url, status, latencyMs, error: msg };
+  } finally {
+    clearTimeout(timeout);
   }
 }
 
