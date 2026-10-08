@@ -26,6 +26,18 @@ argument-hint: "[role/lane name, category, or 'all' (default)]"
 > `majorActions`, `tests` (command/status/evidence), `deployment` (status/url),
 > `warnings`, and `nextActions`. Report only evidence observed in this iteration.
 
+> **↕️ SCOPE: fleet contract = HEADLESS GHA dispatches ONLY (Brian directive 2026-10-08).** The
+> "ONE iteration / no-chain / no session cron / do not claim fire N+1" rules above govern the
+> HEADLESS GitHub-Actions fleet (each 15-min dispatch re-fires the next iteration itself). They DO
+> NOT apply to an INTERACTIVE/live session (Brian present, running `/run-the-loop` by hand). In a
+> live session the **CONTINUOUS mandate governs**: after releasing the lease + reporting fire N,
+> immediately claim the next fire and begin fire N+1 IN THIS SESSION — keep chaining back-to-back,
+> never idling, until genuine LEAD saturation (then checkpoint to `progress.md` + CONTINUE in a
+> fresh session yourself). In an interactive session NEVER ask the human whether to continue, NEVER
+> end a report with "run the next fire in a fresh session," NEVER stop after one fire. (A lead
+> mis-applied the headless "one iteration" rule to a live session and wrongly stopped after one
+> fire — that is the bug this scope note closes.)
+
 > **🛡️ NEVER terminal-no-op on a Bash-classifier outage (Brian directive 2026-10-03).** In AUTO
 > permission mode the harness runs EVERY Bash through an Opus-pinned safety classifier; when Opus is
 > briefly unavailable Bash hard-blocks ("auto mode cannot determine the safety of Bash") — THIS is the
@@ -124,6 +136,8 @@ bare `general-purpose` when a named specialist fits. Emit the assignment table +
 BEFORE spawning; run the Agent Diversity Review gate before DONE.
 
 **The canonical roles (15 incl. 3 STANDING + 1 scheduled lane):** roles 1, 3-15 rotate under the §2 category budget; **role 2 (Product Discovery + Backlog Grooming), role 16 (Long-Trail TDD case-owner), and role 17 (Deep UI Explorer / Visual Intelligence) are STANDING — they run EVERY cycle, never skipped, never rotated out**; role 18 (Template Evolution) runs every-2-fires. The STANDING backlog groomer (role 2) is NON-NEGOTIABLE every fire (Brian directive 2026-10-04): a dedicated agent ALWAYS grooms the TODO lists + increases scope so the NEXT round of agents knows EXACTLY what to build — a fire that leaves the backlog un-groomed or the frontier ambiguous under-delivered.
+
+**Every fire's fan-out carries DISCOVERY/misc work, not only money-path delivery (Brian directive 2026-10-08).** Alongside the delivery roles, each fire must include a periodic feature-gap + dependency-upgrade scan — the **Technology Scout (role 14)** on a rotating cadence — so the loop proactively finds MISSING features, higher-leverage CF-native primitives, and stale/upgradeable libraries, not just the delivery frontier. Pair it with the STANDING Product Discovery groomer (role 2) so every fire both *finds* new/upgradeable capability and *grooms* it into executable TODOs. Rotate the scout's focus fire-to-fire (stack currency → CF releases → missing-feature audit → browser-API changes) so no discovery lane rots.
 1. **Feature Delivery** — take a READY frontier slice (incl. ones prior fires generated); ONE coherent slice end-to-end (schema + handler + UI + tests + flag + docs). Specialist: `general-purpose`/`migration-agent`/domain builder.
 2. **Product Discovery + Backlog Grooming (STANDING — runs EVERY cycle, Brian directive 2026-10-04)** — the dedicated agent that keeps the TODO lists EXECUTION-READY for the next round AND increases scope. Every fire it: **(a) GROOMS `BACKLOG.md`** — dedupe, rank by money-path leverage, tick/close completed-or-stale items, and REWRITE vague items into crisp, self-contained TODOs (each: one-line title · executable acceptance · the exact file/path anchors · reuse-not-reimplement pointers · cadence/priority/category) so the next fire's agents need ZERO exploration to start; **(b) EXPANDS SCOPE** — reconciles the money path + route/journey/screen/state coverage and GENERATES new next-wave items (journeys, surfaces, capabilities) the loop hasn't considered; **(c) surfaces a "READY NOW — top 5" block at the frontier** so the next fire picks instantly. Acceptance: the frontier is unambiguous + every top item is executable without re-discovery. It is READ-ONLY on product code (it edits only `BACKLOG.md` + discovery notes) so it never conflicts with the mutating roster. Specialist: `architect`/`content-writer`.
 3. **Unit/Integration Testing** — TDD units + integration for shipped + at-risk code; close coverage gaps. Specialist: `test-writer`.
@@ -283,7 +297,7 @@ A fire that ships zero loop-improvement under-delivered — surface why in the r
 - **Confirm the ≥1 loop-improvement landed** (§7) and name it in the report.
 - Report per `always.md`: Changes · Next unmet unit per workstream · which golden journey ran + what it fixed · the Deep UI Explorer's provider/session + states visited/deferred + vision count/cost · external blockers · Recs (only genuine >2h / design-call / destructive-decision items — ship everything else inline).
 - **Release the fire lease LAST**: `node scripts/loop-fire-lock.mjs release fire-<n>-<slug>` — then the next scheduled tick starts promptly instead of coalescing.
-- **ONE iteration per fleet dispatch.** Release this fire lease, write the evidence report, and return. GitHub schedules the next iteration; do not claim fire N+1 in this session.
+- **ONE iteration per fleet dispatch — HEADLESS GHA ONLY** (per the SCOPE note atop this file). On a headless GitHub-Actions dispatch: release this fire lease, write the evidence report, and return; GitHub schedules the next iteration, so do not claim fire N+1 in that session. **In an INTERACTIVE/live session the opposite holds:** release the lease, report fire N, then immediately claim + begin fire N+1 in-session and keep chaining until LEAD saturation — never stop after one fire, never ask the human, never defer to "a fresh session" in the report.
 
 ## Discipline (non-negotiable)
 - One coherent slice per role per fire; fan out for independence; the main thread orchestrates + converges + reviews + **deploys once** + verifies — agents never deploy independently.
