@@ -3349,6 +3349,63 @@ export class BoltEmbedService {
             });
           break;
         }
+        case 'PS_RES_FUNCTIONS': {
+          // Resources → Functions — the embedded editor has no cross-origin session, so it asks US
+          // (we hold currentSite + the ApiService bearer) to list the site's CODE-DEFINED Functions
+          // (its deployed WfP functions/ worker + its declared crons) via GET /api/sites/:id/functions.
+          // Reply PS_RES_FUNCTIONS_RESULT. Read-only (ADR-0035 — Functions are authored in a
+          // functions/ folder, not a dashboard form). DARK behind `site_functions` → a 404 translates
+          // to {ok:false,enabled:false} (friendly "not enabled" card, never a scary error).
+          const iframe = this.iframeEl;
+          const site = this.currentSite;
+          const cid = msg.correlationId;
+          const reply = (payload: Record<string, unknown>): void => {
+            iframe?.contentWindow?.postMessage(
+              { type: 'PS_RES_FUNCTIONS_RESULT', correlationId: cid, ...payload },
+              EDITOR_BASE,
+            );
+          };
+          if (!site) {
+            reply({ ok: false, error: 'No site selected' });
+            break;
+          }
+          // Worker `/functions` → `{ data:[{id,kind,name,status,cron,bundleBytes,deployed_at}],
+          // functionsDeployed, wfpConfigured }`.
+          this.api
+            .get<{
+              data?: Array<{
+                id: string;
+                kind: string;
+                name: string;
+                status: string;
+                cron: string | null;
+                bundleBytes: number | null;
+                deployed_at: string | null;
+              }>;
+              functionsDeployed?: boolean;
+              wfpConfigured?: boolean;
+            }>(`/sites/${site.id}/functions`, undefined, { silent: true })
+            .subscribe({
+              next: (res) =>
+                reply({
+                  ok: true,
+                  functions: res?.data ?? [],
+                  functionsDeployed: res?.functionsDeployed ?? false,
+                  wfpConfigured: res?.wfpConfigured ?? false,
+                }),
+              // Any 404 is the dark/absent state → editor shows the friendly "not enabled" card.
+              // The handler returns `{error:{code:NOT_FOUND}}` (no "not enabled" message) for BOTH the
+              // flag-off case AND a cross-org miss, so treat the whole 404 class as disabled.
+              error: (err: unknown) => {
+                if (err instanceof HttpErrorResponse && err.status === 404) {
+                  reply({ ok: false, enabled: false });
+                } else {
+                  reply({ ok: false, error: 'Could not load functions.' });
+                }
+              },
+            });
+          break;
+        }
         case 'PS_R2': {
           // Resources → Buckets — the embedded editor has no cross-origin session, so it asks US (we
           // hold currentSite + the ApiService bearer) to run one bucket/object management op against
