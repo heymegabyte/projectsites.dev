@@ -128,7 +128,10 @@ export default defineConfig({
   // stuck page still fails at 45s. Only slow/failing tests consume it, so shard runtime is
   // ~unchanged.
   timeout: 45_000,
-  reporter: 'line',
+  // Actions uploads playwright-report/: the terminal reporter alone creates no artifact.
+  reporter: process.env.CI
+    ? [['line'], ['html', { outputFolder: 'playwright-report', open: 'never' }]]
+    : [['line']],
   use: {
     baseURL: process.env.PROD_URL ?? 'https://projectsites.dev',
     trace: 'retain-on-failure',

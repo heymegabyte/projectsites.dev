@@ -46,7 +46,10 @@ export default defineConfig({
   // hang fast — this only absorbs cumulative-latency-under-load, never masks one. (Bound
   // every in-page fetch with AbortSignal.timeout so a hang fails fast, not at this ceiling.)
   timeout: 60_000,
-  reporter: [['line']],
+  // Actions uploads playwright-report/: the terminal reporter alone creates no artifact.
+  reporter: process.env.CI
+    ? [['line'], ['html', { outputFolder: 'playwright-report', open: 'never' }]]
+    : [['line']],
   use: {
     baseURL: process.env.PROD_URL || 'https://projectsites.dev',
     trace: 'retain-on-failure',
