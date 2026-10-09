@@ -35,6 +35,7 @@ import { writeFileSync } from 'node:fs';
 import { resolve, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { RENDER_SECTIONS, ALIAS_SECTIONS, HARD_SECTIONS } from './admin-contract.mjs';
+import { captureSection } from './section-capture.mjs';
 import { resolveBrowserbaseCreds } from './_browserbase-creds.mjs';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
@@ -105,20 +106,7 @@ async function processRender(pp, s, siteId) {
     await page.locator('app-admin, main').first().waitFor({ timeout: 30000 }).catch(() => {});
     await page.waitForTimeout(3000);
     const capture = () =>
-      page.evaluate((shell) => {
-        const body = document.body.innerText || '';
-        const main = document.querySelector('main')?.innerText || body;
-        return {
-          path: location.pathname,
-          mainLen: main.trim().length,
-          text: main.slice(0, 4000),
-          h1: (document.querySelector('h1')?.innerText || '').slice(0, 80),
-          rows: document.querySelectorAll('table tbody tr, [role="row"]').length,
-          // Advisory: is the contract's shell testid present? Reported, never fails
-          // the gate yet (testids start soft, promote to hard once wired everywhere).
-          shellPresent: shell ? !!document.querySelector(`[data-testid="${shell}"]`) : null,
-        };
-      }, s.shell);
+      page.evaluate(captureSection, { shell: s.shell, contentSelector: s.contentSelector });
     let info = await capture();
     // Async-heavy sections (e.g. /admin/docs fetches + renders 51 OpenAPI endpoints) can
     // still be mid-render after the base settle. Poll (max ~8s more) until the section

@@ -43,6 +43,7 @@
  *   flag        feature-flag key that gates it, or null (always on)
  *   api         worker endpoints the section calls that MUST return real data ([] = unknown, render+signal only)
  *   signal      case-insensitive regex source — the section-specific real-data signal
+ *   contentSelector optional content root for overlays outside main (missing root fails render)
  *   shell       required data-testid on the section root (the reachability + mount proof)
  *   minLen      minimum rendered main-text length
  *   redirectTo  (alias only) the URL the route must redirect to
@@ -57,7 +58,7 @@
  * @type {ReadonlyArray<{
  *   slug: string, route: string, label: string, kind: SectionKind, guard: Guard,
  *   flag: string|null, api: string[], signal: string, shell: string, minLen: number,
- *   redirectTo?: string, severity: 'hard'|'soft', notes?: string
+ *   contentSelector?: string, redirectTo?: string, severity: 'hard'|'soft', notes?: string
  * }>}
  */
 export const ADMIN_CONTRACT = [
@@ -65,6 +66,10 @@ export const ADMIN_CONTRACT = [
   { slug: 'dashboard', route: '/admin', label: 'Dashboard', kind: 'section', guard: 'auth', flag: null,
     api: [], signal: 'getting started|guide|quick|welcome|next|explore', shell: 'dashboard-shell', minLen: 200, severity: 'hard',
     notes: 'Getting-Started hub (AI-chat dashboard removed). Section-guide grid.' },
+  { slug: 'create', route: '/admin/create', label: 'New site', kind: 'section', guard: 'auth', flag: null,
+    api: [], signal: 'create your website|tell us about your business', shell: '',
+    contentSelector: '.ps-create-overlay', minLen: 120, severity: 'hard',
+    notes: 'Auth-guarded create dialog moves to body; URL masking to /create is intentional. Measure the overlay, not the dashboard.' },
   { slug: 'editor', route: '/admin/editor', label: 'Editor', kind: 'section', guard: 'auth', flag: null,
     api: [], signal: 'editor|bolt|preview|file|project', shell: 'editor-shell', minLen: 80, severity: 'hard',
     notes: 'bolt.diy iframe host — WebContainer cold-boot; render proof = iframe mount.' },
