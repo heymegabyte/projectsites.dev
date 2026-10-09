@@ -254,9 +254,24 @@ function classifyFoundTestId(found) {
  *
  * @param {import('@playwright/test').Page} page
  * @param {import('@playwright/test').FrameLocator} frame
- * @param {string[]} consoleErrors - accumulates console errors during the run
+ * @param {Array<{text:string,url:string}>} consoleErrors - accumulates {text,url} console errors during the run
  * @returns {Promise<Array<{name: string, pass: boolean, state: string, found: string|null, errors: number, screenshot: string}>>}
  */
+/**
+ * The persistent Preview iframe runs the generated SITE's OWN JS (a WebContainer /
+ * StaticBlitz origin) and keeps logging errors in the background even while a Resources
+ * sub-tab is shown — so a RAW console-error count mis-attributes that site noise to the
+ * editor tab (fire-312: `buckets` falsely read 180). Count only errors from the EDITOR /
+ * admin origins; exclude the preview/WebContainer origins. An UNKNOWN origin still counts
+ * (never silently hide a real editor error) and the excluded split is logged.
+ * @param {{text:string,url:string}} e
+ * @returns {boolean} true when the error originates from the background preview iframe
+ */
+const PREVIEW_NOISE_ORIGIN = /webcontainer|staticblitz|w-corp|local-credentialless|stackblitz/i;
+function isPreviewNoise(e) {
+  return PREVIEW_NOISE_ORIGIN.test(e && e.url ? e.url : '');
+}
+
 async function verifyResourcesSubTabs(page, frame, consoleErrors, resourcesTabSel) {
   const tabResults = [];
 
@@ -297,7 +312,7 @@ async function verifyResourcesSubTabs(page, frame, consoleErrors, resourcesTabSe
         pass: false,
         state: 'tab-not-found',
         found: null,
-        errors: consoleErrors.length - errsBefore,
+        errors: consoleErrors.slice(errsBefore).filter((e) => !isPreviewNoise(e)).length,
         screenshot: sc,
       });
       continue;
@@ -322,13 +337,28 @@ async function verifyResourcesSubTabs(page, frame, consoleErrors, resourcesTabSe
     // Probe for any expected testid
     const found = await firstFoundTestId(frame, probe.candidates, 8000);
     const state = classifyFoundTestId(found);
-    const newErrors = consoleErrors.length - errsBefore;
+    const sinceClick = consoleErrors.slice(errsBefore);
+    const editorErrors = sinceClick.filter((e) => !isPreviewNoise(e));
+    const newErrors = editorErrors.length;
+    const excludedPreview = sinceClick.length - newErrors;
 
     // Capture screenshot
     const sc = await shot(page, `tab-${probe.name}`);
 
     const pass = found !== null;
-    console.log(`  [${probe.name}] found=${found ?? 'none'} state=${state} errors=${newErrors} pass=${pass}`);
+    console.log(
+      `  [${probe.name}] found=${found ?? 'none'} state=${state} errors=${newErrors}` +
+        (excludedPreview > 0 ? ` (+${excludedPreview} preview-iframe noise excluded)` : '') +
+        ` pass=${pass}`,
+    );
+    // Transparency: if the EDITOR-attributed count is non-zero, surface the distinct origins
+    // so a real editor error is never masked by the preview-noise filter (fire-312).
+    if (newErrors > 0) {
+      const origins = [...new Set(editorErrors.map((e) => e.url || '(no-url)'))].slice(0, 4);
+      console.log(`  [${probe.name}] counted-error origins: ${origins.join(' | ')}`);
+      const sampleTexts = [...new Set(editorErrors.map((e) => (e.text || '').replace(/\s+/g, ' ').slice(0, 180)))].slice(0, 4);
+      console.log(`  [${probe.name}] sample error texts: ${sampleTexts.join(' ⋮ ')}`);
+    }
 
     tabResults.push({
       name: probe.name,
@@ -364,10 +394,12 @@ async function pathA_adminEmbed(pw) {
     });
     const page = await context.newPage();
 
-    // Collect console errors
+    // Collect console errors WITH their origin URL so per-tab counts can exclude the
+    // background Preview/WebContainer iframe's site-JS noise (see isPreviewNoise).
     page.on('console', (msg) => {
       if (msg.type() === 'error') {
-        consoleErrors.push(msg.text());
+        const loc = msg.location();
+        consoleErrors.push({ text: msg.text(), url: (loc && loc.url) || '' });
       }
     });
 
