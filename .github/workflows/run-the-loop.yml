@@ -5,6 +5,11 @@ on:
     - cron: '2,17,32,47 * * * *'
   workflow_dispatch:
     inputs:
+      runtime:
+        description: Official native CLI route
+        type: choice
+        options: [codex, claude, deepseek]
+        default: codex
       objective:
         description: Optional focus for this one loop
         type: string
@@ -16,9 +21,10 @@ permissions:
 
 jobs:
   loop:
-    uses: heymegabyte/agent-skills/.github/workflows/run-the-loop.yml@7c2206d032a803bb8012e495ff4a010cd5ed985f
+    uses: heymegabyte/agent-skills/.github/workflows/run-the-loop.yml@80e662536a05ac20b8575afe577baf4629977489
     with:
+      runtime: ${{ inputs.runtime || 'codex' }}
       project: heymegabyte/projectsites.dev
-      shared-revision: 7c2206d032a803bb8012e495ff4a010cd5ed985f
+      shared-revision: 80e662536a05ac20b8575afe577baf4629977489
       runner-labels: '["self-hosted","linux","ubuntu","persistent","proxmox-vm","agent","codex"]'
       objective: ${{ inputs.objective || '' }}
