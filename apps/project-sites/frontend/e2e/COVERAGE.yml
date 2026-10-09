@@ -20,6 +20,11 @@ marketing:
   jsonld:          { status: covered, specs: [marketing-jsonld.e2e.ts], note: "FAQPage only where visible; single route-accurate WebPage + BreadcrumbList per route" }
   internal_links:  { status: covered, specs: [marketing-links.e2e.ts], note: "no 4xx/5xx on internal nav links" }
 
+cross_surface_journeys:
+  money_path_entry: { status: blocked, specs: [money-path-funnel.e2e.ts], note: "Homepage/search and authenticated create entry; stops before AI build. Authenticated production acceptance pending dependencies and approved E2E credentials." }
+  nav_create_overlay: { status: blocked, specs: [money-path-nav-create.e2e.ts], note: "Open/assert/close overlay; authenticated production acceptance pending. Synthetic close dispatch does not establish pointer hit-area correctness." }
+  admin_operations: { status: blocked, specs: [admin-operations-journey.e2e.ts], note: "Navigation across 14 core admin surfaces; authenticated production acceptance pending dependencies and approved E2E credentials." }
+
 create_flow:
   wizard:          { status: covered, specs: [create-site.spec.ts, create-page-fixes.spec.ts, create-final-fixes.spec.ts, auto-create.spec.ts] }
   zindex:          { status: covered, specs: [create-zindex-repopulate.spec.ts, dropdown-zindex.spec.ts] }

@@ -32,6 +32,17 @@ Status legend: ✅ covered + green · ⚠️ covered, known-blocked dependency �
 | Status (worker-served) | `marketing-a11y.e2e.ts` (excluded — documented) | ⚠️ worker/Docker-blocked |
 | Mobile responsive (all marketing) | `mobile.spec.ts`, `marketing-responsive.e2e.ts` | ✅ |
 
+## Cross-surface journeys
+
+These specs are inventoried, but authenticated production acceptance remains blocked pending
+frontend dependencies and approved E2E credentials. Presence in this table is not passing coverage.
+
+| Feature | Spec(s) | Status |
+|---|---|---|
+| Homepage search → authenticated admin → create entry (stops before AI build) | `money-path-funnel.e2e.ts` | ⚠️ authenticated production verification pending |
+| Admin create overlay: open, content assertions, close | `money-path-nav-create.e2e.ts` | ⚠️ authenticated production verification pending; close uses synthetic dispatch |
+| Operator navigation across 14 core admin surfaces | `admin-operations-journey.e2e.ts` | ⚠️ authenticated production verification pending |
+
 ## Create / build / waiting flows
 
 | Feature | Spec(s) | Status |
