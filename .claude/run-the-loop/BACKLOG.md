@@ -2182,3 +2182,8 @@ Re-architect every workbench panel onto a shared gorgeous spine so chrome/tokens
 
 - [ ] CI-CONTAINER-MOCK-308: reproduce GitHub run 37848103525 worker failure in src/__tests__/platform_root_landings.test.ts (Container extends undefined through app_runtime_subclasses → routes/apps → index). Reuse existing Cloudflare runtime mocks; acceptance: affected suite and full worker unit gate pass without hiding app routes. cadence once · priority high · category testing.
 - [ ] LOOP-RECENCY-SUFFIX-308: inspect scripts/loop-recent-fires.mjs numeric-token parsing: git reports fire-306 from newer fire-306b while LEDGER numeric max is 307. Acceptance: suffix IDs retain chronological context and mismatch diagnostics distinguish older-number/newer-commit from unpublished work; add synthetic history fixture. cadence once · priority med · category loop-improvement.
+
+## fire-309 follow-up — frontend inventory gate
+
+- [x] CI-E2E-INVENTORY-309: reproduced six missing-reference errors locally after GitHub feature-architecture run 37862033777 reported missing nav-create inventory. Registered all three existing cross-surface specs in both maps with blocked production status (`17305d85f`). Acceptance: frontend inventory validator passes for 185 specs; no browser acceptance inferred.
+- [ ] E2E-NAV-CREATE-HITAREA-309: re-confirm documented close-button overlap live before repair; replace synthetic close dispatch with a real pointer click and assert overlay removal after navigation. Acceptance: authenticated UI open → pointer close → overlay absent, with screenshot evidence. Existing CREATE-POLISH-1 follow-up in the spec; this entry preserves its executable acceptance, not a new defect claim. cadence once · priority high · category ux.
