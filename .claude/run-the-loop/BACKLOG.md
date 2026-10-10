@@ -2242,23 +2242,41 @@ Re-architect every workbench panel onto a shared gorgeous spine so chrome/tokens
 > - **B5 flag promote** — `r2_bucket_manager` → enabled+100%+beta (beta→stable after 1 week P1-free).
 > - **B14 a11y foundation** — roving listbox (fire-buckets-b14) + modal focus-trap (fire-buckets-modalfocus) +
 >   SR status roles (fire-buckets-livestatus); all live-verified.
+> - **File-type glyphs + gallery + AA-contrast** (`7eade7660` + distinctness probe `a17e8c8df`) — `colorForObject()`
+>   / `bucket-icons.ts` restrained per-type TINTS (pdf→rose · image→sky · csv/xls→emerald · doc→blue · ppt→orange ·
+>   audio→fuchsia · video→violet · archive→amber · code→cyan · font→pink) applied to the live list+grid AND the
+>   `/_preview` gallery; `PanelEmpty` description tertiary→secondary (fixes a WCAG-AA color-contrast node across EVERY
+>   panel empty state — gallery now axe color-contrast CLEAN); `uno.config` safelist for the tint utilities. Durable
+>   probe `verify:buckets-populated`. **DONE — do NOT re-open.**
+> - **B5 slice 4 BACKEND** (`0966ebd72`) — owner-facing scoped R2 key route+bridge: `GET /api/sites/:siteId/r2/keys`
+>   (masked status, NEVER the secret) · `POST` (create, show-once secret, idempotent→masked if one exists) ·
+>   `POST …/keys/rotate` (revoke old + mint new, show-once) + `PS_R2_KEY_{STATUS,CREATE,ROTATE,REVOKE}` bridge ops
+>   (`embedded-mode.ts:2469+`), reusing `cfCreateToken`. **Backend DONE — the s4 UI (below) WIRES it; do NOT rebuild
+>   the route.** (The DELETE/revoke verb rides `PS_R2_KEY_REVOKE`; the shipped route set already covers it.)
 >
-> **🔶 IN-FLIGHT THIS FIRE (B5 slice 4 BACKEND + object-browser polish):** owner-facing scoped R2 key
-> BACKEND+bridge — `POST/DELETE /api/sites/:siteId/r2/keys` + rotate `GET` + `PS_R2_KEY_*` bridge ops (reusing
-> `cfCreateToken`), SHOW-ONCE secret, default R/O + bounded expiry, audit-logged; PLUS distinct file-type icons +
-> a populated `/_preview` gallery + object-browser polish. **The B5-s4 UI (below) WIRES this backend** — do NOT
-> rebuild the route; grep `r2/keys` + `PS_R2_KEY` first and consume what the backend fire shipped.
+> **🔶 IN-FLIGHT THIS FIRE (B5 slice 4 UI + audit + credential-VALIDITY E2E — closes the last B5 slice):** the owner-key
+> **SettingsSection** in `BucketSettings` consuming the `PS_R2_KEY_*` bridge ops (backend above is already on main —
+> grep `r2/keys` + `PS_R2_KEY` confirms it); PLUS owner-key ops **audit-logged** (`audit_logs`: actor + action +
+> keyId, NEVER the secret); PLUS a credential-**VALIDITY** E2E: mint a key → S3-sign a REAL R2 op with it → assert the
+> op is **valid** (succeeds), **scoped** (a forbidden/foreign bucket is DENIED), and **revocable** (post-revoke the same
+> signature FAILS). The file-type icon/color/gallery/contrast work above DONE this cycle (SHAs noted); this fire finishes
+> B5 (UI + audit + validity-proof).
 
 > ### READY NOW — Buckets top 5 (pick ONE per fire; VERIFY each with the live object round-trip where object-touching)
-> 1. **[product] B5 s4 — owner credential-strip UI** *(wires THIS fire's s4 backend; the only remaining B5 slice)* —
->    a NEW owner-key `SettingsSection` in `BucketSettings` (`BucketsPanel.tsx`, insert after the Address section
->    ~L2192, before Promote) consuming the `PS_R2_KEY_*` bridge ops: masked `accessKeyId`, show-once secret reveal
->    (copy button, in a `ModalShell`), rotate (re-reveals once), revoke, live status; honest owner copy "secret not
->    recoverable → rotate" (NO "R2/S3/credential" jargon). **Accept:** Vitest asserts create→show-once-secret (only
->    on create/rotate, never re-fetchable) · copy-id · rotate re-reveals · revoke returns to empty · a revoked/absent
->    key shows a calm create CTA (no doomed control); owner-copy regression (no `R2|S3|credential` in the section);
->    editor builds + prod 200 with the strip visible; live round-trip still ✅. **Reuse:** `SettingsSection`/`AddressRow`/
->    `BTN_*`/`ModalShell` (all in-file); mirror the `PS_R2_UPLOAD` bridge-op wiring at `embedded-mode.ts`. · category product · anchors verified.
+> 1. **[product] B5 s4 — owner credential-strip UI + audit + validity-E2E** *(= THIS FIRE; backend already on main
+>    `0966ebd72` — WIRE it, don't rebuild; the last remaining B5 slice)* — a NEW owner-key `SettingsSection` in
+>    `BucketSettings` (`BucketsPanel.tsx`, insert after the Address section ~L2192, before Promote) consuming the
+>    `PS_R2_KEY_*` bridge ops: masked `accessKeyId`, show-once secret reveal (copy button, in a `ModalShell`), rotate
+>    (re-reveals once), revoke, live status; honest owner copy "secret not recoverable → rotate" (NO "R2/S3/credential"
+>    jargon). PLUS owner-key ops **audit-logged** (`audit_logs`: actor+action+keyId, never the secret). **Accept:**
+>    Vitest asserts create→show-once-secret (only on create/rotate, never re-fetchable) · copy-id · rotate re-reveals ·
+>    revoke returns to empty · a revoked/absent key shows a calm create CTA (no doomed control); owner-copy regression
+>    (no `R2|S3|credential` in the section); editor builds + prod 200 with the strip visible. **PLUS a credential-VALIDITY
+>    E2E** (`e2e/editor-live/`): mint key → S3-sign a REAL R2 op with the minted creds → assert VALID (op succeeds) +
+>    SCOPED (forbidden/foreign bucket DENIED) + REVOCABLE (post-revoke the same signature FAILS). **Reuse:**
+>    `SettingsSection`/`AddressRow`/`BTN_*`/`ModalShell` (all in-file); mirror the `PS_R2_UPLOAD` bridge-op wiring at
+>    `embedded-mode.ts`; the round-trip harness `check-r2-objectops-live.mjs` is the pattern for the validity E2E.
+>    · category product · anchors verified.
 > 2. **[product] B12 — rich sandboxed previews** *(FE-only, highest value-for-cost — object ops now live)* — a
 >    sandboxed inspector for image/video/audio/pdf/text/md/json/code in `BucketsPanel.tsx` (extend the inline-image
 >    preview into a typed viewer / `<iframe sandbox>`); SVG/HTML **NEVER** injected into the privileged origin;
@@ -2277,8 +2295,8 @@ Re-architect every workbench panel onto a shared gorgeous spine so chrome/tokens
 >    already done. · **new-backend: NO.** · category testing. *(MODERATE — start fresh.)*
 
 > ### Buckets spec slices — self-contained one-fire TODOs (B6-B13; pick after the top-5)
-> - [ ] **B5 s4 — owner credential-strip UI** *(= READY-NOW #1 above — the only remaining B5 slice; wires this fire's backend)*
->   - cadence every-loop · priority **highest** · category product · estimate 1 fire · depends_on s4-backend(in-flight) · anchors: `BucketsPanel.tsx` `BucketSettings`@2108 + `embedded-mode.ts` `PS_R2_KEY_*`
+> - [~] **B5 s4 — owner credential-strip UI + audit + validity-E2E** *(= READY-NOW #1 above — THIS FIRE; the last B5 slice; backend ON MAIN `0966ebd72`)*
+>   - cadence every-loop · priority **highest** · category product · estimate 1 fire · depends_on s4-backend(DONE on main) · anchors: `BucketsPanel.tsx` `BucketSettings`@2108 (insert after Address ~L2192) + `embedded-mode.ts` `PS_R2_KEY_*`@2469 + `audit_logs` + `e2e/editor-live/` validity E2E
 > - [ ] **B6 — Clone bucket** — durable Workflow: create a new physical bucket + server-side-copy every object.
 >   **Accept:** new bucket + object+metadata copy (HTTP/custom meta, CORS, lifecycle where CF supports), clone defaults
 >   private+unassigned, progress (files/bytes/stage/errors/retry/cancel), verified-before-success. **Anchors:** NEW CF
@@ -2311,10 +2329,15 @@ Re-architect every workbench panel onto a shared gorgeous spine so chrome/tokens
 >   editor · lifecycle/CORS/storage-class. **Accept:** usage rollup by type, largest-files list, timeline from
 >   `audit_logs`, editable object metadata, lifecycle/CORS/storage-class controls (only where CF + user perms allow).
 >   **Anchors:** NEW routes in `handlers.ts`; timeline source = existing `audit_logs`. · cadence every-4-loops · priority **P3** · category product · estimate 2 fires · **new-backend: YES**.
-> - [ ] **B4 — Per-bucket Access Keys** *(FAST-FOLLOW after B5 s4)* — per-BUCKET scoped owner keys (granularity below
->   B5's per-site token), reusing B5's token + record machinery. Route `POST/GET/DELETE
->   /api/sites/:siteId/r2/buckets/:bucket/keys` + CF bucket-scoped `POST /accounts/{acct}/r2/api_tokens`. SHOW-ONCE;
->   default R/O + bounded expiry; audit-log; Access Keys workspace tab (create/copy-id/rotate/revoke/rename). · cadence every-2-loops · priority P2 · category product · estimate 1-2 fires · **new-backend: YES**.
+> - [ ] **B4 — Per-bucket scoped Access Keys** *(FAST-FOLLOW after B5 s4 — s4's owner-key is SITE-scoped; B4 NARROWS it
+>   to ONE bucket)* — per-BUCKET scoped owner keys (finer granularity than B5's per-site token), reusing B5's token +
+>   record machinery. **Key reuse: `bucketScopeResources` (`site_r2.ts:422`)** — B5 passes the site's FULL bucket list;
+>   B4 passes a ONE-element list (`[thisBucket]`) so the minted CF token is scoped to a single bucket, nothing else.
+>   **Accept:** key works ONLY on `:bucket` (any other site bucket is DENIED — the finer scope is proven, not just
+>   claimed); SHOW-ONCE secret; default R/O + bounded expiry; revocable; audit-logged. **Anchors:** Route `POST/GET/
+>   DELETE /api/sites/:siteId/r2/buckets/:bucket/keys` (mirror the s4 `r2/keys` handlers) + CF bucket-scoped
+>   `POST /accounts/{acct}/r2/api_tokens` (reuse `cfCreateToken`@`site_r2.ts:535`); Access Keys workspace tab
+>   (create/copy-id/rotate/revoke/rename) in `BucketsPanel.tsx`. · cadence every-2-loops · priority P2 · category product · estimate 1-2 fires · **new-backend: YES**.
 >
 > **Open Questions / spec-vs-reality contradictions (surface before executing):**
 > - **Spec "current state" (BUCKETS-MASTER-SPEC §68 "Object ops … `needs_s3_credentials` (503) when unset")
@@ -2323,7 +2346,7 @@ Re-architect every workbench panel onto a shared gorgeous spine so chrome/tokens
 >   now enabled), so `objectOpsAvailable` is TRUE for every site. The `needs_s3_credentials` 503 is now only the
 >   no-per-site-token-AND-no-global-key edge. The spec body has correction banners (§166) but the §68 audit line
 >   still reads the old way — trust the banners + code, not §68.
-> - **B5-s4 "new owner-token route" vs this fire's in-flight backend.** The top-5 #1 assumes the s4 BACKEND
->   (`POST/DELETE/rotate GET /api/sites/:siteId/r2/keys` + `PS_R2_KEY_*`) landed from THIS fire. If a UI fire starts
->   before that backend is on main, grep `r2/keys` + `PS_R2_KEY` FIRST — if absent, the UI fire must either wait or
->   ship the route itself (reusing `cfCreateToken`@`site_r2.ts:535`), not assume it exists.
+> - **B5-s4 backend is NOW ON MAIN (`0966ebd72`) — resolved, no longer a hazard.** `GET/POST /api/sites/:siteId/r2/keys`
+>   + `POST …/keys/rotate` + `PS_R2_KEY_{STATUS,CREATE,ROTATE,REVOKE}` (`embedded-mode.ts:2469+`) are all present;
+>   verified by grep this groom. The s4-UI fire WIRES them (`cfCreateToken`@`site_r2.ts:535` backs them) — do NOT
+>   rebuild. (Kept as a receipt; the old "wait-or-ship-the-route" branch no longer applies.)
