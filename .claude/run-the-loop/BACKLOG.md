@@ -2266,16 +2266,23 @@ Re-architect every workbench panel onto a shared gorgeous spine so chrome/tokens
 >   contrast** (`7eade7660`+`a17e8c8df`) — per-type tints in list+grid+`/_preview` gallery, empty-state contrast
 >   fixed. **DONE — do NOT re-open.**
 >
-> **🔶 IN-FLIGHT THIS FIRE (B4 per-BUCKET owner-key BACKEND — the finer-scope fast-follow after s4):** per-BUCKET
-> scoped owner keys (B5's s4 key is SITE-scoped; B4 NARROWS to ONE bucket) — NEW route `POST/GET/DELETE
-> /api/sites/:siteId/r2/buckets/:bucket/keys` mirroring the s4 `r2/keys` handlers, reusing `bucketScopeResources`
-> (`site_r2.ts:423`) with a ONE-element list (`[thisBucket]`) so the minted CF token is scoped to a single bucket.
-> **Backend + per-bucket credential-VALIDITY E2E this fire** (key works ONLY on `:bucket`; any OTHER site bucket is
-> DENIED — the finer scope PROVEN via SigV4, not just claimed). **B4 UI is DEFERRED to its own follow-up (below).**
+> - **✅ B4 per-BUCKET owner-key BACKEND DONE** (the finer-scope fast-follow after s4) — per-BUCKET scoped owner keys
+>   (B5's s4 key is SITE-scoped; B4 NARROWS to ONE bucket): NEW routes `POST/GET/DELETE
+>   /api/sites/:siteId/r2/buckets/:bucket/keys` mirroring the s4 `r2/keys` handlers + migration `0662`, reusing
+>   `bucketScopeResources` (`site_r2.ts:423`) with a ONE-element list (`[thisBucket]`) so the minted CF token is scoped
+>   to a single bucket. **Per-bucket credential-VALIDITY E2E PROVEN** — `200` on its own bucket · `403` on another site
+>   bucket · `401` post-revoke (the finer scope PROVEN via SigV4, not just claimed). **B4 UI is DEFERRED to its own
+>   follow-up (= READY-NOW #4 / the [ ] B4-UI slice below).** Do NOT re-open the B4 backend.
+>
+> **🔶 IN-FLIGHT THIS FIRE (B12 — rich sandboxed object previews, FE-only):** a sandboxed inspector for
+> image/pdf/text/media (typed viewer / `<iframe sandbox>`; SVG/HTML NEVER injected into the privileged origin) with a
+> metadata panel + download fallback, reusing `PS_R2_DOWNLOAD` for bytes. No new backend. Verify with the live object
+> round-trip + a visual walkthrough of each type.
 
 > ### READY NOW — Buckets top 5 (pick ONE per fire; VERIFY each with the live object round-trip where object-touching)
-> *(B5 s4 CLOSED `daaf2db1c` — dropped from this list. B4 per-bucket BACKEND in-flight this fire; its UI is #4.)*
-> 1. **[product] B12 — rich sandboxed previews** *(FE-only, highest value-for-cost — object ops now live)* — a
+> *(B5 s4 CLOSED `daaf2db1c` + B4 BACKEND DONE this session — both dropped from the pick-list. **B12 is IN-FLIGHT this
+> fire** (🔶 banner above) — kept as #1 for continuity but NOT a fresh pick; the next fire picks from #2-#5.)*
+> 1. **🔶 [product] B12 — rich sandboxed previews** *(IN-FLIGHT THIS FIRE — FE-only, object ops live)* — a
 >    sandboxed inspector for image/video/audio/pdf/text/md/json/code in `BucketsPanel.tsx` (extend the inline-image
 >    preview into a typed viewer / `<iframe sandbox>`); SVG/HTML **NEVER** injected into the privileged origin;
 >    metadata panel + download fallback. **Reuse:** `PS_R2_DOWNLOAD` (getObject) for bytes. · **new-backend: NO.** · category product.
@@ -2332,7 +2339,10 @@ Re-architect every workbench panel onto a shared gorgeous spine so chrome/tokens
 >   filters (ext/size/date/visibility/prefix) across all objects, cursor pagination, honest "indexing"/"scanning"
 >   status. **Anchors:** NEW route in `handlers.ts` + NEW bridge op `searchObjects`; reuse `listSiteR2Objects` S3
 >   list-paging (`site_r2.ts:677`) for a cursor scan (optionally a D1 metadata index for speed). · cadence every-2-loops · priority P2 · category product · estimate 1-2 fires · **new-backend: YES**.
-> - [ ] **B12 — Rich previews** *(= READY-NOW #2)* — FE-only sandboxed inspector; reuse `PS_R2_DOWNLOAD`. · cadence every-loop · priority P2 · category product · estimate 1 fire · **new-backend: NO**.
+> - [~] **B12 — Rich previews** *(= READY-NOW #1; 🔶 IN-FLIGHT THIS FIRE)* — FE-only sandboxed inspector
+>   (image/video/audio/pdf/text/md/json/code; `<iframe sandbox>`, SVG/HTML never in the privileged origin) + metadata
+>   panel + download fallback; reuse `PS_R2_DOWNLOAD`. Anchors: inline-image preview + object rows ~L1276 in
+>   `BucketsPanel.tsx`. · cadence every-loop · priority P2 · category product · estimate 1 fire · **new-backend: NO**.
 > - [ ] **B13 — Insights + metadata/lifecycle** — storage-by-type · largest-files · activity timeline · metadata
 >   editor · lifecycle/CORS/storage-class. **Accept:** usage rollup by type, largest-files list, timeline from
 >   `audit_logs`, editable object metadata, lifecycle/CORS/storage-class controls (only where CF + user perms allow).
@@ -2346,15 +2356,15 @@ Re-architect every workbench panel onto a shared gorgeous spine so chrome/tokens
 >   `r2_buckets/handlers.ts` + the env/binding model in `src/services/site_r2_manager.ts` (`resolveSiteBuckets`,
 >   system|custom) + a NEW bridge op `assignBucketEnv` wired into `EnvAssignmentGrid.tsx` (add the assign/undo controls
 >   to the currently read-only grid). Capture BEFORE-binding for rollback. · cadence every-2-loops · priority P2 · category product · estimate 1-2 fires · **new-backend: YES**.
-> - [~] **B4 — Per-bucket scoped Access Keys** *(FAST-FOLLOW after B5 s4 — s4's owner-key is SITE-scoped; B4 NARROWS it
->   to ONE bucket)* — **BACKEND + per-bucket credential-VALIDITY E2E IN-FLIGHT THIS FIRE** (see 🔶 banner above); per-BUCKET
->   scoped owner keys (finer granularity than B5's per-site token), reusing B5's token + record machinery.
->   **Key reuse: `bucketScopeResources` (`site_r2.ts:423`)** — B5 passes the site's FULL bucket list; B4 passes a
->   ONE-element list (`[thisBucket]`) so the minted CF token is scoped to a single bucket, nothing else. **Accept
->   (backend):** key works ONLY on `:bucket` (any other site bucket is DENIED — the finer scope PROVEN via SigV4, not
->   just claimed); SHOW-ONCE secret; default R/O + bounded expiry; revocable; audit-logged. **Anchors:** Route
->   `POST/GET/DELETE /api/sites/:siteId/r2/buckets/:bucket/keys` (mirror the s4 `r2/keys` handlers) + CF bucket-scoped
->   `POST /accounts/{acct}/r2/api_tokens` (reuse `cfCreateToken`@`site_r2.ts:535`). · cadence every-2-loops · priority P2 · category product · estimate 1 fire remaining (UI) · **new-backend: in-flight**.
+> - [x] **B4 BACKEND — Per-bucket scoped Access Keys** *(FAST-FOLLOW after B5 s4 — s4's owner-key is SITE-scoped; B4
+>   NARROWS it to ONE bucket)* — **✅ DONE this session: backend + per-bucket credential-VALIDITY E2E PROVEN**
+>   (`200` own bucket · `403` other site bucket · `401` post-revoke). per-BUCKET scoped owner keys (finer granularity
+>   than B5's per-site token), reusing B5's token + record machinery. **Key reuse: `bucketScopeResources`
+>   (`site_r2.ts:423`)** — B5 passes the site's FULL bucket list; B4 passes a ONE-element list (`[thisBucket]`) so the
+>   minted CF token is scoped to a single bucket, nothing else. Routes `POST/GET/DELETE
+>   /api/sites/:siteId/r2/buckets/:bucket/keys` + migration `0662` + CF bucket-scoped `POST
+>   /accounts/{acct}/r2/api_tokens` (`cfCreateToken`@`site_r2.ts:535`). **Only the UI remains → the [ ] B4-UI slice
+>   below.** Do NOT re-open the backend.
 > - [ ] **B4 UI — per-bucket Access Keys workspace** *(= READY-NOW #4; FAST-FOLLOW once B4 backend lands)* — per-bucket
 >   key management in the bucket **Settings** tab, **reusing `OwnerKeySection`** (`BucketsPanel.tsx:2291`, shipped for s4
 >   SITE keys) scoped to the SELECTED bucket, consuming NEW `PS_R2_BUCKET_KEY_*` bridge ops (mirror s4's `PS_R2_KEY_*`
@@ -2386,13 +2396,16 @@ Re-architect every workbench panel onto a shared gorgeous spine so chrome/tokens
 > **Apply to ALL future B4/B9/B11/B15 credential + objectops probes.** (Pairs with memory `[[prod-verify-authed-mutation-via-workers-dev]]`.)
 >
 > ### 📊 DoD §21 PROGRESS (master abridged — see `BUCKETS-MASTER-SPEC.md:323`)
-> **~75% complete** (≈15 of ~20 acceptance clauses met). **✅ DONE:** exactly-2 defaults (Preview+Production, Uploads
-> retired via `0649`) · custom-bucket CRUD · delete/empty · type-icon file browser · browse/sort/upload/download/delete +
-> object round-trip (B5 s2, prod-proven) · bucket+file context menus (B3) · per-SITE owner key create/rotate/revoke +
-> show-once secure copy (B5 s4) · tenant isolation on every op (`ownsSiteData` IDOR) · beautiful loading/empty/error/
-> success + `psBucketRise` · a11y keyboard/focus/SR (B14 foundation) · deployed + prod-verified · existing data intact.
-> **🔶 IN-FLIGHT:** per-BUCKET keys (B4 backend this fire; B4 UI follow-up). **⬜ REMAINING (the ~5 open clauses):**
-> B6 clone · B7 zip · B8 copy/move/rename · B9 per-object-public + public-bucket-marks-all + revoke-safe · B10 env
-> reassign unassigned→env + rollback · B11 server-side search · B12 rich preview · B15 Code-editor selector · B14 axe @
-> 6bp · **≥5 real visual-refinement rounds** (track rounds explicitly). Est. **8-11 one-fire slices** to genuine DoD.
-> (B10 now has its own crisp slice below — it was previously missing.)
+> **~80% complete** (≈16 of ~20 acceptance clauses met; +1 vs last groom — B4 per-BUCKET key BACKEND now DONE).
+> **✅ DONE:** exactly-2 defaults (Preview+Production, Uploads retired via `0649`) · custom-bucket CRUD · delete/empty ·
+> type-icon file browser · browse/sort/upload/download/delete + object round-trip (B5 s2, prod-proven) · bucket+file
+> context menus (B3) · per-SITE owner key create/rotate/revoke + show-once secure copy (B5 s4) · **per-BUCKET scoped
+> key create/rotate/revoke BACKEND + validity-E2E (B4, `0662`)** · tenant isolation on every op (`ownsSiteData` IDOR) ·
+> beautiful loading/empty/error/success + `psBucketRise` · a11y keyboard/focus/SR (B14 foundation) · deployed +
+> prod-verified · existing data intact. **🔶 IN-FLIGHT THIS FIRE:** B12 rich sandboxed previews (FE-only).
+> **⬜ REMAINING (the open clauses):** B4-UI per-bucket key workspace (backend done) · B6 clone · B7 zip · B8
+> copy/move/rename · B9 per-object-public + public-bucket-marks-all + revoke-safe · B10 env reassign unassigned→env +
+> rollback · B11 server-side search · B15 Code-editor selector · B14 axe @ 6bp · **≥5 real visual-refinement rounds**
+> (track rounds explicitly). Est. **8-10 one-fire slices** to genuine DoD (B12 closes one as it lands this fire).
+> **Cron-retire trigger:** all the above shipped + prod-verified + ≥5 visual rounds logged → retire the Buckets cron
+> per `[[loop-cron-refires-one-prompt-retire-when-directive-complete]]` (don't flood once DoD is genuinely met).
