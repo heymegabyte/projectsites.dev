@@ -12,9 +12,10 @@
 6. **b4-ui** — per-bucket **Access Keys workspace** (`BucketKeySection` in Settings tab; scoped create/rotate/revoke, show-once, "unlocks only this bucket" banner). 11 tests. → **per-bucket key feature END-TO-END complete** (UI→bridge→backend→proven creds).
 7. **b15** — Code-view **bucket source selector** (`CodeSourcePicker` Radix Source▾: website | R2 buckets, env badges, Production read-only, a11y) + `useCodeSources` hook + `BucketSourceNotice`. 8 tests. (In-explorer object-tree load/edit/save-back-to-R2 = fast-follow.)
 8. **b8** — object **rename/copy/move** same-bucket (`copySiteR2Object` S3 CopyObject + signed copy-source · collision guard · copy-then-delete · route + `PS_R2_COPY` bridge + `ObjectCopyDialog` in B3's menu). 82 jest + 151 Vitest. **Prod-verified on real R2** (copy 200 · rename 200 · src removed).
+9. **b11** — **server-side whole-bucket search** (`searchSiteR2Objects` bounded scan + native prefix + honest `scannedAll`/`scanned`/`truncated`; route `?search=`; reused `PS_R2 listObjects`; debounced UI + truncation note). 13 jest + 137 Vitest. **Prod-verified on real R2** (2 matches found, non-match excluded, honest flags). ALSO fixed **4 red token tests** (harness now applies 0661+0662) — **LESSON: per-fire verify must run the FULL jest suite, not just `jest r2_buckets`.**
 
-## DoD §21 ≈ 89% — REMAINING slices (each one fire)
-- **B10** env reassign + rollback (`EnvAssignmentGrid` read-only; needs `assignBucketEnv`) · **B11** server-side search · **B7** zip export.
+## DoD §21 ≈ 93% — REMAINING slices (each one fire)
+- **B10** env reassign + rollback (`EnvAssignmentGrid` read-only; needs `assignBucketEnv`) · **B7** zip export.
 - **B6** clone bucket · **B9** per-object public + signed shares — the 2 heavies (2–3 fires each, CF Workflow / signed-URL gateway).
 - Fast-follows: **B8 cross-bucket** copy/move · **B15 object-tree** load/edit/save-back.
 - **B14** axe @ 6bp · **502-GET fix** (GET `/objects/*` on a missing key returns 502, should be 404 — pre-existing GET-handler mis-map).
