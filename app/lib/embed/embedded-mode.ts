@@ -2522,6 +2522,84 @@ export interface OwnerKeyResponseMessage {
   error?: string;
 }
 
+/*
+ * ── Per-BUCKET owner-facing scoped R2 key bridge messages (Resources → Buckets, B4) ─────────────
+ *
+ * A FINER grain than the SITE-wide owner key above: the scoped R2 S3 key the SITE OWNER mints for ONE of
+ * their buckets (not all of them), scoped to that single bucket. Same proxy shape as the site-wide key
+ * (the admin holds `selectedSite` + the bearer and proxies to the worker's
+ * `/api/sites/:id/r2/buckets/:bucket/keys*` endpoints), with the target `bucket` DISPLAY name carried on
+ * each request. DARK behind the `r2_bucket_manager` flag → a 404 whose message includes "not enabled" →
+ * `{ok:false, enabled:false}`. The Secret Access Key is returned ONCE on create/rotate and NEVER
+ * re-fetchable; `status` carries the masked state (never the secret).
+ */
+
+/** Child → Parent: fetch a bucket's per-bucket owner-key MASKED status (never the secret). */
+export interface BucketKeyStatusRequestMessage {
+  type: 'PS_R2_BUCKET_KEY_STATUS';
+  correlationId: string;
+  /** The tenant-facing bucket DISPLAY name (the admin resolves it to the site's real bucket). */
+  bucket: string;
+}
+
+/** Child → Parent: CREATE a bucket's owner key (idempotent — show-once secret only on a fresh mint). */
+export interface BucketKeyCreateRequestMessage {
+  type: 'PS_R2_BUCKET_KEY_CREATE';
+  correlationId: string;
+  bucket: string;
+}
+
+/** Child → Parent: ROTATE a bucket's owner key (revoke old + mint new; returns the new show-once secret). */
+export interface BucketKeyRotateRequestMessage {
+  type: 'PS_R2_BUCKET_KEY_ROTATE';
+  correlationId: string;
+  bucket: string;
+}
+
+/** Child → Parent: REVOKE a bucket's owner key (idempotent). */
+export interface BucketKeyRevokeRequestMessage {
+  type: 'PS_R2_BUCKET_KEY_REVOKE';
+  correlationId: string;
+  bucket: string;
+}
+
+/**
+ * Parent → Child: reply to any per-bucket owner-key op. Identical payload shape to
+ * {@link OwnerKeyResponseMessage} (show-once `secretAccessKey` + `accessKeyId` ride ONLY a fresh
+ * create/rotate; `status` carries the masked state; `enabled:false` is the dark-flag 404;
+ * `needsCreds:true` is the honest "storage not configured" state) plus the echoed `bucket`.
+ */
+export interface BucketKeyResponseMessage {
+  type: 'PS_R2_BUCKET_KEY_RESULT';
+  correlationId?: string;
+  ok: boolean;
+
+  /** Echoed target bucket DISPLAY name. */
+  bucket?: string;
+
+  /** Echoed op (`create` | `rotate` | `revoke` | `status`). */
+  op?: 'create' | 'rotate' | 'revoke' | 'status';
+
+  /** The S3 Access Key ID — present ONLY on a fresh create/rotate (alongside {@link secretAccessKey}). */
+  accessKeyId?: string;
+
+  /** The Secret Access Key — present ONCE on a fresh create/rotate. NEVER stored, NEVER re-fetchable. */
+  secretAccessKey?: string;
+
+  /** The masked status (status / idempotent-create / revoke). Never carries the secret. */
+  status?: OwnerKeyStatus;
+
+  /** `revoke`: whether a key was actually torn down (false → there was none; idempotent success). */
+  revoked?: boolean;
+
+  /** `false` when the `r2_bucket_manager` flag is dark (the 404 "not enabled") → the surface hides. */
+  enabled?: boolean;
+
+  /** `true` when minting needs CF/R2 credentials the platform hasn't configured (honest, actionable). */
+  needsCreds?: boolean;
+  error?: string;
+}
+
 // ── Claude Code panel dark-flag bridge (WLK-39 §75 flagship, S7-prep) ───────────
 
 /**
@@ -2650,6 +2728,7 @@ export type ParentToChildMessage =
   | BucketUploadResponseMessage
   | BucketDownloadResponseMessage
   | OwnerKeyResponseMessage
+  | BucketKeyResponseMessage
   | ClaudeFlagResponseMessage
   | ResolveResponseMessage
   | PSToastMessage;
@@ -2704,6 +2783,10 @@ export type ChildToParentMessage =
   | OwnerKeyCreateRequestMessage
   | OwnerKeyRotateRequestMessage
   | OwnerKeyRevokeRequestMessage
+  | BucketKeyStatusRequestMessage
+  | BucketKeyCreateRequestMessage
+  | BucketKeyRotateRequestMessage
+  | BucketKeyRevokeRequestMessage
   | ClaudeFlagRequestMessage
   | ResolveRequestMessage
   | PSErrorMessage
@@ -3632,6 +3715,55 @@ export function requestOwnerKeyRevoke(): Promise<OwnerKeyResponseMessage> {
   return requestFromParent<OwnerKeyResponseMessage>(
     { type: 'PS_R2_KEY_REVOKE', correlationId: nextBridgeCorrelationId() },
     'PS_R2_KEY_RESULT',
+  );
+}
+
+/**
+ * Resources → Buckets: fetch ONE bucket's PER-BUCKET owner-key MASKED status (never the secret). The admin
+ * proxies to `GET /api/sites/:id/r2/buckets/:bucket/keys`. DARK behind `r2_bucket_manager` → `{ok:false,
+ * enabled:false}`. Resolves with the parent's {@link BucketKeyResponseMessage}.
+ */
+export function requestBucketOwnerKeyStatus(bucket: string): Promise<BucketKeyResponseMessage> {
+  return requestFromParent<BucketKeyResponseMessage>(
+    { type: 'PS_R2_BUCKET_KEY_STATUS', correlationId: nextBridgeCorrelationId(), bucket },
+    'PS_R2_BUCKET_KEY_RESULT',
+  );
+}
+
+/**
+ * Resources → Buckets: CREATE a bucket's owner key (admin proxies to
+ * `POST /api/sites/:id/r2/buckets/:bucket/keys`). Idempotent — a fresh mint returns the SHOW-ONCE
+ * `secretAccessKey`; an existing key returns its masked `status` (no secret). Resolves with the parent's
+ * {@link BucketKeyResponseMessage}.
+ */
+export function requestBucketOwnerKeyCreate(bucket: string): Promise<BucketKeyResponseMessage> {
+  return requestFromParent<BucketKeyResponseMessage>(
+    { type: 'PS_R2_BUCKET_KEY_CREATE', correlationId: nextBridgeCorrelationId(), bucket },
+    'PS_R2_BUCKET_KEY_RESULT',
+  );
+}
+
+/**
+ * Resources → Buckets: ROTATE a bucket's owner key (admin proxies to
+ * `POST /api/sites/:id/r2/buckets/:bucket/keys/rotate`) — revokes the old key + mints a new one, returning
+ * the new SHOW-ONCE `secretAccessKey`. Resolves with the parent's {@link BucketKeyResponseMessage}.
+ */
+export function requestBucketOwnerKeyRotate(bucket: string): Promise<BucketKeyResponseMessage> {
+  return requestFromParent<BucketKeyResponseMessage>(
+    { type: 'PS_R2_BUCKET_KEY_ROTATE', correlationId: nextBridgeCorrelationId(), bucket },
+    'PS_R2_BUCKET_KEY_RESULT',
+  );
+}
+
+/**
+ * Resources → Buckets: REVOKE a bucket's owner key (admin proxies to
+ * `DELETE /api/sites/:id/r2/buckets/:bucket/keys`). Idempotent — revoking when none exists is a success
+ * no-op (`revoked:false`). Resolves with the parent's {@link BucketKeyResponseMessage}.
+ */
+export function requestBucketOwnerKeyRevoke(bucket: string): Promise<BucketKeyResponseMessage> {
+  return requestFromParent<BucketKeyResponseMessage>(
+    { type: 'PS_R2_BUCKET_KEY_REVOKE', correlationId: nextBridgeCorrelationId(), bucket },
+    'PS_R2_BUCKET_KEY_RESULT',
   );
 }
 

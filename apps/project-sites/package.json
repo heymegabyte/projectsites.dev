@@ -22,6 +22,7 @@
     "verify:preview-gallery": "node e2e/editor-live/check-preview-gallery.mjs",
     "verify:buckets-populated": "node e2e/editor-live/check-buckets-populated.mjs",
     "verify:owner-key-valid": "node e2e/editor-live/check-owner-key-valid.mjs",
+    "verify:bucket-key-valid": "node e2e/editor-live/check-bucket-key-valid.mjs",
     "test:e2e:ui": "playwright test --ui",
     "test:container:image": "node --test scripts/__tests__/container_image.test.mjs",
     "test:container:freshness": "node --test scripts/__tests__/skills_freshness.test.mjs",

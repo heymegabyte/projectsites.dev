@@ -21,6 +21,10 @@
  * | PUT    | /api/sites/:siteId/r2/buckets/:bucket/objects/*          | Upload an object (multipart or base64 JSON) |
  * | GET    | /api/sites/:siteId/r2/buckets/:bucket/objects/*          | Download an object                          |
  * | DELETE | /api/sites/:siteId/r2/buckets/:bucket/objects/*         | Delete an object                            |
+ * | GET    | /api/sites/:siteId/r2/buckets/:bucket/keys                | Per-bucket owner key — masked status        |
+ * | POST   | /api/sites/:siteId/r2/buckets/:bucket/keys                | Per-bucket owner key — create (show-once)   |
+ * | POST   | /api/sites/:siteId/r2/buckets/:bucket/keys/rotate         | Per-bucket owner key — rotate (show-once)   |
+ * | DELETE | /api/sites/:siteId/r2/buckets/:bucket/keys                | Per-bucket owner key — revoke (idempotent)  |
  *
  * Every route: (1) 401 if unauthenticated; (2) **404 (DARK) when `r2_buckets` is off** (never 403, never
  * leak existence); (3) `ownsSiteData` IDOR guard (404 on a foreign/missing site); (4) then resolve the
@@ -35,10 +39,12 @@ import type { Env, Variables } from '../../../src/types/env.js';
 import { isFlagOn } from '../../../src/modules/feature_flags/services.js';
 import {
   bucketAddress,
+  createBucketOwnerKey,
   createSiteOwnerKey,
   deleteSiteR2,
   deleteSiteR2Object,
   ensureDefaultSiteR2,
+  getBucketOwnerKeyStatus,
   getSiteOwnerKeyStatus,
   getSiteR2Object,
   hasObjectOpsForSite,
@@ -49,7 +55,9 @@ import {
   provisionSiteR2,
   putSiteR2Object,
   resolveSiteR2Allocation,
+  revokeBucketOwnerKey,
   revokeSiteOwnerKey,
+  rotateBucketOwnerKey,
   rotateSiteOwnerKey,
   setSiteR2PublicAccess,
   type SiteR2Allocation,
@@ -129,13 +137,19 @@ async function gate(
   return { orgId, tenantId: orgId };
 }
 
-/** Extend {@link gate} by resolving ONE of the site's OWN bucket allocations (404 if not the site's). */
+/**
+ * Extend {@link gate} by resolving ONE of the site's OWN bucket allocations (404 if not the site's).
+ * `resolveSiteR2Allocation` is `WHERE site_id = ?`-scoped, so a foreign/other-site bucket resolves to
+ * null → 404 (the IDOR guard — you can never act on another site's bucket). `flag` defaults to the
+ * bucket-surface flag; the per-bucket owner-KEY routes pass {@link R2_OWNER_KEY_FLAG}.
+ */
 async function gateAndBucket(
   c: Context<AppContext>,
   siteId: string,
   bucket: string,
+  flag: string = FLAG,
 ): Promise<{ orgId: string; tenantId: string; allocation: SiteR2Allocation } | Response> {
-  const g = await gate(c, siteId);
+  const g = await gate(c, siteId, flag);
   if (g instanceof Response) return g;
   const allocation = await resolveSiteR2Allocation(c.env, siteId, bucket);
   if (!allocation) return c.json({ error: { code: 'NOT_FOUND', message: 'Bucket not found' }, ok: false }, 404);
@@ -265,6 +279,72 @@ r2Buckets.delete('/api/sites/:siteId/r2/keys', async (c) => {
     siteId,
     tenantId: g.tenantId,
   });
+  if (!result.ok) return r2Failure(c, result.reason, result.message);
+  return c.json({ data: { revoked: result.revoked }, ok: true });
+});
+
+// ── Per-BUCKET owner-facing scoped R2 key (B4) ──────────────────────────────────────────────────────
+//
+// A FINER grain than the site-wide owner key above: the key a SITE OWNER mints scoped to ONE of their
+// buckets (not all of them), for use from their OWN tooling (wrangler / aws-cli / SDKs). Same show-once
+// secret (never persisted). Every route: auth → `r2_bucket_manager` flag-dark-404 → ownsSiteData IDOR-404
+// → resolve the site's OWN bucket (another site's bucket 404s via `gateAndBucket`) → the per-bucket key
+// service (which additionally re-verifies the bucket is an owned allocation before any CF mint).
+
+// ── GET /api/sites/:siteId/r2/buckets/:bucket/keys — masked status (NEVER the secret) ───────────────
+r2Buckets.get('/api/sites/:siteId/r2/buckets/:bucket/keys', async (c) => {
+  const { siteId, bucket } = c.req.param();
+  const g = await gateAndBucket(c, siteId, bucket, R2_OWNER_KEY_FLAG);
+  if (g instanceof Response) return g;
+  const result = await getBucketOwnerKeyStatus(
+    c.env,
+    { orgId: g.orgId, siteId, tenantId: g.tenantId },
+    g.allocation.bucketName,
+  );
+  if (!result.ok) return r2Failure(c, result.reason, result.message);
+  return c.json({ data: result.key, ok: true });
+});
+
+// ── POST /api/sites/:siteId/r2/buckets/:bucket/keys — create (show-once; idempotent → masked) ───────
+r2Buckets.post('/api/sites/:siteId/r2/buckets/:bucket/keys', async (c) => {
+  const { siteId, bucket } = c.req.param();
+  const g = await gateAndBucket(c, siteId, bucket, R2_OWNER_KEY_FLAG);
+  if (g instanceof Response) return g;
+  const result = await createBucketOwnerKey(
+    c.env,
+    { actorId: c.get('userId') ?? null, orgId: g.orgId, siteId, tenantId: g.tenantId },
+    g.allocation.bucketName,
+  );
+  if (!result.ok) return r2Failure(c, result.reason, result.message);
+  // reused:true → an active key already exists; return its MASKED status (200), no secret.
+  // reused:false → a fresh key; return the SHOW-ONCE secret (201). The secret is never retrievable again.
+  return c.json({ data: result.key, ok: true }, result.reused ? 200 : 201);
+});
+
+// ── POST /api/sites/:siteId/r2/buckets/:bucket/keys/rotate — revoke old + mint new (show-once) ──────
+r2Buckets.post('/api/sites/:siteId/r2/buckets/:bucket/keys/rotate', async (c) => {
+  const { siteId, bucket } = c.req.param();
+  const g = await gateAndBucket(c, siteId, bucket, R2_OWNER_KEY_FLAG);
+  if (g instanceof Response) return g;
+  const result = await rotateBucketOwnerKey(
+    c.env,
+    { actorId: c.get('userId') ?? null, orgId: g.orgId, siteId, tenantId: g.tenantId },
+    g.allocation.bucketName,
+  );
+  if (!result.ok) return r2Failure(c, result.reason, result.message);
+  return c.json({ data: result.key, ok: true }, 201);
+});
+
+// ── DELETE /api/sites/:siteId/r2/buckets/:bucket/keys — revoke (idempotent) ─────────────────────────
+r2Buckets.delete('/api/sites/:siteId/r2/buckets/:bucket/keys', async (c) => {
+  const { siteId, bucket } = c.req.param();
+  const g = await gateAndBucket(c, siteId, bucket, R2_OWNER_KEY_FLAG);
+  if (g instanceof Response) return g;
+  const result = await revokeBucketOwnerKey(
+    c.env,
+    { actorId: c.get('userId') ?? null, orgId: g.orgId, siteId, tenantId: g.tenantId },
+    g.allocation.bucketName,
+  );
   if (!result.ok) return r2Failure(c, result.reason, result.message);
   return c.json({ data: { revoked: result.revoked }, ok: true });
 });

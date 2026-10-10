@@ -618,9 +618,16 @@ const OWNER_KEY_SECRET_SENTINEL = ' ';
 async function auditOwnerKey(
   env: Env,
   ctx: SiteR2Context,
-  action: 'r2.owner_key.created' | 'r2.owner_key.rotated' | 'r2.owner_key.revoked',
+  action:
+    | 'r2.owner_key.created'
+    | 'r2.owner_key.rotated'
+    | 'r2.owner_key.revoked'
+    | 'r2.bucket_key.created'
+    | 'r2.bucket_key.rotated'
+    | 'r2.bucket_key.revoked',
   accessKeyId: string | null,
   message: string,
+  bucketName?: string | null,
 ): Promise<void> {
   await writeAuditLog(env.DB, {
     action,
@@ -629,11 +636,13 @@ async function auditOwnerKey(
     metadata_json: {
       // accessKeyId is safe to record (it's the non-secret id half); NEVER the secretAccessKey.
       ...(accessKeyId ? { access_key_id: accessKeyId } : {}),
+      // bucket_name present ONLY for per-bucket (B4) events — names which bucket the key is scoped to.
+      ...(bucketName ? { bucket_name: bucketName } : {}),
       site_id: ctx.siteId,
     },
     org_id: ctx.orgId ?? ctx.tenantId,
     target_id: ctx.siteId,
-    target_type: 'site_r2_owner_key',
+    target_type: bucketName ? 'site_r2_bucket_key' : 'site_r2_owner_key',
   });
 }
 
@@ -666,7 +675,12 @@ function maskAccessKeyId(id: string): string {
   return `${id.slice(0, 4)}…${id.slice(-4)}`;
 }
 
-/** Fetch the site's ACTIVE owner-key row (kind='owner'), or null. */
+/**
+ * Fetch the site's ACTIVE SITE-WIDE owner-key row (kind='owner', `bucket_name IS NULL`), or null. The
+ * `bucket_name IS NULL` filter is load-bearing since B4 (migration 0662): a PER-BUCKET owner key
+ * (`bucket_name` set) also carries kind='owner', so WITHOUT this filter a per-bucket key would be
+ * mistaken for the site-wide key. See {@link activeBucketOwnerKeyRow} for the per-bucket lookup.
+ */
 async function activeOwnerKeyRow(
   env: Env,
   siteId: string,
@@ -687,7 +701,7 @@ async function activeOwnerKeyRow(
     env.DB,
     `SELECT id, access_key_id, cf_token_id, created_at, rotated_at
        FROM site_r2_s3_tokens
-      WHERE site_id = ? AND kind = 'owner' AND status = 'active' AND deleted_at IS NULL
+      WHERE site_id = ? AND kind = 'owner' AND bucket_name IS NULL AND status = 'active' AND deleted_at IS NULL
       ORDER BY created_at DESC`,
     [siteId],
   );
@@ -894,6 +908,294 @@ async function mintOwnerKey(
     opts.rotated
       ? `Rotated the R2 access key for this site (new key ${maskAccessKeyId(created.id)})`
       : `Created an R2 access key for this site (${maskAccessKeyId(created.id)})`,
+  );
+
+  return {
+    key: { accessKeyId: created.id, createdAt, secretAccessKey: secret, status: 'active' },
+    ok: true,
+    reused: false,
+  };
+}
+
+// ── Per-BUCKET owner-facing scoped R2 key (Buckets B4) ──────────────────────────────────────────────
+//
+// A FINER grain than the SITE-wide owner key above: a key the owner mints scoped to ONE of their site's
+// buckets (not all of them). Same CF-token-minting pattern (both R2 object Read + Write groups,
+// show-once secret NEVER persisted — sentinel in `secret_enc`), but scoped via
+// `bucketScopeResources(account, [bucketName])` (ONE element) and persisted with `bucket_name` set
+// (migration 0662). Site-wide (bucket_name NULL) + per-bucket keys COEXIST; per-bucket lookups key on
+// (site_id, kind='owner', bucket_name, status). IDOR is structural: the bucket must resolve as one of the
+// site's OWN allocations (`resolveSiteR2Allocation`, scoped `WHERE site_id = ?`) before any mint — a
+// foreign bucket resolves to null → honest `not_allocated`, so a key is never minted for another site's
+// bucket. The shared platform bucket names are additionally denylisted ({@link FORBIDDEN_BUCKET_NAMES}).
+
+/** Fetch the site's ACTIVE owner-key row for ONE bucket (kind='owner', bucket_name = ?), or null. */
+async function activeBucketOwnerKeyRow(
+  env: Env,
+  siteId: string,
+  bucketName: string,
+): Promise<{
+  id: string;
+  access_key_id: string;
+  cf_token_id: string;
+  created_at: string;
+  rotated_at: string | null;
+} | null> {
+  return dbQueryOne<{
+    id: string;
+    access_key_id: string;
+    cf_token_id: string;
+    created_at: string;
+    rotated_at: string | null;
+  }>(
+    env.DB,
+    `SELECT id, access_key_id, cf_token_id, created_at, rotated_at
+       FROM site_r2_s3_tokens
+      WHERE site_id = ? AND kind = 'owner' AND bucket_name = ? AND status = 'active' AND deleted_at IS NULL
+      ORDER BY created_at DESC`,
+    [siteId, bucketName],
+  );
+}
+
+/**
+ * Resolve + ownership-verify ONE of the site's OWN buckets for a per-bucket key op. Returns the real
+ * bucket name on success, or a typed failure:
+ *   • `forbidden_bucket` — a shared platform bucket name (denylist; never mint against it).
+ *   • `not_allocated`    — the bucket is not one of THIS site's active allocations (IDOR guard: a foreign
+ *                          or unknown bucket resolves to null for `siteId`, so no key is ever minted).
+ * Defense-in-depth: the allocation query is `WHERE site_id = ?`-scoped, so a foreign bucket can never
+ * resolve here; we additionally re-assert `row.site_id === siteId` (mirrors `assertBucketOwnedBySite` in
+ * `site_r2_manager.ts`, inlined to avoid a `site_r2 ↔ site_r2_manager` import cycle) and hard-fail on
+ * mismatch rather than mint.
+ */
+async function resolveOwnedBucketName(
+  env: Env,
+  siteId: string,
+  bucketName: string,
+): Promise<{ ok: true; bucketName: string } | { ok: false; reason: SiteR2Failure }> {
+  if (FORBIDDEN_BUCKET_NAMES.has(bucketName)) return { ok: false, reason: 'forbidden_bucket' };
+  // The route resolves the allocation by DISPLAY name; the service is handed the REAL bucket name, so
+  // match on bucket_name within THIS site's active allocations (structurally scoped → the IDOR guard).
+  const alloc = await dbQueryOne<{ bucket_name: string; site_id: string }>(
+    env.DB,
+    `SELECT bucket_name, site_id FROM site_r2_allocations
+      WHERE site_id = ? AND bucket_name = ? AND status = 'active' AND deleted_at IS NULL`,
+    [siteId, bucketName],
+  );
+  if (!alloc) return { ok: false, reason: 'not_allocated' };
+  // Defense-in-depth cross-site re-assert (can't trip given the scoped query above, but guards any future
+  // refactor that loosens the resolve).
+  if (alloc.site_id !== siteId) return { ok: false, reason: 'not_allocated' };
+  return { bucketName: alloc.bucket_name, ok: true };
+}
+
+/**
+ * Return the MASKED status of a site's PER-BUCKET owner key for one bucket — never the secret. A bucket
+ * with no key reads back `{exists:false, status:'none'}` (a calm empty state, not an error). The bucket
+ * must be one the site owns (IDOR-guarded); an unowned/forbidden bucket returns the typed failure.
+ */
+export async function getBucketOwnerKeyStatus(
+  env: Env,
+  ctx: SiteR2Context,
+  bucketName: string,
+): Promise<SiteR2Result<{ key: SiteR2OwnerKeyStatus }>> {
+  const owned = await resolveOwnedBucketName(env, ctx.siteId, bucketName);
+  if (!owned.ok) return { ok: false, reason: owned.reason };
+  const row = await activeBucketOwnerKeyRow(env, ctx.siteId, owned.bucketName);
+  if (!row)
+    return {
+      key: { accessKeyIdMasked: null, createdAt: null, exists: false, rotatedAt: null, status: 'none' },
+      ok: true,
+    };
+  return {
+    key: {
+      accessKeyIdMasked: maskAccessKeyId(row.access_key_id),
+      createdAt: row.created_at,
+      exists: true,
+      rotatedAt: row.rotated_at,
+      status: 'active',
+    },
+    ok: true,
+  };
+}
+
+/**
+ * Mint a PER-BUCKET, bucket-SCOPED OWNER R2 S3 key for ONE of the site's buckets. Idempotent: an existing
+ * active key for THAT bucket is returned MASKED (its secret is unrecoverable; rotate to get a fresh one).
+ * Otherwise scopes a fresh CF token to EXACTLY that one bucket and records the row with `bucket_name` set.
+ * Fails soft + honest — `not_allocated` for a bucket the site doesn't own, records NOTHING on CF failure.
+ */
+export async function createBucketOwnerKey(
+  env: Env,
+  ctx: SiteR2Context,
+  bucketName: string,
+): Promise<
+  SiteR2Result<
+    { key: SiteR2OwnerKeySecret; reused: false } | { key: SiteR2OwnerKeyStatus; reused: true }
+  >
+> {
+  const owned = await resolveOwnedBucketName(env, ctx.siteId, bucketName);
+  if (!owned.ok) return { ok: false, reason: owned.reason };
+
+  // Idempotency — an existing active key for THIS bucket is returned MASKED (its secret is gone forever).
+  const existing = await activeBucketOwnerKeyRow(env, ctx.siteId, owned.bucketName);
+  if (existing) {
+    return {
+      key: {
+        accessKeyIdMasked: maskAccessKeyId(existing.access_key_id),
+        createdAt: existing.created_at,
+        exists: true,
+        rotatedAt: existing.rotated_at,
+        status: 'active',
+      },
+      ok: true,
+      reused: true,
+    };
+  }
+  return mintBucketOwnerKey(env, ctx, owned.bucketName);
+}
+
+/**
+ * Rotate a site's PER-BUCKET owner key: REVOKE the old CF token (best-effort), supersede its row, then
+ * mint a fresh key scoped to the same ONE bucket + return the new secret ONCE. Works even when no prior
+ * key exists (behaves like create). The old key stops working the instant CF revokes it.
+ */
+export async function rotateBucketOwnerKey(
+  env: Env,
+  ctx: SiteR2Context,
+  bucketName: string,
+): Promise<SiteR2Result<{ key: SiteR2OwnerKeySecret }>> {
+  const owned = await resolveOwnedBucketName(env, ctx.siteId, bucketName);
+  if (!owned.ok) return { ok: false, reason: owned.reason };
+
+  const cf = await resolveCf(env, ctx.orgId);
+  if (!cf.ok) return { ok: false, reason: cf.reason };
+
+  const prior = await activeBucketOwnerKeyRow(env, ctx.siteId, owned.bucketName);
+  if (prior) {
+    await cfDeleteToken(cf.auth, cf.account, prior.cf_token_id); // best-effort revoke at Cloudflare
+    await dbExecute(
+      env.DB,
+      `UPDATE site_r2_s3_tokens
+          SET status = 'superseded', updated_at = datetime('now'), deleted_at = datetime('now')
+        WHERE id = ? AND site_id = ?`,
+      [prior.id, ctx.siteId],
+    );
+  }
+  const minted = await mintBucketOwnerKey(env, ctx, owned.bucketName, { rotated: true });
+  if (!minted.ok) return minted;
+  return { key: minted.key, ok: true };
+}
+
+/**
+ * Revoke a site's PER-BUCKET owner key for ONE bucket: DELETE the CF token + soft-delete (revoke) the row.
+ * Idempotent — revoking when no key exists is a success no-op. After this the key stops working everywhere.
+ * Does NOT touch another bucket's key or the site-wide key (the lookup is pinned to this bucket_name).
+ */
+export async function revokeBucketOwnerKey(
+  env: Env,
+  ctx: SiteR2Context,
+  bucketName: string,
+): Promise<SiteR2Result<{ revoked: boolean }>> {
+  const owned = await resolveOwnedBucketName(env, ctx.siteId, bucketName);
+  if (!owned.ok) return { ok: false, reason: owned.reason };
+
+  const row = await activeBucketOwnerKeyRow(env, ctx.siteId, owned.bucketName);
+  if (!row) return { ok: true, revoked: false }; // nothing to revoke — idempotent success
+
+  const cf = await resolveCf(env, ctx.orgId);
+  if (!cf.ok) return { ok: false, reason: cf.reason };
+
+  await cfDeleteToken(cf.auth, cf.account, row.cf_token_id); // best-effort revoke at Cloudflare
+  await dbExecute(
+    env.DB,
+    `UPDATE site_r2_s3_tokens
+        SET status = 'revoked', updated_at = datetime('now'), deleted_at = datetime('now')
+      WHERE id = ? AND site_id = ?`,
+    [row.id, ctx.siteId],
+  );
+  await auditOwnerKey(
+    env,
+    ctx,
+    'r2.bucket_key.revoked',
+    row.access_key_id,
+    `Revoked the R2 access key for bucket "${owned.bucketName}" (${maskAccessKeyId(row.access_key_id)})`,
+    owned.bucketName,
+  );
+  return { ok: true, revoked: true };
+}
+
+/**
+ * Shared mint path for {@link createBucketOwnerKey} + {@link rotateBucketOwnerKey}: resolve CF creds,
+ * scope a fresh CF token to EXACTLY the one bucket (`bucketScopeResources(account, [bucketName])`),
+ * persist ONLY the accessKeyId + cf_token_id + `bucket_name` (secret NEVER stored — sentinel in
+ * `secret_enc`), audit the event (accessKeyId + bucket, never the secret), and return the show-once
+ * secret. `bucketName` is pre-verified owned by the callers.
+ */
+async function mintBucketOwnerKey(
+  env: Env,
+  ctx: SiteR2Context,
+  bucketName: string,
+  opts: { rotated?: boolean } = {},
+): Promise<SiteR2Result<{ key: SiteR2OwnerKeySecret; reused: false }>> {
+  const cf = await resolveCf(env, ctx.orgId);
+  if (!cf.ok) return { ok: false, reason: cf.reason };
+
+  // Scope to EXACTLY this ONE bucket (never account-wide, never the site-wide set, never another bucket).
+  const resources = bucketScopeResources(cf.account, [bucketName]);
+  const created = await cfCreateToken(cf.auth, cf.account, {
+    name: `ps-site-${ctx.siteId}-r2-bucket-${bucketName}`,
+    policies: [
+      {
+        effect: 'allow',
+        permission_groups: [
+          { id: R2_OBJECT_READ_PERMISSION_GROUP_ID },
+          { id: R2_OBJECT_WRITE_PERMISSION_GROUP_ID },
+        ],
+        resources,
+      },
+    ],
+  });
+  if (!created.ok || !created.id || created.value === undefined) {
+    return {
+      message: created.message ?? 'Cloudflare token create failed',
+      ok: false,
+      reason: 'cf_error',
+      status: created.status,
+    };
+  }
+
+  // The S3 Secret Access Key is the SHA-256 hex of the raw token `value` (CF docs). Returned ONCE below;
+  // NEVER persisted — the row stores a sentinel in the NOT-NULL `secret_enc`.
+  const secret = await sha256Hex(created.value);
+  const createdAt = new Date().toISOString();
+  await dbExecute(
+    env.DB,
+    `INSERT INTO site_r2_s3_tokens
+       (id, tenant_id, site_id, access_key_id, secret_enc, cf_token_id, scope_bucket_ids, kind, bucket_name, status, created_at, updated_at, rotated_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, 'owner', ?, 'active', datetime('now'), datetime('now'), ?)`,
+    [
+      uuidv7(),
+      ctx.tenantId,
+      ctx.siteId,
+      created.id,
+      OWNER_KEY_SECRET_SENTINEL,
+      created.id,
+      JSON.stringify([bucketName]),
+      bucketName,
+      opts.rotated ? createdAt : null,
+    ],
+  );
+
+  await auditOwnerKey(
+    env,
+    ctx,
+    opts.rotated ? 'r2.bucket_key.rotated' : 'r2.bucket_key.created',
+    created.id,
+    opts.rotated
+      ? `Rotated the R2 access key for bucket "${bucketName}" (new key ${maskAccessKeyId(created.id)})`
+      : `Created an R2 access key for bucket "${bucketName}" (${maskAccessKeyId(created.id)})`,
+    bucketName,
   );
 
   return {

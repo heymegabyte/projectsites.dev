@@ -38,7 +38,7 @@ import type { Env } from '../../../../src/types/env.js';
 
 const mockAudit = writeAuditLog as unknown as jest.Mock;
 
-// ── Schema the owner-key service reads/writes (mirrors 0660 + 0661 `kind`, and 0645 allocations) ────
+// ── Schema the owner-key service reads/writes (mirrors 0660 + 0661 `kind` + 0662 `bucket_name`, 0645) ─
 const TOKENS_DDL = `CREATE TABLE site_r2_s3_tokens (
   id TEXT NOT NULL PRIMARY KEY,
   tenant_id TEXT NOT NULL,
@@ -49,6 +49,7 @@ const TOKENS_DDL = `CREATE TABLE site_r2_s3_tokens (
   scope_bucket_ids TEXT NOT NULL,
   status TEXT NOT NULL DEFAULT 'active',
   kind TEXT NOT NULL DEFAULT 'internal',
+  bucket_name TEXT,
   created_at TEXT NOT NULL DEFAULT (datetime('now')),
   updated_at TEXT NOT NULL DEFAULT (datetime('now')),
   rotated_at TEXT,
