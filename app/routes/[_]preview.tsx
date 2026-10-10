@@ -54,28 +54,61 @@ function Frame({ caption, children }: { caption: string; children: React.ReactNo
   );
 }
 
-/** Left pane sample — a realistic bucket list with one selected row (mirrors the real Buckets tab). */
+/**
+ * Left pane sample — a realistic bucket list with one selected row (mirrors the real Buckets tab's
+ * {@link BucketNavRow}: the selected row gets the accent-gradient fill + a glowing left rail + a
+ * scaled drive glyph, inactive rows get a hairline card. The headless screenshot is the proof the
+ * elevated navigator chrome lands in production.
+ */
 function BucketListSample() {
   const buckets = [
-    { name: 'site-assets', objects: '1,284', selected: true },
-    { name: 'user-uploads', objects: '312', selected: false },
-    { name: 'backups', objects: '48', selected: false },
+    { name: 'site-assets', objects: '1,284', selected: true, isDefault: true },
+    { name: 'user-uploads', objects: '312', selected: false, isDefault: false },
+    { name: 'backups', objects: '48', selected: false, isDefault: false },
   ];
 
   return (
-    <ul className="m-0 list-none p-2 flex flex-col gap-1">
+    <ul className="m-0 list-none p-2 flex flex-col gap-1.5">
       {buckets.map((b) => (
         <li
           key={b.name}
-          className={`flex items-center gap-2 rounded-lg px-2.5 py-2 ${
+          className={`group relative flex items-center gap-2 rounded-xl border p-2.5 overflow-hidden transition-all ${
             b.selected
-              ? 'bg-bolt-elements-item-backgroundAccent text-bolt-elements-item-contentAccent'
-              : 'text-bolt-elements-textSecondary'
+              ? 'border-bolt-elements-item-contentAccent/70 bg-[linear-gradient(90deg,color-mix(in_oklch,var(--bolt-elements-item-contentAccent)_16%,transparent),color-mix(in_oklch,var(--bolt-elements-item-contentAccent)_5%,transparent)_60%,transparent)] shadow-[0_0_0_1px_color-mix(in_oklch,var(--bolt-elements-item-contentAccent)_18%,transparent),0_4px_14px_-6px_color-mix(in_oklch,var(--bolt-elements-item-contentAccent)_45%,transparent)]'
+              : 'border-bolt-elements-borderColor bg-bolt-elements-background-depth-2'
           }`}
         >
-          <span className="i-ph:hard-drives-duotone text-base shrink-0" aria-hidden="true" />
-          <span className="truncate text-sm font-medium">{b.name}</span>
-          <span className="ml-auto text-[10px] tabular-nums text-bolt-elements-textSecondary">{b.objects}</span>
+          {b.selected && (
+            <span
+              aria-hidden="true"
+              className="absolute left-0 top-1.5 bottom-1.5 w-[3px] rounded-full bg-bolt-elements-item-contentAccent shadow-[0_0_8px_color-mix(in_oklch,var(--bolt-elements-item-contentAccent)_60%,transparent)]"
+            />
+          )}
+          <span
+            className={`i-ph:hard-drives-duotone text-base shrink-0 ${
+              b.selected ? 'text-bolt-elements-item-contentAccent scale-110' : 'text-bolt-elements-textTertiary'
+            }`}
+            aria-hidden="true"
+          />
+          <span
+            className={`truncate text-[12px] font-medium ${
+              b.selected ? 'text-bolt-elements-textPrimary' : 'text-bolt-elements-textSecondary'
+            }`}
+          >
+            {b.name}
+          </span>
+          {b.isDefault && (
+            <span
+              className="inline-flex items-center gap-0.5 rounded-md border border-bolt-elements-item-contentAccent/45 bg-bolt-elements-item-contentAccent/[0.1] px-1 py-px text-[8px] font-semibold uppercase tracking-wide text-bolt-elements-item-contentAccent shrink-0"
+              title="The site's default bucket"
+            >
+              <span className="i-ph:star-fill text-[7px]" aria-hidden="true" />
+              Default
+            </span>
+          )}
+          <span className="ml-auto inline-flex items-center justify-center min-w-[18px] h-[16px] px-1 rounded-full bg-bolt-elements-item-contentAccent/[0.1] text-[9px] font-semibold tabular-nums text-bolt-elements-item-contentAccent/90">
+            {b.objects}
+          </span>
         </li>
       ))}
     </ul>
@@ -108,14 +141,26 @@ const SAMPLE_OBJECTS: { key: string; size: string }[] = [
   { key: 'font.woff2', size: '31 KB' }, // font
 ];
 
-/** Shared breadcrumb + upload affordance for the populated samples (mirrors the real object toolbar). */
+/**
+ * Shared breadcrumb + upload affordance for the populated samples (mirrors the real object toolbar:
+ * a search field with the magnifier, a pill breadcrumb, and the elevated gradient primary Upload
+ * button — top-lit fill + inner highlight ring + accent drop-shadow, the Linear/Stripe pressable look).
+ */
 function SampleToolbar() {
   return (
-    <div className="flex items-center gap-1.5 border-b border-bolt-elements-borderColor/60 px-3 py-2 text-xs text-bolt-elements-textSecondary shrink-0">
-      <span className="i-ph:hard-drives text-xs text-bolt-elements-item-contentAccent" aria-hidden="true" />
-      <span className="text-bolt-elements-item-contentAccent">site-assets</span>
-      <button className="ml-auto flex items-center gap-1 rounded-md bg-bolt-elements-item-backgroundAccent px-2 py-1 text-[11px] text-bolt-elements-item-contentAccent">
-        <span className="i-ph:upload-simple text-xs" aria-hidden="true" />
+    <div className="flex items-center gap-2 border-b border-bolt-elements-borderColor/60 px-3 py-2 text-xs text-bolt-elements-textSecondary shrink-0">
+      <span className="inline-flex items-center gap-1 rounded-md bg-bolt-elements-item-contentAccent/[0.1] px-1 py-0.5 font-medium text-bolt-elements-item-contentAccent">
+        <span className="i-ph:hard-drives-duotone text-xs" aria-hidden="true" />
+        site-assets
+      </span>
+      <div className="relative ml-auto hidden sm:block">
+        <span className="i-ph:magnifying-glass absolute left-2 top-1/2 -translate-y-1/2 text-xs text-bolt-elements-textTertiary" aria-hidden="true" />
+        <span className="inline-flex min-w-[9rem] items-center rounded-lg border border-bolt-elements-borderColor bg-bolt-elements-background-depth-2 py-1 pl-7 pr-2 text-[11px] text-bolt-elements-textTertiary">
+          Search all files…
+        </span>
+      </div>
+      <button className="inline-flex items-center gap-1.5 rounded-lg px-3 py-1 text-[11px] font-semibold text-[#04121a] ring-1 ring-inset ring-white/15 bg-[linear-gradient(180deg,color-mix(in_oklch,var(--bolt-elements-item-contentAccent)_100%,white_14%),var(--bolt-elements-item-contentAccent))] shadow-[0_1px_0_rgba(255,255,255,0.22)_inset,0_2px_8px_-2px_color-mix(in_oklch,var(--bolt-elements-item-contentAccent)_55%,transparent)]">
+        <span className="i-ph:upload-simple-bold text-xs" aria-hidden="true" />
         Upload
       </button>
     </div>
@@ -134,9 +179,12 @@ function ObjectListSample({ testId }: { testId?: string }) {
         <li
           key={o.key}
           style={objectEntranceStyle(index)}
-          className={`group flex items-center gap-3 rounded-lg px-2.5 py-2 transition-colors hover:bg-bolt-elements-item-contentAccent/[0.06] ${OBJECT_ENTRANCE_CLASS}`}
+          className={`group flex items-center gap-3 rounded-lg px-2.5 py-2 hover:bg-bolt-elements-item-contentAccent/[0.05] motion-safe:hover:translate-x-0.5 ${OBJECT_ENTRANCE_CLASS}`}
         >
-          <span className={`${iconForObject(o.key)} ${colorForObject(o.key)} text-lg shrink-0`} aria-hidden="true" />
+          {/* File-type glyph in an inset chip — mirrors the real list row's dimensional "asset" slot. */}
+          <span className="flex items-center justify-center h-7 w-7 shrink-0 rounded-lg bg-bolt-elements-background-depth-2/70 ring-1 ring-inset ring-bolt-elements-borderColor/50 group-hover:ring-bolt-elements-item-contentAccent/25">
+            <span className={`${iconForObject(o.key)} ${colorForObject(o.key)} text-lg`} aria-hidden="true" />
+          </span>
           {/* min-w-0 + truncate: the long key shrinks to the pane and ellipsizes instead of overflowing
               the parent — the exact clip the BucketsTwoPane min-w-0 right pane prevents. */}
           <span className="min-w-0 flex-1 truncate font-mono text-xs text-bolt-elements-textPrimary">{o.key}</span>
@@ -160,13 +208,19 @@ function ObjectGridSample({ testId }: { testId?: string }) {
         <div
           key={o.key}
           style={objectEntranceStyle(index)}
-          className={`group flex flex-col gap-1.5 rounded-xl border border-bolt-elements-borderColor/70 bg-bolt-elements-background-depth-2 p-2 transition-all hover:-translate-y-px hover:border-bolt-elements-item-contentAccent/50 hover:bg-bolt-elements-background-depth-3 hover:shadow-sm hover:shadow-black/30 ${OBJECT_ENTRANCE_CLASS}`}
+          className={`group flex flex-col gap-1.5 rounded-xl border border-bolt-elements-borderColor/70 bg-bolt-elements-background-depth-2 p-2 hover:border-bolt-elements-item-contentAccent/40 hover:bg-bolt-elements-background-depth-3 hover:shadow-[0_10px_26px_-10px_rgba(0,0,0,0.65)] motion-safe:hover:-translate-y-1 ${OBJECT_ENTRANCE_CLASS}`}
         >
-          <div className="flex aspect-square items-center justify-center overflow-hidden rounded-lg bg-gradient-to-br from-bolt-elements-background-depth-1 to-bolt-elements-item-contentAccent/[0.04] ring-1 ring-inset ring-bolt-elements-borderColor/40">
+          <div className="relative flex aspect-square items-center justify-center overflow-hidden rounded-lg bg-[radial-gradient(130%_90%_at_50%_0%,color-mix(in_oklch,var(--bolt-elements-item-contentAccent)_7%,transparent),transparent_60%),linear-gradient(180deg,var(--bolt-elements-bg-depth-1),color-mix(in_oklch,var(--bolt-elements-item-contentAccent)_4%,var(--bolt-elements-bg-depth-1)))] ring-1 ring-inset ring-bolt-elements-borderColor/45 shadow-[inset_0_1px_0_rgba(255,255,255,0.03)]">
             {isImageKey(o.key) ? (
-              <span className="i-ph:image-duotone text-4xl text-sky-300" aria-hidden="true" />
+              <span
+                className="i-ph:image-duotone text-4xl text-sky-300 transition-transform duration-200 motion-reduce:transition-none motion-safe:group-hover:scale-110"
+                aria-hidden="true"
+              />
             ) : (
-              <span className={`${iconForObject(o.key)} ${colorForObject(o.key)} text-4xl`} aria-hidden="true" />
+              <span
+                className={`${iconForObject(o.key)} ${colorForObject(o.key)} text-4xl transition-transform duration-200 motion-reduce:transition-none motion-safe:group-hover:scale-110`}
+                aria-hidden="true"
+              />
             )}
           </div>
           <p className="min-w-0 truncate font-mono text-[11px] text-bolt-elements-textPrimary" title={o.key}>
@@ -295,7 +349,15 @@ export default function PanelPrimitiveGallery() {
     <div className="min-h-screen bg-[#060610] p-8">
       {/* The one `psBucketRise` keyframe the object-browser entrance rides on — screenshot-verifiable here. */}
       <BucketAnimationStyles />
-      <h1 className="text-bolt-elements-textPrimary text-lg font-semibold mb-6">Panel Primitive Gallery</h1>
+      <div className="mb-6">
+        <h1 className="text-balance text-xl font-semibold tracking-tight text-bolt-elements-textPrimary">
+          Panel Primitive Gallery
+        </h1>
+        <p className="mt-1 text-[12px] text-bolt-elements-textSecondary">
+          Headless visual-QA surface for the editor workbench chrome — Buckets navigator, object list &amp; grid, and
+          the launchpad states, on the brand-dark canvas.
+        </p>
+      </div>
 
       <div className="grid gap-8 [grid-template-columns:repeat(auto-fill,360px)]">
         {/* 1 — PanelShell + PanelHeader: badge icon, title, subtitle, right-aligned action. */}
@@ -416,6 +478,46 @@ export default function PanelPrimitiveGallery() {
 
       {/* 7 — B12 object PREVIEW modal body (image + text/code), static + sandbox-faithful. */}
       <PreviewShowcase />
+
+      {/* 8 — Bulk-action bar — the floating selection toolbar (glass depth + accent wash + glowing cyan
+          rail). Static mirror of the real `buckets-bulk-bar` so the headless screenshot proves the
+          elevated chrome lands. No testid collision (the live bar's testid is only in the panel). */}
+      <figure className="m-0 mt-10 flex max-w-[640px] flex-col gap-2" data-testid="buckets-bulk-bar-showcase">
+        <div className="overflow-hidden rounded-2xl border border-bolt-elements-borderColor shadow-xl shadow-black/40">
+          <PanelShell>
+            <PanelHeader icon="i-ph:check-square-duotone" title="Bulk actions" subtitle="3 objects selected" />
+            <div
+              className="relative flex items-center gap-2 px-3 py-1.5 border-b border-bolt-elements-item-contentAccent/25 bg-[linear-gradient(90deg,color-mix(in_oklch,var(--bolt-elements-item-contentAccent)_12%,transparent),color-mix(in_oklch,var(--bolt-elements-item-contentAccent)_5%,transparent))] shadow-[0_2px_10px_-4px_color-mix(in_oklch,var(--bolt-elements-item-contentAccent)_35%,transparent)]"
+              role="toolbar"
+              aria-label="3 objects selected — bulk actions"
+            >
+              <span
+                aria-hidden="true"
+                className="absolute left-0 top-1 bottom-1 w-[3px] rounded-full bg-bolt-elements-item-contentAccent shadow-[0_0_8px_color-mix(in_oklch,var(--bolt-elements-item-contentAccent)_60%,transparent)]"
+              />
+              <span className="inline-flex items-center gap-1.5 text-[11px] font-semibold tabular-nums text-bolt-elements-item-contentAccent">
+                <span className="i-ph:check-square-duotone text-sm" aria-hidden="true" />3 selected
+              </span>
+              <span className="rounded-lg border border-bolt-elements-borderColor bg-bolt-elements-background-depth-2 px-2 py-0.5 text-[10px] text-bolt-elements-textTertiary">
+                Clear
+              </span>
+              <span className="ml-auto inline-flex items-center gap-1 rounded-lg border border-bolt-elements-item-contentAccent/35 bg-bolt-elements-item-contentAccent/[0.06] px-2 py-0.5 text-[10px] text-bolt-elements-item-contentAccent">
+                <span className="i-ph:download-simple text-xs" aria-hidden="true" /> Download
+              </span>
+              <span className="inline-flex items-center gap-1 rounded-lg border border-red-400/40 bg-bolt-elements-background-depth-1/90 px-2 py-0.5 text-[10px] text-red-400">
+                <span className="i-ph:trash text-xs" aria-hidden="true" /> Delete
+              </span>
+            </div>
+            <div className="p-3 text-[11px] text-bolt-elements-textTertiary">
+              The floating bar rises in on the shared <code className="text-bolt-elements-item-contentAccent">psBucketRise</code>{' '}
+              keyframe (motion-safe, with a reduced-motion opt-out) when a selection exists.
+            </div>
+          </PanelShell>
+        </div>
+        <figcaption className="text-[11px] font-mono uppercase tracking-wider text-bolt-elements-textSecondary">
+          Bulk-action bar (glass depth · glowing cyan rail)
+        </figcaption>
+      </figure>
     </div>
   );
 }
