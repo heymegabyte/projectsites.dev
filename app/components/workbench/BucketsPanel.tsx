@@ -253,10 +253,12 @@ type ObjectsState =
 
 type SortKey = 'name' | 'size' | 'time';
 
-// ── Two-pane layout ───────────────────────────────────────────────────────────
-// The `min-w-0` clip fix lives in its own reusable, render-testable primitive (fire-162 moved it to
-// `./BucketsTwoPane` so the `/_preview` gallery can mount it without this bridge-coupled module).
-// Re-exported here so `import { BucketsTwoPane } from '../BucketsPanel'` (existing tests) still resolves.
+/*
+ * ── Two-pane layout ───────────────────────────────────────────────────────────
+ * The `min-w-0` clip fix lives in its own reusable, render-testable primitive (fire-162 moved it to
+ * `./BucketsTwoPane` so the `/_preview` gallery can mount it without this bridge-coupled module).
+ * Re-exported here so `import { BucketsTwoPane } from '../BucketsPanel'` (existing tests) still resolves.
+ */
 export { BucketsTwoPane };
 
 // ── Component ────────────────────────────────────────────────────────────────
@@ -474,30 +476,19 @@ export const BucketsPanel = memo(() => {
               (buckets.buckets.length === 0 ? (
                 <BucketsEmpty onCreate={() => setShowCreate(true)} />
               ) : (
-                <BucketList
-                  buckets={buckets.buckets}
-                  selected={selectedBucket}
-                  onSelect={setSelectedBucket}
-                  onDelete={setDeleteTarget}
-                  onAddress={openAddress}
-                  onTogglePublic={onTogglePublic}
-                  onPromote={onPromote}
-                />
+                <BucketNavigator buckets={buckets.buckets} selected={selectedBucket} onSelect={setSelectedBucket} />
               ))}
           </>
         }
         right={
           selectedBucket && buckets.status === 'ready' ? (
-            <ObjectBrowser
+            <BucketWorkspace
               bucket={buckets.buckets.find((b) => b.name === selectedBucket) ?? { name: selectedBucket }}
               objectOpsAvailable={objectOpsAvailable}
-              onCopyBucketAddress={() => {
-                const b = buckets.buckets.find((x) => x.name === selectedBucket);
-
-                if (b) {
-                  void openAddress(b);
-                }
-              }}
+              onAddress={openAddress}
+              onTogglePublic={onTogglePublic}
+              onPromote={onPromote}
+              onDelete={setDeleteTarget}
             />
           ) : buckets.status === 'ready' && buckets.buckets.length > 0 ? (
             <div className="flex-1 flex items-center justify-center p-8 text-center text-[12px] text-bolt-elements-textTertiary">
@@ -612,169 +603,199 @@ const NeedsCredsBanner = memo(() => (
 
 NeedsCredsBanner.displayName = 'BucketsPanel.NeedsCredsBanner';
 
-// ── Bucket list ──────────────────────────────────────────────────────────────
+/*
+ * ── Navigator (grouped bucket list) ───────────────────────────────────────────
+ * B1 premium shell: the left pane is a NAVIGATOR that pins the two site-visible defaults — Preview +
+ * Production — at the top, then groups any extra buckets under "Custom". Rows SELECT a bucket; every
+ * per-bucket action (visibility / address / promote / delete) lives in the right-pane Settings tab,
+ * so the navigator stays calm + scannable (Linear/Raycast feel) rather than a wall of hover buttons.
+ */
 
-const BucketList = memo(
+type NavGroupKey = 'preview' | 'production' | 'custom';
+
+const NAV_GROUPS: { key: NavGroupKey; label: string; icon: string; empty: string }[] = [
+  {
+    key: 'preview',
+    label: 'Preview',
+    icon: 'i-ph:flask-duotone',
+    empty: 'Your working storage — created with your site.',
+  },
+  {
+    key: 'production',
+    label: 'Production',
+    icon: 'i-ph:rocket-launch-duotone',
+    empty: 'Appears once you publish to production.',
+  },
+  { key: 'custom', label: 'Custom', icon: 'i-ph:stack-duotone', empty: '' },
+];
+
+/** Which navigator group a bucket belongs to (env drives it; unknown → Custom). */
+function navGroupOf(bucket: BucketEntry): NavGroupKey {
+  if (bucket.environment === 'production') {
+    return 'production';
+  }
+
+  if (bucket.environment === 'preview') {
+    return 'preview';
+  }
+
+  return 'custom';
+}
+
+const BucketNavigator = memo(
   ({
     buckets,
     selected,
     onSelect,
-    onDelete,
-    onAddress,
-    onTogglePublic,
-    onPromote,
   }: {
     buckets: BucketEntry[];
     selected: string | null;
     onSelect: (name: string) => void;
-    onDelete: (b: BucketEntry) => void;
-    onAddress: (b: BucketEntry) => void;
-    onTogglePublic: (b: BucketEntry) => void;
-    onPromote: (b: BucketEntry) => void;
-  }) => (
-    <div className="p-2 space-y-1.5" role="listbox" aria-label="Buckets">
-      {buckets.map((bucket) => {
-        const active = selected === bucket.name;
-        return (
-          <div
-            key={bucket.name}
-            role="option"
-            aria-selected={active}
-            tabIndex={0}
-            onClick={() => onSelect(bucket.name)}
-            onKeyDown={(e) => {
-              if (e.key === 'Enter' || e.key === ' ') {
-                e.preventDefault();
-                onSelect(bucket.name);
-              }
-            }}
-            data-testid="buckets-list-item"
-            className={classNames(
-              // POLISH 5: glass card — cyan ring + lift on hover/active, smooth transition.
-              'group relative rounded-xl border p-2.5 transition-all duration-200 motion-reduce:transition-none cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-bolt-elements-item-contentAccent',
-              active
-                ? 'border-bolt-elements-item-contentAccent/70 bg-bolt-elements-item-contentAccent/[0.08] shadow-sm shadow-bolt-elements-item-contentAccent/10'
-                : 'border-bolt-elements-borderColor bg-bolt-elements-background-depth-2 hover:border-bolt-elements-item-contentAccent/40 hover:bg-bolt-elements-background-depth-3 motion-safe:hover:-translate-y-px',
-            )}
-          >
-            <div className="flex items-center gap-2 min-w-0">
-              <div
-                className={classNames(
-                  'i-ph:hard-drives-duotone text-base shrink-0',
-                  active
-                    ? 'text-bolt-elements-item-contentAccent'
-                    : 'text-bolt-elements-textTertiary group-hover:text-bolt-elements-item-contentAccent',
-                )}
-                aria-hidden
-              />
-              <span
-                className="text-[12px] font-medium text-bolt-elements-textPrimary truncate flex-1"
-                title={bucket.name}
-              >
-                {bucket.name}
-              </span>
-              {bucket.isDefault && (
-                <span
-                  className="inline-flex items-center rounded-md border px-1 py-px text-[8px] font-semibold uppercase tracking-wide shrink-0"
-                  style={{ borderColor: `color-mix(in oklch, ${CYAN} 45%, transparent)`, color: CYAN }}
-                  title="The site's default bucket"
-                >
-                  Default
-                </span>
-              )}
-            </div>
+  }) => {
+    const grouped = useMemo(() => {
+      const groups: Record<NavGroupKey, BucketEntry[]> = { preview: [], production: [], custom: [] };
 
-            {/* Meta line + visibility. */}
-            <div className="mt-1 flex items-center gap-1.5 text-[9px] text-bolt-elements-textTertiary tabular-nums pl-6">
-              <span
-                className="inline-flex items-center gap-0.5"
-                title={bucket.public ? 'Public — has a public base URL' : 'Private'}
-              >
+      for (const bucket of buckets) {
+        groups[navGroupOf(bucket)].push(bucket);
+      }
+
+      // Default bucket first within its group, then alphabetical.
+      for (const key of Object.keys(groups) as NavGroupKey[]) {
+        groups[key].sort((a, b) => (a.isDefault ? -1 : b.isDefault ? 1 : a.name.localeCompare(b.name)));
+      }
+
+      return groups;
+    }, [buckets]);
+
+    return (
+      <div className="p-2 space-y-3" role="listbox" aria-label="Buckets">
+        {NAV_GROUPS.map((group) => {
+          const items = grouped[group.key];
+
+          // Preview + Production are ALWAYS pinned (even when empty, with a hint); Custom shows only when used.
+          if (group.key === 'custom' && items.length === 0) {
+            return null;
+          }
+
+          return (
+            <div key={group.key} role="group" aria-label={group.label} data-testid={`buckets-nav-group-${group.key}`}>
+              <div className="flex items-center gap-1.5 px-1.5 pb-1.5">
                 <div
-                  className={classNames(bucket.public ? 'i-ph:globe-simple' : 'i-ph:lock-simple', 'text-[10px]')}
+                  className={classNames(group.icon, 'text-xs text-bolt-elements-item-contentAccent/80 shrink-0')}
                   aria-hidden
                 />
-                {bucket.public ? 'Public' : 'Private'}
-              </span>
-              {bucket.environment && (
-                <>
-                  <span className="opacity-40" aria-hidden>
-                    ·
-                  </span>
-                  <span>{bucket.environment}</span>
-                </>
-              )}
-              {bucket.createdAt && formatRelativeTime(bucket.createdAt) && (
-                <>
-                  <span className="opacity-40" aria-hidden>
-                    ·
-                  </span>
-                  <span>{formatRelativeTime(bucket.createdAt)}</span>
-                </>
-              )}
-            </div>
+                <span className="text-[9px] font-semibold uppercase tracking-[0.08em] text-bolt-elements-textTertiary">
+                  {group.label}
+                </span>
+                {items.length > 0 && (
+                  <span className="text-[9px] text-bolt-elements-textTertiary/60 tabular-nums">{items.length}</span>
+                )}
+                <div className="flex-1 h-px bg-bolt-elements-borderColor/40 ml-1" aria-hidden />
+              </div>
 
-            {/* Row actions — reveal on hover/focus (keyboard-reachable). */}
-            <div className="mt-2 flex items-center gap-1 opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 transition-opacity motion-reduce:transition-none pl-6">
-              <button
-                type="button"
-                onClick={(e) => {
-                  e.stopPropagation();
-                  onAddress(bucket);
-                }}
-                title="Copy address (S3 endpoint + binding + public URL)"
-                aria-label={`Address for ${bucket.name}`}
-                className={classNames(BTN_GHOST, 'min-h-[24px] px-1.5 py-0.5 text-[10px]')}
-              >
-                <div className="i-ph:link text-xs" /> Address
-              </button>
-              <button
-                type="button"
-                onClick={(e) => {
-                  e.stopPropagation();
-                  onTogglePublic(bucket);
-                }}
-                title={bucket.public ? 'Make private' : 'Make public'}
-                aria-label={bucket.public ? `Make ${bucket.name} private` : `Make ${bucket.name} public`}
-                className={classNames(BTN_GHOST, 'min-h-[24px] min-w-[24px] px-1.5 py-0.5')}
-              >
-                <div className={classNames(bucket.public ? 'i-ph:lock-simple-open' : 'i-ph:globe-simple', 'text-xs')} />
-              </button>
-              <button
-                type="button"
-                onClick={(e) => {
-                  e.stopPropagation();
-                  onPromote(bucket);
-                }}
-                title="Promote a snapshot to production"
-                aria-label={`Promote ${bucket.name} to production`}
-                className={classNames(BTN_GHOST, 'min-h-[24px] min-w-[24px] px-1.5 py-0.5')}
-              >
-                <div className="i-ph:rocket-launch text-xs" />
-              </button>
-              {!bucket.isDefault && (
-                <button
-                  type="button"
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    onDelete(bucket);
-                  }}
-                  title="Delete bucket"
-                  aria-label={`Delete ${bucket.name}`}
-                  className={classNames(BTN_DESTRUCTIVE, 'min-h-[24px] min-w-[24px] px-1.5 py-0.5 ml-auto')}
-                >
-                  <div className="i-ph:trash text-xs" />
-                </button>
+              {items.length === 0 ? (
+                <p className="px-1.5 pb-1 text-[10px] leading-relaxed text-bolt-elements-textTertiary/70">
+                  {group.empty}
+                </p>
+              ) : (
+                <div className="space-y-1.5">
+                  {items.map((bucket) => (
+                    <BucketNavRow
+                      key={bucket.name}
+                      bucket={bucket}
+                      active={selected === bucket.name}
+                      onSelect={onSelect}
+                    />
+                  ))}
+                </div>
               )}
             </div>
-          </div>
-        );
-      })}
+          );
+        })}
+      </div>
+    );
+  },
+);
+
+BucketNavigator.displayName = 'BucketsPanel.BucketNavigator';
+
+const BucketNavRow = memo(
+  ({ bucket, active, onSelect }: { bucket: BucketEntry; active: boolean; onSelect: (name: string) => void }) => (
+    <div
+      role="option"
+      aria-selected={active}
+      tabIndex={0}
+      onClick={() => onSelect(bucket.name)}
+      onKeyDown={(e) => {
+        if (e.key === 'Enter' || e.key === ' ') {
+          e.preventDefault();
+          onSelect(bucket.name);
+        }
+      }}
+      data-testid="buckets-list-item"
+      className={classNames(
+        'group relative rounded-xl border p-2.5 transition-all duration-200 motion-reduce:transition-none cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-bolt-elements-item-contentAccent',
+        active
+          ? 'border-bolt-elements-item-contentAccent/70 bg-bolt-elements-item-contentAccent/[0.08] shadow-sm shadow-bolt-elements-item-contentAccent/10'
+          : 'border-bolt-elements-borderColor bg-bolt-elements-background-depth-2 hover:border-bolt-elements-item-contentAccent/40 hover:bg-bolt-elements-background-depth-3 motion-safe:hover:-translate-y-px',
+      )}
+    >
+      {active && (
+        <span
+          aria-hidden
+          className="absolute left-0 top-2 bottom-2 w-0.5 rounded-full bg-bolt-elements-item-contentAccent"
+        />
+      )}
+      <div className="flex items-center gap-2 min-w-0">
+        <div
+          className={classNames(
+            'i-ph:hard-drives-duotone text-base shrink-0',
+            active
+              ? 'text-bolt-elements-item-contentAccent'
+              : 'text-bolt-elements-textTertiary group-hover:text-bolt-elements-item-contentAccent',
+          )}
+          aria-hidden
+        />
+        <span className="text-[12px] font-medium text-bolt-elements-textPrimary truncate flex-1" title={bucket.name}>
+          {bucket.name}
+        </span>
+        {bucket.isDefault && (
+          <span
+            className="inline-flex items-center rounded-md border px-1 py-px text-[8px] font-semibold uppercase tracking-wide shrink-0"
+            style={{ borderColor: `color-mix(in oklch, ${CYAN} 45%, transparent)`, color: CYAN }}
+            title="The site's default bucket"
+          >
+            Default
+          </span>
+        )}
+      </div>
+
+      {/* Meta line — visibility + age (env is conveyed by the group header). */}
+      <div className="mt-1 flex items-center gap-1.5 text-[9px] text-bolt-elements-textTertiary tabular-nums pl-6">
+        <span
+          className="inline-flex items-center gap-0.5"
+          title={bucket.public ? 'Public — has a public base URL' : 'Private'}
+        >
+          <div
+            className={classNames(bucket.public ? 'i-ph:globe-simple' : 'i-ph:lock-simple', 'text-[10px]')}
+            aria-hidden
+          />
+          {bucket.public ? 'Public' : 'Private'}
+        </span>
+        {bucket.createdAt && formatRelativeTime(bucket.createdAt) && (
+          <>
+            <span className="opacity-40" aria-hidden>
+              ·
+            </span>
+            <span>{formatRelativeTime(bucket.createdAt)}</span>
+          </>
+        )}
+      </div>
     </div>
   ),
 );
 
-BucketList.displayName = 'BucketsPanel.BucketList';
+BucketNavRow.displayName = 'BucketsPanel.BucketNavRow';
 
 // ── Object browser ───────────────────────────────────────────────────────────
 
@@ -1443,6 +1464,289 @@ const ObjectBrowser = memo(
 );
 
 ObjectBrowser.displayName = 'BucketsPanel.ObjectBrowser';
+
+/*
+ * ── Per-bucket workspace (Files + Settings tabs) ──────────────────────────────
+ * B1 premium shell: the right pane is a per-bucket WORKSPACE with two tabs. Files = the object
+ * browser; Settings = visibility / address / promote / delete. Every control is backed by a REAL op
+ * (no stubs) — the Settings home for actions that used to clutter the navigator rows.
+ */
+
+type WorkspaceTab = 'files' | 'settings';
+
+const BucketWorkspace = memo(
+  ({
+    bucket,
+    objectOpsAvailable,
+    onAddress,
+    onTogglePublic,
+    onPromote,
+    onDelete,
+  }: {
+    bucket: BucketEntry;
+    objectOpsAvailable: boolean;
+    onAddress: (b: BucketEntry) => void;
+    onTogglePublic: (b: BucketEntry) => void;
+    onPromote: (b: BucketEntry) => void;
+    onDelete: (b: BucketEntry) => void;
+  }) => {
+    const [tab, setTab] = useState<WorkspaceTab>('files');
+
+    // Always land on Files when the selected bucket changes.
+    useEffect(() => {
+      setTab('files');
+    }, [bucket.name]);
+
+    const tabs: { id: WorkspaceTab; label: string; icon: string }[] = [
+      { id: 'files', label: 'Files', icon: 'i-ph:folder-open-duotone' },
+      { id: 'settings', label: 'Settings', icon: 'i-ph:sliders-horizontal-duotone' },
+    ];
+
+    return (
+      <div className="flex-1 flex flex-col min-h-0">
+        {/* Tab bar — APG tabs: click + roving Left/Right arrow keys. */}
+        <div
+          role="tablist"
+          aria-label={`${bucket.name} workspace`}
+          className="flex items-center gap-1 px-2 pt-2 border-b border-bolt-elements-borderColor/60 shrink-0"
+          onKeyDown={(e) => {
+            if (e.key !== 'ArrowRight' && e.key !== 'ArrowLeft') {
+              return;
+            }
+
+            e.preventDefault();
+
+            const idx = tabs.findIndex((t) => t.id === tab);
+            const next = e.key === 'ArrowRight' ? (idx + 1) % tabs.length : (idx - 1 + tabs.length) % tabs.length;
+            setTab(tabs[next].id);
+          }}
+        >
+          {tabs.map((t) => {
+            const activeTab = tab === t.id;
+            return (
+              <button
+                key={t.id}
+                type="button"
+                role="tab"
+                id={`buckets-tab-${t.id}`}
+                aria-selected={activeTab}
+                aria-controls="buckets-workspace"
+                tabIndex={activeTab ? 0 : -1}
+                data-testid={`buckets-workspace-tab-${t.id}`}
+                onClick={() => setTab(t.id)}
+                className={classNames(
+                  'inline-flex items-center gap-1.5 px-3 py-1.5 -mb-px text-[11px] font-medium rounded-t-lg border-b-2',
+                  'transition-colors duration-150 motion-reduce:transition-none',
+                  'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-bolt-elements-item-contentAccent',
+                  activeTab
+                    ? 'border-bolt-elements-item-contentAccent text-bolt-elements-item-contentAccent bg-bolt-elements-item-contentAccent/[0.06]'
+                    : 'border-transparent text-bolt-elements-textTertiary hover:text-bolt-elements-textPrimary hover:bg-bolt-elements-background-depth-2',
+                )}
+              >
+                <div className={classNames(t.icon, 'text-sm')} aria-hidden />
+                {t.label}
+              </button>
+            );
+          })}
+        </div>
+
+        <div
+          id="buckets-workspace"
+          role="tabpanel"
+          aria-labelledby={`buckets-tab-${tab}`}
+          className="flex-1 min-h-0 flex flex-col"
+        >
+          {tab === 'files' ? (
+            <ObjectBrowser
+              bucket={bucket}
+              objectOpsAvailable={objectOpsAvailable}
+              onCopyBucketAddress={() => onAddress(bucket)}
+            />
+          ) : (
+            <BucketSettings
+              bucket={bucket}
+              onAddress={onAddress}
+              onTogglePublic={onTogglePublic}
+              onPromote={onPromote}
+              onDelete={onDelete}
+            />
+          )}
+        </div>
+      </div>
+    );
+  },
+);
+
+BucketWorkspace.displayName = 'BucketsPanel.BucketWorkspace';
+
+// ── Settings tab ──────────────────────────────────────────────────────────────
+
+const SettingsSection = memo(
+  ({
+    title,
+    hint,
+    icon,
+    danger,
+    children,
+  }: {
+    title: string;
+    hint?: string;
+    icon: string;
+    danger?: boolean;
+    children: React.ReactNode;
+  }) => (
+    <section
+      className={classNames(
+        'rounded-xl border p-3',
+        danger
+          ? 'border-red-400/30 bg-red-500/[0.04]'
+          : 'border-bolt-elements-borderColor bg-bolt-elements-background-depth-2',
+      )}
+    >
+      <div className="flex items-center gap-2">
+        <div
+          className={classNames(
+            icon,
+            'text-sm shrink-0',
+            danger ? 'text-red-400' : 'text-bolt-elements-item-contentAccent',
+          )}
+          aria-hidden
+        />
+        <h4 className="text-[12px] font-semibold text-bolt-elements-textPrimary">{title}</h4>
+      </div>
+      {hint && <p className="mt-0.5 text-[10px] text-bolt-elements-textTertiary leading-relaxed">{hint}</p>}
+      <div className="mt-2">{children}</div>
+    </section>
+  ),
+);
+
+SettingsSection.displayName = 'BucketsPanel.SettingsSection';
+
+const BucketSettings = memo(
+  ({
+    bucket,
+    onAddress,
+    onTogglePublic,
+    onPromote,
+    onDelete,
+  }: {
+    bucket: BucketEntry;
+    onAddress: (b: BucketEntry) => void;
+    onTogglePublic: (b: BucketEntry) => void;
+    onPromote: (b: BucketEntry) => void;
+    onDelete: (b: BucketEntry) => void;
+  }) => (
+    <div className="flex-1 overflow-auto modern-scrollbar p-3 space-y-3" data-testid="buckets-settings">
+      {/* Identity */}
+      <div className="flex items-center gap-2 px-0.5">
+        <div className="i-ph:hard-drives-duotone text-lg text-bolt-elements-item-contentAccent shrink-0" aria-hidden />
+        <div className="min-w-0">
+          <p className="text-[13px] font-semibold text-bolt-elements-textPrimary truncate" title={bucket.name}>
+            {bucket.name}
+          </p>
+          <p className="text-[10px] text-bolt-elements-textTertiary tabular-nums">
+            {bucket.environment ?? 'custom'}
+            {bucket.createdAt && formatRelativeTime(bucket.createdAt)
+              ? ` · created ${formatRelativeTime(bucket.createdAt)}`
+              : ''}
+          </p>
+        </div>
+      </div>
+
+      {/* Visibility — live setPublic toggle. */}
+      <SettingsSection
+        title="Visibility"
+        icon={bucket.public ? 'i-ph:globe-simple-duotone' : 'i-ph:lock-simple-duotone'}
+        hint={
+          bucket.public
+            ? 'Public — objects are reachable at a public base URL.'
+            : 'Private — objects are only reachable with credentials.'
+        }
+      >
+        <div className="flex items-center justify-between gap-2">
+          <span className="text-[11px] text-bolt-elements-textSecondary">
+            This bucket is {bucket.public ? 'public' : 'private'}.
+          </span>
+          <button
+            type="button"
+            onClick={() => onTogglePublic(bucket)}
+            data-testid="buckets-settings-visibility"
+            aria-label={bucket.public ? `Make ${bucket.name} private` : `Make ${bucket.name} public`}
+            className={classNames(bucket.public ? BTN_GHOST : BTN_SECONDARY, 'min-h-[28px] px-3 py-1 text-[11px]')}
+          >
+            <div
+              className={classNames(bucket.public ? 'i-ph:lock-simple' : 'i-ph:globe-simple', 'text-sm')}
+              aria-hidden
+            />
+            {bucket.public ? 'Make private' : 'Make public'}
+          </button>
+        </div>
+        {bucket.public && bucket.publicUrl && (
+          <p className="mt-2 text-[10px] font-mono text-bolt-elements-textTertiary break-all">{bucket.publicUrl}</p>
+        )}
+      </SettingsSection>
+
+      {/* Address — inline when known, plus the full copyable bundle. */}
+      <SettingsSection
+        title="Address"
+        icon="i-ph:link-duotone"
+        hint="S3 endpoint, binding + public URL for wrangler / SDKs."
+      >
+        {bucket.address ? (
+          <div className="space-y-2">
+            <AddressRow label="S3 endpoint" value={bucket.address.s3Endpoint} />
+            <AddressRow label="Binding" value={bucket.address.bindingName} />
+          </div>
+        ) : null}
+        <button
+          type="button"
+          onClick={() => onAddress(bucket)}
+          data-testid="buckets-settings-address"
+          className={classNames(BTN_GHOST, 'mt-2 min-h-[28px] px-3 py-1 text-[11px]')}
+        >
+          <div className="i-ph:link text-sm" aria-hidden /> View full address
+        </button>
+      </SettingsSection>
+
+      {/* Promote — live snapshot copy to production. */}
+      <SettingsSection
+        title="Promote to production"
+        icon="i-ph:rocket-launch-duotone"
+        hint="Copy a snapshot of this bucket's objects into your production bucket."
+      >
+        <button
+          type="button"
+          onClick={() => onPromote(bucket)}
+          data-testid="buckets-settings-promote"
+          className={classNames(BTN_SECONDARY, 'min-h-[28px] px-3 py-1 text-[11px]')}
+        >
+          <div className="i-ph:rocket-launch text-sm" aria-hidden /> Promote snapshot
+        </button>
+      </SettingsSection>
+
+      {/* Danger zone — never for the site default bucket. */}
+      {!bucket.isDefault && (
+        <SettingsSection
+          title="Delete bucket"
+          icon="i-ph:warning-duotone"
+          danger
+          hint="Empties then permanently deletes this bucket and all its objects. This can't be undone."
+        >
+          <button
+            type="button"
+            onClick={() => onDelete(bucket)}
+            data-testid="buckets-settings-delete"
+            className={classNames(BTN_DESTRUCTIVE, 'min-h-[28px] px-3 py-1 text-[11px]')}
+          >
+            <div className="i-ph:trash text-sm" aria-hidden /> Delete {bucket.name}
+          </button>
+        </SettingsSection>
+      )}
+    </div>
+  ),
+);
+
+BucketSettings.displayName = 'BucketsPanel.BucketSettings';
 
 // ── Create modal ─────────────────────────────────────────────────────────────
 

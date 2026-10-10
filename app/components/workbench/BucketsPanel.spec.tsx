@@ -10,7 +10,7 @@
  *   4. the object browser lists objects for the selected bucket.
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { act, cleanup, render, screen, waitFor } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import React from 'react';
 
 const { requestR2, requestBucketUpload, requestBucketDownload, postToastToParent } = vi.hoisted(() => ({
@@ -176,5 +176,84 @@ describe('BucketsPanel — real-time, no manual refresh (R1)', () => {
     });
 
     await waitFor(() => expect(listBucketsCount()).toBeGreaterThan(before));
+  });
+});
+
+describe('BucketsPanel — B1 premium shell (grouped navigator + per-bucket workspace tabs)', () => {
+  /** A ready world with one bucket per group: preview (default), production (public), custom. */
+  function mockMultiWorld() {
+    requestR2.mockImplementation(async (input: { op: string }) => {
+      if (input.op === 'listBuckets') {
+        return {
+          type: 'PS_R2_RESULT',
+          ok: true,
+          objectOpsAvailable: true,
+          buckets: [
+            { name: 'uploads', isDefault: true, public: false, environment: 'preview' },
+            { name: 'prod-assets', public: true, publicUrl: 'https://cdn.example.com/x', environment: 'production' },
+            { name: 'exports', public: false },
+          ],
+        };
+      }
+
+      if (input.op === 'listObjects') {
+        return { type: 'PS_R2_RESULT', ok: true, objects: [], prefixes: [], truncated: false };
+      }
+
+      return { type: 'PS_R2_RESULT', ok: true };
+    });
+  }
+
+  it('groups buckets into pinned Preview + Production groups plus a Custom group', async () => {
+    mockMultiWorld();
+    render(<BucketsPanel />);
+    await waitFor(() => expect(screen.getByTestId('buckets-nav-group-preview')).toBeTruthy());
+    expect(screen.getByTestId('buckets-nav-group-production')).toBeTruthy();
+    expect(screen.getByTestId('buckets-nav-group-custom')).toBeTruthy();
+  });
+
+  it('renders a per-bucket workspace with Files + Settings tabs, Files active first', async () => {
+    mockMultiWorld();
+    render(<BucketsPanel />);
+    await waitFor(() => expect(screen.getByTestId('buckets-workspace-tab-files')).toBeTruthy());
+    expect(screen.getByTestId('buckets-workspace-tab-settings')).toBeTruthy();
+
+    // Files is the default tab → the (empty) object browser renders, not the Settings surface.
+    await waitFor(() => expect(screen.getByTestId('buckets-objects-empty')).toBeTruthy());
+    expect(screen.queryByTestId('buckets-settings')).toBeNull();
+  });
+
+  it('Settings tab exposes a live visibility toggle, address, promote and delete for a non-default bucket', async () => {
+    mockMultiWorld();
+    render(<BucketsPanel />);
+    await waitFor(() => expect(screen.getAllByTestId('buckets-list-item').length).toBeGreaterThan(0));
+
+    // Select the custom, non-default bucket then open its Settings tab.
+    fireEvent.click(within(screen.getByTestId('buckets-nav-group-custom')).getByTestId('buckets-list-item'));
+    fireEvent.click(screen.getByTestId('buckets-workspace-tab-settings'));
+
+    expect(screen.getByTestId('buckets-settings')).toBeTruthy();
+    expect(screen.getByTestId('buckets-settings-visibility')).toBeTruthy();
+    expect(screen.getByTestId('buckets-settings-address')).toBeTruthy();
+    expect(screen.getByTestId('buckets-settings-promote')).toBeTruthy();
+    expect(screen.getByTestId('buckets-settings-delete')).toBeTruthy();
+
+    // The visibility control is LIVE — it issues the setPublic op (not a stub).
+    fireEvent.click(screen.getByTestId('buckets-settings-visibility'));
+    await waitFor(() =>
+      expect(requestR2.mock.calls.some((c) => (c[0] as { op?: string })?.op === 'setPublic')).toBe(true),
+    );
+  });
+
+  it('hides the destructive delete control for the site default bucket', async () => {
+    mockMultiWorld();
+    render(<BucketsPanel />);
+    await waitFor(() => expect(screen.getAllByTestId('buckets-list-item').length).toBeGreaterThan(0));
+
+    fireEvent.click(within(screen.getByTestId('buckets-nav-group-preview')).getByTestId('buckets-list-item')); // the default (preview) bucket
+    fireEvent.click(screen.getByTestId('buckets-workspace-tab-settings'));
+
+    expect(screen.getByTestId('buckets-settings')).toBeTruthy();
+    expect(screen.queryByTestId('buckets-settings-delete')).toBeNull();
   });
 });
