@@ -375,3 +375,54 @@ describe('BucketsPanel — B3: bucket row actions menu', () => {
     expect(requestR2.mock.calls.some((c) => (c[0] as { op?: string })?.op === 'promote')).toBe(false);
   });
 });
+
+describe('BucketsPanel — B14: navigator keyboard (roving listbox)', () => {
+  /** Three buckets, one per group, object ops off. */
+  function mockNavWorld() {
+    requestR2.mockImplementation(async (input: { op: string }) => {
+      if (input.op === 'listBuckets') {
+        return {
+          type: 'PS_R2_RESULT',
+          ok: true,
+          objectOpsAvailable: false,
+          buckets: [
+            { name: 'Preview', isDefault: true, public: false, environment: 'preview' },
+            { name: 'Production', public: false, environment: 'production' },
+            { name: 'exports', public: false },
+          ],
+        };
+      }
+
+      return { type: 'PS_R2_RESULT', ok: true, objects: [], prefixes: [], truncated: false };
+    });
+  }
+
+  it('is a single-tab-stop listbox — exactly one row is tabbable (roving tabindex)', async () => {
+    mockNavWorld();
+    render(<BucketsPanel />);
+    await waitFor(() => expect(screen.getAllByTestId('buckets-list-item').length).toBe(3));
+
+    const rows = screen.getAllByTestId('buckets-list-item');
+    const tabbable = rows.filter((r) => r.getAttribute('tabindex') === '0');
+    expect(tabbable.length).toBe(1);
+
+    // The auto-selected default (Preview) is the tab stop.
+    expect(tabbable[0].getAttribute('aria-selected')).toBe('true');
+  });
+
+  it('ArrowDown moves selection to the next bucket across groups', async () => {
+    mockNavWorld();
+    render(<BucketsPanel />);
+    await waitFor(() => expect(screen.getAllByTestId('buckets-list-item').length).toBe(3));
+
+    // Render order: Preview (preview) · Production (production) · exports (custom). Preview is selected.
+    const rows = screen.getAllByTestId('buckets-list-item');
+    expect(rows[0].getAttribute('aria-selected')).toBe('true');
+
+    fireEvent.keyDown(rows[0], { key: 'ArrowDown' });
+
+    await waitFor(() =>
+      expect(screen.getAllByTestId('buckets-list-item')[1].getAttribute('aria-selected')).toBe('true'),
+    );
+  });
+});

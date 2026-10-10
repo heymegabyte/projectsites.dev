@@ -684,6 +684,16 @@ const BucketNavigator = memo(
       return groups;
     }, [buckets]);
 
+    /*
+     * Roving-tabindex focus target: the selected bucket (or the first, when none) is the SINGLE tab stop,
+     * so the listbox is one Tab stop and Arrow keys move within it (WCAG listbox pattern).
+     */
+    const flatNames = useMemo(
+      () => [...grouped.preview, ...grouped.production, ...grouped.custom].map((b) => b.name),
+      [grouped],
+    );
+    const tabbableName = selected && flatNames.includes(selected) ? selected : flatNames[0];
+
     return (
       <div className="p-2 space-y-3" role="listbox" aria-label="Buckets">
         {NAV_GROUPS.map((group) => {
@@ -721,6 +731,7 @@ const BucketNavigator = memo(
                       key={bucket.name}
                       bucket={bucket}
                       active={selected === bucket.name}
+                      tabbable={bucket.name === tabbableName}
                       onSelect={onSelect}
                       onAddress={onAddress}
                       onTogglePublic={onTogglePublic}
@@ -744,6 +755,7 @@ const BucketNavRow = memo(
   ({
     bucket,
     active,
+    tabbable,
     onSelect,
     onAddress,
     onTogglePublic,
@@ -752,6 +764,7 @@ const BucketNavRow = memo(
   }: {
     bucket: BucketEntry;
     active: boolean;
+    tabbable: boolean;
     onSelect: (name: string) => void;
     onAddress: (b: BucketEntry) => void;
     onTogglePublic: (b: BucketEntry) => void;
@@ -761,10 +774,10 @@ const BucketNavRow = memo(
     <div
       role="option"
       aria-selected={active}
-      tabIndex={0}
+      tabIndex={tabbable ? 0 : -1}
       onClick={() => onSelect(bucket.name)}
       onKeyDown={(e) => {
-        // Only the row itself selects on Enter/Space — not events bubbling up from the actions menu.
+        // Only the row itself handles keys — not events bubbling up from the actions menu.
         if (e.target !== e.currentTarget) {
           return;
         }
@@ -772,6 +785,37 @@ const BucketNavRow = memo(
         if (e.key === 'Enter' || e.key === ' ') {
           e.preventDefault();
           onSelect(bucket.name);
+
+          return;
+        }
+
+        // Listbox roving: Arrow/Home/End move selection + focus across every bucket row (all groups).
+        if (e.key === 'ArrowDown' || e.key === 'ArrowUp' || e.key === 'Home' || e.key === 'End') {
+          const listbox = e.currentTarget.closest('[role="listbox"]');
+
+          if (!listbox) {
+            return;
+          }
+
+          e.preventDefault();
+
+          const rows = Array.from(listbox.querySelectorAll<HTMLElement>('[data-testid="buckets-list-item"]'));
+          const idx = rows.indexOf(e.currentTarget as HTMLElement);
+          const last = rows.length - 1;
+          const nextIdx =
+            e.key === 'ArrowDown'
+              ? Math.min(last, idx + 1)
+              : e.key === 'ArrowUp'
+                ? Math.max(0, idx - 1)
+                : e.key === 'Home'
+                  ? 0
+                  : last;
+          const next = rows[nextIdx];
+
+          if (next && next !== e.currentTarget) {
+            next.focus();
+            next.click(); // selects the target bucket via its own onClick closure
+          }
         }
       }}
       data-testid="buckets-list-item"
