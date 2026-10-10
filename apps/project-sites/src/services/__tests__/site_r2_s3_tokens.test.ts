@@ -18,11 +18,15 @@ import type { Env } from '../../types/env.js';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 
-// Apply the REAL 0660 DDL to the harness (read the migration file — the test is the DDL's contract).
-const S3_TOKENS_DDL = readFileSync(
-  join(__dirname, '../../../migrations/0660_site_r2_s3_tokens.sql'),
-  'utf8',
-);
+// Apply the REAL migrations in order: 0660 (CREATE TABLE) + 0661 (kind col) + 0662 (bucket_name col),
+// so the harness table matches prod — the service queries filter on `kind`/`bucket_name` (B4/B5).
+const S3_TOKENS_DDL = [
+  '0660_site_r2_s3_tokens.sql',
+  '0661_site_r2_s3_tokens_kind.sql',
+  '0662_site_r2_s3_tokens_bucket.sql',
+]
+  .map((f) => readFileSync(join(__dirname, '../../../migrations/', f), 'utf8'))
+  .join('\n');
 
 // A valid 32-byte AES-GCM key (base64) so encrypt()/decrypt() round-trip in the test.
 const ENC_KEY_B64 = Buffer.from(new Uint8Array(32).fill(7)).toString('base64');

@@ -27,10 +27,15 @@ jest.mock('../../modules/feature_flags/services.js', () => ({ isFlagOn: jest.fn(
 import { isFlagOn } from '../../modules/feature_flags/services.js';
 const mockFlag = isFlagOn as unknown as jest.Mock;
 
-const S3_TOKENS_DDL = readFileSync(
-  join(__dirname, '../../../migrations/0660_site_r2_s3_tokens.sql'),
-  'utf8',
-);
+// Apply the REAL migrations in order: 0660 (CREATE TABLE) + 0661 (kind col) + 0662 (bucket_name col),
+// so the harness table matches prod — the service queries filter on `kind`/`bucket_name` (B4/B5).
+const S3_TOKENS_DDL = [
+  '0660_site_r2_s3_tokens.sql',
+  '0661_site_r2_s3_tokens_kind.sql',
+  '0662_site_r2_s3_tokens_bucket.sql',
+]
+  .map((f) => readFileSync(join(__dirname, '../../../migrations/', f), 'utf8'))
+  .join('\n');
 const ALLOC_DDL = `CREATE TABLE site_r2_allocations (
   id TEXT PRIMARY KEY, tenant_id TEXT, site_id TEXT, bucket_name TEXT UNIQUE, display_name TEXT,
   environment TEXT, is_default INTEGER, public_access INTEGER, public_base_url TEXT,
