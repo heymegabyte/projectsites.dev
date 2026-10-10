@@ -14,16 +14,19 @@ Cloudflare R2's dashboard — every visible control backed by a REAL implementat
 
 ## READY NOW — top 5 (next fires)
 *Ranked by user/money-path leverage × dependency order. Shipped: B1 shell · B1-polish grid · B2 two-default ·
-B3 menu + shortcut sheet · owner-friendly copy · B14 (roving listbox + modal focus-trap + SR status roles).
+B3 menu + shortcut sheet · owner-friendly copy · B14 (roving listbox + modal focus-trap + SR status roles) ·
+**B5 slice 1 (per-site S3 token service + migration `0660` — prod-applied, flag-dark)**.
 The a11y FOUNDATION is complete. ★ **DECISION MADE (Brian 2026-10-10): build B5 scoped tokens (`#2`)** to unblock
 the ~8 object features — see the SCOPE LOCKED block in GAPS.*
 
-**★ TOP PRIORITY — B5 slice 1 (the object-ops UNBLOCK). START IN A FRESH SESSION (deciding session was 10 fires deep).**
-0. **B5 slice 1 — per-site S3 token service + migration** — `ensureSiteS3Token(env, siteId)` creates a CF R2 api_token
-   scoped to the site's buckets + stores the secret ENCRYPTED (`ai_crypto`) in a NEW D1 `site_r2_s3_tokens` table,
-   idempotent, flag-dark. Jest + real-SQLite + mocked CF fetch (mirror `r2_provisioner.test`). Then slice 2 wires
-   `getS3Config`/`hasObjectOps` to it → flips `objectOpsAvailable` true → unblocks B6–B12/B15/grid/upload/previews.
-   **Full sliced plan in the GAPS § B5.** · **new-backend: YES (heavy).**
+**★ TOP PRIORITY — B5 slice 2 (the object-ops FLIP). START IN A FRESH SESSION.**
+0. **B5 slice 2 — wire object ops to the per-site token** — `getS3Config`/`hasObjectOps` (site_r2.ts) resolve the
+   site's token via `ensureSiteS3Token` (slice 1, shipped) instead of the global `R2_S3_*`; sign
+   `listSiteR2Objects`/`put`/`get`/`delete` with it. **Flips `objectOpsAvailable` true per-site → unblocks
+   B6–B12/B15/grid tiles/upload/browse/download/previews.** During impl: confirm the exact R2-object-RW
+   permission-group id live (slice 1 used a documented-but-unverified id, TODO-marked in `ensureSiteS3Token`) and
+   that the SHA-256(token.value) → access-key-id derivation matches CF's live S3 credential. Prod-verify with a
+   REAL browser: a real bucket lists + uploads + downloads objects in the editor. · **new-backend: YES (wires slice 1).**
 
 **Fully-verifiable FE-only remainders (do these if a fire can't take on B5's backend):**
 1. **B14 residual — axe @ 6bp** · needs `@axe-core/playwright` added to the PROD E2E (not a jsdom unit dep); run axe
@@ -178,18 +181,25 @@ B6/B7/B9/B10 (Workflows / gateway / env-pointer — large backend) · B13/B14 (i
 > (it reuses it every request — can't be show-once); SHOW-ONCE applies only to OWNER-facing keys (a separate token the
 > owner copies for external use). **Start the implementation in a FRESH session** (the deciding session was 10 fires deep).
 
-- [~] **B5 Per-site scoped token — THE OBJECT-OPS UNBLOCK** *(scope-locked; NOW THE LEAD)* — one R2 S3 token scoped to
-  a SITE's buckets (enumerated, never account-wide); the worker uses it for the editor's object ops. **Sliced plan
-  (each a fire, TDD-first):**
-  1. **Token service + migration** *(← first slice)* — `ensureSiteS3Token(env, siteId)` (in `site_r2.ts`/`site_r2_manager.ts`):
-     idempotently create a CF R2 api_token scoped to the site's buckets (confirm the exact bucket-scoped permission-group
-     request body from CF docs during impl), store the secret ENCRYPTED (`ai_crypto`) in a NEW D1 table
-     `site_r2_s3_tokens` (site_id, access_key_id, secret_enc, cf_token_id, scope_bucket_ids, status, created/rotated_at).
-     Jest + real-SQLite (`createD1Sqlite`) + mocked CF fetch (mirror `r2_provisioner.test`). Additive migration; flag-dark.
-  2. **Wire object ops to the per-site token** — `getS3Config`/`hasObjectOps` (site_r2.ts) resolve the site's token
+- [~] **B5 Per-site scoped token — THE OBJECT-OPS UNBLOCK** *(scope-locked; NOW THE LEAD — slice 1 shipped)* — one R2 S3
+  token scoped to a SITE's buckets (enumerated, never account-wide); the worker uses it for the editor's object ops.
+  **Sliced plan (each a fire, TDD-first):**
+  1. [x] **Token service + migration** *(fire-buckets-b5-slice1 — ✅ DONE, prod-migrated flag-dark)* —
+     `ensureSiteS3Token(env, siteId, tenantId, orgId)` in `site_r2.ts`: idempotently reuses the existing ACTIVE token
+     (decrypts `secret_enc`) else mints a CF R2 api_token **scoped to the site's own buckets** (`listSiteR2Allocations`
+     → `bucketScopeResources`, filtering `FORBIDDEN_BUCKET_NAMES` — never account-wide), stores the secret ENCRYPTED
+     (`ai_crypto.encrypt`, AES-GCM) in NEW D1 table `site_r2_s3_tokens` (id, tenant_id, site_id, access_key_id,
+     secret_enc, cf_token_id, scope_bucket_ids JSON, status, created/updated/rotated/deleted_at + idx on (site_id,status)).
+     Migration `0660_site_r2_s3_tokens.sql` — additive + reversible + idempotent (`IF NOT EXISTS`); **applied to
+     `project-sites-db-production` (table verified present)**; worker deployed (dormant — not wired until slice 2).
+     TDD: 3 Jest cases (real-SQLite `createD1Sqlite` + mocked CF fetch — creates token fetch-once + encrypted row that
+     decrypts back + bucket-scope + idempotent reuse + no-creds failure) 3/3; tsc 0; `validate:features` PASS.
+     ⚠ slice-2-confirm items (TODO-marked in-service): the exact R2-object-RW permission-group id + the
+     SHA-256(token.value)→access-key-id derivation are documented-but-unverified-live (fine — flag-dark + mocked).
+  2. [ ] **Wire object ops to the per-site token** — `getS3Config`/`hasObjectOps` (site_r2.ts) resolve the site's token
      (lazy-provision via slice 1) instead of the global `R2_S3_*`; sign `listSiteR2Objects`/`put`/`get`/`delete` with it.
      **Flips `objectOpsAvailable` true per-site → unblocks B6–B12/B15/grid/upload/previews.** Prod-verify: a real bucket
-     lists objects in the editor.
+     lists objects in the editor. **← NEXT (the object-ops flip).**
   3. **Perms auto-extend on new bucket** — when `provisionSiteR2` adds a bucket, extend the site token's scope + re-store.
   4. **Owner credential strip UI** (editor, Vitest) — a SEPARATE owner-facing scoped key: masked id + **show-once** secret
      on create/rotate, copy-id, rotate, revoke, live status; honest "secret not recoverable → rotate".
@@ -326,4 +336,12 @@ on every op · beautiful loading/empty/error/success · a11y+keyboard+touch+resp
   decision-independent win if one exists (e.g. this fire's owner-copy fix), ESCALATE the gating decision crisply, and
   RECOMMEND Brian decide or pause the cron. The cron is NOT CronDelete'd (DoD unmet) but continued identical re-fires
   on a blocked target trend toward flooding.
+- **Dormant backend-foundation slice → verify = migration-applied + deploy-clean + units, NOT real-browser**
+  *(fire-buckets-b5-slice1 §7).* A slice that ships a NEW service/table but wires NOTHING to a route/UI yet
+  (flag-dark, uncalled — B5 slice 1; future B6-Workflow / B9-gateway / B10-pointer foundations) has NO live
+  surface to drive, so its correct proof is: (1) the migration applied + the table/column present on prod
+  (`sqlite_master` read-back); (2) a CLEAN `wrangler deploy` (esbuild bundling the new code = integration
+  proof); (3) the unit suite + `validate:features`. The real-browser proof lands on the CONSUMING slice that
+  flips the behavior on — do NOT falsely ding a dormant foundation for "no real-browser verify", and do NOT
+  claim it's user-visible. State plainly in the report that the slice is dormant until its consumer ships.
 - **Retire the loop cron when this DoD is genuinely met** (per [[loop-cron-refires-one-prompt-retire-when-directive-complete]]) — don't flood.
