@@ -21,12 +21,12 @@
 import { readFileSync } from 'node:fs';
 import { execFileSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
-import { dirname, join } from 'node:path';
+import { dirname, join, resolve } from 'node:path';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const REPO = join(HERE, '..');
 const LEDGER = join(REPO, '.claude', 'run-the-loop', 'LEDGER.md');
-const FIRE_HEADER = /^#{1,3}\s*fire-(\d+)\b(.*)$/;
+const FIRE_HEADER = /^#{1,3}\s*(fire-(\d+)([a-z]*))\b(.*)$/i;
 
 // §3 category budget (run-the-loop.md). floor/ceil are fractions of the recent-fire window.
 // A fire is tagged to ONE primary category; shares below `floor` flag STARVED → over-weight next fire.
@@ -83,18 +83,22 @@ function ledgerFires(n) {
   } catch {
     return []; // missing/unreadable LEDGER → empty, never throw
   }
+  return parseLedgerFires(text, n);
+}
+
+export function parseLedgerFires(text, n = 8) {
   const seen = new Map();
   for (const line of text.split('\n')) {
     const m = line.match(FIRE_HEADER);
     if (!m) continue;
-    const id = Number.parseInt(m[1], 10);
-    const summary = m[2].replace(/^\s*[—–\-:(]\s*/, '').replace(/\s+/g, ' ').trim().slice(0, 160);
+    const id = m[1].toLowerCase();
+    const summary = m[4].replace(/^\s*[—–\-:(]\s*/, '').replace(/\s+/g, ' ').trim().slice(0, 160);
     if (!seen.has(id)) seen.set(id, summary);
   }
   return [...seen.entries()]
-    .sort((a, b) => b[0] - a[0])
+    .sort((a, b) => Number(b[0].match(/\d+/)[0]) - Number(a[0].match(/\d+/)[0]) || b[0].localeCompare(a[0]))
     .slice(0, n)
-    .map(([id, summary]) => ({ id: `fire-${id}`, summary }));
+    .map(([id, summary]) => ({ id, summary }));
 }
 
 /**
@@ -105,23 +109,37 @@ function ledgerFires(n) {
 function gitFires(limit = 60) {
   try {
     const out = execFileSync('git', ['log', '--oneline', `-${limit}`], { cwd: REPO, encoding: 'utf8' });
-    const order = [];
-    const subjects = new Map(); // token -> accumulated subject text
-    for (const line of out.split('\n')) {
-      const toks = line.match(/fire-\d+/g);
-      if (!toks) continue;
-      for (const tok of toks) {
-        if (!subjects.has(tok)) {
-          subjects.set(tok, '');
-          order.push(tok);
-        }
-        subjects.set(tok, `${subjects.get(tok)} ${line}`);
-      }
-    }
-    return { order, subjects };
+    return parseGitFires(out);
   } catch {
     return { order: [], subjects: new Map() };
   }
+}
+
+export function parseGitFires(out) {
+  const order = [];
+  const subjects = new Map(); // token -> accumulated subject text
+  for (const line of out.split('\n')) {
+    const toks = line.match(/\bfire-\d+[a-z]*\b/gi);
+    if (!toks) continue;
+    for (const raw of new Set(toks.map((token) => token.toLowerCase()))) {
+      const tok = raw;
+      if (!subjects.has(tok)) {
+        subjects.set(tok, '');
+        order.push(tok);
+      }
+      subjects.set(tok, `${subjects.get(tok)} ${line}`);
+    }
+  }
+  return { order, subjects };
+}
+
+export function recencyDiagnostics(fires, git) {
+  const ledgerIds = fires.map((fire) => fire.id);
+  return {
+    orderDiffers: ledgerIds[0] !== git[0],
+    ledgerOnly: ledgerIds.filter((id) => !git.includes(id)),
+    gitOnly: git.filter((id) => !ledgerIds.includes(id)),
+  };
 }
 
 /**
@@ -130,7 +148,7 @@ function gitFires(limit = 60) {
  * fire-135's summary used `chore(loop):`, which leaked the prefix into the classifier.
  */
 function stripWrapper(text) {
-  return text.replace(/\w+\(loop\):/gi, ' ').replace(/📘|📥|🔁|🎨/g, ' ').replace(/fire-\d+\s*[—–-]?/gi, ' ');
+  return text.replace(/\w+\(loop\):/gi, ' ').replace(/📘|📥|🔁|🎨/g, ' ').replace(/fire-\d+[a-z]*\s*[—–-]?/gi, ' ');
 }
 
 /** Classify one fire's accumulated subject text into a §3 category (first-match, substance-first). */
@@ -170,47 +188,56 @@ function gitSha() {
   }
 }
 
-const { n, json } = parseArgs(process.argv.slice(2));
-const fires = ledgerFires(n);
-const { order: git, subjects } = gitFires(60);
-const mix = categoryMix(git, subjects, n);
+function main() {
+  const { n, json } = parseArgs(process.argv.slice(2));
+  const fires = ledgerFires(n);
+  const { order: git, subjects } = gitFires(60);
+  const mix = categoryMix(git, subjects, n);
+  const diagnostics = recencyDiagnostics(fires, git.slice(0, n));
 
-if (json) {
-  process.stdout.write(
-    JSON.stringify(
-      {
-        meta: { repo: 'projectsites.dev', generated_at: new Date().toISOString(), git_sha: gitSha() },
-        fires,
-        git_recent_fires: git.slice(0, n),
-        category_mix: mix.rows.map((r) => ({ category: r.key, label: r.label, count: r.count, share: Number(r.share.toFixed(3)), floor: r.floor, starved: r.starved })),
-        per_fire_category: mix.perFire,
-        starved: mix.starved,
-      },
-      null,
-      2,
-    ) + '\n',
-  );
-} else {
-  process.stdout.write(`Last ${fires.length} LEDGER fires (newest-first):\n`);
-  for (const f of fires) process.stdout.write(`  ${f.id}  ${f.summary}\n`);
-  process.stdout.write(`\ngit log recent fire tokens (newest-first): ${git.slice(0, n).join(', ') || '(none)'}\n`);
-  const ledgerTop = fires[0]?.id ?? '(none)';
-  const gitTop = git[0] ?? '(none)';
-  if (ledgerTop !== gitTop) {
-    process.stdout.write(`\n⚠ RECENCY MISMATCH: LEDGER top=${ledgerTop} but git top=${gitTop} — trust git.\n`);
-  }
-  process.stdout.write(`\nCategory mix — last ${mix.total} fires (§3 budget; data-driven starvation call):\n`);
-  for (const r of mix.rows) {
-    const pct = `${Math.round(r.share * 100)}%`.padStart(4);
-    const band = r.ceil < 1 ? `${Math.round(r.floor * 100)}-${Math.round(r.ceil * 100)}%` : `${Math.round(r.floor * 100)}%+`;
-    const flag = r.starved && r.key !== 'loop' ? '  ⚠ STARVED (below §3 floor)' : '';
-    process.stdout.write(`  ${r.label.padEnd(24)} ${String(r.count).padStart(2)}  ${pct}  (band ${band})${flag}\n`);
-  }
-  // Starved list is ranked by §3 floor descending — the highest-floor gap (Product, then
-  // Testing/Architecture) is the PRIMARY over-weight target; the 5%-floor tails trend in over 3-5 fires.
-  if (mix.starved.length) {
-    process.stdout.write(`\n⚠ STARVED → over-weight THIS fire (§3), primary first: ${mix.starved.join(', ')}\n`);
+  if (json) {
+    process.stdout.write(
+      JSON.stringify(
+        {
+          meta: { repo: 'projectsites.dev', generated_at: new Date().toISOString(), git_sha: gitSha() },
+          fires,
+          git_recent_fires: git.slice(0, n),
+          category_mix: mix.rows.map((r) => ({ category: r.key, label: r.label, count: r.count, share: Number(r.share.toFixed(3)), floor: r.floor, starved: r.starved })),
+          per_fire_category: mix.perFire,
+          recency_diagnostics: diagnostics,
+          starved: mix.starved,
+        },
+        null,
+        2,
+      ) + '\n',
+    );
   } else {
-    process.stdout.write(`\n✓ Category mix is within §3 bands (no starvation).\n`);
+    process.stdout.write(`Last ${fires.length} LEDGER fires (newest-first):\n`);
+    for (const f of fires) process.stdout.write(`  ${f.id}  ${f.summary}\n`);
+    process.stdout.write(`\ngit log recent fire tokens (newest-first): ${git.slice(0, n).join(', ') || '(none)'}\n`);
+    const ledgerTop = fires[0]?.id ?? '(none)';
+    const gitTop = git[0] ?? '(none)';
+    if (ledgerTop !== gitTop) {
+      process.stdout.write(`\n⚠ RECENCY ORDER DIFFERS: LEDGER numeric top=${ledgerTop}, git chronological top=${gitTop} — trust git chronology; order alone does not prove unpublished work.\n`);
+    }
+    if (diagnostics.ledgerOnly.length) process.stdout.write(`LEDGER-only in bounded window: ${diagnostics.ledgerOnly.join(', ')} — verify commit history.\n`);
+    if (diagnostics.gitOnly.length) process.stdout.write(`git-only in bounded window: ${diagnostics.gitOnly.join(', ')} — verify ledger coverage.\n`);
+    process.stdout.write(`\nCategory mix — last ${mix.total} fires (§3 budget; data-driven starvation call):\n`);
+    for (const r of mix.rows) {
+      const pct = `${Math.round(r.share * 100)}%`.padStart(4);
+      const band = r.ceil < 1 ? `${Math.round(r.floor * 100)}-${Math.round(r.ceil * 100)}%` : `${Math.round(r.floor * 100)}%+`;
+      const flag = r.starved && r.key !== 'loop' ? '  ⚠ STARVED (below §3 floor)' : '';
+      process.stdout.write(`  ${r.label.padEnd(24)} ${String(r.count).padStart(2)}  ${pct}  (band ${band})${flag}\n`);
+    }
+    // Starved list is ranked by §3 floor descending — the highest-floor gap (Product, then
+    // Testing/Architecture) is the PRIMARY over-weight target; the 5%-floor tails trend in over 3-5 fires.
+    if (mix.starved.length) {
+      process.stdout.write(`\n⚠ STARVED → over-weight THIS fire (§3), primary first: ${mix.starved.join(', ')}\n`);
+    } else {
+      process.stdout.write(`\n✓ Category mix is within §3 bands (no starvation).\n`);
+    }
   }
+
 }
+
+if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) main();
