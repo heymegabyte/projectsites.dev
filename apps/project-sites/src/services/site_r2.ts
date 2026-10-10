@@ -1723,6 +1723,99 @@ export async function listSiteR2Objects(
   return { cursor, objects, ok: true, prefixes, truncated };
 }
 
+/** Bounds for the B11 whole-bucket search scan — sane caps so one search never walks a runaway bucket. */
+const SEARCH_MAX_PAGES = 20; // up to 20 × 1000 = 20k keys examined per search
+const SEARCH_MAX_RESULTS = 1000; // never hand the UI more than a page-and-then-some of matches
+const SEARCH_PAGE_SIZE = 1000; // max S3 ListObjectsV2 page
+
+/**
+ * **Server-side whole-bucket search (B11).** Unlike {@link listSiteR2Objects} (one page, folder view),
+ * this searches the ENTIRE bucket for keys whose path CONTAINS the search term (case-insensitive),
+ * BOUNDED so it can't walk a runaway bucket. S3 `ListObjectsV2` has no substring filter, so we paginate
+ * the flat listing (no delimiter) up to `maxPages`, narrow natively with S3 `prefix` when the caller
+ * supplies one, substring-filter each page's keys, and stop early once `maxResults` matches are found.
+ *
+ * The reply is HONEST about its limits so the UI never over-claims completeness:
+ *  - `scannedAll` — `true` only when the S3 listing reached its end within `maxPages` (we really saw
+ *    every key); `false` when the page cap stopped us short of the bucket's end.
+ *  - `truncated` — `true` when more matches exist than `maxResults` (we cut the result set).
+ *  - `scanned` — how many keys we actually examined (for a "scanned up to N objects" note).
+ */
+export async function searchSiteR2Objects(
+  env: Env,
+  ctx: SiteR2Context,
+  bucketName: string,
+  opts: { search: string; prefix?: string; maxPages?: number; maxResults?: number },
+): Promise<
+  SiteR2Result<{ objects: SiteR2Object[]; truncated: boolean; scannedAll: boolean; scanned: number }>
+> {
+  const resolved = await resolveSiteS3Config(env, ctx);
+  if (!resolved.ok) return resolved;
+  const s3 = resolved.s3;
+
+  const needle = opts.search.trim().toLowerCase();
+  const maxPages = Math.min(Math.max(opts.maxPages ?? SEARCH_MAX_PAGES, 1), SEARCH_MAX_PAGES);
+  const maxResults = Math.min(Math.max(opts.maxResults ?? SEARCH_MAX_RESULTS, 1), SEARCH_MAX_RESULTS);
+
+  // An empty needle would match everything — treat as "no filter" and just page the bucket flat.
+  const matches: SiteR2Object[] = [];
+  let scanned = 0;
+  let truncated = false;
+  let scannedAll = false;
+  let cursor: string | undefined;
+
+  for (let page = 0; page < maxPages; page++) {
+    const query: Record<string, string> = {
+      'list-type': '2',
+      'max-keys': String(SEARCH_PAGE_SIZE),
+    };
+    if (opts.prefix) query.prefix = opts.prefix;
+    if (cursor) query['continuation-token'] = cursor;
+
+    const res = await s3Fetch(s3, 'GET', `/${bucketName}`, { query });
+    if (!res.ok)
+      return {
+        message: `S3 list failed (HTTP ${res.status})`,
+        ok: false,
+        reason: 's3_error',
+        status: res.status,
+      };
+    const xml = await res.text();
+
+    for (const frag of xmlAll(xml, 'Contents')) {
+      const key = xmlUnescape(xmlFirst(frag, 'Key') ?? '');
+      if (!key) continue;
+      scanned++;
+      if (needle && !key.toLowerCase().includes(needle)) continue;
+      if (matches.length >= maxResults) {
+        truncated = true; // more matches than the cap — honest about cutting the set
+        break;
+      }
+      matches.push({
+        contentType: null,
+        etag: xmlFirst(frag, 'ETag')?.replace(/&quot;|"/g, ''),
+        key,
+        size: Number(xmlFirst(frag, 'Size') ?? 0),
+        uploadedAt: xmlFirst(frag, 'LastModified') ?? null,
+      });
+    }
+
+    if (truncated) break; // result cap hit — stop walking
+    const more = xmlFirst(xml, 'IsTruncated') === 'true';
+    if (!more) {
+      scannedAll = true; // reached the end of the listing within the page budget → we saw everything
+      break;
+    }
+    cursor = xmlFirst(xml, 'NextContinuationToken');
+    if (!cursor) {
+      scannedAll = true;
+      break;
+    }
+  }
+
+  return { objects: matches, ok: true, scanned, scannedAll, truncated };
+}
+
 /** Upload one object (S3 PutObject). `body` is the raw bytes; `contentType` sets the stored MIME. */
 export async function putSiteR2Object(
   env: Env,

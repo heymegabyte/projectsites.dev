@@ -394,9 +394,26 @@ type BucketsState =
 type ObjectsState =
   | { status: 'idle' }
   | { status: 'loading' }
+  // B11 — a whole-bucket server search is in flight (distinct from the plain page load so the UI can say
+  // "searching all objects…" instead of the generic skeleton).
+  | { status: 'searching' }
   | { status: 'needs-creds'; message: string }
   | { status: 'error'; message: string }
-  | { status: 'ready'; objects: BucketObjectEntry[]; prefixes: string[]; cursor?: string; truncated: boolean };
+  | {
+      status: 'ready';
+      objects: BucketObjectEntry[];
+      prefixes: string[];
+      cursor?: string;
+      truncated: boolean;
+      /**
+       * B11 search mode: when these are present the `ready` list is the result of a whole-bucket SERVER
+       * search (not a page). `scannedAll=false` ⇒ the scan stopped short of the bucket's end;
+       * `truncated=true` ⇒ more matches than the result cap. The UI renders an HONEST note from them.
+       */
+      search?: string;
+      scannedAll?: boolean;
+      scanned?: number;
+    };
 
 type SortKey = 'name' | 'size' | 'time';
 
@@ -1532,12 +1549,85 @@ export const ObjectBrowser = memo(
       [bucket.name, prefix, objectOpsAvailable],
     );
 
-    // Reload when the bucket or prefix changes (reset selection + pagination).
+    /**
+     * B11 — SERVER-SIDE whole-bucket search. Unlike {@link loadObjects} (one page, folder view), this
+     * asks the worker to scan the ENTIRE bucket for keys that CONTAIN `term` (bounded; honest limits).
+     * It narrows with the current `prefix` and reports `scannedAll`/`scanned` so the UI never over-claims
+     * completeness. Only called for a non-empty term (the empty case falls back to {@link loadObjects}).
+     */
+    const searchObjects = useCallback(
+      async (term: string) => {
+        if (!objectOpsAvailable) {
+          return;
+        }
+
+        setObjects({ status: 'searching' });
+
+        try {
+          const reply = await requestR2({
+            op: 'listObjects',
+            bucket: bucket.name,
+            prefix: prefix || undefined,
+            search: term,
+          });
+
+          if (!reply.ok) {
+            if (reply.needsCreds) {
+              setObjects({ status: 'needs-creds', message: 'Uploading and browsing files is being enabled for your site.' });
+              return;
+            }
+            if (reply.enabled === false) {
+              setObjects({ status: 'error', message: 'Buckets are not enabled.' });
+              return;
+            }
+            setObjects({ status: 'error', message: reply.error || 'Could not search objects.' });
+            return;
+          }
+
+          setObjects({
+            status: 'ready',
+            objects: reply.objects ?? [],
+            prefixes: [], // a whole-bucket search is flat — no folder rows
+            scanned: reply.scanned,
+            scannedAll: reply.scannedAll,
+            search: term,
+            truncated: !!reply.truncated,
+          });
+        } catch (err) {
+          setObjects({ status: 'error', message: err instanceof Error ? err.message : 'Could not search objects.' });
+        }
+      },
+      [bucket.name, prefix, objectOpsAvailable],
+    );
+
+    // Reload when the bucket or prefix changes (reset selection + pagination). Skipped while a search is
+    // active — the search effect below owns the fetch so a prefix-driven reload never clobbers results.
+    const searchActive = search.trim().length > 0;
     useEffect(() => {
+      if (searchActive) {
+        return;
+      }
       cursorStack.current = [];
       setSelected(new Set());
       void loadObjects();
-    }, [loadObjects]);
+    }, [loadObjects, searchActive]);
+
+    /**
+     * B11 — debounce the search box. A non-empty term (after ~280ms of quiet) issues ONE server search
+     * across the whole bucket; clearing the term falls back to the plain page listing. The debounce
+     * coalesces keystrokes into a single request (never one per character).
+     */
+    useEffect(() => {
+      const term = search.trim();
+      if (!term) {
+        return; // the non-search effect above re-loads the plain listing when `searchActive` flips false
+      }
+      setSelected(new Set());
+      const t = setTimeout(() => {
+        void searchObjects(term);
+      }, 280);
+      return () => clearTimeout(t);
+    }, [search, searchObjects]);
 
     // Reset prefix when switching buckets.
     useEffect(() => {
@@ -1779,15 +1869,20 @@ export const ObjectBrowser = memo(
     const segments = prefix.split('/').filter(Boolean);
 
     // Derived: filtered + sorted objects.
+    //  • SERVER-search mode (objects.search set) — the worker already filtered the WHOLE bucket, so we
+    //    just sort the server results (no client re-filter, or we'd re-narrow to the loaded view).
+    //  • Plain mode — keep the instant client substring filter of the loaded page for responsiveness
+    //    (so typing shows a result immediately, before the ~280ms debounce fires the server search).
     const shownObjects = useMemo(() => {
       if (objects.status !== 'ready') {
         return [];
       }
 
+      const serverSearched = typeof objects.search === 'string';
       const needle = search.trim().toLowerCase();
       let list = objects.objects;
 
-      if (needle) {
+      if (!serverSearched && needle) {
         list = list.filter((o) => o.key.toLowerCase().includes(needle));
       }
 
@@ -1929,8 +2024,9 @@ export const ObjectBrowser = memo(
                 type="search"
                 value={search}
                 onChange={(e) => setSearch(e.target.value)}
-                placeholder="Filter…"
-                aria-label="Filter objects"
+                placeholder="Search all files…"
+                aria-label="Search all objects in this bucket"
+                title="Searches the whole bucket, not just the files shown"
                 data-testid="buckets-object-search"
                 className="w-full min-h-[26px] pl-7 pr-2 py-1 text-[11px] rounded-lg border border-bolt-elements-borderColor bg-bolt-elements-background-depth-2 text-bolt-elements-textPrimary placeholder:text-bolt-elements-textTertiary transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-bolt-elements-item-contentAccent focus-visible:border-bolt-elements-item-contentAccent/50"
               />
@@ -2082,10 +2178,16 @@ export const ObjectBrowser = memo(
         <div className="flex-1 overflow-auto modern-scrollbar min-h-0">
           {objects.status === 'idle' || objects.status === 'loading' ? (
             <ObjectsSkeleton />
+          ) : objects.status === 'searching' ? (
+            // B11 — a whole-bucket server search is in flight. Honest, specific copy (not "Loading…").
+            <ObjectsSearching term={search.trim()} />
           ) : objects.status === 'needs-creds' ? (
             <ObjectsNeedsCreds message={objects.message} />
           ) : objects.status === 'error' ? (
-            <ErrorCard message={objects.message} onRetry={() => void loadObjects()} />
+            <ErrorCard
+              message={objects.message}
+              onRetry={() => (searchActive ? void searchObjects(search.trim()) : void loadObjects())}
+            />
           ) : shownObjects.length === 0 && objects.prefixes.length === 0 ? (
             <ObjectsEmpty
               hasFilter={!!search.trim()}
@@ -2108,8 +2210,46 @@ export const ObjectBrowser = memo(
                   {shownObjects.length} object{shownObjects.length === 1 ? '' : 's'} · {formatBytes(totalBytes)}
                   {/* POLISH 3: est. monthly cost inline. */}
                   <span className="text-bolt-elements-textTertiary/70"> · ~{estMonthlyCost(totalBytes)}/mo</span>
+                  {/* B11 — in server-search mode, say so explicitly ("searched all objects"). */}
+                  {typeof objects.search === 'string' && (
+                    <span className="text-bolt-elements-item-contentAccent/80"> · whole-bucket search</span>
+                  )}
                 </span>
               </div>
+
+              {/* B11 — HONEST search-limit note. Only when the server search did NOT see everything
+                  (`scannedAll:false`) or had to cut the result set (`truncated:true`). We NEVER claim we
+                  searched the whole bucket when we didn't — we name the scan ceiling instead. */}
+              {typeof objects.search === 'string' && (objects.truncated || objects.scannedAll === false) && (
+                <div
+                  data-testid="buckets-search-truncated"
+                  role="status"
+                  className="flex items-start gap-2 px-3 py-2 border-b border-bolt-elements-borderColor/40 bg-bolt-elements-item-contentAccent/[0.05] text-[11px] text-bolt-elements-textSecondary"
+                >
+                  <div className="i-ph:info-duotone text-sm text-bolt-elements-item-contentAccent shrink-0 mt-px" aria-hidden />
+                  <span>
+                    {objects.truncated ? (
+                      <>
+                        Showing the first <span className="tabular-nums font-medium">{shownObjects.length.toLocaleString()}</span>{' '}
+                        matches
+                      </>
+                    ) : (
+                      <>
+                        Showing <span className="tabular-nums font-medium">{shownObjects.length.toLocaleString()}</span>{' '}
+                        match{shownObjects.length === 1 ? '' : 'es'}
+                      </>
+                    )}
+                    {typeof objects.scanned === 'number' && (
+                      <>
+                        {' '}· scanned up to{' '}
+                        <span className="tabular-nums font-medium">{objects.scanned.toLocaleString()}</span> object
+                        {objects.scanned === 1 ? '' : 's'}
+                      </>
+                    )}
+                    {objects.scannedAll === false && '. Narrow with a folder prefix to search deeper.'}
+                  </span>
+                </div>
+              )}
 
               {viewMode === 'list' ? (
                 <>
@@ -2457,8 +2597,10 @@ export const ObjectBrowser = memo(
                 </div>
               )}
 
-              {/* Pagination. */}
-              {objects.truncated && (
+              {/* Pagination. Cursor paging is a PLAIN-listing affordance — a whole-bucket search is
+                  single-shot (no cursor), so "Load more" never renders in search mode (no doomed control;
+                  the honest note above already states the search limit). */}
+              {objects.truncated && typeof objects.search !== 'string' && objects.cursor && (
                 <div className="flex items-center justify-center p-3">
                   <button
                     type="button"
@@ -4712,6 +4854,29 @@ const ObjectsSkeleton = memo(() => (
 ));
 
 ObjectsSkeleton.displayName = 'BucketsPanel.ObjectsSkeleton';
+
+/**
+ * B11 — the "searching all objects…" in-flight state for a whole-bucket server search. Distinct from the
+ * generic skeleton so the copy is HONEST + specific about what's happening (scanning the ENTIRE bucket,
+ * not just the loaded page). Motion-reduce safe (the spinner pulse respects `prefers-reduced-motion`).
+ */
+const ObjectsSearching = memo(({ term }: { term: string }) => (
+  <div
+    className="flex-1 flex flex-col items-center justify-center gap-3 p-8 text-center"
+    role="status"
+    aria-live="polite"
+    data-testid="buckets-objects-searching"
+  >
+    <div className="flex items-center justify-center h-12 w-12 rounded-2xl border border-bolt-elements-item-contentAccent/30 bg-bolt-elements-item-contentAccent/[0.07]">
+      <div className="i-ph:magnifying-glass-duotone text-2xl text-bolt-elements-item-contentAccent motion-safe:animate-pulse" aria-hidden />
+    </div>
+    <p className="text-xs text-bolt-elements-textSecondary max-w-[280px] leading-relaxed">
+      Searching all objects{term ? <> for “<span className="text-bolt-elements-textPrimary font-medium">{term}</span>”</> : ''}…
+    </p>
+  </div>
+));
+
+ObjectsSearching.displayName = 'BucketsPanel.ObjectsSearching';
 
 const ErrorCard = memo(({ message, onRetry }: { message: string; onRetry: () => void }) => (
   <div

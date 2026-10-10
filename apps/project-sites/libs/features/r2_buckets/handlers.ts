@@ -17,7 +17,7 @@
  * | GET    | /api/sites/:siteId/r2/buckets/:bucket/address             | The copyable address bundle                 |
  * | POST   | /api/sites/:siteId/r2/buckets/:bucket/public              | Toggle public access                        |
  * | POST   | /api/sites/:siteId/r2/buckets/:bucket/promote             | Snapshot preview → production               |
- * | GET    | /api/sites/:siteId/r2/buckets/:bucket/objects             | List objects (prefix + cursor + delimiter)  |
+ * | GET    | /api/sites/:siteId/r2/buckets/:bucket/objects             | List objects (prefix+cursor+delimiter) OR whole-bucket search (`?search=`, B11) |
  * | PUT    | /api/sites/:siteId/r2/buckets/:bucket/objects/*          | Upload an object (multipart or base64 JSON) |
  * | GET    | /api/sites/:siteId/r2/buckets/:bucket/objects/*          | Download an object                          |
  * | DELETE | /api/sites/:siteId/r2/buckets/:bucket/objects/*         | Delete an object                            |
@@ -62,6 +62,7 @@ import {
   revokeSiteOwnerKey,
   rotateBucketOwnerKey,
   rotateSiteOwnerKey,
+  searchSiteR2Objects,
   setSiteR2PublicAccess,
   type SiteR2Allocation,
   type SiteR2Failure,
@@ -410,7 +411,7 @@ r2Buckets.post('/api/sites/:siteId/r2/buckets/:bucket/promote', async (c) => {
   });
 });
 
-// ── GET /api/sites/:siteId/r2/buckets/:bucket/objects — list (prefix + cursor + delimiter) ──────────
+// ── GET …/objects — list (prefix + cursor + delimiter) OR whole-bucket search (`?search=`, B11) ─────
 r2Buckets.get('/api/sites/:siteId/r2/buckets/:bucket/objects', async (c) => {
   const { siteId, bucket } = c.req.param();
   const g = await gateAndBucket(c, siteId, bucket);
@@ -421,21 +422,43 @@ r2Buckets.get('/api/sites/:siteId/r2/buckets/:bucket/objects', async (c) => {
     delimiter: c.req.query('delimiter'),
     limit: c.req.query('limit'),
     prefix: c.req.query('prefix'),
+    search: c.req.query('search'),
   });
   if (!parsed.success)
     return c.json({ error: { code: 'BAD_REQUEST', message: 'Invalid query' }, ok: false }, 400);
 
-  const result = await listSiteR2Objects(
-    c.env,
-    { orgId: g.orgId, siteId, tenantId: g.tenantId },
-    g.allocation.bucketName,
-    {
-      cursor: parsed.data.cursor,
-      delimiter: parsed.data.delimiter,
-      maxKeys: parsed.data.limit,
+  const ctx = { orgId: g.orgId, siteId, tenantId: g.tenantId };
+  const search = parsed.data.search?.trim();
+
+  // B11 — a non-empty `search` switches to a BOUNDED server-side whole-bucket scan (substring match
+  // across EVERY object, not just the loaded page). `prefix` still narrows it. The honest
+  // `scannedAll`/`scanned`/`truncated` flags ride back so the UI never over-claims completeness.
+  if (search) {
+    const found = await searchSiteR2Objects(c.env, ctx, g.allocation.bucketName, {
       prefix: parsed.data.prefix,
-    },
-  );
+      search,
+    });
+    if (!found.ok) return r2Failure(c, found.reason, found.message);
+    return c.json({
+      data: {
+        objects: found.objects,
+        // A whole-bucket search is flat (no folders) and single-shot (no cursor paging); surface the
+        // scan limits instead so the UI can show "showing N of all matches / scanned up to X".
+        prefixes: [],
+        scanned: found.scanned,
+        scannedAll: found.scannedAll,
+        truncated: found.truncated,
+      },
+      ok: true,
+    });
+  }
+
+  const result = await listSiteR2Objects(c.env, ctx, g.allocation.bucketName, {
+    cursor: parsed.data.cursor,
+    delimiter: parsed.data.delimiter,
+    maxKeys: parsed.data.limit,
+    prefix: parsed.data.prefix,
+  });
   if (!result.ok) return r2Failure(c, result.reason, result.message);
   return c.json({
     data: { cursor: result.cursor, objects: result.objects, prefixes: result.prefixes, truncated: result.truncated },

@@ -104,7 +104,11 @@ interface PsMessage {
   readonly dir?: string;
   /** PS_DATA_REQUEST: multi-column sort `col:dir,…` (worker allowlist-validates each; precedes orderBy/dir). */
   readonly sort?: string;
-  /** PS_DATA_REQUEST: whole-table search (worker: OR-of-LIKE over allowlisted columns; affects `total`). */
+  /**
+   * PS_DATA_REQUEST: whole-table search (worker: OR-of-LIKE over allowlisted columns; affects `total`).
+   * Also PS_R2_REQUEST (listObjects op, B11): a whole-BUCKET search needle — a non-empty value switches
+   * the worker from the paged folder listing to a bounded server-side scan across every object.
+   */
   readonly search?: string;
   /** PS_DATA_REQUEST: exact-match filter column (worker allowlist-validates it; else no filter). */
   readonly filterCol?: string;
@@ -3595,19 +3599,40 @@ export class BoltEmbedService {
               .post<{ data?: { objectsCopied?: number; production?: unknown } }>(`${base}/${bucket}/promote`, {}, { silent: true })
               .subscribe({ next: (res) => reply({ ok: true, objectsCopied: res?.data?.objectsCopied ?? 0, bucket: res?.data?.production }), error: (err) => onErr(err, 'Could not promote the bucket.') });
           } else if (op === 'listObjects' && bucket) {
+            // B11 — a non-empty `search` switches the worker to a BOUNDED whole-bucket scan (substring
+            // match across every object). In search mode we send NO delimiter/cursor (the scan is flat +
+            // single-shot) and surface the honest `scannedAll`/`scanned` flags back to the editor.
+            const searching = typeof msg.search === 'string' && msg.search.trim().length > 0;
             const params: Record<string, string> = {};
             if (typeof msg.prefix === 'string' && msg.prefix) params['prefix'] = msg.prefix;
-            if (typeof msg.delimiter === 'string' && msg.delimiter) params['delimiter'] = msg.delimiter;
-            if (typeof msg.cursor === 'string' && msg.cursor) params['cursor'] = msg.cursor;
+            if (searching) {
+              params['search'] = msg.search!.trim();
+            } else {
+              if (typeof msg.delimiter === 'string' && msg.delimiter) params['delimiter'] = msg.delimiter;
+              if (typeof msg.cursor === 'string' && msg.cursor) params['cursor'] = msg.cursor;
+            }
             this.api
-              .get<{ data?: { objects?: unknown[]; prefixes?: string[]; cursor?: string; truncated?: boolean } }>(
-                `${base}/${bucket}/objects`,
-                Object.keys(params).length ? params : undefined,
-                { silent: true },
-              )
+              .get<{
+                data?: {
+                  objects?: unknown[];
+                  prefixes?: string[];
+                  cursor?: string;
+                  truncated?: boolean;
+                  scannedAll?: boolean;
+                  scanned?: number;
+                };
+              }>(`${base}/${bucket}/objects`, Object.keys(params).length ? params : undefined, { silent: true })
               .subscribe({
                 next: (res) =>
-                  reply({ ok: true, objects: res?.data?.objects ?? [], prefixes: res?.data?.prefixes ?? [], cursor: res?.data?.cursor, truncated: !!res?.data?.truncated }),
+                  reply({
+                    ok: true,
+                    objects: res?.data?.objects ?? [],
+                    prefixes: res?.data?.prefixes ?? [],
+                    cursor: res?.data?.cursor,
+                    truncated: !!res?.data?.truncated,
+                    scannedAll: res?.data?.scannedAll,
+                    scanned: res?.data?.scanned,
+                  }),
                 error: (err) => onErr(err, 'Could not list objects.'),
               });
           } else if (op === 'deleteObject' && bucket && typeof msg.key === 'string') {

@@ -39,12 +39,19 @@ export const CreateBucketBodySchema = z
   .strict();
 export type CreateBucketBody = z.infer<typeof CreateBucketBodySchema>;
 
-/** Query for `GET /r2/buckets/:bucket/objects` — prefix + pagination + folder delimiter. */
+/**
+ * Query for `GET /r2/buckets/:bucket/objects` — prefix + pagination + folder delimiter, PLUS the B11
+ * `search` term. When `search` is present the route switches from the paged/folder listing to a
+ * BOUNDED server-side whole-bucket scan (substring match across every object, honest truncation flags);
+ * an empty/absent `search` keeps the legacy list behavior. `prefix` still narrows the search server-side.
+ */
 export const ListObjectsQuerySchema = z.object({
   prefix: z.string().max(1024).optional(),
   cursor: z.string().max(4096).optional(),
   delimiter: z.string().max(4).optional(),
   limit: z.coerce.number().int().min(1).max(1000).optional(),
+  /** B11: whole-bucket search needle. Trimmed; an empty string is treated as "no search". */
+  search: z.string().max(256).optional(),
 });
 export type ListObjectsQuery = z.infer<typeof ListObjectsQuerySchema>;
 

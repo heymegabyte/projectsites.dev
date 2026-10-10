@@ -2336,6 +2336,14 @@ export interface R2RequestMessage {
   /** `listObjects`: pagination cursor from the previous page. */
   cursor?: string;
 
+  /**
+   * `listObjects` (B11): a whole-bucket search needle. When present the admin switches from the paged
+   * folder listing to a BOUNDED server-side scan (substring match across EVERY object in the bucket, not
+   * just the loaded page) and the reply carries {@link R2ResponseMessage.scannedAll} /
+   * {@link R2ResponseMessage.scanned} so the editor can show an honest "scanned up to N" note.
+   */
+  search?: string;
+
   /** `deleteObject`: the object key to remove. */
   key?: string;
 }
@@ -2370,8 +2378,21 @@ export interface R2ResponseMessage {
   /** `listObjects`: cursor for the next page (absent → last page). */
   cursor?: string;
 
-  /** `listObjects`: true when more pages remain. */
+  /**
+   * `listObjects`: true when more pages remain (paged mode) OR, in B11 search mode, when more matches
+   * exist than the result cap (the result set was cut — the UI says "showing N of all matches").
+   */
   truncated?: boolean;
+
+  /**
+   * `listObjects` (B11 search mode): `true` only when the server reached the END of the bucket listing
+   * within its page budget (it really saw every object); `false` when the scan stopped short of the end
+   * — the UI must say "scanned up to N objects", never over-claim that it searched everything.
+   */
+  scannedAll?: boolean;
+
+  /** `listObjects` (B11 search mode): how many objects the server actually examined (for the honest note). */
+  scanned?: number;
 
   /** `deleteBucket`: objects removed while emptying. */
   objectsDeleted?: number;
