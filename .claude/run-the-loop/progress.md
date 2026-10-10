@@ -9,13 +9,14 @@
 3. **b4** — per-**bucket** owner keys (routes + migration `0662` + `bucketScopeResources([bucket])`) + per-bucket credential-validity E2E (200/403/401). Migration-first deploy ordering.
 4. **b12** — rich **sandboxed** object previews (image→inert img · pdf→sandboxed iframe no-scripts · text/code→escaped `<pre>` · media→inert controls · else→download) via `requestBucketDownload`.
 5. **b3** — object-row **context menu** (Radix ContextMenu) + **keyboard multi-select** (Cmd+A · Shift-range · Esc) + **animated bulk bar** (role=toolbar, psBucketRise). 21 tests.
+6. **b4-ui** — per-bucket **Access Keys workspace** (`BucketKeySection` in Settings tab; scoped create/rotate/revoke, show-once, "unlocks only this bucket" banner). 11 tests. → **per-bucket key feature END-TO-END complete** (UI→bridge→backend→proven creds).
 
-## DoD §21 ≈ 85% — REMAINING slices (each one fire)
-- **B4-UI** — per-bucket Access Keys workspace in bucket Settings (backend DONE; reuse `OwnerKeySection` scoped to selected bucket, consume `PS_R2_BUCKET_KEY_*`).
+## DoD §21 ≈ 87% — REMAINING slices (each one fire)
 - **B6** clone bucket · **B7** zip export · **B8** copy/move/rename objects · **B9** per-object public + signed shares · **B10** env reassign + rollback (`EnvAssignmentGrid` is read-only; needs `assignBucketEnv` mutation) · **B11** server-side search · **B15** Code-view bucket source selector (`EditorPanel.tsx` Source picker, money-path).
 - **B14** axe @ 6bp on the Buckets panel.
-- ✅ **≥5 visual-refinement rounds** — DONE + numbered in LEDGER (5 logged).
-- READY-NOW top: **B15** Code-view selector · **B4-UI** · **B8** copy/move/rename · **B6** clone.
+- ✅ **≥5 visual-refinement rounds** — DONE + numbered in LEDGER.
+- READY-NOW top: **B15** Code-view selector · **B8** copy/move/rename · **B10** env reassign+rollback · **B6** clone.
+- **CronDelete `b1182793`** when all 8 above ship + prod-verify + B14 axe-clean.
 
 ## Infra invariants for the next fire (do-not-rediscover)
 - **Deploy:** worker `cd apps/project-sites && wrangler deploy --env production` (Docker up, creds via `get-secret CLOUDFLARE_API_KEY` + `CLOUDFLARE_EMAIL=blzalewski@gmail.com`); editor `npm run build` (root) → `wrangler pages deploy build/client --project-name=bolt-diy --branch=main --commit-dirty=true`.
