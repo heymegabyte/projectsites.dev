@@ -15,25 +15,33 @@ Cloudflare R2's dashboard — every visible control backed by a REAL implementat
 ## READY NOW — top 5 (next fires)
 *Ranked by user/money-path leverage × dependency order. Shipped: B1 shell · B1-polish grid · B2 two-default ·
 B3 menu + shortcut sheet · owner-friendly copy · B14 (roving listbox + modal focus-trap + SR status roles) ·
-**B5 slice 1 (per-site S3 token service + migration `0660` — prod-applied, flag-dark)**.
-The a11y FOUNDATION is complete. ★ **DECISION MADE (Brian 2026-10-10): build B5 scoped tokens (`#2`)** to unblock
-the ~8 object features — see the SCOPE LOCKED block in GAPS.*
+**B5 slice 1 (token service + migration `0660`) · B5 slice 2 (object-ops FLIP — `objectOpsAvailable` now LIVE,
+prod-verified real round-trip) · B5 slice 3 (scope auto-refresh on new bucket) · flag `r2_bucket_manager`
+promoted enabled+100%+beta**.*
 
-**★ TOP PRIORITY — B5 slice 2 (the object-ops FLIP). START IN A FRESH SESSION.**
-0. **B5 slice 2 — wire object ops to the per-site token** — `getS3Config`/`hasObjectOps` (site_r2.ts) resolve the
-   site's token via `ensureSiteS3Token` (slice 1, shipped) instead of the global `R2_S3_*`; sign
-   `listSiteR2Objects`/`put`/`get`/`delete` with it. **Flips `objectOpsAvailable` true per-site → unblocks
-   B6–B12/B15/grid tiles/upload/browse/download/previews.** During impl: confirm the exact R2-object-RW
-   permission-group id live (slice 1 used a documented-but-unverified id, TODO-marked in `ensureSiteS3Token`) and
-   that the SHA-256(token.value) → access-key-id derivation matches CF's live S3 credential. Prod-verify with a
-   REAL browser: a real bucket lists + uploads + downloads objects in the editor. · **new-backend: YES (wires slice 1).**
+> **🎉 OBJECT-OPS BLOCKER RESOLVED (fire-buckets-b5-slice2).** Object ops (list/upload/download/delete) now
+> work in prod via per-site scoped R2 S3 tokens — DEFINITIVELY prod-verified: an authed put→get(bytes match)
+> →list→delete round-trip against real Cloudflare R2. **The ~8 previously-blocked object features are now
+> BUILDABLE + VERIFIABLE: B6 clone · B7 zip · B8 move/rename · B11 search · B12 previews · B15 Code selector ·
+> B3 object-row menus · B1-polish grid tiles.** Pick the highest-leverage next.
 
-**Fully-verifiable FE-only remainders (do these if a fire can't take on B5's backend):**
+**★ TOP PRIORITY (object features now unblocked — pick ONE per fire, verify each with the live object round-trip):**
+0a. **B12 — rich sandboxed previews** *(FE-only, highest value-for-cost)* · sandboxed inspector for image/video/
+   audio/pdf/text/md/json/code, SVG/HTML never in the privileged origin, metadata + download fallback. Reuse
+   `PS_R2_DOWNLOAD` (now live). `BucketsPanel.tsx`. · **new-backend: NO.**
+0b. **B3 object-row context menus + multi-select shortcuts** *(FE-only)* · right-click object rows + Cmd/Ctrl-click,
+   Shift-range, Cmd+A, Delete, Esc wired to the existing (now-working) object handlers. · **new-backend: NO.**
+0c. **B1-polish grid image thumbnails** *(FE-only)* · real `<img>` tiles for images in PUBLIC buckets already ship;
+   now also private via a short-lived signed GET (pairs with B9). · **new-backend: small.**
+0d. **B5 slice 4 — owner credential-strip UI** *(the remaining B5 slice)* · a SEPARATE owner-facing scoped key
+   (show-once secret, copy-id, rotate, revoke, live status) distinct from the worker's internal token. Editor FE +
+   a new `POST/DELETE /.../r2/keys` owner-token route reusing `cfCreateToken`. · **new-backend: YES.**
+
+**Fully-verifiable FE-only remainders (decision-independent):**
 1. **B14 residual — axe @ 6bp** · needs `@axe-core/playwright` added to the PROD E2E (not a jsdom unit dep); run axe
    on the Buckets panel @ 6 breakpoints, fix violations. Keyboard is already done (B14). · **new-backend: NO.**
 1b. **B1-polish — ≥3 "lit"-dark aesthetic rounds** · subjective screenshot-verified refinement. · **new-backend: NO.**
-3. **B12 — rich sandboxed previews** · *why-now:* highest capability-for-cost of the P2 set and the ONLY backend-free
-   one; makes Files feel like Finder/Transmit immediately, pairs perfectly with B1. · *acceptance:* sandboxed
+3. **B12 — rich sandboxed previews** *(now unblocked — see 0a)* · *acceptance:* sandboxed
    inspector for image/video/audio/pdf/text/md/json/code, SVG/HTML never in the privileged origin, metadata +
    download fallback. · *files:* `BucketsPanel.tsx` (extend inline-image preview into a `<iframe sandbox>`/typed
    viewer); reuse `PS_R2_DOWNLOAD`. · **new-backend: NO.**
@@ -155,19 +163,16 @@ B6/B7/B9/B10 (Workflows / gateway / env-pointer — large backend) · B13/B14 (i
     Shift-range, Cmd+A, Delete, F2[B8], Esc, Cmd+C) + a command palette — all need objects. New-backend: **NO**.
     Priority: **P2** (gated on the Object-ops blocker below). **B3 is now FE-complete except the object-level parts.**
 
-> **⚠ OBJECT-OPS BLOCKER + DECISION (discovered fire-buckets-b3).** The worker's R2 **S3** credentials
-> (`R2_S3_ACCESS_KEY_ID` / `R2_S3_SECRET_ACCESS_KEY`) are **unset** → `hasObjectOps(env)` is false →
-> `objectOpsAvailable=false` for EVERY site (the UI shows "Object storage needs R2 keys"; bucket CRUD still works).
-> This BLOCKS live-verification of every object-centric slice: **B6 clone · B7 zip · B8 move/rename · B9 per-object
-> public · B11 search · B12 previews · B15 Code selector · B1-polish grid tiles · B3 object-row menus · upload/
-> browse/download**. These can be built + UNIT-tested but NOT prod-verified in a real browser until object ops are
-> enabled. **Brian-gated decision:** (a) provision the WORKER's internal R2 S3 key (one account-wide key; per-site
-> isolation stays in code via the `ps-site-` prefix + `FORBIDDEN_BUCKET_NAMES`) to unblock all object ops — a NEW
-> secret (`wrangler secret put`), reversible, but an account-level credential decision; OR (b) prioritize **B4/B5**
-> (customer-facing SCOPED tokens — the spec's "never account-wide" model) which also provision usable creds; OR
-> (c) keep shipping the FULLY-verifiable non-object work (B1-polish aesthetic rounds, B14 a11y pass, the B3 shortcut
-> sheet). Until resolved, the loop should prefer (c) + surface this each fire — do NOT claim an object feature
-> "works" without a real-browser object-op proof.
+> **✅ OBJECT-OPS BLOCKER — RESOLVED (fire-buckets-b5-slice2, 2026-10-10).** Object ops no longer need an
+> account-wide `R2_S3_*` key. `resolveSiteS3Config` (site_r2.ts) resolves a PER-SITE bucket-scoped R2 S3 token
+> (mint/reuse via `ensureSiteS3Token`, gated behind `r2_bucket_manager` — now enabled+100%+beta), so
+> `objectOpsAvailable` is TRUE for every site and list/upload/download/delete work. **DEFINITIVELY prod-verified:**
+> an authed put→get(bytes match)→list→delete round-trip against real Cloudflare R2 (`e2e/editor-live/
+> check-r2-objectops-live.mjs` → VERDICT ✅). A global `R2_S3_*` env key, if ever set, still wins as an escape
+> hatch. **All object features below (B6/B7/B8/B11/B12/B15/B3-object-rows/grid-tiles) are now BUILDABLE + VERIFIABLE.**
+> *(Historical: the blocker was the worker having no object creds; Brian chose option #2 — per-site scoped tokens —
+> over an account-wide key. A real-CF probe during slice 2 found the slice-1 permission-group id was bogus + Hono's
+> `/objects/*` wildcard param was never real; both fixed + regression-tested.)*
 
 **P2 — capability depth (backend-heavy):**
 > **★ SCOPE LOCKED (Brian 2026-10-10 — chose option `#2`, the scoped-token path): B5 is THE LEAD + the object-ops
@@ -181,9 +186,9 @@ B6/B7/B9/B10 (Workflows / gateway / env-pointer — large backend) · B13/B14 (i
 > (it reuses it every request — can't be show-once); SHOW-ONCE applies only to OWNER-facing keys (a separate token the
 > owner copies for external use). **Start the implementation in a FRESH session** (the deciding session was 10 fires deep).
 
-- [~] **B5 Per-site scoped token — THE OBJECT-OPS UNBLOCK** *(scope-locked; NOW THE LEAD — slice 1 shipped)* — one R2 S3
-  token scoped to a SITE's buckets (enumerated, never account-wide); the worker uses it for the editor's object ops.
-  **Sliced plan (each a fire, TDD-first):**
+- [~] **B5 Per-site scoped token — THE OBJECT-OPS UNBLOCK** *(scope-locked; slices 1-3 + flag-promote SHIPPED; only
+  slice 4 owner-key UI remains)* — one R2 S3 token scoped to a SITE's buckets (enumerated, never account-wide); the
+  worker uses it for the editor's object ops. **Sliced plan (each a fire, TDD-first):**
   1. [x] **Token service + migration** *(fire-buckets-b5-slice1 — ✅ DONE, prod-migrated flag-dark)* —
      `ensureSiteS3Token(env, siteId, tenantId, orgId)` in `site_r2.ts`: idempotently reuses the existing ACTIVE token
      (decrypts `secret_enc`) else mints a CF R2 api_token **scoped to the site's own buckets** (`listSiteR2Allocations`
@@ -196,17 +201,27 @@ B6/B7/B9/B10 (Workflows / gateway / env-pointer — large backend) · B13/B14 (i
      decrypts back + bucket-scope + idempotent reuse + no-creds failure) 3/3; tsc 0; `validate:features` PASS.
      ⚠ slice-2-confirm items (TODO-marked in-service): the exact R2-object-RW permission-group id + the
      SHA-256(token.value)→access-key-id derivation are documented-but-unverified-live (fine — flag-dark + mocked).
-  2. [ ] **Wire object ops to the per-site token** — `getS3Config`/`hasObjectOps` (site_r2.ts) resolve the site's token
-     (lazy-provision via slice 1) instead of the global `R2_S3_*`; sign `listSiteR2Objects`/`put`/`get`/`delete` with it.
-     **Flips `objectOpsAvailable` true per-site → unblocks B6–B12/B15/grid/upload/previews.** Prod-verify: a real bucket
-     lists objects in the editor. **← NEXT (the object-ops flip).**
-  3. **Perms auto-extend on new bucket** — when `provisionSiteR2` adds a bucket, extend the site token's scope + re-store.
-  4. **Owner credential strip UI** (editor, Vitest) — a SEPARATE owner-facing scoped key: masked id + **show-once** secret
-     on create/rotate, copy-id, rotate, revoke, live status; honest "secret not recoverable → rotate".
-  5. **Flag promote + docs + prod-verify** once 1–4 are green + live.
-  Acceptance: a site's object ops work via its OWN scoped token (no account-wide key); scope excludes unrelated
-  buckets/account (asserted); owner secret show-once; rotate/status live. New-backend: **YES (heavy, multi-fire)**.
-  Priority: **P1 — THE LEAD**.
+  2. [x] **Wire object ops to the per-site token** *(fire-buckets-b5-slice2 — ✅ DONE, prod-verified)* —
+     `resolveSiteS3Config(env, ctx)` (site_r2.ts): global `R2_S3_*` escape hatch, else the per-site token (flag-gated).
+     `listSiteR2Objects`/`put`/`get`/`delete` + `deleteSiteR2`/`promoteSiteR2` take a `SiteR2Context` + sign with it;
+     `hasObjectOpsForSite` advertises per-site. **`objectOpsAvailable` now TRUE** → object ops LIVE. Prod-verified via
+     an authed put→get(bytes match)→list→delete round-trip on real R2. **Live-fixed from a real-CF probe:** the slice-1
+     permission-group id was BOGUS (use BOTH `6a018a9f…` Read + `2efd5506…` Write — no single Read+Write group);
+     `s3Fetch` retries once on 401 (token propagation lag); `objectKeyFromPath` sliced from the pathname (Hono 4.x
+     does NOT expose the `/objects/*` wildcard via `param('0')`/`param('*')` — latent 400-on-every-object-op bug,
+     never route-tested). +8 Jest cases.
+  3. [x] **Perms auto-extend on new bucket** *(fire-buckets-b5-slice2 — ✅ DONE, via invalidation)* —
+     `provisionSiteR2` now calls `invalidateSiteS3Tokens` (revoke CF token + supersede the row) when a NEW bucket is
+     created, so the next `ensureSiteS3Token` re-mints covering the new bucket. (Invalidate-then-re-mint rather than
+     extend-in-place — simpler + correct; a stale-scope token would 403 the new bucket.) Jest-covered.
+  4. [ ] **Owner credential strip UI** (editor, Vitest) — a SEPARATE owner-facing scoped key: masked id + **show-once** secret
+     on create/rotate, copy-id, rotate, revoke, live status; honest "secret not recoverable → rotate". **← the only
+     remaining B5 slice.** New-backend: **YES** (owner-token route reusing `cfCreateToken`).
+  5. [~] **Flag promote + docs + prod-verify** — `r2_bucket_manager` promoted to **enabled+100%+beta** (code-complete +
+     units + live round-trip); registry description updated. Remaining: beta→stable after 1 week P1-free + the slice-4 docs.
+  Acceptance: a site's object ops work via its OWN scoped token (no account-wide key) ✅; scope excludes unrelated
+  buckets/account (asserted) ✅; owner secret show-once (slice 4); rotate/status live (slice 4). New-backend: **YES**.
+  Priority: **slice 4 only remains**.
 - [ ] **B4 Per-bucket Access Keys** *(FAST-FOLLOW after B5)* — per-BUCKET scoped owner keys (granularity below B5's
   per-site token), reusing B5's token + record machinery. Route `POST/GET/DELETE /api/sites/:siteId/r2/buckets/:bucket/keys`
   + CF `POST /accounts/{acct}/r2/api_tokens` (bucket-scoped). SHOW-ONCE secret; default R/O + bounded expiry (R/W +
@@ -344,4 +359,14 @@ on every op · beautiful loading/empty/error/success · a11y+keyboard+touch+resp
   proof); (3) the unit suite + `validate:features`. The real-browser proof lands on the CONSUMING slice that
   flips the behavior on — do NOT falsely ding a dormant foundation for "no real-browser verify", and do NOT
   claim it's user-visible. State plainly in the report that the slice is dormant until its consumer ships.
+- **Flipping a DARK capability ON exposes code that was never exercised — PROBE the real integration first + audit
+  the newly-live paths for test coverage** *(fire-buckets-b5-slice2 §7).* B5 slice 2 flipped object ops on and
+  immediately hit TWO latent bugs in never-run code: (1) the slice-1 CF permission-group id was a bogus guess (minting
+  would have failed in prod); (2) `objectKeyFromPath` read a Hono `/objects/*` wildcard via `param('0')` that Hono 4.x
+  doesn't populate → every object op 400'd. Both survived because the object routes had ZERO route-level tests and
+  object ops were never live. Lesson: before claiming a dark→live flip works, (a) write a THROWAWAY probe that drives
+  the real external integration end-to-end (here: mint a real CF token → derive S3 creds → real ListObjectsV2) to
+  ground-truth every guessed id / derivation / API shape — docs lie, live doesn't; (b) grep the newly-live handlers for
+  test coverage and ADD the missing route tests (a flip is the first time that code runs for real); (c) keep a DURABLE
+  authed round-trip probe (`e2e/editor-live/check-r2-objectops-live.mjs`) so future fires re-verify in one command.
 - **Retire the loop cron when this DoD is genuinely met** (per [[loop-cron-refires-one-prompt-retire-when-directive-complete]]) — don't flood.
