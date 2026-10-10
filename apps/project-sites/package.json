@@ -20,6 +20,7 @@
     "verify:media-rawurl": "node e2e/editor-live/check-media-rawurl.mjs",
     "verify:media-realasset": "node e2e/editor-live/check-media-realasset.mjs",
     "verify:preview-gallery": "node e2e/editor-live/check-preview-gallery.mjs",
+    "verify:buckets-populated": "node e2e/editor-live/check-buckets-populated.mjs",
     "test:e2e:ui": "playwright test --ui",
     "test:container:image": "node --test scripts/__tests__/container_image.test.mjs",
     "test:container:freshness": "node --test scripts/__tests__/skills_freshness.test.mjs",

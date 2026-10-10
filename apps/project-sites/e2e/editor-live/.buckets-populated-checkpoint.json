@@ -1,0 +1,9 @@
+{
+  "caseId": "buckets-populated",
+  "status": "in-progress",
+  "runId": "fire-buckets-b5-slice3",
+  "probe": "apps/project-sites/e2e/editor-live/check-buckets-populated.mjs",
+  "npmScript": "verify:buckets-populated",
+  "minDistinctIcons": 10,
+  "note": "Durable visual-regression gate: populated /_preview Buckets sample must render >=10 distinct i-ph file-type icon classes + folder + image. Stays in-progress until the parallel populated-sample ships to prod and the distinct-icon gate goes green."
+}
