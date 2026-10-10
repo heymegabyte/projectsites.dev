@@ -2346,97 +2346,103 @@ Re-architect every workbench panel onto a shared gorgeous spine so chrome/tokens
 > `getSiteR2Object` (`site_r2.ts:743`); temp output stays in a PLATFORM bucket (NEVER a customer bucket). **Prod-verified
 > via `*.workers.dev`:** authed ZIP export of a real bucket streams a valid archive. Do NOT re-open.
 >
-> **🔶 IN-FLIGHT THIS FIRE (B8 cross-bucket copy/move — fast-follow, NOT a §21 clause):** extend B8's same-bucket
-> `copySiteR2Object`/move to copy/move across the site's OTHER buckets — tenancy-guarded on BOTH source + dest, same
-> verify-before-delete + overwrite guard + metadata/public-intent preservation. **Anchors:** extend the B8 copy route in
-> `apps/project-sites/libs/features/r2_buckets/handlers.ts` + the `PS_R2_COPY` bridge (`app/lib/embed/embedded-mode.ts`) +
-> `ObjectCopyDialog` (add a bucket-picker for dest); reuse the SigV4 `s3Fetch`@1544 + the copy path near
-> `promoteSiteR2`@1821. Verify: cross-bucket copy 200 + move (src removed) via `*.workers.dev`. Drop from the pick-list
-> once landed. · new-backend: YES (extends B8 routes).
+> **✅ B8 cross-bucket copy/move DONE (`3d414c6fe` feat + `40b30a5c9` close + `afbbee382` checkpoint; fast-follow, NOT a
+> §21 clause — PROD-VERIFIED cross-bucket copy on real R2, 3-surface deploy):** extended B8's same-bucket
+> `copySiteR2Object`/move to copy/move across the site's OTHER buckets — tenancy-guarded on BOTH source + dest
+> (`destBucket` → `resolveSiteR2Allocation` WHERE `site_id`; foreign/other-site dest → 404, never a cross-tenant write),
+> same verify-before-delete + overwrite guard + metadata/public-intent preservation. Shipped in the B8 copy route
+> (`handlers.ts` — `isCrossBucket`/`destBucket` branch @647-722) + `PS_R2_COPY` bridge (`embedded-mode.ts:2477`) +
+> `ObjectCopyDialog` dest bucket-picker; reused SigV4 `s3Fetch`@1544 + copy path near `promoteSiteR2`@1821.
+> **Prod-verified via `*.workers.dev`:** authed cross-bucket copy 200 + move (src removed). Do NOT re-open.
+>
+> **🔶 IN-FLIGHT THIS FIRE (B10 — reassign bucket → environment + rollback; a DoD §21 clause — the LAST medium):**
+> `EnvAssignmentGrid.tsx` is READ-ONLY today (`PS_RES_OVERVIEW_REQUEST` read @174, "Not provisioned" cell @370, no
+> mutation). Assign an UNASSIGNED custom bucket to the Preview/Production slot; reassign swaps the slot; **ROLLBACK**
+> restores the prior binding on failure OR via explicit undo (two-way door); confirm before touching Production; honest
+> progress+error; tenancy-guarded; capture BEFORE-binding for rollback. **Anchors:** NEW mutation route in
+> `apps/project-sites/libs/features/r2_buckets/handlers.ts` + env/binding model in
+> `apps/project-sites/src/services/site_r2_manager.ts` (`resolveSiteBuckets`, system|custom) + NEW bridge op
+> `assignBucketEnv` wired into `EnvAssignmentGrid.tsx` (add assign/undo to the read-only grid). Verify: assign→reassign
+> swap + rollback-restores-prior-binding via `*.workers.dev`. Drop from the pick-list once landed. · new-backend: YES.
 
 > ### READY NOW — Buckets top 5 (pick ONE per fire; VERIFY each with the live object round-trip where object-touching)
 > *(B5 s4 CLOSED `daaf2db1c` + B4 BACKEND DONE + **B4-UI DONE** `673a46a55`/`5d875bd57` + **B12 rich previews DONE**
 > `98045914b` + **B3 object-rows DONE** `b6d229409`/`d9044b304` + **B15 selector DONE** `efb0ad1a8`/`6e03fc3e2` +
-> **B8 same-bucket rename/copy/move DONE** (prod-verified on real R2) + **B11 server-side whole-bucket search DONE**
-> (prod-verified on real R2) + **B14 axe @ 6bp DONE** (prod-verified GREEN at all 6 bp) + **502-GET fix DONE**
-> (`daef4f0c5`, 404 proven on prod) + **B7 ZIP export DONE** (`85b12f3de`/`8ae221d5e`, prod-verified on real R2) — all
-> dropped from the pick-list. **B8 cross-bucket copy/move is IN-FLIGHT this fire** (🔶 banner above — a fast-follow, NOT
-> a §21 clause; drops once landed). The remaining REQUIRED §21-clause picks are **B10** (reassign+rollback — the last
-> ~1-2-fire medium) + the two non-trivial heavies **B6** (clone) + **B9** (per-object public). Next fire picks a FRESH
-> #1-#3 — all three REQUIRED for DoD §21.)*
-> 1. **[product] B10 — Reassign bucket → environment (Preview/Production) + rollback** *(a DoD §21 clause; today's
->    `EnvAssignmentGrid.tsx` is READ-ONLY — confirmed this groom: `PS_RES_OVERVIEW_REQUEST` read @174, "Not provisioned"
->    cell @370, no mutation)* — assign an UNASSIGNED custom bucket to the Preview/Production slot; reassign swaps the
->    slot; **ROLLBACK** restores the prior binding on failure OR via explicit undo (two-way door); confirm before
->    touching Production; honest progress+error; tenancy-guarded; capture BEFORE-binding for rollback. **Anchors:** NEW
->    mutation route in `r2_buckets/handlers.ts` + env/binding model in `src/services/site_r2_manager.ts` (`resolveSiteBuckets`,
->    system|custom) + NEW bridge op `assignBucketEnv` wired into `EnvAssignmentGrid.tsx` (add assign/undo to the read-only
->    grid). · **new-backend: YES.** · category product. *(1-2 fires.)*
-> 2. **[product] B6 — Clone bucket** *(DoD §21 "clone" clause)* — durable Workflow: create a new physical bucket +
->    server-side-copy every object. **Accept:** new bucket + object+metadata copy (HTTP/custom meta, CORS, lifecycle
->    where CF supports), clone defaults private+unassigned, progress (files/bytes/stage/errors/retry/cancel),
->    verified-before-success. **Anchors:** NEW CF **Workflow** + NEW route in `handlers.ts` + NEW bridge op `cloneBucket`;
->    reuse `provisionSiteR2` (`site_r2.ts:250`) for the new bucket + the S3 copy path near `promoteSiteR2`
->    (`site_r2.ts:1821`) — proven by B8's `copySiteR2Object`; register the clone in `site_r2_manager` catalog as `kind:'custom'`. · **new-backend: YES (heavy — Workflow).** · category product. *(2-3 fires — one of the two heavies.)*
-> 3. **[product] B9 — Per-object public + expiring shares** *(DoD §21 "per-object public while rest private" + "public
->    bucket marks all" + "revoke safe" clauses)* — a Worker object-serving gateway + an `ObjectVisibility` control-plane
->    (R2 has NO per-object S3 ACL). **Accept:** flip ONE object public while the bucket stays private; bucket-public marks
->    all objects public; revoke takes effect (cache-aware); NEVER activate an uncontrolled native public endpoint. Also
->    unblocks PRIVATE-bucket grid thumbnails. **Anchors:** NEW public Worker route (gateway, range-request aware) + NEW D1
->    table `object_visibility{bucketId,objectKey,visibility,publicSlug}` + resolver honoring bucket-public inheritance;
->    integrate with `site_r2_manager` for bucket→site resolution. · **new-backend: YES (heavy).** · category product.
->    *(2-3 fires — the other heavy.)*
-> 4. **🔶 [product] B8 cross-bucket copy/move** *(fast-follow — IN-FLIGHT THIS FIRE; NOT a §21 clause)* —
->    extend B8's same-bucket `copySiteR2Object`/move to copy/move across the site's OTHER buckets: tenancy-guarded on
->    BOTH source + dest, same verify-before-delete + overwrite guard + metadata/public-intent preservation. **Anchors:**
->    extend the B8 copy route in `handlers.ts` + the `PS_R2_COPY` bridge + `ObjectCopyDialog` (bucket-picker for dest);
->    reuse the SigV4 `s3Fetch`@1544 + copy path near `promoteSiteR2`@1821. Verify: cross-bucket copy 200 + move
->    (src removed) via `*.workers.dev`. · **new-backend: YES (extends B8 routes).** · category product. *(1 fire —
->    IN-FLIGHT; drops once landed. Pick B10/B6/B9 for DoD-% progress — this does NOT advance §21.)*
-> 5. **[product] B15 FAST-FOLLOW — in-explorer bucket object-tree load** *(fast-follow — NOT a §21 clause)* — load the
->    chosen bucket's objects INTO the `FileTree` explorer + open/edit/save-back-to-R2 over the bridge (list→open→edit→save
->    + stale-save guard). The B15 selector + Production-read-only guard already shipped; this is the remaining depth.
->    **Anchors:** reuse `requestR2({op:'listObjects'})` + `PS_R2_UPLOAD`/`PS_R2_DOWNLOAD` in `EditorPanel.tsx`/`FileTree`.
->    Verify via a headless round-trip against `*.workers.dev`. · **new-backend: NO.** · category product. *(1 fire — a
->    fast-follow, NOT a §21 clause; gates CronDelete (c) but not DoD-%.)*
+> **B8 same-bucket rename/copy/move DONE** (prod-verified on real R2) + **B8 cross-bucket copy/move DONE**
+> (`3d414c6fe`/`40b30a5c9`, prod-verified on real R2) + **B11 server-side whole-bucket search DONE** (prod-verified on
+> real R2) + **B14 axe @ 6bp DONE** (prod-verified GREEN at all 6 bp) + **502-GET fix DONE** (`daef4f0c5`, 404 proven on
+> prod) + **B7 ZIP export DONE** (`85b12f3de`/`8ae221d5e`, prod-verified on real R2) — all dropped from the pick-list.
+> **B10 (reassign+rollback — a §21 clause, the LAST medium) is IN-FLIGHT this fire** (🔶 banner above; drops once landed).
+> After B10 lands, ONLY the two non-trivial heavies **B6** (clone) + **B9** (per-object public) remain as REQUIRED §21
+> clauses — plus the **B15-object-tree** fast-follow (NOT §21, but gates CronDelete). Next fire picks a FRESH #1 from
+> B6/B9.)*
+> 1. **[product] B6 — Clone bucket** *(DoD §21 "clone" clause — a REQUIRED heavy)* — durable Workflow: create a new
+>    physical bucket + server-side-copy every object. **Accept:** new bucket + object+metadata copy (HTTP/custom meta,
+>    CORS, lifecycle where CF supports), clone defaults private+unassigned, progress (files/bytes/stage/errors/retry/
+>    cancel), verified-before-success. **Anchors:** NEW CF **Workflow** + NEW route in `handlers.ts` + NEW bridge op
+>    `cloneBucket`; reuse `provisionSiteR2` (`site_r2.ts:250`) for the new bucket + the S3 copy path near `promoteSiteR2`
+>    (`site_r2.ts:1821`) — proven by B8's `copySiteR2Object` (same-bucket AND cross-bucket now live); register the clone
+>    in `site_r2_manager` catalog as `kind:'custom'`. · **new-backend: YES (heavy — Workflow).** · category product.
+>    *(2-3 fires — one of the two heavies.)*
+> 2. **[product] B9 — Per-object public + expiring shares** *(DoD §21 "per-object public while rest private" + "public
+>    bucket marks all" + "revoke safe" clauses — a REQUIRED heavy)* — a Worker object-serving gateway + an
+>    `ObjectVisibility` control-plane (R2 has NO per-object S3 ACL). **Accept:** flip ONE object public while the bucket
+>    stays private; bucket-public marks all objects public; revoke takes effect (cache-aware); NEVER activate an
+>    uncontrolled native public endpoint. Also unblocks PRIVATE-bucket grid thumbnails. **Anchors:** NEW public Worker
+>    route (gateway, range-request aware) + NEW D1 table `object_visibility{bucketId,objectKey,visibility,publicSlug}` +
+>    resolver honoring bucket-public inheritance; integrate with `site_r2_manager` for bucket→site resolution. ·
+>    **new-backend: YES (heavy).** · category product. *(2-3 fires — the other heavy.)*
+> 3. **[product] B15 FAST-FOLLOW — in-explorer bucket object-tree load** *(fast-follow — NOT a §21 clause, but gates
+>    CronDelete (c))* — load the chosen bucket's objects INTO the `FileTree` explorer + open/edit/save-back-to-R2 over the
+>    bridge (list→open→edit→save + stale-save guard). The B15 selector + Production-read-only guard already shipped; this
+>    is the remaining depth. **Anchors:** reuse `requestR2({op:'listObjects'})` + `PS_R2_UPLOAD`/`PS_R2_DOWNLOAD` in
+>    `EditorPanel.tsx`/`FileTree`. Verify via a headless round-trip against `*.workers.dev`. · **new-backend: NO.** ·
+>    category product. *(1 fire — gates CronDelete (c) but not DoD-%.)*
+> 4. **[product] B13 — Bucket insights** *(P3, NOT a §21 clause — rotate in after B6/B9/B15)* — per-bucket object-count
+>    / total-size / type-breakdown / recent-activity summary on the Settings tab. **Anchors:** reuse `listSiteR2Objects`
+>    (`site_r2.ts:677`) for the scan + the existing Settings `SettingsSection` layout in `BucketsPanel.tsx`; no new
+>    backend if the scan rides the existing list route. · **new-backend: NO (or small).** · category product. *(1 fire.)*
 >
-> *(B13 insights (P3) remains a crisp one-fire TODO in the B6-B13 list below — rotate it in as picks are consumed.
-> **Only B6 + B9 are non-trivial heavies**; everything else is ~1 fire. With **B7 DONE** and **B8-cross-bucket IN-FLIGHT
-> this fire**, the remaining REQUIRED §21-clause picks are **B10 · B6 · B9** — each counts toward DoD §21; see the DoD-%
-> note below. The fast-follows (B8-cross-bucket — in-flight · B15-object-tree) are NOT §21 clauses but still gate
-> CronDelete (c) below.)*
+> *(With **B8 (both same + cross-bucket) + B7 + B11 + B14 + 502-GET all DONE** and **B10 IN-FLIGHT this fire**, after B10
+> lands the remaining REQUIRED §21-clause picks are just the two non-trivial heavies **B6 · B9** — each counts toward DoD
+> §21; see the DoD-% note below. **Only B6 + B9 are non-trivial heavies**; everything else is ~1 fire. The fast-follows
+> (B15-object-tree) + B13-insights are NOT §21 clauses; B15-object-tree still gates CronDelete (c) below.)*
 
-> ### 📊 DoD §21 status — ~90% · B7 DONE · B8-cross-bucket IN-FLIGHT · exact remaining slices · CronDelete condition (groomed fire-buckets-b7done-b8cross)
+> ### 📊 DoD §21 status — ~90% · B8-cross-bucket DONE · B10 IN-FLIGHT · exact remaining slices · CronDelete condition (groomed fire-buckets-b8cross-done-b10)
 > **Honest read against the `BUCKETS-MASTER-SPEC.md` §21 clause list** (abridged there; each clause = a sub-feature).
 > **DONE (shipped on main, prod-verified):** 2-default model (B2) · custom-bucket CRUD · empty/delete · type-icon file
-> browser · browse/search (B11)/sort/preview (B12)/upload/download · copy/move/rename same-bucket (B8) · **zip export
-> (B7)** · bucket+file context menus (B3) · bulk actions (B3) · per-bucket keys create/rotate/revoke (B4+B4-UI) · global
-> id+secret secure copy (B5-s4) · Code-editor bucket selector (B15) · tenant isolation every op ·
-> loading/empty/error/success · **a11y+keyboard+touch+responsive incl. axe @ 6bp (B14)** · E2E golden paths · ≥5
-> visual-refinement rounds · deployed + prod-verified · existing data intact. → **~18 of ~21 clauses = ~90%.**
+> browser · browse/search (B11)/sort/preview (B12)/upload/download · copy/move/rename same-bucket + **cross-bucket (B8,
+> both paths prod-verified)** · **zip export (B7)** · bucket+file context menus (B3) · bulk actions (B3) · per-bucket keys
+> create/rotate/revoke (B4+B4-UI) · global id+secret secure copy (B5-s4) · Code-editor bucket selector (B15) · tenant
+> isolation every op · loading/empty/error/success · **a11y+keyboard+touch+responsive incl. axe @ 6bp (B14)** · E2E golden
+> paths · ≥5 visual-refinement rounds · deployed + prod-verified · existing data intact. → **~18 of ~21 clauses = ~90%**
+> (the B8 clause was already counted DONE at same-bucket; cross-bucket completes its depth but does not add a new clause).
 >
-> **REMAINING — ALL THREE ARE EXPLICIT §21 CLAUSES (so each counts toward DoD, none is post-DoD optional):**
-> 1. **B10 reassign unassigned→env w/ rollback** — §21 "reassign unassigned→env w/ rollback". *(1-2 fires, medium — the
->    last medium; `EnvAssignmentGrid.tsx` is READ-ONLY today.)*
+> **REMAINING — THREE EXPLICIT §21 CLAUSES (each counts toward DoD, none is post-DoD optional); B10 is IN-FLIGHT this fire:**
+> 1. **B10 reassign unassigned→env w/ rollback** — §21 "reassign unassigned→env w/ rollback". **🔶 IN-FLIGHT THIS FIRE** —
+>    `EnvAssignmentGrid.tsx` READ-ONLY today → add `assignBucketEnv` mutation + rollback. *(1-2 fires, medium — the LAST
+>    medium.)*
 > 2. **B6 clone bucket** — §21 "**clone**/empty/delete/zip". *(2-3 fires, HEAVY — CF Workflow.)*
 > 3. **B9 per-object public + revoke-safe** — §21 "per-object public while rest private · public bucket marks all ·
 >    revoke safe". *(2-3 fires, HEAVY — Worker gateway + `object_visibility` D1 table.)*
 >
 > **Is DoD §21 reachable in ~1-2 more fires if B6/B9 defer? NO — be explicit.** B6 (clone) and B9 (per-object public)
-> are LITERAL §21 clauses, not polish; deferring them leaves §21 UNMET. With **B7 + the 502-GET fix DONE**, finishing
-> **B10** clears the last *medium* and reaches **~93-95%**, but **true §21 completion additionally requires both heavies
-> (B6 + B9) → realistically ~5-8 more fires total** (B10 1-2 + B6 2-3 + B9 2-3, pick-one-per-fire; the B8-cross-bucket +
-> B15-object-tree fast-follows add ~2 more but are NOT §21 clauses). *(Any progress.md "~97% · defer B6/B9 as post-DoD
-> depth" read is OPTIMISTIC — corrected here: B6/B9 are in-scope §21 clauses.)*
+> are LITERAL §21 clauses, not polish; deferring them leaves §21 UNMET. With **B7 + B8-cross-bucket + the 502-GET fix
+> DONE**, finishing **B10 this fire** clears the last *medium* and reaches **~93-95%**, but **true §21 completion
+> additionally requires both heavies (B6 + B9) → realistically ~4-6 more fires AFTER B10** (B6 2-3 + B9 2-3,
+> pick-one-per-fire; the B15-object-tree fast-follow adds ~1 more but is NOT a §21 clause). *(Any progress.md "~97% ·
+> defer B6/B9 as post-DoD depth" read is OPTIMISTIC — corrected here: B6/B9 are in-scope §21 clauses. After B10 lands,
+> ONLY B6 + B9 remain as REQUIRED §21 work.)*
 >
 > **Precise CronDelete condition (cron `b1182793`, every 30m — KEEP until ALL true):** (a) **B10 + B6 + B9** all
-> shipped on main + **prod-verified on real R2** (not appearance) — **B7 now ✅ DONE** (`85b12f3de`/`8ae221d5e`), B10/B6/B9
-> remain; (b) the **502-GET fix** landed (404 proven) — ✅ DONE (`daef4f0c5`); (c) the **B8 cross-bucket** (in-flight this
-> fire) + **B15 object-tree** fast-follows shipped (or Brian explicitly scopes them OUT of §21); (d) ≥5 visual rounds
-> logged (✅ already) + axe @ 6bp GREEN (✅ already); (e) a final headless **visual walkthrough** of the live Buckets
-> panel confirms no user-visible defect (per `finish-screen-directive-needs-visual-walkthrough`). Only then
-> `CronDelete b1182793`. Until (a) + (c) + (e) are green, the cron stays; if the frontier stalls on an external blocker,
-> GROOM (don't grind ceremony fires) per `focus-cron-on-completed-externally-blocked-target-stop-ceremony-fires`.
+> shipped on main + **prod-verified on real R2** (not appearance) — **B7 ✅ DONE** (`85b12f3de`/`8ae221d5e`) + **B8
+> cross-bucket ✅ DONE** (`3d414c6fe`/`40b30a5c9`); **B10 IN-FLIGHT this fire**; B6/B9 remain; (b) the **502-GET fix**
+> landed (404 proven) — ✅ DONE (`daef4f0c5`); (c) the **B15 object-tree** fast-follow shipped (B8 cross-bucket ✅ already
+> done) — or Brian explicitly scopes it OUT of §21; (d) ≥5 visual rounds logged (✅ already) + axe @ 6bp GREEN (✅
+> already); (e) a final headless **visual walkthrough** of the live Buckets panel confirms no user-visible defect (per
+> `finish-screen-directive-needs-visual-walkthrough`). Only then `CronDelete b1182793`. Until (a) + (c) + (e) are green,
+> the cron stays; if the frontier stalls on an external blocker, GROOM (don't grind ceremony fires) per
+> `focus-cron-on-completed-externally-blocked-target-stop-ceremony-fires`.
 >
 > ### Buckets spec slices — self-contained one-fire TODOs (B6-B13; pick after the top-5)
 > - [x] **B5 s4 — owner credential-strip UI + audit + validity-E2E** — ✅ CLOSED (`96b2bf415`+`a3c2073c3`+`daaf2db1c`).
@@ -2458,10 +2464,14 @@ Re-architect every workbench panel onto a shared gorgeous spine so chrome/tokens
 >   source removed). `copySiteR2Object` (S3 CopyObject + signed copy-source) · collision/overwrite guard · copy-then-
 >   delete for move/rename · NEW route in `handlers.ts` + `PS_R2_COPY` bridge + `ObjectCopyDialog` wired into B3's
 >   object-row menu (F2=rename). 82 jest + 151 Vitest. Reused the SigV4 `s3Fetch`@1544 + the copy path near
->   `promoteSiteR2`@1821. **Cross-bucket copy/move = the deferred fast-follow below.** Do NOT re-open the same-bucket path.
->   - **🔶 B8 FAST-FOLLOW — cross-bucket copy/move — IN-FLIGHT THIS FIRE** — extend B8's `copySiteR2Object`/move to
->     copy/move across the site's OTHER buckets (not just within one): tenancy-guarded on BOTH source + dest buckets, same
->     verify-before-delete + overwrite guard + metadata/public-intent preservation. · cadence this-fire · priority P2 · category product · estimate 1 fire · **new-backend: YES (extends B8 routes)**.
+>   `promoteSiteR2`@1821. Do NOT re-open the same-bucket path.
+>   - **✅ B8 FAST-FOLLOW — cross-bucket copy/move — DONE** (`3d414c6fe` feat + `40b30a5c9` close + `afbbee382`
+>     checkpoint; prod-verified cross-bucket copy on real R2, 3-surface deploy). Extended B8's `copySiteR2Object`/move to
+>     copy/move across the site's OTHER buckets: tenancy-guarded on BOTH source + dest (`destBucket` →
+>     `resolveSiteR2Allocation` WHERE `site_id`; foreign/other-site dest → 404), same verify-before-delete + overwrite
+>     guard + metadata/public-intent preservation. Shipped in the B8 copy route (`handlers.ts` — `isCrossBucket`/
+>     `destBucket` @647-722) + `PS_R2_COPY` bridge + `ObjectCopyDialog` dest-picker. Verified: cross-bucket copy 200 +
+>     move (src removed) via `*.workers.dev`. Do NOT re-open.
 > - [ ] **B9 — Per-object public + expiring shares** — a Worker object-serving gateway + an `ObjectVisibility`
 >   control-plane (R2 has NO per-object S3 ACL). **Accept:** flip one object public while the bucket stays private;
 >   bucket-public marks all objects public; revoke takes effect (cache-aware); NEVER activate an uncontrolled native
@@ -2539,43 +2549,10 @@ Re-architect every workbench panel onto a shared gorgeous spine so chrome/tokens
 > (`e2e/editor-live/check-owner-key-valid.mjs`) and the object-ops round-trip (`check-r2-objectops-live.mjs`) both do this.
 > **Apply to ALL future B4/B9/B11/B15 credential + objectops probes.** (Pairs with memory `[[prod-verify-authed-mutation-via-workers-dev]]`.)
 >
-> ### 📊 DoD §21 PROGRESS (master abridged — see `BUCKETS-MASTER-SPEC.md:323`) — authoritative read is the ~88% block above
-> **~88% complete** (~17 of ~21 acceptance clauses met; this groom — **B14 axe @ 6bp** is now DONE, prod-verified GREEN;
-> **B11 search** done last groom). The remaining open clauses are the FOUR literal §21 features **B10 env-reassign+
-> rollback · B7 zip · B6 clone (HEAVY) · B9 per-object-public (HEAVY)** — ALL count toward §21, none post-DoD. The
-> **502-GET fix** is the in-flight bugfix this fire. *(An earlier "~96% / B14-axe-in-flight" read here was stale —
-> corrected: axe is DONE, and B6/B9 are in-scope §21 clauses, so the honest number is ~88%, not ~96%.)*
-> **✅ DONE:** exactly-2 defaults (Preview+Production, Uploads retired via `0649`) · custom-bucket CRUD · delete/empty ·
-> type-icon file browser · browse/sort/upload/download/delete + object round-trip (B5 s2, prod-proven) · rich sandboxed
-> object previews image/video/audio/pdf/text/md/json/code (B12, `98045914b`) · bucket+file context menus (B3 bucket-level) ·
-> **object context menu + keyboard multi-select + bulk actions (B3 object-rows, `b6d229409`/`d9044b304`)** ·
-> **object copy/move/rename same-bucket (B8, `copySiteR2Object` + `PS_R2_COPY` + `ObjectCopyDialog`; prod-verified on
-> real R2 — copy 200 · rename 200 · src removed; 82 jest + 151 Vitest)** · per-SITE owner key create/rotate/revoke + show-once secure copy (B5 s4) · **per-BUCKET scoped key create/rotate/revoke
-> END-TO-END — BACKEND + validity-E2E (B4, `0662`) + UI `BucketKeySection` (B4-UI, `673a46a55`/`5d875bd57`)** ·
-> **Code-view bucket source selector (B15, `efb0ad1a8`/`6e03fc3e2` — `CodeSourcePicker` + `useCodeSources`, Production
-> read-only, 8 Vitest)** · **server-side whole-bucket search + filters (B11 — ext/size/date/visibility/prefix, cursor
-> pagination, honest indexing/scanning status; prod-verified on real R2, a deep non-first-page key found)** · tenant
-> isolation on every op (`ownsSiteData` IDOR) · beautiful loading/empty/error/success + `psBucketRise` · a11y
-> keyboard/focus/SR (B14 foundation) · **axe @ 6bp GREEN at all 6 breakpoints (B14 residual DONE — prod-verified)** ·
-> **≥5 real visual-refinement rounds logged+numbered (`d9044b304`/`15432d9ea`)** · deployed + prod-verified · existing
-> data intact.
-> **🔶 IN-FLIGHT THIS FIRE:** the **502-GET fix** — GET `/objects/*` on a MISSING key returns a generic 502, should be
-> a clean **404** (`getSiteR2Object`/`s3Fetch`@1544 in `site_r2.ts` + the object-GET route in `r2_buckets/handlers.ts`;
-> map S3 `NoSuchKey`→404 RFC7807 + regression test; verify authed via `*.workers.dev` → 404, existing-key → 200).
-> B14 axe is DONE (no longer in-flight).
-> **⬜ REMAINING TO GENUINE DoD §21 — exactly FOUR slices, ALL literal §21 clauses (none is post-DoD optional):**
-> (1) **B10** reassign unassigned→env + rollback *(medium, 1-2 fires)* · (2) **B7** ZIP export *(medium, 1-2 fires)* ·
-> (3) **B6** clone bucket (CF Workflow — HEAVY, 2-3 fires) · (4) **B9** per-object-public + public-bucket-marks-all +
-> revoke-safe (Worker gateway + `object_visibility` D1 — HEAVY, 2-3 fires). Two deferred fast-follows ride on top:
-> **B8 cross-bucket** (extends B8) + **B15 object-tree load** (extends B15); plus the **502-GET fix** (in-flight). The
-> ≥5-visual-rounds · axe @ 6bp · per-bucket-key · B15-selector · B8 same-bucket · B11 search clauses are MET.
-> **DoD §21 ≈ 88%** (~17 of ~21 clauses). **Honest fire estimate:** the ~2-3-fire path B10 → B7 → 502-fix clears the
-> two mediums + reaches ~95%, but **B6 + B9 are literal §21 clauses ("clone", "per-object public") — deferring them
-> leaves §21 UNMET.** Genuine DoD §21 therefore needs BOTH heavies too → realistically **~6-9 more fires** total
-> (pick-one-per-fire). *(Correcting the older "~97% · B6/B9 are post-DoD depth" framing: B6/B9 are in-scope.)*
-> **Cron-retire trigger (b1182793, every 30m — KEEP until ALL true):** B10 + B7 + B6 + B9 all shipped + prod-verified
-> on real R2 · the 502-GET fix landed (404 proven) · the B8-cross-bucket + B15-object-tree fast-follows shipped (or
-> Brian scopes them OUT of §21) · ≥5 visual rounds ✅ + axe @ 6bp GREEN ✅ · a final headless visual walkthrough of the
-> live Buckets panel confirms no user-visible defect (per `finish-screen-directive-needs-visual-walkthrough`). THEN
-> `CronDelete b1182793` per `[[loop-cron-refires-one-prompt-retire-when-directive-complete]]` (don't flood once DoD is
-> genuinely met). Not yet — 4 §21 slices + 2 fast-follows + the 502-GET fix remain (502-GET in-flight this fire).
+> ### 📊 DoD §21 PROGRESS — ⚠️ SUPERSEDED: the authoritative read is the **"📊 DoD §21 status — ~90%"** block above
+> This older block read ~88% with **B7 + the 502-GET fix still open and B8-cross-bucket deferred** — all THREE have since
+> shipped + prod-verified on main (**B7** `85b12f3de`/`8ae221d5e` · **502-GET fix** `daef4f0c5` · **B8 cross-bucket**
+> `3d414c6fe`/`40b30a5c9`), and **B10** is now IN-FLIGHT this fire. **Do NOT read a DoD % from here** — use the ~90%
+> block above (18 of ~21 clauses; after B10 lands only the two heavies **B6** clone + **B9** per-object-public remain as
+> REQUIRED §21 clauses, plus the **B15-object-tree** fast-follow which gates CronDelete but is not a §21 clause). The
+> precise CronDelete condition also lives in that authoritative block.
