@@ -19,10 +19,11 @@
 > B6 (clone) + B9 (per-object public) are LITERAL §21 clauses — NOT deferrable. Genuine DoD ≈ 4–7 fires out.
 - **B10** env reassign + rollback (`EnvAssignmentGrid` read-only; needs `assignBucketEnv`) — medium, **mutates serving → prod-verify carefully + rollback**.
 - **B6** clone bucket · **B9** per-object public + signed shares — the 2 heavies (2–3 fires each, CF Workflow / signed-URL gateway + `object_visibility` D1). **REQUIRED.**
-- Fast-follows: **B8 cross-bucket** copy/move · **B15 object-tree** load/edit/save-back.
-- ✅ DONE: ≥5 visual rounds · axe @ 6bp · 502-GET fix · **B7 ZIP export** (prod-verified, 3-surface deploy — note: touches the Angular `frontend/` admin bridge → needs the `frontend` R2 deploy too).
-- READY-NOW top: **B10** env reassign+rollback · **B8-cross-bucket** · **B15-object-tree** · then the heavies **B6**/**B9**.
-- **CronDelete `b1182793`** ONLY when B10 + B6 + B9 all ship + prod-verify on real R2, fast-follows ship (or Brian scopes out), and a final headless visual walkthrough shows no user-visible defect.
+- Fast-follow REMAINING: **B15 object-tree** load/edit/save-back (FE-heavy, headless-verifiable).
+- ✅ DONE: ≥5 visual rounds · axe @ 6bp · 502-GET fix · **B7 ZIP export** · **B8 cross-bucket** copy/move (prod-verified real R2). Note: B7 + B8-cross-bucket touch the Angular `frontend/` admin bridge → need the `frontend` R2 deploy (3-surface).
+- READY-NOW top: **B10** env reassign+rollback · then the heavies **B6**/**B9** · **B15-object-tree**.
+- ⚠️ **ALL remaining REQUIRED slices need FRESH context** — the safe/medium work is DONE. B10 **mutates serving** (judgment-sensitive prod-verify: reassign a bucket's env + rollback); B6 (clone, CF Workflow) + B9 (per-object public + signed-URL gateway + `object_visibility` D1) are **multi-fire heavy backend builds**.
+- **CronDelete `b1182793`** ONLY when B10 + B6 + B9 all ship + prod-verify on real R2, B15-object-tree ships (or Brian scopes out), and a final headless visual walkthrough shows no user-visible defect.
 
 ## Infra invariants for the next fire (do-not-rediscover)
 - **Deploy:** worker `cd apps/project-sites && wrangler deploy --env production` (Docker up, creds via `get-secret CLOUDFLARE_API_KEY` + `CLOUDFLARE_EMAIL=blzalewski@gmail.com`); editor `npm run build` (root) → `wrangler pages deploy build/client --project-name=bolt-diy --branch=main --commit-dirty=true`.
