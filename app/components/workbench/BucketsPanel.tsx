@@ -1508,7 +1508,7 @@ const BucketWorkspace = memo(
         <div
           role="tablist"
           aria-label={`${bucket.name} workspace`}
-          className="flex items-center gap-1 px-2 pt-2 border-b border-bolt-elements-borderColor/60 shrink-0"
+          className="flex items-center gap-1 px-2 py-2 border-b border-bolt-elements-borderColor/60 shrink-0"
           onKeyDown={(e) => {
             if (e.key !== 'ArrowRight' && e.key !== 'ArrowLeft') {
               return;
@@ -1533,13 +1533,16 @@ const BucketWorkspace = memo(
                 aria-controls="buckets-workspace"
                 tabIndex={activeTab ? 0 : -1}
                 data-testid={`buckets-workspace-tab-${t.id}`}
+                data-filled-pill=""
                 onClick={() => setTab(t.id)}
                 className={classNames(
-                  'inline-flex items-center gap-1.5 px-3 py-1.5 -mb-px text-[11px] font-medium rounded-t-lg border-b-2',
+                  'inline-flex items-center gap-1.5 px-3 py-1.5 text-[11px] font-medium rounded-lg border',
                   'transition-colors duration-150 motion-reduce:transition-none',
                   'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-bolt-elements-item-contentAccent',
                   activeTab
-                    ? 'border-bolt-elements-item-contentAccent text-bolt-elements-item-contentAccent bg-bolt-elements-item-contentAccent/[0.06]'
+                    ? // Filled accent pill — literal dark ink + data-filled-pill opts out of the
+                      // index.scss [role=tab] cyan-glow !important override (else cyan-on-cyan 1:1).
+                      'bg-bolt-elements-item-contentAccent text-[#061018] border-bolt-elements-item-contentAccent shadow-sm shadow-bolt-elements-item-contentAccent/20'
                     : 'border-transparent text-bolt-elements-textTertiary hover:text-bolt-elements-textPrimary hover:bg-bolt-elements-background-depth-2',
                 )}
               >

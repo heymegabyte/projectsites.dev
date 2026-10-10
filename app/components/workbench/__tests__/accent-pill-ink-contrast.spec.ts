@@ -155,9 +155,13 @@ describe('filled-pill tabs stay legible under the brand override (fire-53)', () 
     /*
      * Companion hardening from the same fire: accent-filled pills use the literal
      * `text-[#061018]` (≈12.5:1 on #00E5FF) rather than a themed token, so ink can
-     * never silently follow a token remap. At least the three known tab strips.
+     * never silently follow a token remap. The known-hardened filled-pill tab strips —
+     * fire-312 refreshed this list: dropped DatabasePanel (refactored away from inline
+     * pills) + added BucketsPanel's Files/Settings workspace tabs. A fuller dynamic sweep
+     * (surfacing AutomationsPanel + PanelSegmentedNav, which carry data-filled-pill but not
+     * literal ink) is tracked in BACKLOG as BKT-PILL-INK-SWEEP.
      */
-    for (const name of ['DatabasePanel.tsx', 'ResourcesPanel.tsx', 'SourceControlPanel.tsx']) {
+    for (const name of ['BucketsPanel.tsx', 'ResourcesPanel.tsx', 'SourceControlPanel.tsx']) {
       const src = readFileSync(join(WORKBENCH_DIR, name), 'utf8');
       expect(src.includes('text-[#061018]'), `${name} lost its literal dark pill ink`).toBe(true);
     }
