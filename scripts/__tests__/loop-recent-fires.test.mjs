@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { parseLedgerFires, parseGitFires, recencyDiagnostics } from '../loop-recent-fires.mjs';
+import { parseLedgerFires, parseGitFires, recencyDiagnostics, classifyFire } from '../loop-recent-fires.mjs';
 
 test('ledger keeps distinct suffix IDs and deduplicates continuation headers', () => {
   const fires = parseLedgerFires('# fire-306 — base\n## fire-306b — suffix\n## fire-306b (cont.)\n## fire-307 — next');
@@ -28,4 +28,25 @@ test('bounded membership gaps are reported separately', () => {
     orderDiffers: true, ledgerOnly: ['fire-309'], gitOnly: ['fire-307'],
   });
   assert.deepEqual(recencyDiagnostics([], []), { orderDiffers: false, ledgerOnly: [], gitOnly: [] });
+});
+
+
+test('testing commit types and scopes outrank product words', () => {
+  for (const subject of [
+    'abc test(editor-live): attribute per-tab console errors by origin (fire-312)',
+    'abc fix(test): repair create overlay contract drift (fire-310)',
+    'abc fix(tests): repair editor harness',
+    'abc test: verify billing output',
+    'abc TEST(editor): verify create output',
+    'abc test(editor)!: verify publish output',
+    'abc fix(test)!: repair create harness',
+  ]) assert.equal(classifyFire(subject), 'testing', subject);
+});
+
+test('product fixes and wrapper substance retain exclusive categories', () => {
+  assert.equal(classifyFire('abc fix(editor): repair publish button'), 'product');
+  assert.equal(classifyFire('abc fix(create): repair overlay'), 'product');
+  assert.equal(classifyFire('abc docs(loop): record editor smoke verification (fire-312)'), 'testing');
+  assert.equal(classifyFire('abc docs(loop): update category budget (fire-314)'), 'loop');
+  assert.equal(classifyFire('abc fix(a11y): repair editor focus'), 'ux');
 });

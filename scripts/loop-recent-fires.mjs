@@ -44,9 +44,10 @@ const CATEGORY_BUDGET = [
 // Ordered first-match keyword rules. SUBSTANCE-specific categories are matched BEFORE the
 // generic `product`/`docs` buckets so `fix(a11y)` → ux and a `docs(loop)` ledger wrapper
 // never forces `docs` (the wrapper prefix is stripped before classifying).
+// Testing types/scopes are explicit signals, even when the subject mentions editor/create.
 const CATEGORY_RULES = [
   ['ux', /\b(a11y|contrast|wcag|\baxe\b|aria|visual|polish|ux\b|reduced-motion|focus-|landmark|tap target)/i],
-  ['testing', /\b(e2e|golden|journey|reconcile|probe|spec\b|coverage|\btdd\b|playwright|long-trail|causal|smoke)/i],
+  ['testing', /\b(?:test(?:\([^)]*\))?!?:|[a-z]+\(tests?\)!?:)|\b(e2e|golden|journey|reconcile|probe|spec\b|coverage|\btdd\b|playwright|long-trail|causal|smoke)/i],
   ['architecture', /\b(drift|orphan|\badr\b|rearch|re-arch|architect|consolidat|interconnect|module|one-way|spine)/i],
   ['cleanup', /\b(dead[- ]code|knip|ts-prune|compress|\bperf\b|bundle|cleanup|hygiene|simplif|thin |lean )/i],
   ['discovery', /\b(scout|discovery|cf-release|replenish|tech-scout|next-wave)/i],
@@ -152,7 +153,7 @@ function stripWrapper(text) {
 }
 
 /** Classify one fire's accumulated subject text into a §3 category (first-match, substance-first). */
-function classifyFire(subjectText) {
+export function classifyFire(subjectText) {
   const t = stripWrapper(subjectText);
   for (const [key, re] of CATEGORY_RULES) if (re.test(t)) return key;
   return 'other';
