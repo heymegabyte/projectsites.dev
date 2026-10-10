@@ -336,7 +336,9 @@ export async function ensureDefaultSiteR2(
        WHERE site_id = ? AND is_default = 1 AND status = 'active' AND deleted_at IS NULL`,
     [siteId],
   );
-  const displayName = existing?.display_name ?? 'uploads';
+  // B2: new sites seed a "Preview" default (the legacy 'uploads' name is retired via migration 0649).
+  // An EXISTING default keeps its stored display_name (migrated rows read back as 'Preview').
+  const displayName = existing?.display_name ?? 'Preview';
   return provisionSiteR2(env, { displayName, isDefault: true, orgId, siteId, tenantId });
 }
 
@@ -363,7 +365,8 @@ export async function ensureProductionSiteR2(
     );
     if (existing) return true;
     const result = await provisionSiteR2(env, {
-      displayName: 'production',
+      // B2: the production default is named "Production" (legacy lowercase 'production' retired via 0649).
+      displayName: 'Production',
       environment: 'production',
       orgId,
       siteId,
