@@ -1,8 +1,9 @@
 import { useStore } from '@nanostores/react';
-import { lazy, memo, Suspense, useEffect, useMemo, useRef, useState } from 'react';
+import { lazy, memo, Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { diffLines } from 'diff';
 import { Panel, PanelGroup, PanelResizeHandle } from 'react-resizable-panels';
 import * as Tabs from '@radix-ui/react-tabs';
+import * as DropdownMenu from '@radix-ui/react-dropdown-menu';
 import {
   CodeMirrorEditor,
   type EditorDocument,
@@ -41,6 +42,7 @@ import { classNames } from '~/utils/classNames'; // <-- Import classNames if not
 import { LockManager } from './LockManager'; // <-- Import LockManager
 import { ProjectHub } from './ProjectHub'; // Code-view command center (deploy / snapshots / git)
 import { SourceControlPanel } from './SourceControlPanel'; // Source Control view — Preview diff + releases (Slice 4)
+import { isEmbedded, requestR2, type BucketEntry } from '~/lib/embed/embedded-mode'; // B15 — bucket source selector
 
 interface EditorPanelProps {
   files?: FileMap;
@@ -59,6 +61,313 @@ interface EditorPanelProps {
 const DEFAULT_EDITOR_SIZE = 100 - DEFAULT_TERMINAL_SIZE;
 
 const editorSettings: EditorSettings = { tabSize: 2 };
+
+/*
+ * ── B15 — Code-view bucket SOURCE selector ────────────────────────────────────
+ * A compact `Source ▾` picker in the Code view's explorer header that toggles the
+ * active source between the **website source** (the WebContainer working tree the
+ * `FileTree` already renders) and one of the site's **R2 buckets** (Preview /
+ * Production / custom). It REUSES the live bucket list (`requestR2({op:'listBuckets'})`
+ * — the exact `BucketEntry` shape `BucketsPanel` renders) rather than refetching a
+ * parallel tree. This slice ships the SELECTOR + its honest active-source state; the
+ * bucket object-tree → explorer load + open/edit/save-back-to-R2 is a backend-wired
+ * fast-follow (spec B15 acceptance beyond the selector). Capability gating is honest:
+ * when the bucket surface is dark the live list is unavailable and the picker degrades
+ * to website-source-only — never a doomed control (`embarrassingly-easy-to-use`).
+ */
+
+/** The identifier for the always-present website (WebContainer) source. */
+export const WEBSITE_SOURCE_ID = 'website' as const;
+
+/** One selectable source in the Code-view `Source ▾` picker. */
+export interface CodeSource {
+  /** Stable id — `'website'` or `bucket:{displayName}`. */
+  id: string;
+
+  /** Owner-friendly label (the bucket's display name, or "Website source"). */
+  label: string;
+
+  /** `website` = the working tree; `bucket` = an R2 bucket. */
+  kind: 'website' | 'bucket';
+
+  /** `preview` | `production` for bucket sources (drives the env badge + warn). */
+  environment?: string;
+
+  /** Production buckets open read-only here so a prod edit is never a surprise. */
+  readOnly?: boolean;
+}
+
+/** Load status for the picker's R2 source list. */
+export type CodeSourceStatus = 'loading' | 'ready' | 'disabled' | 'error';
+
+/** The stable id for a bucket source, derived from its display name. */
+function bucketSourceId(bucket: Pick<BucketEntry, 'name'>): string {
+  return `bucket:${bucket.name}`;
+}
+
+/**
+ * Resolve the Code-view source list from the live bucket inventory. Reuses the SAME
+ * `requestR2({op:'listBuckets'})` bridge op `BucketsPanel` uses (no parallel fetch
+ * machinery). The website source is ALWAYS present (index 0) so the picker never has a
+ * dead/empty menu; buckets append in env order (Production read-only). Dark flag → the
+ * bridge replies `{enabled:false}` → status `disabled`, website-source-only.
+ */
+function useCodeSources(): { sources: CodeSource[]; status: CodeSourceStatus; errorMessage?: string } {
+  const [status, setStatus] = useState<CodeSourceStatus>('loading');
+  const [buckets, setBuckets] = useState<BucketEntry[]>([]);
+  const [errorMessage, setErrorMessage] = useState<string | undefined>();
+
+  const load = useCallback(async () => {
+    // Outside the admin embed there is no bridge — offer the website source only.
+    if (!isEmbedded) {
+      setStatus('ready');
+      setBuckets([]);
+      return;
+    }
+
+    setStatus('loading');
+
+    try {
+      const reply = await requestR2({ op: 'listBuckets' });
+
+      if (!reply.ok) {
+        // DARK flag (404 "not enabled") → graceful website-only, not an error wall.
+        if (reply.enabled === false || (reply.error && reply.error.includes('not enabled'))) {
+          setStatus('disabled');
+          setBuckets([]);
+          return;
+        }
+
+        setStatus('error');
+        setErrorMessage(reply.error || 'Could not load your buckets.');
+        setBuckets([]);
+
+        return;
+      }
+
+      setStatus('ready');
+      setBuckets(reply.buckets ?? []);
+    } catch (err) {
+      setStatus('error');
+      setErrorMessage(err instanceof Error ? err.message : 'Could not load your buckets.');
+      setBuckets([]);
+    }
+  }, []);
+
+  useEffect(() => {
+    void load();
+  }, [load]);
+
+  const sources = useMemo<CodeSource[]>(() => {
+    const website: CodeSource = { id: WEBSITE_SOURCE_ID, label: 'Website source', kind: 'website' };
+
+    // Production buckets open read-only here (direct prod edits are destructive) — pin
+    // Production after Preview after the default, then the rest, matching the Navigator.
+    const bucketSources: CodeSource[] = [...buckets]
+      .sort((a, b) => {
+        if (a.isDefault !== b.isDefault) {
+          return a.isDefault ? -1 : 1;
+        }
+
+        const rank = (e?: string) => (e === 'preview' ? 0 : e === 'production' ? 1 : 2);
+        const byEnv = rank(a.environment) - rank(b.environment);
+
+        return byEnv !== 0 ? byEnv : a.name.localeCompare(b.name);
+      })
+      .map((b) => ({
+        id: bucketSourceId(b),
+        label: b.name,
+        kind: 'bucket' as const,
+        environment: b.environment,
+        readOnly: b.environment === 'production',
+      }));
+
+    return [website, ...bucketSources];
+  }, [buckets]);
+
+  return { sources, status, errorMessage };
+}
+
+const SOURCE_MENU_CONTENT =
+  'z-[100001] min-w-[220px] max-w-[300px] rounded-xl border border-bolt-elements-borderColor ' +
+  'bg-bolt-elements-background-depth-2 p-1 shadow-2xl shadow-black/40 motion-safe:animate-[fadeIn_.12s_ease-out]';
+const SOURCE_MENU_ITEM =
+  'flex items-center gap-2 px-2.5 py-1.5 text-[11px] rounded-lg cursor-pointer select-none outline-none ' +
+  'text-bolt-elements-textSecondary data-[highlighted]:bg-bolt-elements-item-contentAccent/[0.12] ' +
+  'data-[highlighted]:text-bolt-elements-item-contentAccent';
+
+/**
+ * The `Source ▾` dropdown. Pure + prop-driven (so it is unit-provable without the
+ * postMessage bridge) — the owning panel supplies the resolved `sources`, the
+ * `activeSourceId`, the load `status`, and the `onSelect` callback. Radix supplies the
+ * menu roles / Escape / focus management; items are `menuitemradio` so the active source
+ * is announced as checked.
+ */
+export const CodeSourcePicker = memo(
+  ({
+    sources,
+    activeSourceId,
+    status,
+    errorMessage,
+    onSelect,
+  }: {
+    sources: CodeSource[];
+    activeSourceId: string;
+    status: CodeSourceStatus;
+    errorMessage?: string;
+    onSelect: (id: string) => void;
+  }) => {
+    const active = sources.find((s) => s.id === activeSourceId) ?? sources[0];
+    const activeLabel = active?.label ?? 'Website source';
+    const busy = status === 'loading';
+    const hasBuckets = sources.some((s) => s.kind === 'bucket');
+
+    return (
+      <DropdownMenu.Root>
+        <DropdownMenu.Trigger asChild>
+          <button
+            type="button"
+            data-testid="code-source-trigger"
+            aria-label={`Code source: ${activeLabel}. Choose website source or an R2 bucket.`}
+            aria-busy={busy || undefined}
+            title="Choose the Code view source — website or an R2 bucket"
+            className={classNames(
+              'h-full flex items-center gap-1 bg-transparent hover:bg-bolt-elements-background-depth-3',
+              'py-0.5 px-2 rounded-lg text-xs font-medium text-bolt-elements-textTertiary',
+              'hover:text-bolt-elements-textPrimary data-[state=open]:text-bolt-elements-textPrimary transition-colors',
+            )}
+          >
+            <div
+              className={classNames(
+                active?.kind === 'bucket' ? 'i-ph:bucket' : 'i-ph:globe-simple',
+                'text-sm shrink-0',
+                { 'opacity-70': busy },
+              )}
+              aria-hidden
+            />
+            <span className="max-w-[120px] truncate">{activeLabel}</span>
+            <div className="i-ph:caret-down text-[10px] shrink-0 opacity-70" aria-hidden />
+          </button>
+        </DropdownMenu.Trigger>
+        <DropdownMenu.Portal>
+          <DropdownMenu.Content data-testid="code-source-menu" align="start" sideOffset={4} className={SOURCE_MENU_CONTENT}>
+            <DropdownMenu.Label className="px-2.5 py-1 text-[10px] uppercase tracking-wide text-bolt-elements-textTertiary">
+              Code source
+            </DropdownMenu.Label>
+            <DropdownMenu.RadioGroup value={active?.id} onValueChange={onSelect}>
+              {sources.map((source) => (
+                <DropdownMenu.RadioItem
+                  key={source.id}
+                  value={source.id}
+                  data-testid={`code-source-item-${source.id}`}
+                  className={SOURCE_MENU_ITEM}
+                >
+                  <div
+                    className={classNames(
+                      source.kind === 'bucket' ? 'i-ph:bucket' : 'i-ph:globe-simple',
+                      'text-sm shrink-0',
+                    )}
+                    aria-hidden
+                  />
+                  <span className="flex-1 truncate">{source.label}</span>
+                  {source.environment === 'production' && (
+                    <span className="shrink-0 rounded px-1 py-px text-[9px] font-semibold uppercase tracking-wide text-amber-300/90 bg-amber-400/10">
+                      Prod · read-only
+                    </span>
+                  )}
+                  {source.environment === 'preview' && (
+                    <span className="shrink-0 rounded px-1 py-px text-[9px] font-semibold uppercase tracking-wide text-bolt-elements-item-contentAccent/90 bg-bolt-elements-item-contentAccent/10">
+                      Preview
+                    </span>
+                  )}
+                  {source.id === active?.id && <div className="i-ph:check text-xs shrink-0" aria-hidden />}
+                </DropdownMenu.RadioItem>
+              ))}
+            </DropdownMenu.RadioGroup>
+            {/* Honest, quiet footer explaining why no buckets appear — never a silent dead end. */}
+            {!hasBuckets && (
+              <div
+                className="mt-1 border-t border-bolt-elements-borderColor/60 px-2.5 py-1.5 text-[10px] text-bolt-elements-textTertiary"
+                data-testid="code-source-no-buckets"
+              >
+                {status === 'error'
+                  ? errorMessage || 'Buckets are unavailable right now.'
+                  : status === 'loading'
+                    ? 'Loading your buckets…'
+                    : 'No R2 buckets yet — add one in Resources › Buckets to edit it here.'}
+              </div>
+            )}
+          </DropdownMenu.Content>
+        </DropdownMenu.Portal>
+      </DropdownMenu.Root>
+    );
+  },
+);
+
+CodeSourcePicker.displayName = 'EditorPanel.CodeSourcePicker';
+
+/**
+ * The explorer content shown while a bucket SOURCE is active. Honest + useful (not a
+ * stub): it names the bucket, surfaces the read-only warning for Production, points the
+ * owner at the full Buckets workspace (Resources › Buckets) for browse/upload/download
+ * today, and offers one click back to the website source. The in-explorer bucket object
+ * tree + open/edit/save-back-to-R2 is the backend-wired fast-follow.
+ */
+const BucketSourceNotice = memo(
+  ({ source, onBackToWebsite }: { source: CodeSource; onBackToWebsite: () => void }) => {
+    const isProd = source.environment === 'production';
+
+    return (
+      <div className="h-full flex flex-col items-start gap-3 p-4 text-xs" data-testid="code-source-bucket-notice">
+        <div className="flex items-center gap-2 text-bolt-elements-textPrimary">
+          <div className="i-ph:bucket text-base text-bolt-elements-item-contentAccent" aria-hidden />
+          <span className="font-semibold">{source.label}</span>
+          {isProd ? (
+            <span className="rounded px-1.5 py-px text-[9px] font-semibold uppercase tracking-wide text-amber-300/90 bg-amber-400/10">
+              Production · read-only
+            </span>
+          ) : (
+            <span className="rounded px-1.5 py-px text-[9px] font-semibold uppercase tracking-wide text-bolt-elements-item-contentAccent/90 bg-bolt-elements-item-contentAccent/10">
+              Preview
+            </span>
+          )}
+        </div>
+
+        {isProd && (
+          <p className="flex items-start gap-1.5 text-amber-300/90">
+            <div className="i-ph:warning mt-px shrink-0" aria-hidden />
+            <span>
+              This is your live Production bucket. Editing files here changes your public site directly, so it opens
+              read-only. Promote from Preview to publish safely.
+            </span>
+          </p>
+        )}
+
+        <p className="text-bolt-elements-textSecondary leading-relaxed">
+          Browse, upload, and download this bucket&apos;s files in{' '}
+          <span className="font-medium text-bolt-elements-textPrimary">Resources › Buckets</span>. In-editor open and
+          save for bucket files is arriving next.
+        </p>
+
+        <button
+          type="button"
+          onClick={onBackToWebsite}
+          data-testid="code-source-back-to-website"
+          className={classNames(
+            'inline-flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-[11px] font-medium',
+            'bg-bolt-elements-background-depth-3 text-bolt-elements-textPrimary',
+            'hover:bg-bolt-elements-item-backgroundActive transition-colors',
+          )}
+        >
+          <div className="i-ph:arrow-left text-sm" aria-hidden />
+          Back to website source
+        </button>
+      </div>
+    );
+  },
+);
+
+BucketSourceNotice.displayName = 'EditorPanel.BucketSourceNotice';
 
 export const EditorPanel = memo(
   ({
@@ -207,6 +516,26 @@ export const EditorPanel = memo(
       return { lines: out, empty: out.length === 0 };
     }, [diffEnabled, editorDocument, fileHistory]);
 
+    /*
+     * B15 — active Code source. Defaults to the website (WebContainer) tree; the owner
+     * can point the explorer at an R2 bucket via the `Source ▾` picker. The bucket
+     * object-tree → explorer load is the fast-follow; today a bucket selection surfaces
+     * an honest source banner with a one-click path back to the website source + a link
+     * to the full Buckets workspace, so the control is never a dead end.
+     */
+    const { sources: codeSources, status: codeSourceStatus, errorMessage: codeSourceError } = useCodeSources();
+    const [activeSourceId, setActiveSourceId] = useState<string>(WEBSITE_SOURCE_ID);
+
+    // If the active bucket disappears from the list (deleted/flag flipped), fall back to website.
+    useEffect(() => {
+      if (activeSourceId !== WEBSITE_SOURCE_ID && !codeSources.some((s) => s.id === activeSourceId)) {
+        setActiveSourceId(WEBSITE_SOURCE_ID);
+      }
+    }, [activeSourceId, codeSources]);
+
+    const activeSource = codeSources.find((s) => s.id === activeSourceId);
+    const bucketSourceActive = activeSource?.kind === 'bucket';
+
     return (
       <PanelGroup direction="vertical" id="editor-vertical">
         <Panel id="editor" order={1} defaultSize={showTerminal ? DEFAULT_EDITOR_SIZE : 100} minSize={20}>
@@ -229,7 +558,7 @@ export const EditorPanel = memo(
                 </div>
                 <Tabs.Root defaultValue="files" className="flex flex-col flex-1 min-h-0">
                   <PanelHeader className="w-full text-sm font-medium text-bolt-elements-textSecondary px-1">
-                    <div className="h-full flex-shrink-0 flex items-center justify-between w-full">
+                    <div className="h-full flex-shrink-0 flex items-center justify-between w-full gap-1">
                       <Tabs.List className="h-full flex-shrink-0 flex items-center">
                         <Tabs.Trigger
                           value="files"
@@ -267,20 +596,38 @@ export const EditorPanel = memo(
                           Source
                         </Tabs.Trigger>
                       </Tabs.List>
+                      {/* B15 — bucket SOURCE selector. Points the explorer at the website
+                          working tree or one of the site's R2 buckets. */}
+                      <div className="h-full flex items-center shrink-0">
+                        <CodeSourcePicker
+                          sources={codeSources}
+                          activeSourceId={activeSourceId}
+                          status={codeSourceStatus}
+                          errorMessage={codeSourceError}
+                          onSelect={setActiveSourceId}
+                        />
+                      </div>
                     </div>
                   </PanelHeader>
 
                   <Tabs.Content value="files" className="flex-grow overflow-auto focus-visible:outline-none">
-                    <FileTree
-                      className="h-full"
-                      files={files}
-                      hideRoot
-                      unsavedFiles={unsavedFiles}
-                      fileHistory={fileHistory}
-                      rootFolder={WORK_DIR}
-                      selectedFile={selectedFile}
-                      onFileSelect={onFileSelect}
-                    />
+                    {bucketSourceActive ? (
+                      <BucketSourceNotice
+                        source={activeSource!}
+                        onBackToWebsite={() => setActiveSourceId(WEBSITE_SOURCE_ID)}
+                      />
+                    ) : (
+                      <FileTree
+                        className="h-full"
+                        files={files}
+                        hideRoot
+                        unsavedFiles={unsavedFiles}
+                        fileHistory={fileHistory}
+                        rootFolder={WORK_DIR}
+                        selectedFile={selectedFile}
+                        onFileSelect={onFileSelect}
+                      />
+                    )}
                   </Tabs.Content>
 
                   <Tabs.Content value="search" className="flex-grow overflow-auto focus-visible:outline-none">
