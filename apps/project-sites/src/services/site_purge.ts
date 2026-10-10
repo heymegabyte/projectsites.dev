@@ -211,7 +211,7 @@ export async function purgeSiteResources(
     try {
       const allocations = await listSiteR2Allocations(env, siteId);
       for (const allocation of allocations) {
-        const res = await deleteSiteR2(env, siteId, allocation, orgId).catch(() => ({
+        const res = await deleteSiteR2(env, siteId, orgId, allocation, orgId).catch(() => ({
           ok: false as const,
           reason: 'cf_error',
         }));

@@ -30,6 +30,10 @@ import { type CfAuth, cfAuthHeaders, resolveCfCredentials } from './cf_credentia
 import { decrypt, encrypt } from './ai_crypto.js';
 import { uuidv7 } from '../lib/uuid.js';
 import { dbExecute, dbQuery, dbQueryOne } from './db.js';
+import { isFlagOn } from '../modules/feature_flags/services.js';
+
+/** Flag gating the per-site scoped-token object-ops path (DARK killswitch; see the B5 header above). */
+const PER_SITE_OBJECT_OPS_FLAG = 'r2_bucket_manager';
 
 const CF_API_BASE = 'https://api.cloudflare.com/client/v4';
 
@@ -318,6 +322,9 @@ export async function provisionSiteR2(
 
   const allocation = await resolveSiteR2Allocation(env, input.siteId, displayName);
   if (!allocation) return { message: 'allocation not persisted', ok: false, reason: 'cf_error' };
+  // A NEW bucket changes the site's token scope → invalidate so the next object op re-mints a token
+  // that covers it (otherwise uploads/browse on the new bucket would 403). Best-effort (never throws).
+  await invalidateSiteS3Tokens(env, input.siteId, cf.auth, cf.account);
   return { allocation, ok: true, reused: false };
 }
 
@@ -381,28 +388,28 @@ export async function ensureProductionSiteR2(
 
 // ── Per-site R2 S3 token (Buckets B5 slice 1 — credential foundation, flag-dark) ───────────────────
 //
-// R2 has NO REST object API — object ops require R2 S3 access keys. Today those keys come from the
-// worker env (`getS3Config`, below). This slice adds the FOUNDATION for PER-SITE, bucket-SCOPED S3
-// tokens: mint once via the CF Create-Token API, store the secret ENCRYPTED, reuse every request. It
-// does NOT change the credential path yet — `getS3Config`/`hasObjectOps`/object-op signing are
-// untouched (that rewire is slice 2). The table + this service stay dormant behind `r2_bucket_manager`.
+// R2 has NO REST object API — object ops require R2 S3 access keys. The platform has no account-wide
+// `R2_S3_*` env key (and doesn't want one), so object ops are powered by PER-SITE, bucket-SCOPED S3
+// tokens: mint once via the CF Create-Token API scoped to the site's OWN buckets, store the secret
+// ENCRYPTED, reuse every request. Slice 2 WIRES this into the credential path — `resolveSiteS3Config`
+// (below) resolves a site's token and every object op signs with it, gated behind the DARK
+// `r2_bucket_manager` flag (reversible killswitch). Global `R2_S3_*` env creds, if ever set, win as an
+// escape hatch. `ensureSiteS3Token` is the mint/reuse foundation it builds on.
 //
-// CF Create-Token endpoint (account-owned token):
+// CF Create-Token endpoint (account-owned token) — LIVE-CONFIRMED (B5 slice 2, 2026-10-10):
 //   POST https://api.cloudflare.com/client/v4/accounts/{account_id}/tokens
-//   body: { name, policies: [{ effect:'allow', resources:{ <bucket-resource-key>:'*' }, permission_groups:[{id}] }] }
+//   body: { name, policies: [{ effect:'allow', resources:{ <bucket-resource-key>:'*' }, permission_groups:[...] }] }
 // The returned `result.id` IS the S3 Access Key ID; the Secret Access Key is the SHA-256 hex of
-// `result.value` (the raw token string) — per
-// https://developers.cloudflare.com/r2/api/tokens/ ("Get S3 API credentials from an API token").
+// `result.value` (the raw token string). Verified end-to-end against real CF: mint → derive →
+// S3 ListObjectsV2 returns 200. Per https://developers.cloudflare.com/r2/api/tokens/.
 // Bucket-scoped resource key (one per owned bucket):
-//   "com.cloudflare.edge.r2.bucket.{ACCOUNT_ID}_{JURISDICTION}_{BUCKET_NAME}": "*"
-// where JURISDICTION is `default` for non-jurisdictional buckets.
-// Permission group "Workers R2 Storage Bucket Item Read and Write" grants object read+write. The exact
-// permission-group id is account-stable but not hardcodable from docs alone; we send our best-known id
-// and mark it for live confirmation in slice 2.
-// TODO(B5-slice2): confirm the Object Read+Write permission-group id live via
-//   GET /accounts/{account_id}/tokens/permission_groups (filter name ~ "R2 Storage Bucket Item Read and Write"),
-//   and confirm the create response surfaces `result.value` for S3-secret derivation.
-const R2_OBJECT_RW_PERMISSION_GROUP_ID = 'd229766a2f7f4d299f20eaa8c9b1fff9'; // "Workers R2 Storage Bucket Item Read and Write" (confirm live — slice 2)
+//   "com.cloudflare.edge.r2.bucket.{ACCOUNT_ID}_default_{BUCKET_NAME}": "*"  (default = non-jurisdictional)
+// R2 object access is TWO separate permission groups — there is NO single "Read and Write" group. We
+// grant BOTH so the token can list/get (Read) AND put/delete (Write). Ids confirmed live via
+// GET /accounts/{account_id}/tokens/permission_groups (filtered to the R2 groups). (The slice-1
+// placeholder `d229766…fff9` was BOGUS — it did not exist, so minting would have failed in prod.)
+const R2_OBJECT_READ_PERMISSION_GROUP_ID = '6a018a9f2fc74eb6b293b0c548f38b39'; // Workers R2 Storage Bucket Item Read
+const R2_OBJECT_WRITE_PERMISSION_GROUP_ID = '2efd5506f9c8494dacb1fa10a3e7d5b6'; // Workers R2 Storage Bucket Item Write
 
 /** A minted (or reused) per-site R2 S3 token. `secret` is the plaintext Secret Access Key. */
 export interface SiteR2S3Token {
@@ -491,7 +498,10 @@ export async function ensureSiteS3Token(
     policies: [
       {
         effect: 'allow',
-        permission_groups: [{ id: R2_OBJECT_RW_PERMISSION_GROUP_ID }],
+        permission_groups: [
+          { id: R2_OBJECT_READ_PERMISSION_GROUP_ID },
+          { id: R2_OBJECT_WRITE_PERMISSION_GROUP_ID },
+        ],
         resources,
       },
     ],
@@ -563,6 +573,56 @@ async function cfCreateToken(
 }
 
 /**
+ * Invalidate (revoke + supersede) a site's active S3 token(s). Called when the site's bucket SET changes
+ * (a new bucket is provisioned) so the next {@link ensureSiteS3Token} re-mints a token whose scope covers
+ * the CURRENT buckets — a token minted BEFORE a new bucket would 403 on it. Best-effort by design: a
+ * failed CF revoke (or a missing table in a narrow test harness) must NEVER fail bucket creation — the
+ * orphaned CF token is bucket-scoped + harmless, and the row is superseded regardless. Fully try/caught.
+ */
+async function invalidateSiteS3Tokens(
+  env: Env,
+  siteId: string,
+  auth: CfAuth,
+  account: string,
+): Promise<void> {
+  try {
+    const { data } = await dbQuery<{ cf_token_id: string }>(
+      env.DB,
+      `SELECT cf_token_id FROM site_r2_s3_tokens WHERE site_id = ? AND status = 'active' AND deleted_at IS NULL`,
+      [siteId],
+    );
+    if (data.length === 0) return;
+    for (const row of data) {
+      try {
+        await fetch(`${CF_API_BASE}/accounts/${account}/tokens/${row.cf_token_id}`, {
+          headers: cfAuthHeaders(auth),
+          method: 'DELETE',
+        });
+      } catch {
+        /* orphaned bucket-scoped CF token is harmless; the row is superseded below regardless */
+      }
+    }
+    await dbExecute(
+      env.DB,
+      `UPDATE site_r2_s3_tokens
+          SET status = 'superseded', updated_at = datetime('now'), deleted_at = datetime('now')
+        WHERE site_id = ? AND status = 'active' AND deleted_at IS NULL`,
+      [siteId],
+    );
+  } catch (err) {
+    console.warn(
+      JSON.stringify({
+        error: err instanceof Error ? err.message : String(err),
+        level: 'warn',
+        op: 'invalidateSiteS3Tokens',
+        service: 'site_r2',
+        siteId,
+      }),
+    );
+  }
+}
+
+/**
  * Empty then delete a per-site bucket (CF refuses to delete a non-empty bucket). Deletes every object
  * via the S3 API first (when S3 creds exist), then removes the bucket via REST, then soft-deletes the
  * allocation. Honest: a delete of a NON-empty bucket with no S3 creds returns `needs_s3_credentials`.
@@ -570,6 +630,7 @@ async function cfCreateToken(
 export async function deleteSiteR2(
   env: Env,
   siteId: string,
+  tenantId: string,
   allocation: SiteR2Allocation,
   orgId: string | null,
 ): Promise<SiteR2Result<{ deleted: true; objectsDeleted: number }>> {
@@ -578,10 +639,11 @@ export async function deleteSiteR2(
   const cf = await resolveCf(env, orgId);
   if (!cf.ok) return { ok: false, reason: cf.reason };
 
-  // Empty the bucket first (S3). No S3 creds → we can only delete an already-empty bucket; try REST and
-  // surface a clear needs-creds error if CF rejects because it's non-empty.
+  // Empty the bucket first (S3). No object creds → we can only delete an already-empty bucket; try REST
+  // and surface a clear needs-creds error if CF rejects because it's non-empty.
   let objectsDeleted = 0;
-  const s3 = getS3Config(env);
+  const resolved = await resolveSiteS3Config(env, { orgId, siteId, tenantId });
+  const s3 = resolved.ok ? resolved.s3 : null;
   if (s3) {
     const emptied = await emptyBucketViaS3(s3, allocation.bucketName);
     if (!emptied.ok) return emptied;
@@ -715,9 +777,72 @@ export function getS3Config(env: Env): S3Config | null {
   return { accessKeyId, endpoint: `https://${account}.r2.cloudflarestorage.com`, secretAccessKey };
 }
 
-/** True when object ops are available (S3 creds present). Lets the route advertise capabilities. */
+/** True when account-wide S3 creds are present (the escape-hatch path). Prefer {@link hasObjectOpsForSite}. */
 export function hasObjectOps(env: Env): boolean {
   return getS3Config(env) !== null;
+}
+
+/** Site identity needed to resolve a per-site scoped S3 token. `orgId` may be null (→ worker creds). */
+export interface SiteR2Context {
+  readonly siteId: string;
+  readonly tenantId: string;
+  readonly orgId: string | null;
+}
+
+/**
+ * Resolve the S3 config a site's object ops sign with. Precedence:
+ *   1. Account-wide `R2_S3_*` env creds (escape hatch) — win when present.
+ *   2. The site's OWN bucket-scoped token (mint/reuse via {@link ensureSiteS3Token}), gated behind the
+ *      DARK `r2_bucket_manager` flag so the capability is a reversible killswitch.
+ * Returns a typed failure (`needs_s3_credentials` when the flag is off / no creds) that the object ops
+ * propagate verbatim — so with the flag off the UI shows the same honest "being set up" state as today.
+ */
+async function resolveSiteS3Config(
+  env: Env,
+  ctx: SiteR2Context,
+): Promise<SiteR2Result<{ s3: S3Config }>> {
+  const global = getS3Config(env);
+  if (global) return { ok: true, s3: global };
+
+  const flagOn = await isFlagOn(env, PER_SITE_OBJECT_OPS_FLAG, {
+    orgId: ctx.orgId ?? undefined,
+    siteId: ctx.siteId,
+  });
+  if (!flagOn) return { ok: false, reason: 'needs_s3_credentials' };
+
+  const account = env.CF_ACCOUNT_ID;
+  if (!account) return { ok: false, reason: 'no_account_id' };
+
+  const token = await ensureSiteS3Token(env, ctx.siteId, ctx.tenantId, ctx.orgId);
+  if (!token.ok) return token;
+  if (!token.secret) return { ok: false, reason: 'needs_s3_credentials' }; // stored secret failed to decrypt
+
+  return {
+    ok: true,
+    s3: {
+      accessKeyId: token.accessKeyId,
+      endpoint: `https://${account}.r2.cloudflarestorage.com`,
+      secretAccessKey: token.secret,
+    },
+  };
+}
+
+/**
+ * True when object ops CAN run for a site WITHOUT minting — for the capability advertisement only.
+ * Mirrors {@link resolveSiteS3Config}'s precedence (global creds, else flag-on + mintable CF creds).
+ */
+export async function hasObjectOpsForSite(
+  env: Env,
+  ctx: { orgId: string | null; siteId: string },
+): Promise<boolean> {
+  if (getS3Config(env)) return true;
+  if (!env.CF_ACCOUNT_ID) return false;
+  const flagOn = await isFlagOn(env, PER_SITE_OBJECT_OPS_FLAG, {
+    orgId: ctx.orgId ?? undefined,
+    siteId: ctx.siteId,
+  });
+  if (!flagOn) return false;
+  return (await resolveCfCredentials(env, ctx.orgId)) !== null;
 }
 
 const S3_REGION = 'auto';
@@ -761,10 +886,33 @@ function encodeS3Path(key: string): string {
 }
 
 /**
- * Sign + send one S3 request to R2 via SigV4. `path` starts with `/` and already includes the bucket
- * (`/{bucket}` or `/{bucket}/{key}`). Query params are canonicalized. Returns the raw `Response`.
+ * Sign + send one S3 request to R2 via SigV4, retrying on a transient 401. A freshly-minted per-site
+ * R2 token takes a few seconds to propagate across R2's edge (observed ~2.5s: the first signed request
+ * 401s, the next 200s). We retry a 401 up to twice with a short backoff so a site's FIRST object op
+ * after provisioning succeeds instead of surfacing a spurious auth error. Steady-state 200s never wait;
+ * a genuine 401 (shouldn't occur on our always-RW-scoped tokens) costs the bounded retries then fails
+ * honestly. Each retry RE-SIGNS (the `x-amz-date` moves).
  */
 async function s3Fetch(
+  s3: S3Config,
+  method: string,
+  path: string,
+  opts: {
+    query?: Record<string, string>;
+    body?: ArrayBuffer | Uint8Array | string;
+    contentType?: string;
+  } = {},
+): Promise<Response> {
+  let res = await s3FetchOnce(s3, method, path, opts);
+  for (let attempt = 0; attempt < 2 && res.status === 401; attempt++) {
+    await new Promise((r) => setTimeout(r, 1500));
+    res = await s3FetchOnce(s3, method, path, opts);
+  }
+  return res;
+}
+
+/** Sign + send ONE S3 request to R2 via SigV4 (no retry). `path` starts with `/` + includes the bucket. */
+async function s3FetchOnce(
   s3: S3Config,
   method: string,
   path: string,
@@ -863,13 +1011,15 @@ function xmlUnescape(s: string): string {
  */
 export async function listSiteR2Objects(
   env: Env,
+  ctx: SiteR2Context,
   bucketName: string,
   opts: { prefix?: string; cursor?: string; maxKeys?: number; delimiter?: string } = {},
 ): Promise<
   SiteR2Result<{ objects: SiteR2Object[]; prefixes: string[]; cursor?: string; truncated: boolean }>
 > {
-  const s3 = getS3Config(env);
-  if (!s3) return { ok: false, reason: 'needs_s3_credentials' };
+  const resolved = await resolveSiteS3Config(env, ctx);
+  if (!resolved.ok) return resolved;
+  const s3 = resolved.s3;
   const query: Record<string, string> = {
     'list-type': '2',
     'max-keys': String(Math.min(Math.max(opts.maxKeys ?? 100, 1), 1000)),
@@ -908,13 +1058,15 @@ export async function listSiteR2Objects(
 /** Upload one object (S3 PutObject). `body` is the raw bytes; `contentType` sets the stored MIME. */
 export async function putSiteR2Object(
   env: Env,
+  ctx: SiteR2Context,
   bucketName: string,
   key: string,
   body: ArrayBuffer,
   contentType: string,
 ): Promise<SiteR2Result<{ key: string; size: number }>> {
-  const s3 = getS3Config(env);
-  if (!s3) return { ok: false, reason: 'needs_s3_credentials' };
+  const resolved = await resolveSiteS3Config(env, ctx);
+  if (!resolved.ok) return resolved;
+  const s3 = resolved.s3;
   const res = await s3Fetch(s3, 'PUT', `/${bucketName}/${key}`, { body, contentType });
   if (!res.ok)
     return {
@@ -929,11 +1081,13 @@ export async function putSiteR2Object(
 /** Fetch one object's bytes (S3 GetObject) — the route streams these back for download/preview. */
 export async function getSiteR2Object(
   env: Env,
+  ctx: SiteR2Context,
   bucketName: string,
   key: string,
 ): Promise<SiteR2Result<{ body: ArrayBuffer; contentType: string; size: number }>> {
-  const s3 = getS3Config(env);
-  if (!s3) return { ok: false, reason: 'needs_s3_credentials' };
+  const resolved = await resolveSiteS3Config(env, ctx);
+  if (!resolved.ok) return resolved;
+  const s3 = resolved.s3;
   const res = await s3Fetch(s3, 'GET', `/${bucketName}/${key}`);
   if (!res.ok)
     return {
@@ -954,11 +1108,13 @@ export async function getSiteR2Object(
 /** Delete one object (S3 DeleteObject). */
 export async function deleteSiteR2Object(
   env: Env,
+  ctx: SiteR2Context,
   bucketName: string,
   key: string,
 ): Promise<SiteR2Result<{ deleted: true }>> {
-  const s3 = getS3Config(env);
-  if (!s3) return { ok: false, reason: 'needs_s3_credentials' };
+  const resolved = await resolveSiteS3Config(env, ctx);
+  if (!resolved.ok) return resolved;
+  const s3 = resolved.s3;
   const res = await s3Fetch(s3, 'DELETE', `/${bucketName}/${key}`);
   // S3 DeleteObject returns 204 even for a missing key — that's fine (idempotent).
   if (!res.ok && res.status !== 204)
@@ -1021,8 +1177,11 @@ export async function promoteSiteR2(
   source: SiteR2Allocation,
   orgId: string | null,
 ): Promise<SiteR2Result<{ production: SiteR2Allocation; objectsCopied: number }>> {
-  const s3 = getS3Config(env);
-  if (!s3) return { ok: false, reason: 'needs_s3_credentials' };
+  const ctx: SiteR2Context = { orgId, siteId, tenantId };
+  // Precondition only — do NOT mint here (the prod bucket doesn't exist yet; provisioning it below
+  // invalidates any stale token so the copy loop re-mints a token scoped to BOTH preview + prod).
+  if (!(await hasObjectOpsForSite(env, { orgId, siteId })))
+    return { ok: false, reason: 'needs_s3_credentials' };
 
   const prod = await provisionSiteR2(env, {
     displayName: `${source.displayName}-production`,
@@ -1036,13 +1195,14 @@ export async function promoteSiteR2(
   let copied = 0;
   let cursor: string | undefined;
   for (let page = 0; page < 100; page++) {
-    const listed = await listSiteR2Objects(env, source.bucketName, { cursor, maxKeys: 1000 });
+    const listed = await listSiteR2Objects(env, ctx, source.bucketName, { cursor, maxKeys: 1000 });
     if (!listed.ok) return listed;
     for (const obj of listed.objects) {
-      const got = await getSiteR2Object(env, source.bucketName, obj.key);
+      const got = await getSiteR2Object(env, ctx, source.bucketName, obj.key);
       if (!got.ok) continue;
       const put = await putSiteR2Object(
         env,
+        ctx,
         prod.allocation.bucketName,
         obj.key,
         got.body,

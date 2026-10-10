@@ -96,6 +96,11 @@ describe('ensureSiteS3Token', () => {
       // Policy resource scoped to the SITE's real bucket name (never account-wide, never '*').
       const resources = JSON.stringify(body.policies[0].resources);
       expect(resources).toContain('ps-site-site1-preview');
+      // Grants BOTH R2 object permission groups — Read AND Write (there is NO single "Read+Write" group;
+      // the slice-1 placeholder id was bogus → would have failed the mint in prod). LIVE-confirmed ids.
+      const groupIds = (body.policies[0].permission_groups as Array<{ id: string }>).map((g) => g.id);
+      expect(groupIds).toContain('6a018a9f2fc74eb6b293b0c548f38b39'); // Bucket Item Read
+      expect(groupIds).toContain('2efd5506f9c8494dacb1fa10a3e7d5b6'); // Bucket Item Write
 
       // Row stored ENCRYPTED — secret_enc is NOT the plaintext secret, and decrypts back to it.
       const row = tokenRow(h, 'site1')!;

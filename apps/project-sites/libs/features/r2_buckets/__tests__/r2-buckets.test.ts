@@ -25,7 +25,7 @@ jest.mock('../../../../src/services/site_r2.js', () => ({
   deleteSiteR2Object: jest.fn(),
   ensureDefaultSiteR2: jest.fn(),
   getSiteR2Object: jest.fn(),
-  hasObjectOps: jest.fn(() => true),
+  hasObjectOpsForSite: jest.fn(async () => true),
   isValidBucketDisplayName: (s: unknown) =>
     typeof s === 'string' && /^[A-Za-z0-9][A-Za-z0-9 _-]{0,30}$/.test(s.trim()),
   listSiteR2Allocations: jest.fn(),
@@ -47,8 +47,10 @@ import { isFlagOn } from '../../../../src/modules/feature_flags/services.js';
 import {
   deleteSiteR2,
   ensureDefaultSiteR2,
+  getSiteR2Object,
   listSiteR2Allocations,
   provisionSiteR2,
+  putSiteR2Object,
   resolveSiteR2Allocation,
 } from '../../../../src/services/site_r2.js';
 
@@ -58,6 +60,8 @@ const mockListAlloc = listSiteR2Allocations as unknown as jest.Mock;
 const mockProvision = provisionSiteR2 as unknown as jest.Mock;
 const mockResolveAlloc = resolveSiteR2Allocation as unknown as jest.Mock;
 const mockDelete = deleteSiteR2 as unknown as jest.Mock;
+const mockPut = putSiteR2Object as unknown as jest.Mock;
+const mockGet = getSiteR2Object as unknown as jest.Mock;
 
 function app(ids?: { orgId?: string; userId?: string }) {
   const a = new Hono();
@@ -109,6 +113,47 @@ beforeEach(() => {
   mockProvision.mockReset();
   mockResolveAlloc.mockReset();
   mockDelete.mockReset();
+  mockPut.mockReset();
+  mockGet.mockReset();
+});
+
+// REGRESSION (B5 slice 2): the `/objects/*` wildcard key extraction. Hono 4.x does NOT expose the
+// trailing `*` as param('0')/param('*') (both undefined), so the key MUST come from the pathname after
+// `/objects/`. These routes had ZERO coverage + object ops were never live, so the bug hid until the
+// per-site-token flip turned object ops on. Guards that the key reaches the service verbatim.
+describe('object routes — wildcard key extraction', () => {
+  it('PUT forwards the exact (nested) object key + per-site ctx to putSiteR2Object', async () => {
+    mockFlag.mockResolvedValue(true);
+    mockResolveAlloc.mockResolvedValue(sampleAllocation);
+    mockPut.mockResolvedValue({ key: 'a/b/c.txt', ok: true, size: 5 });
+    const res = await authed().request(
+      '/api/sites/s1/r2/buckets/uploads/objects/a/b/c.txt',
+      { body: 'hello', headers: { 'content-type': 'text/plain' }, method: 'PUT' },
+      mockEnv(),
+    );
+    expect(res.status).toBe(201);
+    const [, ctx, bucketName, key] = mockPut.mock.calls[0] as [unknown, { siteId: string; orgId: string }, string, string];
+    expect(key).toBe('a/b/c.txt'); // was '' (null → 400) before the fix
+    expect(bucketName).toBe('ps-site-s1-uploads');
+    expect(ctx).toMatchObject({ orgId: 'org1', siteId: 's1' }); // per-site token resolution context
+  });
+
+  it('GET download forwards the exact key to getSiteR2Object', async () => {
+    mockFlag.mockResolvedValue(true);
+    mockResolveAlloc.mockResolvedValue(sampleAllocation);
+    mockGet.mockResolvedValue({ body: new Uint8Array([1, 2]).buffer, contentType: 'image/png', ok: true, size: 2 });
+    const res = await authed().request('/api/sites/s1/r2/buckets/uploads/objects/photo.png', {}, mockEnv());
+    expect(res.status).toBe(200);
+    expect((mockGet.mock.calls[0] as unknown[])[3]).toBe('photo.png');
+  });
+
+  it('400 when the key is empty (no segment after /objects/)', async () => {
+    mockFlag.mockResolvedValue(true);
+    mockResolveAlloc.mockResolvedValue(sampleAllocation);
+    const res = await authed().request('/api/sites/s1/r2/buckets/uploads/objects/', {}, mockEnv());
+    expect(res.status).toBe(400);
+    expect(mockGet).not.toHaveBeenCalled();
+  });
 });
 
 describe('GET /api/sites/:siteId/r2/buckets', () => {

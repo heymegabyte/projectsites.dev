@@ -39,7 +39,7 @@ import {
   deleteSiteR2Object,
   ensureDefaultSiteR2,
   getSiteR2Object,
-  hasObjectOps,
+  hasObjectOpsForSite,
   isValidBucketDisplayName,
   listSiteR2Allocations,
   listSiteR2Objects,
@@ -75,9 +75,7 @@ function r2Failure(c: Context<AppContext>, reason: SiteR2Failure, message?: stri
         {
           error: {
             code: 'SERVICE_UNAVAILABLE',
-            message:
-              message ??
-              'Object operations need R2 S3 credentials. Ask an admin to set R2_S3_ACCESS_KEY_ID + R2_S3_SECRET_ACCESS_KEY.',
+            message: message ?? 'File storage for this site is still being set up.',
           },
           ok: false,
         },
@@ -159,7 +157,7 @@ r2Buckets.get('/api/sites/:siteId/r2/buckets', async (c) => {
   return c.json({
     data: {
       buckets: allocations.map((a) => bucketView(c, a)),
-      objectOpsAvailable: hasObjectOps(c.env),
+      objectOpsAvailable: await hasObjectOpsForSite(c.env, { orgId: g.orgId, siteId }),
     },
     ok: true,
   });
@@ -200,7 +198,7 @@ r2Buckets.delete('/api/sites/:siteId/r2/buckets/:bucket', async (c) => {
   const g = await gateAndBucket(c, siteId, bucket);
   if (g instanceof Response) return g;
 
-  const result = await deleteSiteR2(c.env, siteId, g.allocation, g.orgId);
+  const result = await deleteSiteR2(c.env, siteId, g.tenantId, g.allocation, g.orgId);
   if (!result.ok) return r2Failure(c, result.reason, result.message);
   return c.json({ data: { deleted: true, name: bucket, objectsDeleted: result.objectsDeleted }, ok: true });
 });
@@ -253,12 +251,17 @@ r2Buckets.get('/api/sites/:siteId/r2/buckets/:bucket/objects', async (c) => {
   if (!parsed.success)
     return c.json({ error: { code: 'BAD_REQUEST', message: 'Invalid query' }, ok: false }, 400);
 
-  const result = await listSiteR2Objects(c.env, g.allocation.bucketName, {
-    cursor: parsed.data.cursor,
-    delimiter: parsed.data.delimiter,
-    maxKeys: parsed.data.limit,
-    prefix: parsed.data.prefix,
-  });
+  const result = await listSiteR2Objects(
+    c.env,
+    { orgId: g.orgId, siteId, tenantId: g.tenantId },
+    g.allocation.bucketName,
+    {
+      cursor: parsed.data.cursor,
+      delimiter: parsed.data.delimiter,
+      maxKeys: parsed.data.limit,
+      prefix: parsed.data.prefix,
+    },
+  );
   if (!result.ok) return r2Failure(c, result.reason, result.message);
   return c.json({
     data: { cursor: result.cursor, objects: result.objects, prefixes: result.prefixes, truncated: result.truncated },
@@ -268,9 +271,19 @@ r2Buckets.get('/api/sites/:siteId/r2/buckets/:bucket/objects', async (c) => {
 
 /** Extract the object key from a wildcard route (`…/objects/*`), URL-decoded + traversal-guarded. */
 function objectKeyFromPath(c: Context<AppContext>): string | null {
-  // Hono exposes the `*` capture as param '0' for a trailing wildcard.
-  const raw = c.req.param('0') ?? '';
-  const key = decodeURIComponent(raw);
+  // Hono 4.x does NOT expose a trailing `*` capture via param('0') or param('*') — both are undefined.
+  // Slice the raw pathname after the FIRST `/objects/` (bucket display names can't contain '/', so the
+  // route marker is unambiguous; a key MAY itself contain `/objects/`, which correctly stays in the key).
+  const marker = '/objects/';
+  const pathname = new URL(c.req.url).pathname;
+  const idx = pathname.indexOf(marker);
+  if (idx < 0) return null;
+  let key: string;
+  try {
+    key = decodeURIComponent(pathname.slice(idx + marker.length));
+  } catch {
+    return null; // malformed percent-encoding
+  }
   // Reject traversal / empty (a leading slash is fine — R2 keys can't escape their bucket, but keep it tidy).
   if (!key || key.includes('..') || key.startsWith('/')) return null;
   return key;
@@ -320,7 +333,14 @@ r2Buckets.put('/api/sites/:siteId/r2/buckets/:bucket/objects/*', async (c) => {
   if (body.byteLength > MAX_UPLOAD_BYTES)
     return c.json({ error: { code: 'PAYLOAD_TOO_LARGE', message: 'That file is too large (25 MB max).' }, ok: false }, 413);
 
-  const result = await putSiteR2Object(c.env, g.allocation.bucketName, key, body, contentType);
+  const result = await putSiteR2Object(
+    c.env,
+    { orgId: g.orgId, siteId, tenantId: g.tenantId },
+    g.allocation.bucketName,
+    key,
+    body,
+    contentType,
+  );
   if (!result.ok) return r2Failure(c, result.reason, result.message);
   return c.json({ data: { contentType, key: result.key, size: result.size }, ok: true }, 201);
 });
@@ -333,7 +353,12 @@ r2Buckets.get('/api/sites/:siteId/r2/buckets/:bucket/objects/*', async (c) => {
   const key = objectKeyFromPath(c);
   if (!key) return c.json({ error: { code: 'BAD_REQUEST', message: 'Invalid object key' }, ok: false }, 400);
 
-  const result = await getSiteR2Object(c.env, g.allocation.bucketName, key);
+  const result = await getSiteR2Object(
+    c.env,
+    { orgId: g.orgId, siteId, tenantId: g.tenantId },
+    g.allocation.bucketName,
+    key,
+  );
   if (!result.ok) return r2Failure(c, result.reason, result.message);
   const filename = key.split('/').pop() || 'download';
   return new Response(result.body, {
@@ -356,7 +381,12 @@ r2Buckets.delete('/api/sites/:siteId/r2/buckets/:bucket/objects/*', async (c) =>
   const key = objectKeyFromPath(c);
   if (!key) return c.json({ error: { code: 'BAD_REQUEST', message: 'Invalid object key' }, ok: false }, 400);
 
-  const result = await deleteSiteR2Object(c.env, g.allocation.bucketName, key);
+  const result = await deleteSiteR2Object(
+    c.env,
+    { orgId: g.orgId, siteId, tenantId: g.tenantId },
+    g.allocation.bucketName,
+    key,
+  );
   if (!result.ok) return r2Failure(c, result.reason, result.message);
   return c.json({ data: { deleted: true, key }, ok: true });
 });
