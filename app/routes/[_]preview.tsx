@@ -99,14 +99,14 @@ function BucketListSample() {
           </span>
           {b.isDefault && (
             <span
-              className="inline-flex items-center gap-0.5 rounded-md border border-bolt-elements-item-contentAccent/45 bg-bolt-elements-item-contentAccent/[0.1] px-1 py-px text-[8px] font-semibold uppercase tracking-wide text-bolt-elements-item-contentAccent shrink-0"
+              className="inline-flex items-center gap-0.5 rounded-md border border-bolt-elements-item-contentAccent/45 bg-[color-mix(in_oklch,var(--bolt-elements-item-contentAccent)_10%,transparent)] px-1 py-px text-[8px] font-semibold uppercase tracking-wide text-bolt-elements-item-contentAccent shrink-0"
               title="The site's default bucket"
             >
               <span className="i-ph:star-fill text-[7px]" aria-hidden="true" />
               Default
             </span>
           )}
-          <span className="ml-auto inline-flex items-center justify-center min-w-[18px] h-[16px] px-1 rounded-full bg-bolt-elements-item-contentAccent/[0.1] text-[9px] font-semibold tabular-nums text-bolt-elements-item-contentAccent/90">
+          <span className="ml-auto inline-flex items-center justify-center min-w-[18px] h-[16px] px-1 rounded-full bg-[color-mix(in_oklch,var(--bolt-elements-item-contentAccent)_10%,transparent)] text-[9px] font-semibold tabular-nums text-bolt-elements-item-contentAccent/90">
             {b.objects}
           </span>
         </li>
@@ -149,13 +149,13 @@ const SAMPLE_OBJECTS: { key: string; size: string }[] = [
 function SampleToolbar() {
   return (
     <div className="flex items-center gap-2 border-b border-bolt-elements-borderColor/60 px-3 py-2 text-xs text-bolt-elements-textSecondary shrink-0">
-      <span className="inline-flex items-center gap-1 rounded-md bg-bolt-elements-item-contentAccent/[0.1] px-1 py-0.5 font-medium text-bolt-elements-item-contentAccent">
+      <span className="inline-flex items-center gap-1 rounded-md bg-[color-mix(in_oklch,var(--bolt-elements-item-contentAccent)_10%,transparent)] px-1 py-0.5 font-medium text-bolt-elements-item-contentAccent">
         <span className="i-ph:hard-drives-duotone text-xs" aria-hidden="true" />
         site-assets
       </span>
       <div className="relative ml-auto hidden sm:block">
         <span className="i-ph:magnifying-glass absolute left-2 top-1/2 -translate-y-1/2 text-xs text-bolt-elements-textTertiary" aria-hidden="true" />
-        <span className="inline-flex min-w-[9rem] items-center rounded-lg border border-bolt-elements-borderColor bg-bolt-elements-background-depth-2 py-1 pl-7 pr-2 text-[11px] text-bolt-elements-textTertiary">
+        <span className="inline-flex min-w-[9rem] items-center rounded-lg border border-bolt-elements-borderColor bg-bolt-elements-background-depth-2 py-1 pl-7 pr-2 text-[11px] text-bolt-elements-textSecondary">
           Search all files…
         </span>
       </div>
@@ -179,7 +179,7 @@ function ObjectListSample({ testId }: { testId?: string }) {
         <li
           key={o.key}
           style={objectEntranceStyle(index)}
-          className={`group flex items-center gap-3 rounded-lg px-2.5 py-2 hover:bg-bolt-elements-item-contentAccent/[0.05] motion-safe:hover:translate-x-0.5 ${OBJECT_ENTRANCE_CLASS}`}
+          className={`group flex items-center gap-3 rounded-lg px-2.5 py-2 hover:bg-[color-mix(in_oklch,var(--bolt-elements-item-contentAccent)_5%,transparent)] motion-safe:hover:translate-x-0.5 ${OBJECT_ENTRANCE_CLASS}`}
         >
           {/* File-type glyph in an inset chip — mirrors the real list row's dimensional "asset" slot. */}
           <span className="flex items-center justify-center h-7 w-7 shrink-0 rounded-lg bg-bolt-elements-background-depth-2/70 ring-1 ring-inset ring-bolt-elements-borderColor/50 group-hover:ring-bolt-elements-item-contentAccent/25">
@@ -307,7 +307,7 @@ function PreviewShowcase() {
                 />
               </div>
               <div className="mt-3 flex items-center justify-end border-t border-bolt-elements-borderColor/40 pt-3">
-                <span className="inline-flex items-center gap-1.5 rounded-lg border border-bolt-elements-item-contentAccent/35 bg-bolt-elements-item-contentAccent/[0.06] px-3 py-1 text-[11px] text-bolt-elements-item-contentAccent">
+                <span className="inline-flex items-center gap-1.5 rounded-lg border border-bolt-elements-item-contentAccent/35 bg-[color-mix(in_oklch,var(--bolt-elements-item-contentAccent)_6%,transparent)] px-3 py-1 text-[11px] text-bolt-elements-item-contentAccent">
                   <span className="i-ph:download-simple text-sm" aria-hidden="true" /> Download
                 </span>
               </div>
@@ -498,17 +498,17 @@ export default function PanelPrimitiveGallery() {
               <span className="inline-flex items-center gap-1.5 text-[11px] font-semibold tabular-nums text-bolt-elements-item-contentAccent">
                 <span className="i-ph:check-square-duotone text-sm" aria-hidden="true" />3 selected
               </span>
-              <span className="rounded-lg border border-bolt-elements-borderColor bg-bolt-elements-background-depth-2 px-2 py-0.5 text-[10px] text-bolt-elements-textTertiary">
+              <span className="rounded-lg border border-bolt-elements-borderColor bg-bolt-elements-background-depth-2 px-2 py-0.5 text-[10px] text-bolt-elements-textSecondary">
                 Clear
               </span>
-              <span className="ml-auto inline-flex items-center gap-1 rounded-lg border border-bolt-elements-item-contentAccent/35 bg-bolt-elements-item-contentAccent/[0.06] px-2 py-0.5 text-[10px] text-bolt-elements-item-contentAccent">
+              <span className="ml-auto inline-flex items-center gap-1 rounded-lg border border-bolt-elements-item-contentAccent/35 bg-[color-mix(in_oklch,var(--bolt-elements-item-contentAccent)_6%,transparent)] px-2 py-0.5 text-[10px] text-bolt-elements-item-contentAccent">
                 <span className="i-ph:download-simple text-xs" aria-hidden="true" /> Download
               </span>
               <span className="inline-flex items-center gap-1 rounded-lg border border-red-400/40 bg-bolt-elements-background-depth-1/90 px-2 py-0.5 text-[10px] text-red-400">
                 <span className="i-ph:trash text-xs" aria-hidden="true" /> Delete
               </span>
             </div>
-            <div className="p-3 text-[11px] text-bolt-elements-textTertiary">
+            <div className="p-3 text-[11px] text-bolt-elements-textSecondary">
               The floating bar rises in on the shared <code className="text-bolt-elements-item-contentAccent">psBucketRise</code>{' '}
               keyframe (motion-safe, with a reduced-motion opt-out) when a selection exists.
             </div>

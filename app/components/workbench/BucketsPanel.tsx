@@ -86,9 +86,9 @@ const BTN_PRIMARY = classNames(
 );
 const BTN_SECONDARY = classNames(
   CTRL_BASE,
-  'border border-bolt-elements-item-contentAccent/35 bg-bolt-elements-item-contentAccent/[0.06]',
+  'border border-bolt-elements-item-contentAccent/35 bg-[color-mix(in_oklch,var(--bolt-elements-item-contentAccent)_6%,transparent)]',
   'text-bolt-elements-item-contentAccent',
-  'enabled:hover:bg-bolt-elements-item-contentAccent/[0.14] enabled:hover:border-bolt-elements-item-contentAccent/60',
+  'enabled:hover:bg-[color-mix(in_oklch,var(--bolt-elements-item-contentAccent)_14%,transparent)] enabled:hover:border-bolt-elements-item-contentAccent/60',
   'focus-visible:ring-bolt-elements-item-contentAccent',
 );
 const BTN_GHOST = classNames(
@@ -791,7 +791,7 @@ const BucketsHeader = memo(
               {/* Live affordance — the inventory self-updates on a visibility-aware poll; no manual
                 Refresh (per `real-time-data-no-manual-refresh`). */}
               <span
-                className="hidden sm:inline-flex items-center gap-1.5 text-[10px] text-bolt-elements-textTertiary select-none"
+                className="hidden sm:inline-flex items-center gap-1.5 text-[10px] text-bolt-elements-textSecondary select-none"
                 role="status"
                 aria-live="off"
                 title="This view updates itself automatically"
@@ -991,7 +991,7 @@ const BucketNavigator = memo(
                   {group.label}
                 </span>
                 {items.length > 0 && (
-                  <span className="inline-flex items-center justify-center min-w-[16px] h-[15px] px-1 rounded-full bg-bolt-elements-item-contentAccent/[0.1] text-[9px] font-semibold text-bolt-elements-item-contentAccent/90 tabular-nums">
+                  <span className="inline-flex items-center justify-center min-w-[16px] h-[15px] px-1 rounded-full bg-[color-mix(in_oklch,var(--bolt-elements-item-contentAccent)_10%,transparent)] text-[9px] font-semibold text-bolt-elements-item-contentAccent/90 tabular-nums">
                     {items.length}
                   </span>
                 )}
@@ -1195,7 +1195,7 @@ const BUCKET_MENU_CONTENT =
   'p-1 shadow-2xl shadow-black/40 motion-safe:animate-[fadeIn_.12s_ease-out]';
 const BUCKET_MENU_ITEM =
   'flex items-center gap-2 px-2.5 py-1.5 text-[11px] rounded-lg cursor-pointer select-none outline-none ' +
-  'text-bolt-elements-textSecondary data-[highlighted]:bg-bolt-elements-item-contentAccent/[0.12] ' +
+  'text-bolt-elements-textSecondary data-[highlighted]:bg-[color-mix(in_oklch,var(--bolt-elements-item-contentAccent)_12%,transparent)] ' +
   'data-[highlighted]:text-bolt-elements-item-contentAccent';
 
 const BucketRowMenu = memo(
@@ -1392,7 +1392,7 @@ const OBJECT_MENU_CONTENT =
   'p-1 shadow-2xl shadow-black/40 motion-safe:animate-[fadeIn_.12s_ease-out]';
 const OBJECT_MENU_ITEM =
   'flex items-center gap-2 px-2.5 py-1.5 text-[11px] rounded-lg cursor-pointer select-none outline-none ' +
-  'text-bolt-elements-textSecondary data-[highlighted]:bg-bolt-elements-item-contentAccent/[0.12] ' +
+  'text-bolt-elements-textSecondary data-[highlighted]:bg-[color-mix(in_oklch,var(--bolt-elements-item-contentAccent)_12%,transparent)] ' +
   'data-[highlighted]:text-bolt-elements-item-contentAccent data-[disabled]:opacity-40 data-[disabled]:cursor-not-allowed';
 
 /**
@@ -2156,7 +2156,7 @@ export const ObjectBrowser = memo(
             <button
               type="button"
               onClick={() => setPrefix('')}
-              className="inline-flex items-center gap-1 font-medium text-bolt-elements-item-contentAccent rounded-md px-1 py-0.5 transition-colors hover:bg-bolt-elements-item-contentAccent/[0.1] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-bolt-elements-item-contentAccent"
+              className="inline-flex items-center gap-1 font-medium text-bolt-elements-item-contentAccent rounded-md px-1 py-0.5 transition-colors hover:bg-[color-mix(in_oklch,var(--bolt-elements-item-contentAccent)_10%,transparent)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-bolt-elements-item-contentAccent"
               title={bucket.name}
             >
               <div className="i-ph:hard-drives-duotone text-xs" aria-hidden /> {bucket.name}
@@ -2395,7 +2395,7 @@ export const ObjectBrowser = memo(
                 <div
                   data-testid="buckets-search-truncated"
                   role="status"
-                  className="flex items-start gap-2 px-3 py-2 border-b border-bolt-elements-borderColor/40 bg-bolt-elements-item-contentAccent/[0.05] text-[11px] text-bolt-elements-textSecondary"
+                  className="flex items-start gap-2 px-3 py-2 border-b border-bolt-elements-borderColor/40 bg-[color-mix(in_oklch,var(--bolt-elements-item-contentAccent)_5%,transparent)] text-[11px] text-bolt-elements-textSecondary"
                 >
                   <div className="i-ph:info-duotone text-sm text-bolt-elements-item-contentAccent shrink-0 mt-px" aria-hidden />
                   <span>
@@ -2432,9 +2432,9 @@ export const ObjectBrowser = memo(
                         key={p}
                         type="button"
                         onClick={() => setPrefix(p)}
-                        className="group w-full flex items-center gap-3 px-3 py-2.5 border-b border-bolt-elements-borderColor/20 hover:bg-bolt-elements-item-contentAccent/[0.05] hover:border-bolt-elements-item-contentAccent/20 transition-[background-color,border-color,transform] duration-150 ease-[cubic-bezier(0.22,1,0.36,1)] motion-reduce:transition-none motion-safe:hover:translate-x-0.5 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-bolt-elements-item-contentAccent"
+                        className="group w-full flex items-center gap-3 px-3 py-2.5 border-b border-bolt-elements-borderColor/20 hover:bg-[color-mix(in_oklch,var(--bolt-elements-item-contentAccent)_5%,transparent)] hover:border-bolt-elements-item-contentAccent/20 transition-[background-color,border-color,transform] duration-150 ease-[cubic-bezier(0.22,1,0.36,1)] motion-reduce:transition-none motion-safe:hover:translate-x-0.5 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-bolt-elements-item-contentAccent"
                       >
-                        <div className="flex items-center justify-center h-7 w-7 shrink-0 rounded-lg ring-1 ring-inset ring-bolt-elements-item-contentAccent/20 bg-bolt-elements-item-contentAccent/[0.07]">
+                        <div className="flex items-center justify-center h-7 w-7 shrink-0 rounded-lg ring-1 ring-inset ring-bolt-elements-item-contentAccent/20 bg-[color-mix(in_oklch,var(--bolt-elements-item-contentAccent)_7%,transparent)]">
                           <div className="i-ph:folder-duotone text-lg text-bolt-elements-item-contentAccent" aria-hidden />
                         </div>
                         <span className="text-[12px] font-medium text-bolt-elements-textPrimary truncate flex-1">
@@ -2479,7 +2479,7 @@ export const ObjectBrowser = memo(
                           OBJECT_ENTRANCE_CLASS,
                           checked
                             ? 'border-bolt-elements-item-contentAccent/30 bg-[linear-gradient(90deg,color-mix(in_oklch,var(--bolt-elements-item-contentAccent)_10%,transparent),transparent_70%)] shadow-[inset_0_1px_0_color-mix(in_oklch,var(--bolt-elements-item-contentAccent)_12%,transparent)] motion-safe:scale-[1.004]'
-                            : 'border-bolt-elements-borderColor/20 hover:bg-bolt-elements-item-contentAccent/[0.05] hover:border-bolt-elements-item-contentAccent/20 motion-safe:hover:translate-x-0.5',
+                            : 'border-bolt-elements-borderColor/20 hover:bg-[color-mix(in_oklch,var(--bolt-elements-item-contentAccent)_5%,transparent)] hover:border-bolt-elements-item-contentAccent/20 motion-safe:hover:translate-x-0.5',
                         )}
                         data-testid="buckets-object-row"
                       >
@@ -2509,7 +2509,7 @@ export const ObjectBrowser = memo(
                           className={classNames(
                             'flex items-center justify-center h-7 w-7 shrink-0 rounded-lg ring-1 ring-inset transition-[background-color,box-shadow] duration-150 motion-reduce:transition-none',
                             checked
-                              ? 'bg-bolt-elements-item-contentAccent/[0.12] ring-bolt-elements-item-contentAccent/30'
+                              ? 'bg-[color-mix(in_oklch,var(--bolt-elements-item-contentAccent)_12%,transparent)] ring-bolt-elements-item-contentAccent/30'
                               : 'bg-bolt-elements-background-depth-2/70 ring-bolt-elements-borderColor/50 group-hover:ring-bolt-elements-item-contentAccent/25',
                           )}
                           aria-hidden
@@ -2665,7 +2665,7 @@ export const ObjectBrowser = memo(
                           // Cinematic staggered entrance (transform-only ⇒ no CLS) — same on every grid flip.
                           OBJECT_ENTRANCE_CLASS,
                           checked
-                            ? 'border-bolt-elements-item-contentAccent/60 bg-bolt-elements-item-contentAccent/[0.08] shadow-[0_0_0_1px_color-mix(in_oklch,var(--bolt-elements-item-contentAccent)_30%,transparent),0_8px_22px_-8px_color-mix(in_oklch,var(--bolt-elements-item-contentAccent)_55%,transparent)] motion-safe:scale-[1.02]'
+                            ? 'border-bolt-elements-item-contentAccent/60 bg-[color-mix(in_oklch,var(--bolt-elements-item-contentAccent)_8%,transparent)] shadow-[0_0_0_1px_color-mix(in_oklch,var(--bolt-elements-item-contentAccent)_30%,transparent),0_8px_22px_-8px_color-mix(in_oklch,var(--bolt-elements-item-contentAccent)_55%,transparent)] motion-safe:scale-[1.02]'
                             : 'border-bolt-elements-borderColor/70 bg-bolt-elements-background-depth-2 hover:border-bolt-elements-item-contentAccent/40 hover:bg-bolt-elements-background-depth-3 hover:shadow-[0_10px_26px_-10px_rgba(0,0,0,0.65)] motion-safe:hover:-translate-y-1',
                         )}
                       >
@@ -2811,7 +2811,7 @@ export const ObjectBrowser = memo(
             className="absolute inset-0 z-10 flex flex-col items-center justify-center gap-2 rounded-xl m-2 border-2 border-dashed border-bolt-elements-item-contentAccent/80 bg-[radial-gradient(120%_120%_at_50%_30%,color-mix(in_oklch,var(--bolt-elements-item-contentAccent)_14%,transparent),transparent_60%),color-mix(in_oklch,var(--bolt-elements-bg-depth-1)_88%,transparent)] backdrop-blur-md pointer-events-none motion-safe:animate-[fadeIn_.15s_ease-out]"
             data-testid="buckets-drop-overlay"
           >
-            <div className="flex items-center justify-center h-14 w-14 rounded-2xl border border-bolt-elements-item-contentAccent/40 bg-bolt-elements-item-contentAccent/[0.1] shadow-[0_0_30px_-6px_color-mix(in_oklch,var(--bolt-elements-item-contentAccent)_60%,transparent)]">
+            <div className="flex items-center justify-center h-14 w-14 rounded-2xl border border-bolt-elements-item-contentAccent/40 bg-[color-mix(in_oklch,var(--bolt-elements-item-contentAccent)_10%,transparent)] shadow-[0_0_30px_-6px_color-mix(in_oklch,var(--bolt-elements-item-contentAccent)_60%,transparent)]">
               <div
                 className="i-ph:upload-simple-duotone text-3xl text-bolt-elements-item-contentAccent motion-safe:animate-bounce motion-reduce:animate-none"
                 aria-hidden
@@ -2826,7 +2826,7 @@ export const ObjectBrowser = memo(
 
         {/* In-flight upload strip. */}
         {uploading && (
-          <div className="flex items-center gap-2 px-3 py-1.5 border-t border-bolt-elements-item-contentAccent/30 bg-bolt-elements-item-contentAccent/[0.05] shrink-0">
+          <div className="flex items-center gap-2 px-3 py-1.5 border-t border-bolt-elements-item-contentAccent/30 bg-[color-mix(in_oklch,var(--bolt-elements-item-contentAccent)_5%,transparent)] shrink-0">
             <div
               className="i-ph:circle-notch text-sm text-bolt-elements-item-contentAccent animate-spin motion-reduce:animate-none"
               aria-hidden
@@ -3453,7 +3453,7 @@ export const OwnerKeySection = memo(() => {
       <SettingsSection title="API access key" icon="i-ph:key-duotone" hint="For wrangler, aws-cli + S3 SDKs.">
         <p
           data-testid="buckets-owner-key-disabled"
-          className="rounded-lg border border-bolt-elements-borderColor bg-bolt-elements-background-depth-1 p-2.5 text-[11px] text-bolt-elements-textTertiary leading-relaxed"
+          className="rounded-lg border border-bolt-elements-borderColor bg-bolt-elements-background-depth-1 p-2.5 text-[11px] text-bolt-elements-textSecondary leading-relaxed"
           role="status"
         >
           Access keys are on the way. Once this is turned on, you&rsquo;ll be able to mint a key for your own tooling
@@ -3831,7 +3831,7 @@ export const BucketKeySection = memo(({ bucket }: { bucket: string }) => {
       <SettingsSection title="Bucket access key" icon="i-ph:key-duotone" hint={scopeHint}>
         <p
           data-testid="buckets-bucket-key-disabled"
-          className="rounded-lg border border-bolt-elements-borderColor bg-bolt-elements-background-depth-1 p-2.5 text-[11px] text-bolt-elements-textTertiary leading-relaxed"
+          className="rounded-lg border border-bolt-elements-borderColor bg-bolt-elements-background-depth-1 p-2.5 text-[11px] text-bolt-elements-textSecondary leading-relaxed"
           role="status"
         >
           Per-bucket access keys are on the way. Once this is turned on, you&rsquo;ll be able to mint a key for just
@@ -3890,7 +3890,7 @@ export const BucketKeySection = memo(({ bucket }: { bucket: string }) => {
       <div data-testid="buckets-bucket-key" className="space-y-2.5">
         {/* Scope banner — unmistakable this is NOT the site-wide key above. */}
         <p
-          className="rounded-lg border border-bolt-elements-item-contentAccent/30 bg-bolt-elements-item-contentAccent/[0.05] px-2.5 py-1.5 text-[10px] leading-relaxed text-bolt-elements-textSecondary"
+          className="rounded-lg border border-bolt-elements-item-contentAccent/30 bg-[color-mix(in_oklch,var(--bolt-elements-item-contentAccent)_5%,transparent)] px-2.5 py-1.5 text-[10px] leading-relaxed text-bolt-elements-textSecondary"
           data-testid="buckets-bucket-key-scope"
         >
           <span className="i-ph:lock-key text-xs align-[-2px] text-bolt-elements-item-contentAccent" aria-hidden />{' '}
@@ -4090,7 +4090,7 @@ const BucketKeyRevealModal = memo(
 
         <div className="mt-3 space-y-2">
           <AddressRow label="Access Key ID" value={accessKeyId} hint="Pairs with the secret below" />
-          <div className="rounded-lg border border-bolt-elements-item-contentAccent/40 bg-bolt-elements-item-contentAccent/[0.05] p-2">
+          <div className="rounded-lg border border-bolt-elements-item-contentAccent/40 bg-[color-mix(in_oklch,var(--bolt-elements-item-contentAccent)_5%,transparent)] p-2">
             <div className="flex items-center justify-between gap-2">
               <span className="text-[10px] font-medium uppercase tracking-wide text-bolt-elements-item-contentAccent">
                 Secret Access Key
@@ -4170,7 +4170,7 @@ const OwnerKeyRevealModal = memo(
 
         <div className="mt-3 space-y-2">
           <AddressRow label="Access Key ID" value={accessKeyId} hint="Pairs with the secret below" />
-          <div className="rounded-lg border border-bolt-elements-item-contentAccent/40 bg-bolt-elements-item-contentAccent/[0.05] p-2">
+          <div className="rounded-lg border border-bolt-elements-item-contentAccent/40 bg-[color-mix(in_oklch,var(--bolt-elements-item-contentAccent)_5%,transparent)] p-2">
             <div className="flex items-center justify-between gap-2">
               <span className="text-[10px] font-medium uppercase tracking-wide text-bolt-elements-item-contentAccent">
                 Secret Access Key
@@ -5455,7 +5455,7 @@ const ObjectsSearching = memo(({ term }: { term: string }) => (
     aria-live="polite"
     data-testid="buckets-objects-searching"
   >
-    <div className="flex items-center justify-center h-12 w-12 rounded-2xl border border-bolt-elements-item-contentAccent/30 bg-bolt-elements-item-contentAccent/[0.07] shadow-[0_0_28px_-6px_color-mix(in_oklch,var(--bolt-elements-item-contentAccent)_55%,transparent)]">
+    <div className="flex items-center justify-center h-12 w-12 rounded-2xl border border-bolt-elements-item-contentAccent/30 bg-[color-mix(in_oklch,var(--bolt-elements-item-contentAccent)_7%,transparent)] shadow-[0_0_28px_-6px_color-mix(in_oklch,var(--bolt-elements-item-contentAccent)_55%,transparent)]">
       <div className="i-ph:magnifying-glass-duotone text-2xl text-bolt-elements-item-contentAccent motion-safe:animate-pulse" aria-hidden />
     </div>
     <p className="text-xs text-bolt-elements-textSecondary max-w-[280px] leading-relaxed">
