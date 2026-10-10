@@ -466,3 +466,27 @@ describe('BucketsPanel — B3: keyboard shortcuts help sheet', () => {
     expect(screen.getByText(/toggle the object view/i)).toBeTruthy();
   });
 });
+
+describe('BucketsPanel — owner-friendly needs-creds copy (embarrassingly-easy)', () => {
+  it('the needs-creds state has NO R2/S3 jargon and reads owner-friendly', async () => {
+    // Object ops are off → EVERY owner sees this state; it must speak the owner's words, not infra jargon.
+    requestR2.mockImplementation(async (input: { op: string }) => {
+      if (input.op === 'listBuckets') {
+        return {
+          type: 'PS_R2_RESULT',
+          ok: true,
+          objectOpsAvailable: false,
+          buckets: [{ name: 'Preview', isDefault: true, public: false, environment: 'preview' }],
+        };
+      }
+
+      return { type: 'PS_R2_RESULT', ok: true, objects: [], prefixes: [], truncated: false };
+    });
+    render(<BucketsPanel />);
+    await waitFor(() => expect(screen.getByTestId('buckets-objects-needs-creds')).toBeTruthy());
+
+    const region = screen.getByTestId('buckets-objects-needs-creds');
+    expect(region.textContent ?? '').not.toMatch(/R2|S3|credential/i);
+    expect(region.textContent ?? '').toMatch(/being (set up|enabled)/i);
+  });
+});

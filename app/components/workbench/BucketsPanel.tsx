@@ -553,7 +553,7 @@ const BucketsHeader = memo(
                 <span className="text-bolt-elements-textSecondary font-medium">{count}</span> bucket
                 {count === 1 ? '' : 's'}
                 {!objectOpsAvailable && (
-                  <span className="text-bolt-elements-textTertiary"> · object ops need R2 keys</span>
+                  <span className="text-bolt-elements-textTertiary"> · file uploads coming soon</span>
                 )}
               </span>
             ) : (
@@ -1106,7 +1106,8 @@ const ObjectBrowser = memo(
         if (!objectOpsAvailable) {
           setObjects({
             status: 'needs-creds',
-            message: 'Uploading + browsing objects needs R2 S3 credentials. Bucket management still works.',
+            message:
+              'Uploading and browsing the files inside your buckets is being enabled for your site — nothing to set up on your end. You can still create and manage buckets.',
           });
           return;
         }
@@ -1124,7 +1125,10 @@ const ObjectBrowser = memo(
 
           if (!reply.ok) {
             if (reply.needsCreds) {
-              setObjects({ status: 'needs-creds', message: reply.error || 'Object ops need R2 S3 credentials.' });
+              setObjects({
+                status: 'needs-creds',
+                message: 'Uploading and browsing files is being enabled for your site.',
+              });
               return;
             }
 
@@ -1506,7 +1510,7 @@ const ObjectBrowser = memo(
               onClick={() => fileInputRef.current?.click()}
               disabled={uploading || !objectOpsAvailable}
               data-testid="buckets-upload"
-              title={objectOpsAvailable ? 'Upload files to this bucket' : 'Object uploads need R2 S3 credentials'}
+              title={objectOpsAvailable ? 'Upload files to this bucket' : 'File uploads are being set up for your site'}
               className={classNames(BTN_PRIMARY, 'shrink-0 min-h-[26px] px-3 py-1 text-[11px]')}
             >
               <div
@@ -2394,7 +2398,7 @@ const DeleteBucketModal = memo(
         if (!reply.ok) {
           setError(
             reply.needsCreds
-              ? 'This bucket has objects and needs R2 S3 credentials to empty first.'
+              ? 'This bucket still has files in it — emptying it is being set up for your site.'
               : reply.error || 'Could not delete the bucket.',
           );
           return;
@@ -2717,9 +2721,9 @@ const ObjectsNeedsCreds = memo(({ message }: { message: string }) => (
       className="flex items-center justify-center h-14 w-14 rounded-2xl border"
       style={{ borderColor: `color-mix(in oklch, ${PURPLE} 40%, transparent)` }}
     >
-      <div className="i-ph:key-duotone text-3xl" style={{ color: PURPLE_INK }} aria-hidden />
+      <div className="i-ph:cloud-arrow-up-duotone text-3xl" style={{ color: PURPLE_INK }} aria-hidden />
     </div>
-    <p className="text-sm font-semibold text-bolt-elements-textSecondary">Object storage needs R2 keys</p>
+    <p className="text-sm font-semibold text-bolt-elements-textSecondary">File uploads are being set up</p>
     <p className="text-[11px] text-bolt-elements-textTertiary max-w-[280px] leading-relaxed">{message}</p>
   </div>
 ));
