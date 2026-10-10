@@ -1663,9 +1663,9 @@ Lean fire (coalesced 2 overlapping cron ticks via lease mutex). ONE coherent ver
 5. b3 — animated bulk-action bar (role=toolbar, cyan rail, psBucketRise) + no-regression screenshot (0 errors).
 → ≥5 numbered visual rounds now logged; DoD visual-rounds clause SATISFIED.
 
-
-## fire-38039150213-fleet — named git fire identity repair (2026-10-10 UTC)
-
-Observed orientation defect: git recency omitted `fire-buckets-b3ms` and `fire-buckets-b12`, and truncated `fire-38039150213-fleet`. Added shared token matching for complete numeric/named identities and removed identities before category classification. Two regression tests failed before repair; all 12 recency/reporting tests passed afterward. Production homepage and editor entry points returned HTTP 200; no browser journey or product deployment was performed. This is local tooling, not a completed product golden path. Independent read-only review found no blocking regression; confirmed the existing limitation that feature commits without fire IDs cannot contribute category evidence. Commit is the enclosing `fix(loop)` commit; outer runner owns publication.
-
-Recovery: retained failed worktree was clean; its receipt reports completion-evidence failure rather than unpublished code. Both prior reported successful commits are ancestors of origin/main. Next frontier: named ledger header parsing with git-based chronology, recorded in BACKLOG. Loop improvement: category input now includes the actual recent named fires.
+## fire-buckets-b4ui (2026-10-10) — per-bucket Access Keys workspace (B4-UI)
+Lean fire. ONE coherent verified slice = B4-UI (consuming UI for the per-bucket key backend proven in fire b4). FE-only.
+- B4-UI-FE `87d6b03da` — BucketKeySection in BucketWorkspace Settings tab (beneath site-wide OwnerKeySection): per-bucket masked id + status via requestBucketOwnerKeyStatus(bucket), create (show-once secret in ModalShell + copy), rotate (re-reveal), revoke (confirm-first); re-fetches + closes stale dialogs on bucket-switch; consumes per-bucket helpers exclusively (site-wide asserted never-called); cyan scope banner "unlocks ONLY this bucket" vs site-wide "all buckets"; graceful dark/needs-creds/error; motion-reduce. 11 render tests (RED-first) + siblings 10 green; build ✓.
+- B4-UI-GROOM `edbf82b82`/`7fde41b1b` — B3 reconciled DONE, visual-rounds MET; DoD §21 ≈ 85% (~19/22).
+- lead — editor Pages e79b3aca; no-regression verified (gallery 200 · body 2373 · 0 console errors). Authed-Settings UI → 11 unit tests are behavioral proof; the consumed per-bucket backend was prod-proven in b4 (200 own / 403 other / 401 revoked). Per-bucket key feature now END-TO-END complete (UI→bridge→backend→valid creds).
+- DoD §21 NOT met — remaining B6 clone · B7 zip · B8 copy/move/rename · B9 per-object public+shares · B10 env reassign+rollback · B11 server search · B15 Code-view selector · B14 axe. Cron b1182793 KEPT.
