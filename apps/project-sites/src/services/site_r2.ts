@@ -460,9 +460,12 @@ export async function ensureSiteS3Token(
     cf_token_id: string;
   }>(
     env.DB,
+    // kind='internal' ONLY — the Worker's reusable object-ops token. An owner-facing key
+    // (kind='owner', slice 4) stores NO secret, so it must never be returned here (its empty
+    // `secret_enc` would break object signing). See migration 0661.
     `SELECT access_key_id, secret_enc, cf_token_id
        FROM site_r2_s3_tokens
-      WHERE site_id = ? AND status = 'active' AND deleted_at IS NULL
+      WHERE site_id = ? AND kind = 'internal' AND status = 'active' AND deleted_at IS NULL
       ORDER BY created_at DESC`,
     [siteId],
   );
@@ -523,8 +526,8 @@ export async function ensureSiteS3Token(
   await dbExecute(
     env.DB,
     `INSERT INTO site_r2_s3_tokens
-       (id, tenant_id, site_id, access_key_id, secret_enc, cf_token_id, scope_bucket_ids, status, created_at, updated_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, 'active', datetime('now'), datetime('now'))`,
+       (id, tenant_id, site_id, access_key_id, secret_enc, cf_token_id, scope_bucket_ids, kind, status, created_at, updated_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, 'internal', 'active', datetime('now'), datetime('now'))`,
     [uuidv7(), tenantId, siteId, created.id, secretEnc, created.id, JSON.stringify(bucketNames)],
   );
 
@@ -572,6 +575,263 @@ async function cfCreateToken(
   return { id: json.result?.id, ok: true, status: r.status, value: json.result?.value };
 }
 
+/** DELETE a CF API token by id (best-effort revoke at Cloudflare). Returns whether CF acked the delete. */
+async function cfDeleteToken(auth: CfAuth, account: string, tokenId: string): Promise<boolean> {
+  try {
+    const res = await fetch(`${CF_API_BASE}/accounts/${account}/tokens/${tokenId}`, {
+      headers: cfAuthHeaders(auth),
+      method: 'DELETE',
+    });
+    return res.ok;
+  } catch {
+    return false;
+  }
+}
+
+// ── Per-site OWNER-FACING scoped R2 key (Buckets B5 slice 4) ────────────────────────────────────────
+//
+// SEPARATE from the Worker's INTERNAL object-ops token (ensureSiteS3Token above). This is a key the
+// SITE OWNER mints to use R2 from their OWN tooling (wrangler / aws-cli / SDKs). Same CF-token-minting
+// pattern (both R2 object Read + Write permission groups, scoped to ONLY the site's OWN buckets via
+// {@link bucketScopeResources}) — but a DIFFERENT lifecycle + visibility:
+//   • The Secret Access Key is returned ONCE at create/rotate and NEVER persisted (the CF create-token
+//     response is the only place it ever exists — we store only accessKeyId + cf_token_id + status +
+//     timestamps). `secret_enc` is NOT NULL on the table, so an owner row stores a SENTINEL ' ' there.
+//   • Exactly ONE active owner key per site (idempotent create — an existing active key is returned
+//     masked, WITHOUT a secret; rotate supersedes + mints fresh; revoke tears down at Cloudflare).
+// Rows carry kind='owner' so they never cross the internal object-ops path (which filters kind='internal').
+
+/** Sentinel stored in the NOT-NULL `secret_enc` for owner rows — the real owner secret is NEVER persisted. */
+const OWNER_KEY_SECRET_SENTINEL = ' ';
+
+/** Masked view of a site's owner key — safe to return anywhere (NEVER carries the secret). */
+export interface SiteR2OwnerKeyStatus {
+  /** `true` when an active owner key exists. */
+  readonly exists: boolean;
+  /** The S3 Access Key ID, MASKED (`abcd…wxyz`) — enough to recognize, never the full id. */
+  readonly accessKeyIdMasked: string | null;
+  /** `active` when a key exists; `none` otherwise. */
+  readonly status: 'active' | 'none';
+  /** ISO creation timestamp of the active key (null when none). */
+  readonly createdAt: string | null;
+  /** ISO last-rotation timestamp (null if never rotated / no key). */
+  readonly rotatedAt: string | null;
+}
+
+/** A freshly minted owner key — the ONLY place the plaintext secret is ever returned (show-once). */
+export interface SiteR2OwnerKeySecret {
+  readonly accessKeyId: string;
+  /** The Secret Access Key — returned ONCE, never stored, never retrievable again. */
+  readonly secretAccessKey: string;
+  readonly status: 'active';
+  readonly createdAt: string;
+}
+
+/** Mask an access key id to `head…tail` (first 4 + last 4), or a short id verbatim-ish. */
+function maskAccessKeyId(id: string): string {
+  if (id.length <= 8) return `${id.slice(0, 2)}…`;
+  return `${id.slice(0, 4)}…${id.slice(-4)}`;
+}
+
+/** Fetch the site's ACTIVE owner-key row (kind='owner'), or null. */
+async function activeOwnerKeyRow(
+  env: Env,
+  siteId: string,
+): Promise<{ id: string; access_key_id: string; cf_token_id: string; created_at: string; rotated_at: string | null } | null> {
+  return dbQueryOne<{
+    id: string;
+    access_key_id: string;
+    cf_token_id: string;
+    created_at: string;
+    rotated_at: string | null;
+  }>(
+    env.DB,
+    `SELECT id, access_key_id, cf_token_id, created_at, rotated_at
+       FROM site_r2_s3_tokens
+      WHERE site_id = ? AND kind = 'owner' AND status = 'active' AND deleted_at IS NULL
+      ORDER BY created_at DESC`,
+    [siteId],
+  );
+}
+
+/**
+ * Return the MASKED status of a site's owner key — never the secret. Used by `GET /r2/keys`. A site with
+ * no owner key reads back `{exists:false, status:'none'}` (a calm empty state, not an error).
+ */
+export async function getSiteOwnerKeyStatus(
+  env: Env,
+  ctx: SiteR2Context,
+): Promise<SiteR2Result<{ key: SiteR2OwnerKeyStatus }>> {
+  const row = await activeOwnerKeyRow(env, ctx.siteId);
+  if (!row)
+    return {
+      key: { accessKeyIdMasked: null, createdAt: null, exists: false, rotatedAt: null, status: 'none' },
+      ok: true,
+    };
+  return {
+    key: {
+      accessKeyIdMasked: maskAccessKeyId(row.access_key_id),
+      createdAt: row.created_at,
+      exists: true,
+      rotatedAt: row.rotated_at,
+      status: 'active',
+    },
+    ok: true,
+  };
+}
+
+/**
+ * Mint a per-site, bucket-SCOPED OWNER R2 S3 key. Idempotent: if an active owner key already exists it is
+ * returned MASKED (WITHOUT a secret — the secret is unrecoverable; the owner must rotate to get a fresh
+ * one). Otherwise resolves server-side CF creds, calls the CF Create-Token endpoint scoped to ONLY this
+ * site's OWN buckets (both R2 object Read + Write groups), and records the row storing ONLY the
+ * accessKeyId + cf_token_id (NO secret). Returns the show-once `{accessKeyId, secretAccessKey, …}` on a
+ * fresh mint. Fails soft + honest — records NOTHING when creds are absent or the CF create fails.
+ */
+export async function createSiteOwnerKey(
+  env: Env,
+  ctx: SiteR2Context,
+): Promise<SiteR2Result<{ key: SiteR2OwnerKeySecret; reused: false } | { key: SiteR2OwnerKeyStatus; reused: true }>> {
+  // 1. Idempotency — an existing active owner key is returned MASKED (its secret is gone forever).
+  const existing = await activeOwnerKeyRow(env, ctx.siteId);
+  if (existing) {
+    return {
+      key: {
+        accessKeyIdMasked: maskAccessKeyId(existing.access_key_id),
+        createdAt: existing.created_at,
+        exists: true,
+        rotatedAt: existing.rotated_at,
+        status: 'active',
+      },
+      ok: true,
+      reused: true,
+    };
+  }
+  return mintOwnerKey(env, ctx);
+}
+
+/**
+ * Rotate a site's owner key: REVOKE the old CF token (best-effort — an orphaned bucket-scoped token is
+ * harmless), supersede its row, then mint a fresh key + return the new secret ONCE. Works even when no
+ * prior key exists (behaves like create). The old key stops working the instant CF revokes it.
+ */
+export async function rotateSiteOwnerKey(
+  env: Env,
+  ctx: SiteR2Context,
+): Promise<SiteR2Result<{ key: SiteR2OwnerKeySecret }>> {
+  const cf = await resolveCf(env, ctx.orgId);
+  if (!cf.ok) return { ok: false, reason: cf.reason };
+
+  const prior = await activeOwnerKeyRow(env, ctx.siteId);
+  if (prior) {
+    await cfDeleteToken(cf.auth, cf.account, prior.cf_token_id); // best-effort revoke at Cloudflare
+    await dbExecute(
+      env.DB,
+      `UPDATE site_r2_s3_tokens
+          SET status = 'superseded', updated_at = datetime('now'), deleted_at = datetime('now')
+        WHERE id = ? AND site_id = ?`,
+      [prior.id, ctx.siteId],
+    );
+  }
+  const minted = await mintOwnerKey(env, ctx, { rotated: true });
+  if (!minted.ok) return minted;
+  return { key: minted.key, ok: true };
+}
+
+/**
+ * Revoke a site's owner key: DELETE the CF token at Cloudflare + soft-delete (revoke) the row. Idempotent
+ * — revoking when no key exists is a success no-op. After this the key stops working everywhere.
+ */
+export async function revokeSiteOwnerKey(
+  env: Env,
+  ctx: SiteR2Context,
+): Promise<SiteR2Result<{ revoked: boolean }>> {
+  const row = await activeOwnerKeyRow(env, ctx.siteId);
+  if (!row) return { ok: true, revoked: false }; // nothing to revoke — idempotent success
+
+  const cf = await resolveCf(env, ctx.orgId);
+  if (!cf.ok) return { ok: false, reason: cf.reason };
+
+  await cfDeleteToken(cf.auth, cf.account, row.cf_token_id); // best-effort revoke at Cloudflare
+  await dbExecute(
+    env.DB,
+    `UPDATE site_r2_s3_tokens
+        SET status = 'revoked', updated_at = datetime('now'), deleted_at = datetime('now')
+      WHERE id = ? AND site_id = ?`,
+    [row.id, ctx.siteId],
+  );
+  return { ok: true, revoked: true };
+}
+
+/**
+ * Shared mint path for {@link createSiteOwnerKey} + {@link rotateSiteOwnerKey}: resolve CF creds + the
+ * site's OWN bucket scope, call the CF Create-Token endpoint (both R2 object Read + Write groups),
+ * persist ONLY the accessKeyId + cf_token_id (secret NEVER stored — sentinel in `secret_enc`), and
+ * return the show-once secret. The Secret Access Key is the SHA-256 hex of the raw CF token `value`.
+ */
+async function mintOwnerKey(
+  env: Env,
+  ctx: SiteR2Context,
+  opts: { rotated?: boolean } = {},
+): Promise<SiteR2Result<{ key: SiteR2OwnerKeySecret; reused: false }>> {
+  const cf = await resolveCf(env, ctx.orgId);
+  if (!cf.ok) return { ok: false, reason: cf.reason };
+
+  // Scope to ONLY this site's OWN bucket names (never account-wide, never another site's).
+  const allocations = await listSiteR2Allocations(env, ctx.siteId);
+  const bucketNames = allocations.map((a) => a.bucketName).filter((n) => !FORBIDDEN_BUCKET_NAMES.has(n));
+  const resources = bucketScopeResources(cf.account, bucketNames);
+
+  const created = await cfCreateToken(cf.auth, cf.account, {
+    name: `ps-site-${ctx.siteId}-r2-owner`,
+    policies: [
+      {
+        effect: 'allow',
+        permission_groups: [
+          { id: R2_OBJECT_READ_PERMISSION_GROUP_ID },
+          { id: R2_OBJECT_WRITE_PERMISSION_GROUP_ID },
+        ],
+        resources,
+      },
+    ],
+  });
+  if (!created.ok || !created.id || created.value === undefined) {
+    return {
+      message: created.message ?? 'Cloudflare token create failed',
+      ok: false,
+      reason: 'cf_error',
+      status: created.status,
+    };
+  }
+
+  // The S3 Secret Access Key is the SHA-256 hex of the raw token `value` (CF docs). Returned ONCE below;
+  // NEVER persisted — the row stores a sentinel in the NOT-NULL `secret_enc`.
+  const secret = await sha256Hex(created.value);
+  const createdAt = new Date().toISOString();
+  await dbExecute(
+    env.DB,
+    `INSERT INTO site_r2_s3_tokens
+       (id, tenant_id, site_id, access_key_id, secret_enc, cf_token_id, scope_bucket_ids, kind, status, created_at, updated_at, rotated_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, 'owner', 'active', datetime('now'), datetime('now'), ?)`,
+    [
+      uuidv7(),
+      ctx.tenantId,
+      ctx.siteId,
+      created.id,
+      OWNER_KEY_SECRET_SENTINEL,
+      created.id,
+      JSON.stringify(bucketNames),
+      opts.rotated ? createdAt : null,
+    ],
+  );
+
+  return {
+    key: { accessKeyId: created.id, createdAt, secretAccessKey: secret, status: 'active' },
+    ok: true,
+    reused: false,
+  };
+}
+
 /**
  * Invalidate (revoke + supersede) a site's active S3 token(s). Called when the site's bucket SET changes
  * (a new bucket is provisioned) so the next {@link ensureSiteS3Token} re-mints a token whose scope covers
@@ -586,9 +846,11 @@ async function invalidateSiteS3Tokens(
   account: string,
 ): Promise<void> {
   try {
+    // kind='internal' ONLY — re-scoping the Worker's object-ops token must NOT touch the owner's
+    // standalone key (kind='owner', slice 4); the owner rotates/revokes that one explicitly.
     const { data } = await dbQuery<{ cf_token_id: string }>(
       env.DB,
-      `SELECT cf_token_id FROM site_r2_s3_tokens WHERE site_id = ? AND status = 'active' AND deleted_at IS NULL`,
+      `SELECT cf_token_id FROM site_r2_s3_tokens WHERE site_id = ? AND kind = 'internal' AND status = 'active' AND deleted_at IS NULL`,
       [siteId],
     );
     if (data.length === 0) return;
@@ -606,7 +868,7 @@ async function invalidateSiteS3Tokens(
       env.DB,
       `UPDATE site_r2_s3_tokens
           SET status = 'superseded', updated_at = datetime('now'), deleted_at = datetime('now')
-        WHERE site_id = ? AND status = 'active' AND deleted_at IS NULL`,
+        WHERE site_id = ? AND kind = 'internal' AND status = 'active' AND deleted_at IS NULL`,
       [siteId],
     );
   } catch (err) {

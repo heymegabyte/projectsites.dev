@@ -2442,6 +2442,86 @@ export interface BucketDownloadResponseMessage {
   error?: string;
 }
 
+/*
+ * ── Owner-facing scoped R2 key bridge messages (Resources → Buckets, B5 slice 4) ────────────────
+ *
+ * A SEPARATE credential from the Worker's internal object-ops token: the scoped R2 S3 key the SITE
+ * OWNER mints to use R2 from their OWN tooling (wrangler / aws-cli / SDKs). The embedded editor has no
+ * cross-origin session, so the admin (which holds `selectedSite` + the bearer) proxies each op to the
+ * worker's `/api/sites/:id/r2/keys*` endpoints. DARK behind the `r2_bucket_manager` flag → a 404 whose
+ * message includes "not enabled" → `{ok:false, enabled:false}`. The Secret Access Key is returned ONCE
+ * on create/rotate (`secretAccessKey` on the reply) and NEVER re-fetchable; `status` carries the masked
+ * state (never the secret).
+ */
+
+/** The masked owner-key status in a reply — the access key id is MASKED, the secret is NEVER present. */
+export interface OwnerKeyStatus {
+  exists: boolean;
+  /** The S3 Access Key ID, MASKED (`abcd…wxyz`). */
+  accessKeyIdMasked: string | null;
+  status: 'active' | 'none';
+  createdAt: string | null;
+  rotatedAt: string | null;
+}
+
+/** Child → Parent: fetch the site's owner-key MASKED status (never the secret). */
+export interface OwnerKeyStatusRequestMessage {
+  type: 'PS_R2_KEY_STATUS';
+  correlationId: string;
+}
+
+/** Child → Parent: CREATE the site's owner key (idempotent — returns the show-once secret only on a fresh mint). */
+export interface OwnerKeyCreateRequestMessage {
+  type: 'PS_R2_KEY_CREATE';
+  correlationId: string;
+}
+
+/** Child → Parent: ROTATE the site's owner key (revoke old + mint new; returns the new show-once secret). */
+export interface OwnerKeyRotateRequestMessage {
+  type: 'PS_R2_KEY_ROTATE';
+  correlationId: string;
+}
+
+/** Child → Parent: REVOKE the site's owner key (idempotent). */
+export interface OwnerKeyRevokeRequestMessage {
+  type: 'PS_R2_KEY_REVOKE';
+  correlationId: string;
+}
+
+/**
+ * Parent → Child: reply to any owner-key op. `secretAccessKey` + `accessKeyId` ride along ONLY on a
+ * fresh create/rotate (the show-once secret — never persisted, never fetchable again). `status` carries
+ * the masked state for status/idempotent-create/revoke. `enabled:false` is the `r2_bucket_manager`
+ * dark-flag 404 (→ the surface hides). `needsCreds:true` is the honest "storage not configured" state.
+ */
+export interface OwnerKeyResponseMessage {
+  type: 'PS_R2_KEY_RESULT';
+  correlationId?: string;
+  ok: boolean;
+
+  /** Echoed op (`create` | `rotate` | `revoke` | `status`). */
+  op?: 'create' | 'rotate' | 'revoke' | 'status';
+
+  /** The S3 Access Key ID — present ONLY on a fresh create/rotate (alongside {@link secretAccessKey}). */
+  accessKeyId?: string;
+
+  /** The Secret Access Key — present ONCE on a fresh create/rotate. NEVER stored, NEVER re-fetchable. */
+  secretAccessKey?: string;
+
+  /** The masked status (status / idempotent-create / revoke). Never carries the secret. */
+  status?: OwnerKeyStatus;
+
+  /** `revoke`: whether a key was actually torn down (false → there was none; idempotent success). */
+  revoked?: boolean;
+
+  /** `false` when the `r2_bucket_manager` flag is dark (the 404 "not enabled") → the surface hides. */
+  enabled?: boolean;
+
+  /** `true` when minting needs CF/R2 credentials the platform hasn't configured (honest, actionable). */
+  needsCreds?: boolean;
+  error?: string;
+}
+
 // ── Claude Code panel dark-flag bridge (WLK-39 §75 flagship, S7-prep) ───────────
 
 /**
@@ -2569,6 +2649,7 @@ export type ParentToChildMessage =
   | R2ResponseMessage
   | BucketUploadResponseMessage
   | BucketDownloadResponseMessage
+  | OwnerKeyResponseMessage
   | ClaudeFlagResponseMessage
   | ResolveResponseMessage
   | PSToastMessage;
@@ -2619,6 +2700,10 @@ export type ChildToParentMessage =
   | R2RequestMessage
   | BucketUploadRequestMessage
   | BucketDownloadRequestMessage
+  | OwnerKeyStatusRequestMessage
+  | OwnerKeyCreateRequestMessage
+  | OwnerKeyRotateRequestMessage
+  | OwnerKeyRevokeRequestMessage
   | ClaudeFlagRequestMessage
   | ResolveRequestMessage
   | PSErrorMessage
@@ -3499,6 +3584,54 @@ export function requestBucketDownload(input: { bucket: string; key: string }): P
   return requestFromParent<BucketDownloadResponseMessage>(
     { type: 'PS_R2_DOWNLOAD', correlationId: nextBridgeCorrelationId(), ...input },
     'PS_R2_DOWNLOAD_RESULT',
+  );
+}
+
+/**
+ * Resources → Buckets: fetch the site's OWNER-FACING scoped R2 key MASKED status (never the secret). The
+ * admin proxies to `GET /api/sites/:id/r2/keys`. DARK behind `r2_bucket_manager` → `{ok:false,
+ * enabled:false}`. Resolves with the parent's {@link OwnerKeyResponseMessage}.
+ */
+export function requestOwnerKeyStatus(): Promise<OwnerKeyResponseMessage> {
+  return requestFromParent<OwnerKeyResponseMessage>(
+    { type: 'PS_R2_KEY_STATUS', correlationId: nextBridgeCorrelationId() },
+    'PS_R2_KEY_RESULT',
+  );
+}
+
+/**
+ * Resources → Buckets: CREATE the site's owner key (admin proxies to `POST /api/sites/:id/r2/keys`).
+ * Idempotent — a fresh mint returns the SHOW-ONCE `secretAccessKey`; an existing key returns its masked
+ * `status` (no secret). Resolves with the parent's {@link OwnerKeyResponseMessage}.
+ */
+export function requestOwnerKeyCreate(): Promise<OwnerKeyResponseMessage> {
+  return requestFromParent<OwnerKeyResponseMessage>(
+    { type: 'PS_R2_KEY_CREATE', correlationId: nextBridgeCorrelationId() },
+    'PS_R2_KEY_RESULT',
+  );
+}
+
+/**
+ * Resources → Buckets: ROTATE the site's owner key (admin proxies to `POST /api/sites/:id/r2/keys/rotate`)
+ * — revokes the old key + mints a new one, returning the new SHOW-ONCE `secretAccessKey`. Resolves with
+ * the parent's {@link OwnerKeyResponseMessage}.
+ */
+export function requestOwnerKeyRotate(): Promise<OwnerKeyResponseMessage> {
+  return requestFromParent<OwnerKeyResponseMessage>(
+    { type: 'PS_R2_KEY_ROTATE', correlationId: nextBridgeCorrelationId() },
+    'PS_R2_KEY_RESULT',
+  );
+}
+
+/**
+ * Resources → Buckets: REVOKE the site's owner key (admin proxies to `DELETE /api/sites/:id/r2/keys`).
+ * Idempotent — revoking when none exists is a success no-op (`revoked:false`). Resolves with the parent's
+ * {@link OwnerKeyResponseMessage}.
+ */
+export function requestOwnerKeyRevoke(): Promise<OwnerKeyResponseMessage> {
+  return requestFromParent<OwnerKeyResponseMessage>(
+    { type: 'PS_R2_KEY_REVOKE', correlationId: nextBridgeCorrelationId() },
+    'PS_R2_KEY_RESULT',
   );
 }
 

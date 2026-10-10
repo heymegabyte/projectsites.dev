@@ -9,6 +9,14 @@ import { z } from 'zod';
 export const R2_BUCKETS_FLAG = 'r2_buckets' as const;
 
 /**
+ * The flag gating the per-site OWNER-FACING scoped R2 key routes (`/r2/keys*`) AND the object-ops
+ * credential path. Distinct from {@link R2_BUCKETS_FLAG}: the owner key IS a live R2 S3 credential the
+ * owner wields from their own tooling, so it rides the same flag that governs the scoped-token object-ops
+ * capability (`r2_bucket_manager`, enabled/100%/beta) rather than the bucket-CRUD surface flag.
+ */
+export const R2_OWNER_KEY_FLAG = 'r2_bucket_manager' as const;
+
+/**
  * A tenant-facing bucket display name — what the owner types. Sanitized + site-prefixed server-side
  * into the real R2 bucket name; validated here so a hostile/oversized name never reaches provisioning.
  */

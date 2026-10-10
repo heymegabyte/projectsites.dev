@@ -35,9 +35,11 @@ import type { Env, Variables } from '../../../src/types/env.js';
 import { isFlagOn } from '../../../src/modules/feature_flags/services.js';
 import {
   bucketAddress,
+  createSiteOwnerKey,
   deleteSiteR2,
   deleteSiteR2Object,
   ensureDefaultSiteR2,
+  getSiteOwnerKeyStatus,
   getSiteR2Object,
   hasObjectOpsForSite,
   isValidBucketDisplayName,
@@ -47,6 +49,8 @@ import {
   provisionSiteR2,
   putSiteR2Object,
   resolveSiteR2Allocation,
+  revokeSiteOwnerKey,
+  rotateSiteOwnerKey,
   setSiteR2PublicAccess,
   type SiteR2Allocation,
   type SiteR2Failure,
@@ -55,6 +59,7 @@ import {
   CreateBucketBodySchema,
   ListObjectsQuerySchema,
   R2_BUCKETS_FLAG as FLAG,
+  R2_OWNER_KEY_FLAG,
   SetPublicBodySchema,
   UploadJsonBodySchema,
 } from './schemas.js';
@@ -104,13 +109,21 @@ function r2Failure(c: Context<AppContext>, reason: SiteR2Failure, message?: stri
 
 /**
  * Shared gate: auth → flag-dark-404 → ownership-404 → resolve the site's tenant id (for provisioning).
- * Returns `{ orgId, tenantId }` on success, or a `Response` the caller returns verbatim.
+ * Returns `{ orgId, tenantId }` on success, or a `Response` the caller returns verbatim. `flag` defaults
+ * to the bucket-surface flag; the owner-key routes pass {@link R2_OWNER_KEY_FLAG} (the credential flag).
+ * The flag check runs BEFORE the ownership check so a dark surface never confirms a site's existence.
  */
-async function gate(c: Context<AppContext>, siteId: string): Promise<{ orgId: string; tenantId: string } | Response> {
+async function gate(
+  c: Context<AppContext>,
+  siteId: string,
+  flag: string = FLAG,
+): Promise<{ orgId: string; tenantId: string } | Response> {
   const orgId = c.get('orgId');
   if (!orgId) return c.json({ error: { code: 'UNAUTHORIZED', message: 'Must be authenticated' } }, 401);
-  if (!(await isFlagOn(c.env, FLAG, { orgId, siteId })))
-    return c.json({ error: { code: 'NOT_FOUND', message: 'Buckets are not enabled' } }, 404);
+  if (!(await isFlagOn(c.env, flag, { orgId, siteId })))
+    // Message MUST contain the lowercase substring "not enabled" — the admin bridge
+    // (embedded-mode.ts) detects the dark-flag 404 by `message.includes('not enabled')`.
+    return c.json({ error: { code: 'NOT_FOUND', message: 'This feature is not enabled' } }, 404);
   if (!(await ownsSiteData(c.env.DB, siteId, orgId)))
     return c.json({ error: { code: 'NOT_FOUND', message: 'Site not found' } }, 404);
   return { orgId, tenantId: orgId };
@@ -190,6 +203,55 @@ r2Buckets.post('/api/sites/:siteId/r2/buckets', async (c) => {
   });
   if (!result.ok) return r2Failure(c, result.reason, result.message);
   return c.json({ data: bucketView(c, result.allocation), ok: true }, 201);
+});
+
+// ── Owner-facing scoped R2 key (B5 slice 4) ─────────────────────────────────────────────────────────
+//
+// A SEPARATE credential from the Worker's internal object-ops token: the key the SITE OWNER mints to use
+// R2 from their OWN tooling (wrangler / aws-cli / SDKs), scoped to ONLY their site's buckets. The Secret
+// Access Key is returned ONCE on create/rotate and NEVER persisted. Every route: auth → `r2_bucket_manager`
+// flag-dark-404 → ownsSiteData IDOR-404 (via `gate(…, R2_OWNER_KEY_FLAG)`) → the owner-key service.
+
+// ── GET /api/sites/:siteId/r2/keys — masked status (NEVER the secret) ───────────────────────────────
+r2Buckets.get('/api/sites/:siteId/r2/keys', async (c) => {
+  const { siteId } = c.req.param();
+  const g = await gate(c, siteId, R2_OWNER_KEY_FLAG);
+  if (g instanceof Response) return g;
+  const result = await getSiteOwnerKeyStatus(c.env, { orgId: g.orgId, siteId, tenantId: g.tenantId });
+  if (!result.ok) return r2Failure(c, result.reason, result.message);
+  return c.json({ data: result.key, ok: true });
+});
+
+// ── POST /api/sites/:siteId/r2/keys — create (show-once secret; idempotent → masked if one exists) ──
+r2Buckets.post('/api/sites/:siteId/r2/keys', async (c) => {
+  const { siteId } = c.req.param();
+  const g = await gate(c, siteId, R2_OWNER_KEY_FLAG);
+  if (g instanceof Response) return g;
+  const result = await createSiteOwnerKey(c.env, { orgId: g.orgId, siteId, tenantId: g.tenantId });
+  if (!result.ok) return r2Failure(c, result.reason, result.message);
+  // reused:true → an active key already exists; return its MASKED status (200), no secret.
+  // reused:false → a fresh key; return the SHOW-ONCE secret (201). The secret is never retrievable again.
+  return c.json({ data: result.key, ok: true }, result.reused ? 200 : 201);
+});
+
+// ── POST /api/sites/:siteId/r2/keys/rotate — revoke old + mint new (show-once secret) ───────────────
+r2Buckets.post('/api/sites/:siteId/r2/keys/rotate', async (c) => {
+  const { siteId } = c.req.param();
+  const g = await gate(c, siteId, R2_OWNER_KEY_FLAG);
+  if (g instanceof Response) return g;
+  const result = await rotateSiteOwnerKey(c.env, { orgId: g.orgId, siteId, tenantId: g.tenantId });
+  if (!result.ok) return r2Failure(c, result.reason, result.message);
+  return c.json({ data: result.key, ok: true }, 201);
+});
+
+// ── DELETE /api/sites/:siteId/r2/keys — revoke (idempotent) ─────────────────────────────────────────
+r2Buckets.delete('/api/sites/:siteId/r2/keys', async (c) => {
+  const { siteId } = c.req.param();
+  const g = await gate(c, siteId, R2_OWNER_KEY_FLAG);
+  if (g instanceof Response) return g;
+  const result = await revokeSiteOwnerKey(c.env, { orgId: g.orgId, siteId, tenantId: g.tenantId });
+  if (!result.ok) return r2Failure(c, result.reason, result.message);
+  return c.json({ data: { revoked: result.revoked }, ok: true });
 });
 
 // ── DELETE /api/sites/:siteId/r2/buckets/:bucket — empty then delete ───────────────────────────────
