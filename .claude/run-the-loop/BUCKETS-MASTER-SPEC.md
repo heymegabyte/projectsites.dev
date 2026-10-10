@@ -73,8 +73,11 @@ B6/B7/B9/B10 (Workflows / gateway / env-pointer — large backend) · B13/B14 (i
   `deleteSiteR2` (empty-then-delete), `setSiteR2PublicAccess`, `promoteSiteR2` (preview→prod COPY),
   object ops `listSiteR2Objects`/`putSiteR2Object`/`getSiteR2Object`/`deleteSiteR2Object` (S3 SigV4).
 - Bucket CRUD = CF **REST** API (`/accounts/{acct}/r2/buckets`, global key / per-org creds).
-  Object ops = R2 **S3 API** (SigV4, `{acct}.r2.cloudflarestorage.com`) gated on
-  `R2_S3_ACCESS_KEY_ID`/`R2_S3_SECRET_ACCESS_KEY` → `needs_s3_credentials` (503) when unset.
+  Object ops = R2 **S3 API** (SigV4, `{acct}.r2.cloudflarestorage.com`).
+  **⚠ SUPERSEDED (B5 slice 2+, see §166 banner):** object ops are NO LONGER gated on an account-wide
+  `R2_S3_*` key — `resolveSiteS3Config` mints a PER-SITE bucket-scoped token, so `objectOpsAvailable` is
+  TRUE for every site. The global `R2_S3_*` key remains only an optional escape hatch; it is NOT required
+  and `needs_s3_credentials` (503) is no longer the default. Trust the code + the §166 banners over this line.
 - `libs/features/r2_buckets/handlers.ts` — 10 routes under `/api/sites/:siteId/r2/buckets[...]`,
   gate order auth→flag(`r2_buckets`, DARK→404)→`ownsSiteData` IDOR. `bucketView` = {address,createdAt,environment,isDefault,name,public,publicUrl}.
 - D1: `site_r2_allocations` (0645, live) + `site_r2_buckets` manager catalog (0647, kind system|custom,
