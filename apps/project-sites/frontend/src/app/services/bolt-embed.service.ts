@@ -3860,6 +3860,53 @@ export class BoltEmbedService {
             });
           break;
         }
+        case 'PS_R2_CLONE': {
+          // Resources → Buckets (B6) — CLONE a bucket: create a NEW bucket + server-side-copy the source
+          // bucket's objects into it. The editor has no cross-origin session, so we POST to
+          // /api/sites/:id/r2/buckets/:bucket/clone (server-side S3 CopyObject — no bytes cross the bridge).
+          // Reply PS_R2_CLONE_RESULT. The clone is BOUNDED server-side; we forward the honest truncation
+          // accounting (copiedCount/totalCount/truncated). A 409 name-collision → {ok:false, conflict:true}
+          // so the editor prompts for another name; a 503 → {ok:false, needsCreds:true}.
+          const iframe = this.iframeEl;
+          const site = this.currentSite;
+          const cid = msg.correlationId;
+          const reply = (payload: Record<string, unknown>): void => {
+            iframe?.contentWindow?.postMessage({ type: 'PS_R2_CLONE_RESULT', correlationId: cid, ...payload }, EDITOR_BASE);
+          };
+          if (!site) {
+            reply({ ok: false, error: 'No site selected' });
+            break;
+          }
+          const bucket = typeof msg.bucket === 'string' ? encodeURIComponent(msg.bucket) : '';
+          const name = typeof msg.name === 'string' ? msg.name.trim() : '';
+          if (!bucket || !name) {
+            reply({ ok: false, error: 'Missing source bucket or new name' });
+            break;
+          }
+          this.api
+            .post<{ data?: { bucket?: unknown; copiedCount?: number; totalCount?: number; truncated?: boolean } }>(
+              `/sites/${site.id}/r2/buckets/${bucket}/clone`,
+              { name },
+              { silent: true },
+            )
+            .subscribe({
+              next: (res) =>
+                reply({
+                  bucket: res?.data?.bucket,
+                  copiedCount: res?.data?.copiedCount ?? 0,
+                  ok: true,
+                  totalCount: res?.data?.totalCount ?? 0,
+                  truncated: !!res?.data?.truncated,
+                }),
+              error: (err) => {
+                if (err instanceof HttpErrorResponse && err.status === 404 && r2NotEnabled(err)) reply({ ok: false, enabled: false });
+                else if (err instanceof HttpErrorResponse && err.status === 503) reply({ ok: false, needsCreds: true, error: r2ErrMessage(err) ?? 'Bucket clone needs R2 S3 credentials.' });
+                else if (err instanceof HttpErrorResponse && err.status === 409) reply({ ok: false, conflict: true, error: r2ErrMessage(err) ?? 'A bucket with that name already exists.' });
+                else reply({ ok: false, error: r2ErrMessage(err) ?? 'Could not clone the bucket.' });
+              },
+            });
+          break;
+        }
         default:
           break;
       }

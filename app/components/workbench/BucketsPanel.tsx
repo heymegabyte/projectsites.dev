@@ -31,6 +31,7 @@ import { iconForObject, isImageKey, colorForObject } from './bucket-icons';
 import {
   isEmbedded,
   postToastToParent,
+  requestBucketClone,
   requestBucketDownload,
   requestBucketOwnerKeyCreate,
   requestBucketOwnerKeyRevoke,
@@ -438,6 +439,9 @@ export const BucketsPanel = memo(() => {
   // Delete-bucket type-to-confirm.
   const [deleteTarget, setDeleteTarget] = useState<BucketEntry | null>(null);
 
+  // Clone-bucket dialog (B6) — opened from a bucket row's actions menu (Settings has its own section).
+  const [cloneTarget, setCloneTarget] = useState<BucketEntry | null>(null);
+
   // Address modal (copy-address bundle for a bucket).
   const [addressTarget, setAddressTarget] = useState<{ bucket: BucketEntry; address: BucketAddress } | null>(null);
 
@@ -561,6 +565,18 @@ export const BucketsPanel = memo(() => {
     [refreshBuckets],
   );
 
+  // B6 — after a successful clone, refresh the inventory and jump the selection to the new bucket so the
+  // owner immediately sees the copy they just made (embarrassingly-easy: the result is right there).
+  const onCloned = useCallback(
+    (newBucket: BucketEntry | null) => {
+      if (newBucket?.name) {
+        setSelectedBucket(newBucket.name);
+      }
+      void refreshBuckets();
+    },
+    [refreshBuckets],
+  );
+
   const openAddress = useCallback(async (bucket: BucketEntry) => {
     // Prefer the embedded address; otherwise fetch it fresh.
     if (bucket.address) {
@@ -651,6 +667,7 @@ export const BucketsPanel = memo(() => {
                   onTogglePublic={onTogglePublic}
                   onPromote={onPromote}
                   onDelete={setDeleteTarget}
+                  onClone={setCloneTarget}
                 />
               ))}
           </>
@@ -665,6 +682,7 @@ export const BucketsPanel = memo(() => {
               onTogglePublic={onTogglePublic}
               onPromote={onPromote}
               onDelete={setDeleteTarget}
+              onCloned={onCloned}
             />
           ) : buckets.status === 'ready' && buckets.buckets.length > 0 ? (
             <div className="flex-1 flex items-center justify-center p-8 text-center text-[12px] text-bolt-elements-textTertiary">
@@ -677,6 +695,16 @@ export const BucketsPanel = memo(() => {
       {showCreate && <CreateBucketModal onClose={() => setShowCreate(false)} onCreated={onCreated} />}
       {deleteTarget && (
         <DeleteBucketModal bucket={deleteTarget} onClose={() => setDeleteTarget(null)} onDeleted={onDeleted} />
+      )}
+      {cloneTarget && (
+        <CloneBucketModal
+          bucket={cloneTarget}
+          onClose={() => setCloneTarget(null)}
+          onCloned={(b) => {
+            setCloneTarget(null);
+            onCloned(b);
+          }}
+        />
       )}
       {addressTarget && (
         <AddressModal
@@ -899,6 +927,7 @@ const BucketNavigator = memo(
     onTogglePublic,
     onPromote,
     onDelete,
+    onClone,
   }: {
     buckets: BucketEntry[];
     selected: string | null;
@@ -907,6 +936,7 @@ const BucketNavigator = memo(
     onTogglePublic: (b: BucketEntry) => void;
     onPromote: (b: BucketEntry) => void;
     onDelete: (b: BucketEntry) => void;
+    onClone: (b: BucketEntry) => void;
   }) => {
     const grouped = useMemo(() => {
       const groups: Record<NavGroupKey, BucketEntry[]> = { preview: [], production: [], custom: [] };
@@ -976,6 +1006,7 @@ const BucketNavigator = memo(
                       onTogglePublic={onTogglePublic}
                       onPromote={onPromote}
                       onDelete={onDelete}
+                      onClone={onClone}
                     />
                   ))}
                 </div>
@@ -1000,6 +1031,7 @@ const BucketNavRow = memo(
     onTogglePublic,
     onPromote,
     onDelete,
+    onClone,
   }: {
     bucket: BucketEntry;
     active: boolean;
@@ -1009,6 +1041,7 @@ const BucketNavRow = memo(
     onTogglePublic: (b: BucketEntry) => void;
     onPromote: (b: BucketEntry) => void;
     onDelete: (b: BucketEntry) => void;
+    onClone: (b: BucketEntry) => void;
   }) => (
     <div
       role="option"
@@ -1099,6 +1132,7 @@ const BucketNavRow = memo(
           onTogglePublic={onTogglePublic}
           onPromote={onPromote}
           onDelete={onDelete}
+          onClone={onClone}
         />
       </div>
 
@@ -1152,12 +1186,14 @@ const BucketRowMenu = memo(
     onTogglePublic,
     onPromote,
     onDelete,
+    onClone,
   }: {
     bucket: BucketEntry;
     onAddress: (b: BucketEntry) => void;
     onTogglePublic: (b: BucketEntry) => void;
     onPromote: (b: BucketEntry) => void;
     onDelete: (b: BucketEntry) => void;
+    onClone: (b: BucketEntry) => void;
   }) => (
     <DropdownMenu.Root>
       <DropdownMenu.Trigger asChild>
@@ -1203,6 +1239,13 @@ const BucketRowMenu = memo(
             onSelect={() => onPromote(bucket)}
           >
             <div className="i-ph:rocket-launch text-sm" aria-hidden /> Promote to production
+          </DropdownMenu.Item>
+          <DropdownMenu.Item
+            className={BUCKET_MENU_ITEM}
+            data-testid="buckets-row-menu-clone"
+            onSelect={() => onClone(bucket)}
+          >
+            <div className="i-ph:copy text-sm" aria-hidden /> Clone bucket…
           </DropdownMenu.Item>
           {!bucket.isDefault && (
             <>
@@ -2741,6 +2784,7 @@ const BucketWorkspace = memo(
     onTogglePublic,
     onPromote,
     onDelete,
+    onCloned,
   }: {
     bucket: BucketEntry;
     /** All of the site's bucket display names — threaded to the object browser for cross-bucket copy/move. */
@@ -2750,6 +2794,7 @@ const BucketWorkspace = memo(
     onTogglePublic: (b: BucketEntry) => void;
     onPromote: (b: BucketEntry) => void;
     onDelete: (b: BucketEntry) => void;
+    onCloned: (newBucket: BucketEntry | null) => void;
   }) => {
     const [tab, setTab] = useState<WorkspaceTab>('files');
 
@@ -2835,6 +2880,7 @@ const BucketWorkspace = memo(
               onTogglePublic={onTogglePublic}
               onPromote={onPromote}
               onDelete={onDelete}
+              onCloned={onCloned}
             />
           )}
         </div>
@@ -2896,6 +2942,7 @@ const BucketSettings = memo(
     onTogglePublic,
     onPromote,
     onDelete,
+    onCloned,
   }: {
     bucket: BucketEntry;
     objectOpsAvailable: boolean;
@@ -2903,6 +2950,7 @@ const BucketSettings = memo(
     onTogglePublic: (b: BucketEntry) => void;
     onPromote: (b: BucketEntry) => void;
     onDelete: (b: BucketEntry) => void;
+    onCloned: (newBucket: BucketEntry | null) => void;
   }) => (
     <div className="flex-1 overflow-auto modern-scrollbar p-3 space-y-3" data-testid="buckets-settings">
       {/* Identity */}
@@ -2991,6 +3039,9 @@ const BucketSettings = memo(
           <div className="i-ph:rocket-launch text-sm" aria-hidden /> Promote snapshot
         </button>
       </SettingsSection>
+
+      {/* Clone this bucket into a new one (B6). */}
+      <BucketCloneSection bucket={bucket} objectOpsAvailable={objectOpsAvailable} onCloned={onCloned} />
 
       {/* Download the whole bucket as one .zip (B7). */}
       <BucketExportSection bucket={bucket} objectOpsAvailable={objectOpsAvailable} />
@@ -4181,6 +4232,215 @@ const CreateBucketModal = memo(
 );
 
 CreateBucketModal.displayName = 'BucketsPanel.CreateBucketModal';
+
+// ── Clone-bucket dialog (B6) ──────────────────────────────────────────────────
+
+/**
+ * Clone a bucket (B6) — create a NEW bucket + server-side-copy the source bucket's objects into it. Renders
+ * in the shared {@link ModalShell} (brand-dark, cyan, motion-safe entrance, focus-trap + Escape). PREFILLS
+ * the new name as `{src}-copy` (AI-does-the-work / embarrassingly-easy — the owner just confirms), validates
+ * it with the SAME rule as create, and on submit drives the `requestBucketClone` bridge (admin proxies to
+ * `POST …/clone`). The clone is BOUNDED server-side; when the reply reports `truncated`, we surface an HONEST
+ * "copied N of M (capped)" WARNING (never imply a full clone). A 409 name-collision keeps the dialog OPEN
+ * with an inline error so the owner just picks another name (no doomed control). Exported for falsifiability
+ * (mirrors {@link CreateBucketModal}).
+ */
+export const CloneBucketModal = memo(
+  ({
+    bucket,
+    onClose,
+    onCloned,
+  }: {
+    bucket: BucketEntry;
+    onClose: () => void;
+    onCloned: (newBucket: BucketEntry | null) => void;
+  }) => {
+    const [name, setName] = useState(`${bucket.name}-copy`);
+    const [cloning, setCloning] = useState(false);
+    const [error, setError] = useState<string | null>(null);
+    const inputRef = useRef<HTMLInputElement>(null);
+
+    useEffect(() => {
+      inputRef.current?.focus();
+      inputRef.current?.select();
+      const onKey = (e: KeyboardEvent) => {
+        if (e.key === 'Escape') {
+          onClose();
+        }
+      };
+      window.addEventListener('keydown', onKey);
+      return () => window.removeEventListener('keydown', onKey);
+    }, [onClose]);
+
+    const valid = /^[A-Za-z0-9][A-Za-z0-9 _-]{0,30}$/.test(name.trim()) && name.trim() !== bucket.name;
+
+    const submit = useCallback(async () => {
+      if (!valid || cloning) {
+        return;
+      }
+      setCloning(true);
+      setError(null);
+      try {
+        const reply = await requestBucketClone({ bucket: bucket.name, name: name.trim() });
+        if (!reply.ok) {
+          // A name-collision (409) keeps the dialog open with an inline reason (pick another name). A
+          // needsCreds reply is a WARNING toast (storage still setting up), never a crash.
+          if (reply.needsCreds) {
+            postToastToParent('warning', reply.error || 'File storage for this site is still being set up.');
+          }
+          setError(reply.error || 'Could not clone the bucket.');
+          return;
+        }
+        const copied = reply.copiedCount ?? 0;
+        const total = reply.totalCount ?? copied;
+        if (reply.truncated) {
+          // HONEST partial-clone notice — never imply a complete clone.
+          postToastToParent(
+            'warning',
+            `Cloned the first ${copied} of ${total} object${total === 1 ? '' : 's'} into ${name.trim()}. The bucket is larger than one clone can hold — copy the rest by folder.`,
+          );
+        } else {
+          postToastToParent(
+            'success',
+            copied === 0
+              ? `Created ${name.trim()} — the source bucket was empty, so nothing was copied.`
+              : `Cloned ${copied} object${copied === 1 ? '' : 's'} into ${name.trim()}.`,
+          );
+        }
+        onCloned(reply.bucket ?? null);
+        onClose();
+      } catch (err) {
+        setError(err instanceof Error ? err.message : 'Could not clone the bucket.');
+      } finally {
+        setCloning(false);
+      }
+    }, [valid, cloning, name, bucket.name, onCloned, onClose]);
+
+    return (
+      <ModalShell
+        title={`Clone ${bucket.name}`}
+        icon="i-ph:copy-duotone"
+        onClose={onClose}
+        testId="buckets-clone-modal"
+      >
+        <label className="block">
+          <span className="text-[11px] font-medium text-bolt-elements-textSecondary">New bucket name</span>
+          <input
+            ref={inputRef}
+            value={name}
+            onChange={(e) => setName(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') {
+                void submit();
+              }
+            }}
+            placeholder={`${bucket.name}-copy`}
+            aria-label="New bucket name"
+            aria-invalid={name.length > 0 && !valid}
+            data-testid="buckets-clone-name"
+            className="mt-1 w-full min-h-[34px] px-3 py-1.5 text-[13px] rounded-lg border border-bolt-elements-borderColor bg-bolt-elements-background-depth-1 text-bolt-elements-textPrimary placeholder:text-bolt-elements-textTertiary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-bolt-elements-item-contentAccent focus-visible:border-bolt-elements-item-contentAccent/50"
+          />
+          <span className="mt-1 block text-[10px] text-bolt-elements-textTertiary">
+            Creates a new private bucket and copies every object from {bucket.name} into it. Very large buckets
+            copy the first slice — you’ll be told if so.
+          </span>
+        </label>
+
+        {error && (
+          <p className="mt-3 text-[11px] text-red-400" role="alert">
+            {error}
+          </p>
+        )}
+
+        <div className="mt-4 flex items-center justify-end gap-2">
+          <button
+            type="button"
+            onClick={onClose}
+            className={classNames(BTN_GHOST, 'min-h-[32px] px-3 py-1.5 text-[12px]')}
+          >
+            Cancel
+          </button>
+          <button
+            type="button"
+            onClick={() => void submit()}
+            disabled={!valid || cloning}
+            data-testid="buckets-clone-submit"
+            aria-busy={cloning}
+            className={classNames(BTN_PRIMARY, 'min-h-[32px] px-4 py-1.5 text-[12px]')}
+          >
+            <div
+              className={classNames(
+                cloning ? 'i-ph:circle-notch animate-spin motion-reduce:animate-none' : 'i-ph:copy-bold',
+                'text-sm',
+              )}
+              aria-hidden
+            />
+            <span className="min-w-[8ch] text-center">{cloning ? 'Cloning…' : 'Clone bucket'}</span>
+          </button>
+        </div>
+      </ModalShell>
+    );
+  },
+);
+
+CloneBucketModal.displayName = 'BucketsPanel.CloneBucketModal';
+
+/**
+ * Settings launchpad for the clone (B6) — a self-contained section (like {@link BucketExportSection}) that
+ * opens the {@link CloneBucketModal}. DISABLED with an inline reason while object storage is still being set
+ * up (`objectOpsAvailable` false — the copy needs R2 S3 creds), so the owner never clicks a doomed control.
+ * Exported for falsifiability.
+ */
+export const BucketCloneSection = memo(
+  ({
+    bucket,
+    objectOpsAvailable,
+    onCloned,
+  }: {
+    bucket: BucketEntry;
+    objectOpsAvailable: boolean;
+    onCloned: (newBucket: BucketEntry | null) => void;
+  }) => {
+    const [open, setOpen] = useState(false);
+    return (
+      <SettingsSection
+        title="Clone this bucket"
+        icon="i-ph:copy-duotone"
+        hint={
+          objectOpsAvailable
+            ? 'Create a copy — a new private bucket with every object from this one (bounded for very large buckets).'
+            : 'Available once file storage for this site finishes setting up.'
+        }
+      >
+        <button
+          type="button"
+          onClick={() => setOpen(true)}
+          disabled={!objectOpsAvailable}
+          data-testid="buckets-settings-clone"
+          aria-label={`Clone ${bucket.name} into a new bucket`}
+          className={classNames(
+            BTN_SECONDARY,
+            'min-h-[28px] px-3 py-1 text-[11px] disabled:opacity-45 disabled:cursor-not-allowed',
+          )}
+        >
+          <div className="i-ph:copy text-sm" aria-hidden /> Clone bucket
+        </button>
+        {open && (
+          <CloneBucketModal
+            bucket={bucket}
+            onClose={() => setOpen(false)}
+            onCloned={(b) => {
+              setOpen(false);
+              onCloned(b);
+            }}
+          />
+        )}
+      </SettingsSection>
+    );
+  },
+);
+
+BucketCloneSection.displayName = 'BucketsPanel.BucketCloneSection';
 
 // ── Object rename / copy / move dialog (B8) ───────────────────────────────────
 

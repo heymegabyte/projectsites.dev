@@ -55,6 +55,17 @@ export const ListObjectsQuerySchema = z.object({
 });
 export type ListObjectsQuery = z.infer<typeof ListObjectsQuerySchema>;
 
+/**
+ * Body for `POST /r2/buckets/:bucket/clone` (B6) — clone a bucket. `name` is the tenant-facing display name
+ * for the CLONE (validated the same way as a create name; the route additionally 409s when a bucket already
+ * carries it). The source bucket is the `:bucket` path param (resolved + ownership-checked by the route).
+ * The clone is BOUNDED synchronous (same object + byte caps as the ZIP export) — a durable Workflow for
+ * truly huge buckets is a noted follow-up. The reply carries the honest truncation accounting so the UI can
+ * surface "copied N of M (capped)" when a cap trips.
+ */
+export const CloneBucketBodySchema = z.object({ name: BucketDisplayNameSchema }).strict();
+export type CloneBucketBody = z.infer<typeof CloneBucketBodySchema>;
+
 /** Body for `POST /r2/buckets/:bucket/public` — toggle public access. */
 export const SetPublicBodySchema = z.object({ public: z.boolean() }).strict();
 

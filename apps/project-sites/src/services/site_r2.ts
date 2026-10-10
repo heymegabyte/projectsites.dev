@@ -2257,6 +2257,129 @@ export async function moveSiteR2Prefix(
   return { moved, ok: true };
 }
 
+/**
+ * **Clone a whole bucket (B6).** COMPOSES the proven pieces rather than a from-scratch pipeline:
+ *   1. validate `newName` + REFUSE a name a bucket already has for this site ({@link destination_exists});
+ *   2. {@link provisionSiteR2} the new bucket (idempotent; defaults PRIVATE + unassigned — not the site
+ *      default), which also invalidates the site's scoped token so the copy loop re-mints one covering BOTH
+ *      buckets;
+ *   3. paginate the SOURCE bucket's objects (the SAME bounded walk the ZIP export uses — {@link ZIP_MAX_OBJECTS}
+ *      objects AND {@link ZIP_MAX_BYTES} uncompressed bytes, whichever trips first) and
+ *      {@link copySiteR2Object} each INTO the new bucket (`destBucket` — R2 server-side S3 CopyObject, no
+ *      bytes transit the Worker; `overwrite:true` since the fresh bucket starts empty, so a transient
+ *      HEAD-200 never 409s the whole clone).
+ *
+ * Returns `{ newBucket, newAllocation, copiedCount, totalCount, truncated }` — HONEST truncation when a cap
+ * trips (`copiedCount < totalCount`), so the UI can surface "copied N of M (capped)" instead of implying a
+ * complete clone. Failure honesty mirrors the other object ops: no S3 creds (flag off / none) →
+ * `needs_s3_credentials` (and NOTHING is provisioned — the precondition is checked BEFORE the create); a
+ * single object that 404s between list + copy (deleted mid-clone) is SKIPPED (counted in `totalCount`,
+ * omitted from `copiedCount`); a REAL upstream 5xx ABORTS with the PARTIAL state reported honestly — the new
+ * bucket exists with whatever copied so far (never a silent success, never a rollback lie).
+ *
+ * Bounded + SYNCHRONOUS — covers the overwhelming majority of per-site buckets. The master spec's ideal is a
+ * durable Cloudflare **Workflow** (files/bytes/stage/errors/retry/cancel progress) for TRULY huge buckets;
+ * that async path is a noted FOLLOW-UP (mirrors the ZIP's "large → background job" note), NOT built here.
+ *
+ * @param bucketName - the already-resolved REAL source bucket (the route resolves + ownership-checks it)
+ * @param newName - the tenant-facing display name for the clone (validated here)
+ */
+export async function cloneSiteR2Bucket(
+  env: Env,
+  ctx: SiteR2Context,
+  bucketName: string,
+  newName: string,
+  opts: { maxObjects?: number; maxBytes?: number } = {},
+): Promise<
+  SiteR2Result<{
+    newBucket: string;
+    newAllocation: SiteR2Allocation;
+    copiedCount: number;
+    totalCount: number;
+    truncated: boolean;
+  }>
+> {
+  const trimmed = (newName ?? '').trim();
+  // 1a. Reject a hostile/oversized name at the boundary (never reaches provisioning).
+  if (!isValidBucketDisplayName(trimmed)) return { ok: false, reason: 'forbidden_bucket' };
+  // 1b. Collision — a bucket already carries this display name for the site → the route maps to 409.
+  const clash = await resolveSiteR2Allocation(env, ctx.siteId, trimmed);
+  if (clash) return { ok: false, reason: 'destination_exists' };
+
+  // 1c. Object-ops precondition BEFORE provisioning — so a flag-off / no-creds clone leaves NOTHING behind
+  // (never a half-provisioned orphan bucket). `resolveSiteS3Config` returns `needs_s3_credentials` when off.
+  const pre = await resolveSiteS3Config(env, ctx);
+  if (!pre.ok) return pre;
+
+  // 2. Provision the new bucket — PRIVATE + unassigned (not the site default). Idempotent (reuses an
+  // orphaned same-name bucket on retry). This also invalidates the scoped token so the copy loop below
+  // re-mints one covering the new bucket (otherwise the cross-bucket PUT would 403).
+  const provisioned = await provisionSiteR2(env, {
+    displayName: trimmed,
+    isDefault: false,
+    orgId: ctx.orgId,
+    publicAccess: false,
+    siteId: ctx.siteId,
+    tenantId: ctx.tenantId,
+  });
+  if (!provisioned.ok) return provisioned;
+  const newBucket = provisioned.allocation.bucketName;
+
+  // 3. Bounded walk of the SOURCE bucket (the ZIP export's pattern) → copy each object into the new bucket.
+  const maxObjects = Math.min(Math.max(opts.maxObjects ?? ZIP_MAX_OBJECTS, 1), ZIP_MAX_OBJECTS);
+  const maxBytes = Math.min(Math.max(opts.maxBytes ?? ZIP_MAX_BYTES, 1), ZIP_MAX_BYTES);
+
+  let copiedCount = 0;
+  let totalCount = 0;
+  let bytesSeen = 0;
+  let truncated = false;
+  let cursor: string | undefined;
+
+  walk: for (let page = 0; page < ZIP_LIST_MAX_PAGES; page++) {
+    const listed = await listSiteR2Objects(env, ctx, bucketName, { cursor, maxKeys: ZIP_LIST_PAGE_SIZE });
+    if (!listed.ok) return listed; // a real S3 list error aborts (the new bucket already exists — honest partial)
+    for (const obj of listed.objects) {
+      totalCount++;
+      // Cap guards BEFORE the copy — if we're already at the object cap, we've truncated; stop.
+      if (copiedCount >= maxObjects) {
+        truncated = true;
+        break walk;
+      }
+      // Byte-budget guard — admit this object only if it fits; otherwise mark truncated + stop. (An object
+      // bigger than the whole budget on its own also trips this → honest truncation.)
+      if (bytesSeen + obj.size > maxBytes) {
+        truncated = true;
+        break walk;
+      }
+      const copied = await copySiteR2Object(env, ctx, bucketName, obj.key, obj.key, {
+        destBucket: newBucket,
+        overwrite: true, // fresh bucket starts empty — never 409 the whole clone on a transient HEAD-200
+      });
+      if (!copied.ok) {
+        // Deleted between list + copy → the CopyObject PUT 404s (copy-source NoSuchKey). `copySiteR2Object`
+        // surfaces that as `s3_error` with `status:404` (it doesn't special-case the PUT 404), so we skip on
+        // the 404 STATUS, not a reason string. A genuine upstream 5xx ABORTS (honest partial — the new
+        // bucket exists with whatever copied). `object_not_found` is covered too (defense-in-depth).
+        if (copied.reason === 'object_not_found' || copied.status === 404) continue;
+        return copied;
+      }
+      bytesSeen += obj.size;
+      copiedCount++;
+    }
+    if (!listed.truncated || !listed.cursor) break;
+    cursor = listed.cursor;
+  }
+
+  return {
+    copiedCount,
+    newAllocation: provisioned.allocation,
+    newBucket,
+    ok: true,
+    totalCount,
+    truncated,
+  };
+}
+
 /** Empty a bucket (list → delete all) via S3 — used before {@link deleteSiteR2}. */
 async function emptyBucketViaS3(
   s3: S3Config,

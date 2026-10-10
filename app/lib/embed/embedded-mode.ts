@@ -2575,6 +2575,45 @@ export interface BucketZipResponseMessage {
   error?: string;
 }
 
+/**
+ * Child → Parent (Resources — Buckets, B6): CLONE a bucket — create a NEW bucket + server-side-copy the
+ * source bucket's objects into it. The editor has no cross-origin session, so the admin (which holds
+ * `selectedSite` + the bearer) POSTs to `POST /api/sites/:id/r2/buckets/:bucket/clone` (server-side S3
+ * CopyObject — no bytes cross the bridge). The clone is BOUNDED synchronous server-side (same object + byte
+ * caps as the ZIP export); the reply forwards the honest truncation accounting so the editor can surface
+ * "copied N of M (capped)" when a cap trips. A durable Workflow for truly huge buckets is a noted follow-up.
+ */
+export interface BucketCloneRequestMessage {
+  type: 'PS_R2_CLONE';
+  correlationId: string;
+  /** The SOURCE bucket display name to clone FROM. */
+  bucket: string;
+  /** The NEW bucket display name to clone INTO (defaults suggested as `{bucket}-copy` by the UI). */
+  name: string;
+}
+
+/** Parent → Child: reply to {@link BucketCloneRequestMessage}. */
+export interface BucketCloneResponseMessage {
+  type: 'PS_R2_CLONE_RESULT';
+  correlationId?: string;
+  ok: boolean;
+
+  /** The new bucket view (name + address + flags) on success. */
+  bucket?: BucketEntry;
+  /** Objects actually copied into the clone. */
+  copiedCount?: number;
+  /** Objects seen while scanning the source (≥ copied; diverges once a cap trips). */
+  totalCount?: number;
+  /** True when an object/byte cap stopped the clone early — the clone is PARTIAL. */
+  truncated?: boolean;
+
+  /** `true` when a bucket with the new name already existed (the 409) → the UI prompts for another name. */
+  conflict?: boolean;
+  enabled?: boolean;
+  needsCreds?: boolean;
+  error?: string;
+}
+
 /*
  * ── Owner-facing scoped R2 key bridge messages (Resources → Buckets, B5 slice 4) ────────────────
  *
@@ -2862,6 +2901,7 @@ export type ParentToChildMessage =
   | BucketDownloadResponseMessage
   | BucketCopyResponseMessage
   | BucketZipResponseMessage
+  | BucketCloneResponseMessage
   | OwnerKeyResponseMessage
   | BucketKeyResponseMessage
   | ClaudeFlagResponseMessage
@@ -2916,6 +2956,7 @@ export type ChildToParentMessage =
   | BucketDownloadRequestMessage
   | BucketCopyRequestMessage
   | BucketZipRequestMessage
+  | BucketCloneRequestMessage
   | OwnerKeyStatusRequestMessage
   | OwnerKeyCreateRequestMessage
   | OwnerKeyRotateRequestMessage
@@ -3856,6 +3897,24 @@ export function requestBucketZip(input: { bucket: string }): Promise<BucketZipRe
     'PS_R2_ZIP_RESULT',
     // A whole-bucket zip can take a while to list + fetch + assemble — give it a generous timeout window
     // (the worker caps the work, but a large bucket still needs more than the default bridge RTT).
+    120_000,
+  );
+}
+
+/**
+ * Resources → Buckets (B6): CLONE a bucket — create a NEW bucket (`name`) + server-side-copy the source
+ * bucket's objects into it. The admin POSTs to `POST /api/sites/:id/r2/buckets/:bucket/clone` (server-side
+ * S3 CopyObject — no bytes cross the bridge). The clone is BOUNDED synchronous server-side (same caps as the
+ * ZIP export); the reply carries the honest truncation accounting (`truncated` + `copiedCount`/`totalCount`)
+ * so the caller can surface "copied N of M (capped)". `conflict:true` when a bucket with `name` already
+ * exists (the 409). Resolves with the parent's {@link BucketCloneResponseMessage}.
+ */
+export function requestBucketClone(input: { bucket: string; name: string }): Promise<BucketCloneResponseMessage> {
+  return requestFromParent<BucketCloneResponseMessage>(
+    { type: 'PS_R2_CLONE', correlationId: nextBridgeCorrelationId(), ...input },
+    'PS_R2_CLONE_RESULT',
+    // Clone lists + copies every source object server-side — a large bucket needs more than the default RTT
+    // (the worker caps the work at the same 1000-object / 100-MB bounds as the zip).
     120_000,
   );
 }

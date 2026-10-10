@@ -42,6 +42,7 @@ import { isFlagOn } from '../../../src/modules/feature_flags/services.js';
 import {
   assignBucketEnv,
   bucketAddress,
+  cloneSiteR2Bucket,
   copySiteR2Object,
   createBucketOwnerKey,
   createSiteOwnerKey,
@@ -73,6 +74,7 @@ import {
   zipSiteR2Bucket,
 } from '../../../src/services/site_r2.js';
 import {
+  CloneBucketBodySchema,
   CopyObjectBodySchema,
   CreateBucketBodySchema,
   ListObjectsQuerySchema,
@@ -673,6 +675,64 @@ r2Buckets.get('/api/sites/:siteId/r2/buckets/:bucket/zip', async (c) => {
     },
     status: 200,
   });
+});
+
+// ── POST /api/sites/:siteId/r2/buckets/:bucket/clone — clone a bucket (B6) ───────────────────────────
+//
+// COMPOSES provision + bounded cross-bucket copy: creates a NEW bucket (named from the body) + server-side
+// S3-copies every object from the `:bucket` source INTO it. BOUNDED synchronous (same object + byte caps as
+// the ZIP export) — a durable Workflow for truly huge buckets is a noted follow-up (see the service doc).
+// Same gate order as the rest of the surface (isolation BEFORE the op): auth → `r2_buckets` dark-404 →
+// ownsSiteData → resolve the OWNED SOURCE bucket (foreign bucket → 404 via gateAndBucket's `WHERE site_id`
+// scope — the IDOR guard). A name a bucket already carries → 409 (the service's `destination_exists`). The
+// clone defaults PRIVATE + unassigned. On success audits `r2.bucket.cloned` with BOTH display names + the
+// copied count, and returns the honest clone summary (`copiedCount`/`totalCount`/`truncated`) + the new
+// bucket view so the UI can surface "copied N of M (capped)" when a cap trips.
+r2Buckets.post('/api/sites/:siteId/r2/buckets/:bucket/clone', async (c) => {
+  const { siteId, bucket } = c.req.param();
+  const g = await gateAndBucket(c, siteId, bucket);
+  if (g instanceof Response) return g;
+
+  const parsed = CloneBucketBodySchema.safeParse(await c.req.json().catch(() => ({})));
+  if (!parsed.success)
+    return c.json({ error: { code: 'BAD_REQUEST', message: 'Invalid bucket name' }, ok: false }, 400);
+
+  const result = await cloneSiteR2Bucket(
+    c.env,
+    { orgId: g.orgId, siteId, tenantId: g.tenantId },
+    g.allocation.bucketName,
+    parsed.data.name,
+  );
+  if (!result.ok) return r2Failure(c, result.reason, result.message);
+
+  await writeAuditLog(c.env.DB, {
+    action: 'r2.bucket.cloned',
+    actor_id: c.get('userId') ?? null,
+    metadata_json: {
+      copiedCount: result.copiedCount,
+      newBucket: result.newAllocation.displayName,
+      sourceBucket: g.allocation.displayName,
+      totalCount: result.totalCount,
+      truncated: result.truncated,
+    },
+    org_id: g.orgId,
+    request_id: c.get('requestId') ?? null,
+    target_id: siteId,
+    target_type: 'site',
+  });
+
+  return c.json(
+    {
+      data: {
+        bucket: bucketView(c, result.newAllocation),
+        copiedCount: result.copiedCount,
+        totalCount: result.totalCount,
+        truncated: result.truncated,
+      },
+      ok: true,
+    },
+    201,
+  );
 });
 
 // ── DELETE /api/sites/:siteId/r2/buckets/:bucket/objects/* — delete one object ──────────────────────
