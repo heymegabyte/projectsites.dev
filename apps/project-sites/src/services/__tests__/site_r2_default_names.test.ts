@@ -16,7 +16,8 @@ import type { Env } from '../../types/env.js';
 
 const MIGRATIONS = join(__dirname, '../../../migrations');
 const ALLOC_DDL = readFileSync(join(MIGRATIONS, '0645_site_r2_allocations.sql'), 'utf8');
-const migration0649 = () => readFileSync(join(MIGRATIONS, '0649_retire_uploads_default_name.sql'), 'utf8');
+const migration0649 = () =>
+  readFileSync(join(MIGRATIONS, '0649_retire_uploads_default_name.sql'), 'utf8');
 
 /** Seed one allocation row directly (bucket_name mirrors the real `ps-site-{id}-{slug}` convention). */
 function seedAlloc(
@@ -91,13 +92,17 @@ describe('B2 migration 0649 — retire uploads/production default display names'
       // Renaming would create TWO 'Preview' rows for site-c → the by-name resolver would be ambiguous,
       // so the default is left as 'uploads'.
       const def = h.raw
-        .prepare(`SELECT display_name FROM site_r2_allocations WHERE site_id='site-c' AND is_default=1`)
+        .prepare(
+          `SELECT display_name FROM site_r2_allocations WHERE site_id='site-c' AND is_default=1`,
+        )
         .get() as { display_name: string };
       expect(def.display_name).toBe('uploads');
 
       const count = (
         h.raw
-          .prepare(`SELECT COUNT(*) c FROM site_r2_allocations WHERE site_id='site-c' AND display_name='Preview'`)
+          .prepare(
+            `SELECT COUNT(*) c FROM site_r2_allocations WHERE site_id='site-c' AND display_name='Preview'`,
+          )
           .get() as { c: number }
       ).c;
       expect(count).toBe(1);
@@ -155,7 +160,9 @@ describe('B2 seed — ensureDefaultSiteR2 names a new default "Preview"', () => 
       expect(res.ok).toBe(true);
 
       const row = h.raw
-        .prepare(`SELECT display_name, bucket_name, is_default FROM site_r2_allocations WHERE site_id='site-new'`)
+        .prepare(
+          `SELECT display_name, bucket_name, is_default FROM site_r2_allocations WHERE site_id='site-new'`,
+        )
         .get() as { display_name: string; bucket_name: string; is_default: number };
       expect(row.display_name).toBe('Preview');
       expect(row.bucket_name).toBe('ps-site-site-new-preview');
