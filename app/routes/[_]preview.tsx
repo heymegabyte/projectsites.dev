@@ -149,10 +149,7 @@ function ObjectListSample({ testId }: { testId?: string }) {
  */
 function ObjectGridSample({ testId }: { testId?: string }) {
   return (
-    <div
-      className="grid grid-cols-[repeat(auto-fill,minmax(104px,1fr))] gap-2.5 p-3"
-      data-testid={testId}
-    >
+    <div className="grid grid-cols-[repeat(auto-fill,minmax(104px,1fr))] gap-2.5 p-3" data-testid={testId}>
       {SAMPLE_OBJECTS.filter((o) => !o.key.endsWith('/')).map((o) => (
         <div
           key={o.key}

@@ -195,7 +195,11 @@ export function colorForObject(key: string): string {
     return 'text-slate-300'; // prose / text
   }
   // Code + structured config (json/yaml/toml/html/xml/ts/js/css) — the cool brand family.
-  if (/\.(json|jsonc|ya?ml|toml|html?|htm|xml|xhtml|svelte|vue|ts|tsx|mts|cts|js|mjs|cjs|jsx|css|scss|sass|less|styl)$/.test(name)) {
+  if (
+    /\.(json|jsonc|ya?ml|toml|html?|htm|xml|xhtml|svelte|vue|ts|tsx|mts|cts|js|mjs|cjs|jsx|css|scss|sass|less|styl)$/.test(
+      name,
+    )
+  ) {
     return 'text-cyan-200'; // code / config
   }
 

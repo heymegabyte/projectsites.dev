@@ -637,7 +637,13 @@ function maskAccessKeyId(id: string): string {
 async function activeOwnerKeyRow(
   env: Env,
   siteId: string,
-): Promise<{ id: string; access_key_id: string; cf_token_id: string; created_at: string; rotated_at: string | null } | null> {
+): Promise<{
+  id: string;
+  access_key_id: string;
+  cf_token_id: string;
+  created_at: string;
+  rotated_at: string | null;
+} | null> {
   return dbQueryOne<{
     id: string;
     access_key_id: string;
@@ -665,7 +671,13 @@ export async function getSiteOwnerKeyStatus(
   const row = await activeOwnerKeyRow(env, ctx.siteId);
   if (!row)
     return {
-      key: { accessKeyIdMasked: null, createdAt: null, exists: false, rotatedAt: null, status: 'none' },
+      key: {
+        accessKeyIdMasked: null,
+        createdAt: null,
+        exists: false,
+        rotatedAt: null,
+        status: 'none',
+      },
       ok: true,
     };
   return {
@@ -691,7 +703,11 @@ export async function getSiteOwnerKeyStatus(
 export async function createSiteOwnerKey(
   env: Env,
   ctx: SiteR2Context,
-): Promise<SiteR2Result<{ key: SiteR2OwnerKeySecret; reused: false } | { key: SiteR2OwnerKeyStatus; reused: true }>> {
+): Promise<
+  SiteR2Result<
+    { key: SiteR2OwnerKeySecret; reused: false } | { key: SiteR2OwnerKeyStatus; reused: true }
+  >
+> {
   // 1. Idempotency — an existing active owner key is returned MASKED (its secret is gone forever).
   const existing = await activeOwnerKeyRow(env, ctx.siteId);
   if (existing) {
@@ -779,7 +795,9 @@ async function mintOwnerKey(
 
   // Scope to ONLY this site's OWN bucket names (never account-wide, never another site's).
   const allocations = await listSiteR2Allocations(env, ctx.siteId);
-  const bucketNames = allocations.map((a) => a.bucketName).filter((n) => !FORBIDDEN_BUCKET_NAMES.has(n));
+  const bucketNames = allocations
+    .map((a) => a.bucketName)
+    .filter((n) => !FORBIDDEN_BUCKET_NAMES.has(n));
   const resources = bucketScopeResources(cf.account, bucketNames);
 
   const created = await cfCreateToken(cf.auth, cf.account, {
