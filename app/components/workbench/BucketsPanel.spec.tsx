@@ -332,3 +332,46 @@ describe('BucketsPanel — B1-polish: Files list/grid view toggle', () => {
     await waitFor(() => expect(screen.getByTestId('buckets-object-grid')).toBeTruthy());
   });
 });
+
+describe('BucketsPanel — B3: bucket row actions menu', () => {
+  /** Two buckets: a Preview default + a custom bucket (object ops off — bucket CRUD still works). */
+  function mockMenuWorld() {
+    requestR2.mockImplementation(async (input: { op: string }) => {
+      if (input.op === 'listBuckets') {
+        return {
+          type: 'PS_R2_RESULT',
+          ok: true,
+          objectOpsAvailable: false,
+          buckets: [
+            { name: 'Preview', isDefault: true, public: false, environment: 'preview' },
+            { name: 'exports', public: false },
+          ],
+        };
+      }
+
+      return { type: 'PS_R2_RESULT', ok: true, objects: [], prefixes: [], truncated: false };
+    });
+  }
+
+  it('exposes an accessible actions-menu trigger on every bucket row', async () => {
+    mockMenuWorld();
+    render(<BucketsPanel />);
+    await waitFor(() => expect(screen.getAllByTestId('buckets-list-item').length).toBeGreaterThan(0));
+
+    const triggers = screen.getAllByTestId('buckets-row-menu-trigger');
+    expect(triggers.length).toBe(2);
+    triggers.forEach((t) => expect(t.tagName).toBe('BUTTON'));
+
+    // The trigger aria-label names the bucket for screen readers.
+    expect(screen.getByLabelText(/actions for Preview/i)).toBeTruthy();
+  });
+
+  it('does not eagerly render the menu items (Radix keeps the content closed until opened)', async () => {
+    mockMenuWorld();
+    render(<BucketsPanel />);
+    await waitFor(() => expect(screen.getAllByTestId('buckets-list-item').length).toBeGreaterThan(0));
+
+    expect(screen.queryByTestId('buckets-row-menu-promote')).toBeNull();
+    expect(requestR2.mock.calls.some((c) => (c[0] as { op?: string })?.op === 'promote')).toBe(false);
+  });
+});

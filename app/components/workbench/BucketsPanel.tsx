@@ -21,6 +21,7 @@
  * Motion is `motion-reduce:*`-gated. Style mirrors the sibling `./ResourcesPanel`.
  */
 import React, { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import * as DropdownMenu from '@radix-ui/react-dropdown-menu';
 import { classNames } from '~/utils/classNames';
 import { PanelShell, PanelHeader } from './panel';
 import { PanelEmpty } from './panel/PanelEmpty';
@@ -476,7 +477,15 @@ export const BucketsPanel = memo(() => {
               (buckets.buckets.length === 0 ? (
                 <BucketsEmpty onCreate={() => setShowCreate(true)} />
               ) : (
-                <BucketNavigator buckets={buckets.buckets} selected={selectedBucket} onSelect={setSelectedBucket} />
+                <BucketNavigator
+                  buckets={buckets.buckets}
+                  selected={selectedBucket}
+                  onSelect={setSelectedBucket}
+                  onAddress={openAddress}
+                  onTogglePublic={onTogglePublic}
+                  onPromote={onPromote}
+                  onDelete={setDeleteTarget}
+                />
               ))}
           </>
         }
@@ -647,10 +656,18 @@ const BucketNavigator = memo(
     buckets,
     selected,
     onSelect,
+    onAddress,
+    onTogglePublic,
+    onPromote,
+    onDelete,
   }: {
     buckets: BucketEntry[];
     selected: string | null;
     onSelect: (name: string) => void;
+    onAddress: (b: BucketEntry) => void;
+    onTogglePublic: (b: BucketEntry) => void;
+    onPromote: (b: BucketEntry) => void;
+    onDelete: (b: BucketEntry) => void;
   }) => {
     const grouped = useMemo(() => {
       const groups: Record<NavGroupKey, BucketEntry[]> = { preview: [], production: [], custom: [] };
@@ -705,6 +722,10 @@ const BucketNavigator = memo(
                       bucket={bucket}
                       active={selected === bucket.name}
                       onSelect={onSelect}
+                      onAddress={onAddress}
+                      onTogglePublic={onTogglePublic}
+                      onPromote={onPromote}
+                      onDelete={onDelete}
                     />
                   ))}
                 </div>
@@ -720,13 +741,34 @@ const BucketNavigator = memo(
 BucketNavigator.displayName = 'BucketsPanel.BucketNavigator';
 
 const BucketNavRow = memo(
-  ({ bucket, active, onSelect }: { bucket: BucketEntry; active: boolean; onSelect: (name: string) => void }) => (
+  ({
+    bucket,
+    active,
+    onSelect,
+    onAddress,
+    onTogglePublic,
+    onPromote,
+    onDelete,
+  }: {
+    bucket: BucketEntry;
+    active: boolean;
+    onSelect: (name: string) => void;
+    onAddress: (b: BucketEntry) => void;
+    onTogglePublic: (b: BucketEntry) => void;
+    onPromote: (b: BucketEntry) => void;
+    onDelete: (b: BucketEntry) => void;
+  }) => (
     <div
       role="option"
       aria-selected={active}
       tabIndex={0}
       onClick={() => onSelect(bucket.name)}
       onKeyDown={(e) => {
+        // Only the row itself selects on Enter/Space — not events bubbling up from the actions menu.
+        if (e.target !== e.currentTarget) {
+          return;
+        }
+
         if (e.key === 'Enter' || e.key === ' ') {
           e.preventDefault();
           onSelect(bucket.name);
@@ -768,6 +810,13 @@ const BucketNavRow = memo(
             Default
           </span>
         )}
+        <BucketRowMenu
+          bucket={bucket}
+          onAddress={onAddress}
+          onTogglePublic={onTogglePublic}
+          onPromote={onPromote}
+          onDelete={onDelete}
+        />
       </div>
 
       {/* Meta line — visibility + age (env is conveyed by the group header). */}
@@ -796,6 +845,104 @@ const BucketNavRow = memo(
 );
 
 BucketNavRow.displayName = 'BucketsPanel.BucketNavRow';
+
+/*
+ * ── Bucket row actions menu (B3) ──────────────────────────────────────────────
+ * A Radix DropdownMenu ellipsis (⋯) per bucket row — discoverable + keyboard + touch + a11y
+ * (roles/Escape/portal come from Radix). Quick access to the SAME bucket-level ops the Settings tab
+ * exposes (Address / visibility / promote / delete) — all CF-REST bucket ops that work WITHOUT R2 S3
+ * object creds. Clicks stop-propagating so the row's select handler never fires behind the menu.
+ */
+
+const BUCKET_MENU_CONTENT =
+  'z-[100001] min-w-[180px] rounded-xl border border-bolt-elements-borderColor bg-bolt-elements-background-depth-2 ' +
+  'p-1 shadow-2xl shadow-black/40 motion-safe:animate-[fadeIn_.12s_ease-out]';
+const BUCKET_MENU_ITEM =
+  'flex items-center gap-2 px-2.5 py-1.5 text-[11px] rounded-lg cursor-pointer select-none outline-none ' +
+  'text-bolt-elements-textSecondary data-[highlighted]:bg-bolt-elements-item-contentAccent/[0.12] ' +
+  'data-[highlighted]:text-bolt-elements-item-contentAccent';
+
+const BucketRowMenu = memo(
+  ({
+    bucket,
+    onAddress,
+    onTogglePublic,
+    onPromote,
+    onDelete,
+  }: {
+    bucket: BucketEntry;
+    onAddress: (b: BucketEntry) => void;
+    onTogglePublic: (b: BucketEntry) => void;
+    onPromote: (b: BucketEntry) => void;
+    onDelete: (b: BucketEntry) => void;
+  }) => (
+    <DropdownMenu.Root>
+      <DropdownMenu.Trigger asChild>
+        <button
+          type="button"
+          onClick={(e) => e.stopPropagation()}
+          data-testid="buckets-row-menu-trigger"
+          aria-label={`Actions for ${bucket.name}`}
+          title="Bucket actions"
+          className={classNames(BTN_GHOST, 'shrink-0 min-h-[22px] min-w-[22px] p-1 data-[state=open]:opacity-100')}
+        >
+          <div className="i-ph:dots-three-vertical-bold text-sm" aria-hidden />
+        </button>
+      </DropdownMenu.Trigger>
+      <DropdownMenu.Portal>
+        <DropdownMenu.Content
+          align="end"
+          sideOffset={4}
+          className={BUCKET_MENU_CONTENT}
+          onClick={(e) => e.stopPropagation()}
+        >
+          <DropdownMenu.Item
+            className={BUCKET_MENU_ITEM}
+            data-testid="buckets-row-menu-address"
+            onSelect={() => onAddress(bucket)}
+          >
+            <div className="i-ph:link text-sm" aria-hidden /> Address
+          </DropdownMenu.Item>
+          <DropdownMenu.Item
+            className={BUCKET_MENU_ITEM}
+            data-testid="buckets-row-menu-visibility"
+            onSelect={() => onTogglePublic(bucket)}
+          >
+            <div
+              className={classNames(bucket.public ? 'i-ph:lock-simple' : 'i-ph:globe-simple', 'text-sm')}
+              aria-hidden
+            />
+            {bucket.public ? 'Make private' : 'Make public'}
+          </DropdownMenu.Item>
+          <DropdownMenu.Item
+            className={BUCKET_MENU_ITEM}
+            data-testid="buckets-row-menu-promote"
+            onSelect={() => onPromote(bucket)}
+          >
+            <div className="i-ph:rocket-launch text-sm" aria-hidden /> Promote to production
+          </DropdownMenu.Item>
+          {!bucket.isDefault && (
+            <>
+              <DropdownMenu.Separator className="my-1 h-px bg-bolt-elements-borderColor/60" />
+              <DropdownMenu.Item
+                className={classNames(
+                  BUCKET_MENU_ITEM,
+                  'text-red-400 data-[highlighted]:bg-red-500/15 data-[highlighted]:text-red-300',
+                )}
+                data-testid="buckets-row-menu-delete"
+                onSelect={() => onDelete(bucket)}
+              >
+                <div className="i-ph:trash text-sm" aria-hidden /> Delete bucket…
+              </DropdownMenu.Item>
+            </>
+          )}
+        </DropdownMenu.Content>
+      </DropdownMenu.Portal>
+    </DropdownMenu.Root>
+  ),
+);
+
+BucketRowMenu.displayName = 'BucketsPanel.BucketRowMenu';
 
 // ── Object browser ───────────────────────────────────────────────────────────
 
