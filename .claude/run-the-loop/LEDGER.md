@@ -1633,3 +1633,10 @@ Lean 2-agent fire. ONE coherent verified slice = B4 DoD "per-bucket keys create/
 - lead — migration 0662 APPLIED prod D1 (bucket_name col confirmed) BEFORE worker deploy 411cf370 (reverse order would break live site-wide key); per-bucket credential E2E DEFINITIVE via workers.dev: mint 201 / target-bucket 200 VALID / other-bucket 403 SCOPED / post-revoke 401 REVOKED on site 2ad27787; site-wide owner key intact post-deploy; homepage 200.
 - LOOP-IMPROVEMENT landed: check-bucket-key-valid.mjs routes API via project-sites.manhattan.workers.dev (challenge-free) — proven (listSites 200, no CF-bot-challenge block).
 - DoD §21 NOT met (B6/B7/B8/B9/B10/B11/B12/B15 + axe + visual rounds remain). Cron b1182793 KEPT.
+
+## fire-buckets-b12 (2026-10-10) — rich sandboxed object previews
+Lean 2-agent fire (coalesced an overlapping cron tick via lease mutex). ONE coherent verified slice = B12 DoD "rich sandboxed previews". FE-only (reuse PS_R2_DOWNLOAD bridge).
+- B12-FE `968f7bb29` — ObjectPreviewModal via classifyPreview: image→inert img, pdf→sandboxed iframe (NO allow-scripts), text/code→escaped <pre> (XSS-safe, never dangerouslySetInnerHTML), video/audio→inert controls, else→download fallback; blob URLs revoked on close; motion-safe entrance. 10 preview render tests + 86 existing bucket tests PASS; build green.
+- B12-GROOM `4edca900a`/`3d0a49f91` — B4 marked DONE, B12 in-flight; DoD §21 ≈ 80%.
+- lead — editor Pages deploy 37a1ebb1; gallery buckets-preview-showcase VISUALLY VERIFIED (image-preview card + text-preview card w/ escaped-<pre> XSS proof), 0 console errors, 17 icons intact (no regression). Transient post-deploy ⚠ (body 23/3 errors) was propagation timing — settled render = body 2373, twoPane true, preview true, 0 errors.
+- DoD §21 NOT met — remaining B4-UI · B6 clone · B7 zip · B8 move/rename/copy · B9 per-object public+shares · B10 env reassign+rollback · B11 search · B15 Code-view selector · B14 axe + visual rounds. Cron b1182793 KEPT.
