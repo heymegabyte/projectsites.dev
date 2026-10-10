@@ -27,6 +27,7 @@
 import type { Env } from '../types/env.js';
 
 import { type CfAuth, cfAuthHeaders, resolveCfCredentials } from './cf_credentials.js';
+import { decrypt, encrypt } from './ai_crypto.js';
 import { uuidv7 } from '../lib/uuid.js';
 import { dbExecute, dbQuery, dbQueryOne } from './db.js';
 
@@ -376,6 +377,194 @@ export async function ensureProductionSiteR2(
   } catch {
     return false;
   }
+}
+
+// ── Per-site R2 S3 token (Buckets B5 slice 1 — credential foundation, flag-dark) ───────────────────
+//
+// R2 has NO REST object API — object ops require R2 S3 access keys. Today those keys come from the
+// worker env (`getS3Config`, below). This slice adds the FOUNDATION for PER-SITE, bucket-SCOPED S3
+// tokens: mint once via the CF Create-Token API, store the secret ENCRYPTED, reuse every request. It
+// does NOT change the credential path yet — `getS3Config`/`hasObjectOps`/object-op signing are
+// untouched (that rewire is slice 2). The table + this service stay dormant behind `r2_bucket_manager`.
+//
+// CF Create-Token endpoint (account-owned token):
+//   POST https://api.cloudflare.com/client/v4/accounts/{account_id}/tokens
+//   body: { name, policies: [{ effect:'allow', resources:{ <bucket-resource-key>:'*' }, permission_groups:[{id}] }] }
+// The returned `result.id` IS the S3 Access Key ID; the Secret Access Key is the SHA-256 hex of
+// `result.value` (the raw token string) — per
+// https://developers.cloudflare.com/r2/api/tokens/ ("Get S3 API credentials from an API token").
+// Bucket-scoped resource key (one per owned bucket):
+//   "com.cloudflare.edge.r2.bucket.{ACCOUNT_ID}_{JURISDICTION}_{BUCKET_NAME}": "*"
+// where JURISDICTION is `default` for non-jurisdictional buckets.
+// Permission group "Workers R2 Storage Bucket Item Read and Write" grants object read+write. The exact
+// permission-group id is account-stable but not hardcodable from docs alone; we send our best-known id
+// and mark it for live confirmation in slice 2.
+// TODO(B5-slice2): confirm the Object Read+Write permission-group id live via
+//   GET /accounts/{account_id}/tokens/permission_groups (filter name ~ "R2 Storage Bucket Item Read and Write"),
+//   and confirm the create response surfaces `result.value` for S3-secret derivation.
+const R2_OBJECT_RW_PERMISSION_GROUP_ID = 'd229766a2f7f4d299f20eaa8c9b1fff9'; // "Workers R2 Storage Bucket Item Read and Write" (confirm live — slice 2)
+
+/** A minted (or reused) per-site R2 S3 token. `secret` is the plaintext Secret Access Key. */
+export interface SiteR2S3Token {
+  readonly accessKeyId: string;
+  readonly secret: string;
+  readonly tokenId: string;
+}
+
+/** Build the bucket-scoped Access-Policy resource map for the CF Create-Token request. */
+function bucketScopeResources(account: string, bucketNames: readonly string[]): Record<string, '*'> {
+  const resources: Record<string, '*'> = {};
+  for (const name of bucketNames) {
+    // JURISDICTION is `default` for non-jurisdictional buckets (the only kind the per-site plane mints).
+    resources[`com.cloudflare.edge.r2.bucket.${account}_default_${name}`] = '*';
+  }
+  return resources;
+}
+
+/**
+ * Ensure a per-site, bucket-SCOPED R2 S3 token exists for a site. Idempotent: an existing ACTIVE row
+ * for the site is returned WITHOUT minting a second CF token. Otherwise resolves server-side CF creds,
+ * calls the CF Create-Token endpoint scoped to ONLY this site's OWN bucket names, ENCRYPTS the derived
+ * Secret Access Key (the Worker reuses it on every object op — stored at rest, NOT show-once), records
+ * the row, and returns `{accessKeyId, secret, tokenId}`. Mirrors {@link provisionSiteR2}'s
+ * early-return-on-existing + resolveCf + fetch + record shape. Fails soft + honest — records NOTHING
+ * when creds are absent or the CF create fails.
+ *
+ * NOTE: dormant until slice 2 wires object ops onto per-site tokens; the credential path is unchanged.
+ *
+ * @param env - worker env (DB + CF_ACCOUNT_ID + creds source + MCP_ENCRYPTION_KEY)
+ * @param siteId - the OWNED site (caller must have proven ownership upstream)
+ * @param tenantId - the org / tenant the token belongs to
+ * @param orgId - org whose stored CF creds to prefer (falls back to worker-bundled)
+ */
+export async function ensureSiteS3Token(
+  env: Env,
+  siteId: string,
+  tenantId: string,
+  orgId: string | null,
+): Promise<SiteR2Result<SiteR2S3Token>> {
+  // 1. Idempotency — reuse an existing ACTIVE token for this site (never a 2nd CF token on retry).
+  const existing = await dbQueryOne<{
+    access_key_id: string;
+    secret_enc: string;
+    cf_token_id: string;
+  }>(
+    env.DB,
+    `SELECT access_key_id, secret_enc, cf_token_id
+       FROM site_r2_s3_tokens
+      WHERE site_id = ? AND status = 'active' AND deleted_at IS NULL
+      ORDER BY created_at DESC`,
+    [siteId],
+  );
+  if (existing) {
+    let secret = '';
+    try {
+      secret = await decrypt(env, existing.secret_enc);
+    } catch {
+      secret = '';
+    }
+    return {
+      accessKeyId: existing.access_key_id,
+      ok: true,
+      secret,
+      tokenId: existing.cf_token_id,
+    };
+  }
+
+  // 2. Server-side creds + account.
+  const cf = await resolveCf(env, orgId);
+  if (!cf.ok) return { ok: false, reason: cf.reason };
+
+  // 3. Resolve the site's OWN bucket names → the token scope (never account-wide, never another site's).
+  const allocations = await listSiteR2Allocations(env, siteId);
+  const bucketNames = allocations
+    .map((a) => a.bucketName)
+    .filter((n) => !FORBIDDEN_BUCKET_NAMES.has(n));
+  const resources = bucketScopeResources(cf.account, bucketNames);
+
+  // 4. Mint the bucket-scoped CF API token.
+  const created = await cfCreateToken(cf.auth, cf.account, {
+    name: `ps-site-${siteId}-r2-s3`,
+    policies: [
+      {
+        effect: 'allow',
+        permission_groups: [{ id: R2_OBJECT_RW_PERMISSION_GROUP_ID }],
+        resources,
+      },
+    ],
+  });
+  if (!created.ok || !created.id || created.value === undefined) {
+    return {
+      message: created.message ?? 'Cloudflare token create failed',
+      ok: false,
+      reason: 'cf_error',
+      status: created.status,
+    };
+  }
+
+  // The S3 Secret Access Key is the SHA-256 hex of the raw token `value` (CF docs).
+  const secret = await sha256Hex(created.value);
+  const secretEnc = await encrypt(env, secret);
+
+  // 5. Record the row (secret stored ENCRYPTED).
+  await dbExecute(
+    env.DB,
+    `INSERT INTO site_r2_s3_tokens
+       (id, tenant_id, site_id, access_key_id, secret_enc, cf_token_id, scope_bucket_ids, status, created_at, updated_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, 'active', datetime('now'), datetime('now'))`,
+    [
+      uuidv7(),
+      tenantId,
+      siteId,
+      created.id,
+      secretEnc,
+      created.id,
+      JSON.stringify(bucketNames),
+    ],
+  );
+
+  return { accessKeyId: created.id, ok: true, secret, tokenId: created.id };
+}
+
+/** POST the CF Create-Token request; normalizes the result to `{ id, value }` or a typed failure. */
+async function cfCreateToken(
+  auth: CfAuth,
+  account: string,
+  body: {
+    name: string;
+    policies: Array<{
+      effect: 'allow';
+      resources: Record<string, '*'>;
+      permission_groups: Array<{ id: string }>;
+    }>;
+  },
+): Promise<{
+  ok: boolean;
+  status: number;
+  id?: string;
+  value?: string;
+  message?: string;
+}> {
+  let res: Response | undefined;
+  for (let attempt = 0; attempt < 3; attempt++) {
+    res = await fetch(`${CF_API_BASE}/accounts/${account}/tokens`, {
+      body: JSON.stringify(body),
+      headers: { ...cfAuthHeaders(auth), 'content-type': 'application/json' },
+      method: 'POST',
+    });
+    if (res.status < 500 || attempt === 2) break;
+    await new Promise((r) => setTimeout(r, 300 * (attempt + 1)));
+  }
+  const r = res as Response;
+  const json = (await r.json().catch(() => ({}))) as {
+    success?: boolean;
+    result?: { id?: string; value?: string };
+    errors?: unknown;
+  };
+  if (!json.success) {
+    return { message: describeErrors(json.errors), ok: false, status: r.status };
+  }
+  return { id: json.result?.id, ok: true, status: r.status, value: json.result?.value };
 }
 
 /**
