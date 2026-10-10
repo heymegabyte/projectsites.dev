@@ -13,15 +13,15 @@
 7. **b15** — Code-view **bucket source selector** (`CodeSourcePicker` Radix Source▾: website | R2 buckets, env badges, Production read-only, a11y) + `useCodeSources` hook + `BucketSourceNotice`. 8 tests. (In-explorer object-tree load/edit/save-back-to-R2 = fast-follow.)
 8. **b8** — object **rename/copy/move** same-bucket (`copySiteR2Object` S3 CopyObject + signed copy-source · collision guard · copy-then-delete · route + `PS_R2_COPY` bridge + `ObjectCopyDialog` in B3's menu). 82 jest + 151 Vitest. **Prod-verified on real R2** (copy 200 · rename 200 · src removed).
 9. **b11** — **server-side whole-bucket search** (`searchSiteR2Objects` bounded scan + native prefix + honest `scannedAll`/`scanned`/`truncated`; route `?search=`; reused `PS_R2 listObjects`; debounced UI + truncation note). 13 jest + 137 Vitest. **Prod-verified on real R2** (2 matches found, non-match excluded, honest flags). ALSO fixed **4 red token tests** (harness now applies 0661+0662) — **LESSON: per-fire verify must run the FULL jest suite, not just `jest r2_buckets`.**
+10. **b14** — **axe @ 6 breakpoints** gate (`verify:buckets-axe` on `/_preview`). Found + fixed a real serious `scrollable-region-focusable` violation. **Prod-verified GREEN at all 6 bp** (0 critical/serious).
 
-## DoD §21 ≈ 93% — REMAINING slices (each one fire)
+## DoD §21 ≈ 97% — REMAINING slices (each one fire)
 - **B10** env reassign + rollback (`EnvAssignmentGrid` read-only; needs `assignBucketEnv`) · **B7** zip export.
 - **B6** clone bucket · **B9** per-object public + signed shares — the 2 heavies (2–3 fires each, CF Workflow / signed-URL gateway).
-- Fast-follows: **B8 cross-bucket** copy/move · **B15 object-tree** load/edit/save-back.
-- **B14** axe @ 6bp · **502-GET fix** (GET `/objects/*` on a missing key returns 502, should be 404 — pre-existing GET-handler mis-map).
-- ✅ **≥5 visual-refinement rounds** — DONE + numbered in LEDGER.
-- READY-NOW top: **B10** env reassign+rollback · **B11** search · **B7** zip · B8-cross-bucket.
-- **CronDelete `b1182793`** when the above ship + prod-verify + B14 axe-clean.
+- Fast-follows: **B8 cross-bucket** copy/move · **B15 object-tree** load/edit/save-back · **502-GET fix** (GET `/objects/*` on a missing key returns 502, should be 404).
+- ✅ **≥5 visual rounds** · ✅ **axe @ 6bp clean** — DONE.
+- READY-NOW top: **B10** env reassign+rollback · **B7** zip · B8-cross-bucket · 502-GET fix.
+- **CronDelete `b1182793`** when B10/B7 + the 2 heavies (B6/B9) + fast-follows ship + prod-verify. (Closest path to DoD: B10 → B7 → 502-fix, deferring B6/B9 as post-DoD depth if acceptable.)
 
 ## Infra invariants for the next fire (do-not-rediscover)
 - **Deploy:** worker `cd apps/project-sites && wrangler deploy --env production` (Docker up, creds via `get-secret CLOUDFLARE_API_KEY` + `CLOUDFLARE_EMAIL=blzalewski@gmail.com`); editor `npm run build` (root) → `wrangler pages deploy build/client --project-name=bolt-diy --branch=main --commit-dirty=true`.
