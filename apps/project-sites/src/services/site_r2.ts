@@ -2468,3 +2468,259 @@ export async function promoteSiteR2(
   }
   return { objectsCopied: copied, ok: true, production: prod.allocation };
 }
+
+// ── B9: per-object public + revoke-safe signed shares ───────────────────────────────────────────────
+//
+// R2 has NO per-object public S3 ACL (CF constraint #1): exposing ONE object of an otherwise-private
+// bucket requires a Worker object-serving GATEWAY in front of a control plane. `object_visibility`
+// (migration 0663) is that control plane; the unauthed gateway `GET /api/r2/public/:slug` streams a LIVE
+// slug's bytes and 404s everything else. Security properties this module guarantees + the tests assert:
+//   • The share handle is an UNGUESSABLE (≥128-bit) random slug — the ONLY public reference to the
+//     object. The raw object key is never a public handle, so there is NO key-enumeration surface.
+//   • REVOKE IS IMMEDIATE — `revokeObjectPublic` stamps `revoked_at`; `resolvePublicObject` denies a
+//     revoked row (the origin DENY is instant even if a CDN still caches the old 200 briefly).
+//   • EXPIRY IS SERVER-ENFORCED — a passed `expires_at` denies at the resolver; the client can't bypass it.
+//   • PUBLIC-BUCKET INHERITANCE — a bucket with `public_access=1` ⇒ ALL its objects resolve public, even
+//     without a per-object row (resolved from `site_r2_allocations`, never backfilled).
+//   • A private object (no row / revoked / expired / visibility!='public' AND its bucket not public) is
+//     NEVER served.
+
+/** The decision a slug resolves to: the real bucket + key to stream, plus the owning site (for the token ctx). */
+export interface ResolvedPublicObject {
+  readonly siteId: string;
+  readonly tenantId: string;
+  readonly orgId: string | null;
+  readonly bucketName: string;
+  readonly objectKey: string;
+}
+
+/** The owner-facing view of one object's public-share state (what the authed routes return to the UI). */
+export interface ObjectVisibilityView {
+  /** 'public' once shared; the row exists only for objects that have been shared at least once. */
+  readonly visibility: 'public' | 'private';
+  /** The unguessable share handle — present only while the share is live (public, not revoked/expired). */
+  readonly publicSlug: string | null;
+  /** The absolute share URL (gateway path), or null when not live. */
+  readonly url: string | null;
+  /** ISO expiry, or null for a never-expiring share. */
+  readonly expiresAt: string | null;
+  /** True when a prior share was revoked and not re-shared (the UI shows an honest "revoked" state). */
+  readonly revoked: boolean;
+}
+
+/**
+ * Generate a cryptographically-random, URL-safe share slug with ≥128 bits of entropy. 24 random bytes →
+ * 192 bits, base64url-encoded (no padding) → a ~32-char unguessable handle. `crypto.getRandomValues` is
+ * the Workers CSPRNG (never `Math.random`).
+ */
+export function generatePublicSlug(): string {
+  const bytes = new Uint8Array(24); // 192 bits — comfortably over the ≥128-bit floor
+  crypto.getRandomValues(bytes);
+  let bin = '';
+  for (const b of bytes) bin += String.fromCharCode(b);
+  // base64 → base64url (+/= → -_ and drop padding) so the slug is safe in a path segment.
+  return btoa(bin).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/g, '');
+}
+
+/** The absolute public gateway URL for a slug (the "signed share" link the owner copies). */
+export function publicShareUrl(env: Env, slug: string): string {
+  // Prefer an explicit public base (set in prod to https://projectsites.dev); fall back to a relative path
+  // so a misconfigured env still yields a working same-origin link rather than a broken absolute URL.
+  const base = (env as unknown as { PUBLIC_BASE_URL?: string }).PUBLIC_BASE_URL;
+  const path = `/api/r2/public/${encodeURIComponent(slug)}`;
+  if (!base) return path;
+  return `${base.replace(/\/+$/, '')}${path}`;
+}
+
+/** Read the current (non-deleted) visibility row for an object, if any. */
+async function objectVisibilityRow(
+  env: Env,
+  siteId: string,
+  bucketName: string,
+  objectKey: string,
+): Promise<{
+  id: string;
+  visibility: string;
+  public_slug: string;
+  expires_at: string | null;
+  revoked_at: string | null;
+} | null> {
+  return dbQueryOne(
+    env.DB,
+    `SELECT id, visibility, public_slug, expires_at, revoked_at
+       FROM object_visibility
+      WHERE site_id = ? AND bucket_name = ? AND object_key = ?`,
+    [siteId, bucketName, objectKey],
+  );
+}
+
+/**
+ * Flip ONE object of a (resolved, owned) bucket PUBLIC — upsert its `object_visibility` row with a fresh
+ * unguessable slug + optional expiry, clearing any prior `revoked_at`. Idempotent per object: a re-share
+ * reuses the SAME row (new slug so an old leaked slug is dead, per least-surprise security). Returns the
+ * live share handle + URL + expiry. The caller MUST pass an allocation it already resolved as the site's
+ * OWN (the route's `gateAndBucket` does this — IDOR is structural there).
+ *
+ * @param env - worker env (DB)
+ * @param ctx - the OWNED site identity (ownership proven upstream)
+ * @param allocation - the already-resolved target bucket allocation
+ * @param objectKey - the object key within that bucket
+ * @param opts.expiresInSeconds - optional TTL; omitted/0 ⇒ never expires
+ */
+export async function setObjectPublic(
+  env: Env,
+  ctx: SiteR2Context,
+  allocation: SiteR2Allocation,
+  objectKey: string,
+  opts: { expiresInSeconds?: number | null } = {},
+): Promise<SiteR2Result<{ publicSlug: string; url: string; expiresAt: string | null }>> {
+  const key = String(objectKey ?? '').trim();
+  if (!key) return { ok: false, reason: 'object_not_found', status: 404 };
+
+  const ttl = opts.expiresInSeconds && opts.expiresInSeconds > 0 ? Math.floor(opts.expiresInSeconds) : null;
+  const expiresAt = ttl ? new Date(Date.now() + ttl * 1000).toISOString() : null;
+  const slug = generatePublicSlug();
+  const existing = await objectVisibilityRow(env, ctx.siteId, allocation.bucketName, key);
+
+  if (existing) {
+    // Re-share: rotate to a fresh slug, set/clear expiry, un-revoke. (A new slug means a previously-leaked
+    // link stays dead — the owner gets a clean handle every time they re-share.)
+    await dbExecute(
+      env.DB,
+      `UPDATE object_visibility
+          SET visibility = 'public', public_slug = ?, expires_at = ?, revoked_at = NULL,
+              allocation_id = ?, updated_at = datetime('now')
+        WHERE id = ?`,
+      [slug, expiresAt, allocation.id, existing.id],
+    );
+  } else {
+    await dbExecute(
+      env.DB,
+      `INSERT INTO object_visibility
+         (id, site_id, allocation_id, bucket_name, object_key, visibility, public_slug, expires_at, revoked_at, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, 'public', ?, ?, NULL, datetime('now'), datetime('now'))`,
+      [uuidv7(), ctx.siteId, allocation.id, allocation.bucketName, key, slug, expiresAt],
+    );
+  }
+
+  return { expiresAt, ok: true, publicSlug: slug, url: publicShareUrl(env, slug) };
+}
+
+/**
+ * Revoke an object's public share — the link dies IMMEDIATELY (`revoked_at = now`, slug kept for an honest
+ * "revoked" audit trail but the resolver denies it). Idempotent: revoking an object that was never shared
+ * (or already revoked) succeeds with `revoked:false` (nothing live to kill). The caller passes an owned,
+ * resolved allocation (IDOR structural upstream).
+ */
+export async function revokeObjectPublic(
+  env: Env,
+  ctx: SiteR2Context,
+  allocation: SiteR2Allocation,
+  objectKey: string,
+): Promise<SiteR2Result<{ revoked: boolean }>> {
+  const key = String(objectKey ?? '').trim();
+  if (!key) return { ok: false, reason: 'object_not_found', status: 404 };
+  const existing = await objectVisibilityRow(env, ctx.siteId, allocation.bucketName, key);
+  if (!existing || existing.revoked_at || existing.visibility !== 'public')
+    return { ok: true, revoked: false }; // nothing live to revoke — honest no-op
+  await dbExecute(
+    env.DB,
+    `UPDATE object_visibility
+        SET revoked_at = datetime('now'), visibility = 'private', updated_at = datetime('now')
+      WHERE id = ?`,
+    [existing.id],
+  );
+  return { ok: true, revoked: true };
+}
+
+/** The owner-facing current share state for one object (null when never shared). */
+export async function getObjectVisibility(
+  env: Env,
+  ctx: SiteR2Context,
+  allocation: SiteR2Allocation,
+  objectKey: string,
+): Promise<ObjectVisibilityView | null> {
+  const key = String(objectKey ?? '').trim();
+  if (!key) return null;
+  const row = await objectVisibilityRow(env, ctx.siteId, allocation.bucketName, key);
+  if (!row) return null;
+  const expired = !!row.expires_at && Date.parse(row.expires_at) <= Date.now();
+  const live = row.visibility === 'public' && !row.revoked_at && !expired;
+  return {
+    expiresAt: row.expires_at,
+    publicSlug: live ? row.public_slug : null,
+    revoked: !!row.revoked_at || (row.visibility === 'public' && expired),
+    url: live ? publicShareUrl(env, row.public_slug) : null,
+    visibility: live ? 'public' : 'private',
+  };
+}
+
+/**
+ * Resolve a public slug → the object to stream, or `null` to DENY. UNAUTHED — this is the gateway's
+ * decision function, so it must fail CLOSED: DENY when the row is missing, revoked, expired, or not
+ * public. The slug is the ONLY input (never a client-supplied bucket/key), so a valid slug can only
+ * serve the ONE object it was minted for — no IDOR, no enumeration. Public-BUCKET inheritance: even
+ * when the per-object row is private (or absent — impossible, since we look up BY slug), a bucket with
+ * `public_access=1` means the object is public; we re-check the owning allocation's current public flag
+ * so revoking bucket-public instantly re-privatizes every inherited object. The returned ctx lets the
+ * gateway stream via the per-site scoped token WITHOUT leaking any other object.
+ */
+export async function resolvePublicObject(
+  env: Env,
+  slug: string,
+): Promise<ResolvedPublicObject | null> {
+  const s = String(slug ?? '').trim();
+  if (!s) return null;
+
+  const row = await dbQueryOne<{
+    site_id: string;
+    allocation_id: string;
+    bucket_name: string;
+    object_key: string;
+    visibility: string;
+    expires_at: string | null;
+    revoked_at: string | null;
+  }>(
+    env.DB,
+    `SELECT site_id, allocation_id, bucket_name, object_key, visibility, expires_at, revoked_at
+       FROM object_visibility
+      WHERE public_slug = ?`,
+    [s],
+  );
+  if (!row) return null; // unknown slug — DENY
+
+  // Defense-in-depth: never serve a shared platform bucket, even if a row somehow pointed at one.
+  if (FORBIDDEN_BUCKET_NAMES.has(row.bucket_name)) return null;
+
+  // Resolve the owning allocation (for tenant + the live bucket-public flag). A deleted/missing/inactive
+  // allocation → DENY (the bucket is gone or no longer the site's).
+  const alloc = await dbQueryOne<{ tenant_id: string; public_access: number; status: string }>(
+    env.DB,
+    `SELECT tenant_id, public_access, status
+       FROM site_r2_allocations
+      WHERE id = ? AND site_id = ? AND deleted_at IS NULL`,
+    [row.allocation_id, row.site_id],
+  );
+  if (!alloc || alloc.status !== 'active') return null;
+
+  // The object serves when EITHER (a) the whole BUCKET is public — inheritance makes every object public
+  // regardless of the per-object row, "public bucket marks all public" (§21) — OR (b) the per-object row
+  // is a LIVE public share (public, not revoked, not expired). The per-object revoke/expiry gates ONLY
+  // the individual share link; when the bucket itself is public the content is public anyway, so a stale
+  // per-object revoke must NOT override bucket-public. Flipping the bucket private re-applies the
+  // per-object gates instantly (next resolve), so revoke stays safe.
+  const bucketPublic = alloc.public_access === 1;
+  if (!bucketPublic) {
+    if (row.revoked_at) return null; // revoked — DENY (immediate)
+    if (row.expires_at && Date.parse(row.expires_at) <= Date.now()) return null; // expired — DENY
+    if (row.visibility !== 'public') return null; // private per-object row + private bucket — DENY
+  }
+
+  return {
+    bucketName: row.bucket_name,
+    objectKey: row.object_key,
+    orgId: alloc.tenant_id ?? null,
+    siteId: row.site_id,
+    tenantId: alloc.tenant_id ?? row.site_id,
+  };
+}

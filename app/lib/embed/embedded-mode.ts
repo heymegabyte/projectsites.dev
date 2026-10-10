@@ -2535,6 +2535,57 @@ export interface BucketCopyResponseMessage {
 }
 
 /**
+ * Child → Parent (Resources — Buckets, B9): flip ONE object PUBLIC (mint a revoke-safe signed share) or
+ * REVOKE its share. R2 has NO per-object public ACL, so the admin PROXIES to the worker's
+ * `POST /api/sites/:id/r2/buckets/:bucket/objects/public` (share) or `DELETE …/objects/public` (revoke);
+ * the public bytes serve from the UNAUTHED gateway `GET /api/r2/public/:slug` (the share URL the reply
+ * carries). No object bytes cross the bridge. `action:'status'` reads the current share state (GET).
+ */
+export interface BucketObjectPublicRequestMessage {
+  type: 'PS_R2_OBJECT_PUBLIC';
+  correlationId: string;
+  bucket: string;
+
+  /** The object key to share / revoke / inspect. */
+  objectKey: string;
+
+  /** `share` → mint a link · `revoke` → kill it · `status` → read the current state. */
+  action: 'share' | 'revoke' | 'status';
+
+  /** `share` only: optional server-enforced TTL in seconds (absent ⇒ never expires). */
+  expiresInSeconds?: number;
+}
+
+/** Parent → Child: reply to {@link BucketObjectPublicRequestMessage}. */
+export interface BucketObjectPublicResponseMessage {
+  type: 'PS_R2_OBJECT_PUBLIC_RESULT';
+  correlationId?: string;
+  ok: boolean;
+
+  /** Echoed object key. */
+  objectKey?: string;
+
+  /** The absolute public share URL (`share`/`status` when live) — what the owner copies. */
+  url?: string;
+
+  /** The unguessable share slug (live only). */
+  publicSlug?: string;
+
+  /** ISO expiry (null/absent ⇒ never). */
+  expiresAt?: string | null;
+
+  /** `revoke`: whether a live link was actually killed (false = nothing was live). */
+  revoked?: boolean;
+
+  /** `status`: true when the object currently has a LIVE public share. */
+  live?: boolean;
+
+  enabled?: boolean;
+  needsCreds?: boolean;
+  error?: string;
+}
+
+/**
  * Child → Parent (Resources — Buckets, B7): download the WHOLE bucket as one `.zip`. The editor has no
  * cross-origin session, so the admin (which holds `selectedSite` + the bearer) GETs the
  * `application/zip` bytes from `GET /api/sites/:id/r2/buckets/:bucket/zip` and returns them as a base64
@@ -2900,6 +2951,7 @@ export type ParentToChildMessage =
   | BucketUploadResponseMessage
   | BucketDownloadResponseMessage
   | BucketCopyResponseMessage
+  | BucketObjectPublicResponseMessage
   | BucketZipResponseMessage
   | BucketCloneResponseMessage
   | OwnerKeyResponseMessage
@@ -2955,6 +3007,7 @@ export type ChildToParentMessage =
   | BucketUploadRequestMessage
   | BucketDownloadRequestMessage
   | BucketCopyRequestMessage
+  | BucketObjectPublicRequestMessage
   | BucketZipRequestMessage
   | BucketCloneRequestMessage
   | OwnerKeyStatusRequestMessage
@@ -3881,6 +3934,26 @@ export function requestR2Copy(input: {
   return requestFromParent<BucketCopyResponseMessage>(
     { type: 'PS_R2_COPY', correlationId: nextBridgeCorrelationId(), ...input },
     'PS_R2_COPY_RESULT',
+  );
+}
+
+/**
+ * Resources → Buckets (B9): share / revoke / inspect ONE object's PUBLIC link (a revoke-safe signed
+ * share). R2 has no per-object public ACL, so the admin proxies to the worker's `…/objects/public`
+ * routes; the public bytes serve from the UNAUTHED gateway at the returned `url`. `action:'share'` mints
+ * (optionally with `expiresInSeconds`), `'revoke'` kills the link immediately, `'status'` reads the
+ * current state. No object bytes cross the bridge. Resolves with the parent's
+ * {@link BucketObjectPublicResponseMessage}.
+ */
+export function requestObjectPublic(input: {
+  bucket: string;
+  objectKey: string;
+  action: 'share' | 'revoke' | 'status';
+  expiresInSeconds?: number;
+}): Promise<BucketObjectPublicResponseMessage> {
+  return requestFromParent<BucketObjectPublicResponseMessage>(
+    { type: 'PS_R2_OBJECT_PUBLIC', correlationId: nextBridgeCorrelationId(), ...input },
+    'PS_R2_OBJECT_PUBLIC_RESULT',
   );
 }
 

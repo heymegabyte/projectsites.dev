@@ -120,6 +120,29 @@ export const CopyObjectBodySchema = z
   });
 export type CopyObjectBody = z.infer<typeof CopyObjectBodySchema>;
 
+/**
+ * Body for `POST /r2/buckets/:bucket/objects/public` (B9) — flip ONE object PUBLIC (a revoke-safe signed
+ * share). `objectKey` is the full key within the (resolved, owned) bucket. `expiresInSeconds` is an
+ * optional server-enforced TTL (omitted/absent ⇒ a never-expiring share); capped at 1 year so a typo
+ * can't mint an effectively-eternal link by accident. The route returns the unguessable slug + the
+ * absolute share URL + the resolved expiry.
+ */
+export const MakeObjectPublicBodySchema = z
+  .object({
+    objectKey: z.string().min(1).max(1024),
+    /** Optional TTL in seconds (1 min … 1 year). Absent ⇒ never expires. */
+    expiresInSeconds: z.coerce.number().int().min(60).max(31_536_000).optional(),
+  })
+  .strict();
+export type MakeObjectPublicBody = z.infer<typeof MakeObjectPublicBodySchema>;
+
+/**
+ * Body for `DELETE /r2/buckets/:bucket/objects/public` (B9) — revoke an object's public share. The link
+ * dies immediately server-side; idempotent (revoking a never-shared object succeeds as a no-op).
+ */
+export const RevokeObjectPublicBodySchema = z.object({ objectKey: z.string().min(1).max(1024) }).strict();
+export type RevokeObjectPublicBody = z.infer<typeof RevokeObjectPublicBodySchema>;
+
 /** A single object descriptor in a list response (mirrors `SiteR2Object`). */
 export const ObjectEntrySchema = z.object({
   key: z.string(),

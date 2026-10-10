@@ -39,6 +39,7 @@ import {
   requestBucketOwnerKeyStatus,
   requestBucketUpload,
   requestBucketZip,
+  requestObjectPublic,
   requestOwnerKeyCreate,
   requestOwnerKeyRevoke,
   requestOwnerKeyRotate,
@@ -1392,6 +1393,8 @@ export const ObjectActionMenu = memo(
     onRename,
     onCopy,
     onMove,
+    onShare,
+    onRevokeShare,
     onDelete,
   }: {
     objectKey: string;
@@ -1407,6 +1410,10 @@ export const ObjectActionMenu = memo(
     onCopy?: (key: string) => void;
     /** B8 — move this object to another folder/prefix (copy + delete the source). */
     onMove?: (key: string) => void;
+    /** B9 — share this ONE file via a public, revoke-safe link (copies the link). */
+    onShare?: (key: string) => void;
+    /** B9 — stop sharing this file (the public link dies immediately). */
+    onRevokeShare?: (key: string) => void;
     onDelete: (key: string) => void;
   }) => (
     <ContextMenu.Root>
@@ -1468,6 +1475,27 @@ export const ObjectActionMenu = memo(
               onSelect={() => onMove(objectKey)}
             >
               <div className="i-ph:folder-open text-sm" aria-hidden /> Move to…
+            </ContextMenu.Item>
+          )}
+          {(onShare || onRevokeShare) && (
+            <ContextMenu.Separator className="my-1 h-px bg-bolt-elements-borderColor/60" />
+          )}
+          {onShare && (
+            <ContextMenu.Item
+              className={OBJECT_MENU_ITEM}
+              data-testid="buckets-object-context-share"
+              onSelect={() => onShare(objectKey)}
+            >
+              <div className="i-ph:link-simple-horizontal text-sm" aria-hidden /> Share publicly &amp; copy link
+            </ContextMenu.Item>
+          )}
+          {onRevokeShare && (
+            <ContextMenu.Item
+              className={OBJECT_MENU_ITEM}
+              data-testid="buckets-object-context-revoke-share"
+              onSelect={() => onRevokeShare(objectKey)}
+            >
+              <div className="i-ph:link-break text-sm" aria-hidden /> Stop sharing
             </ContextMenu.Item>
           )}
           <ContextMenu.Separator className="my-1 h-px bg-bolt-elements-borderColor/60" />
@@ -1820,6 +1848,61 @@ export const ObjectBrowser = memo(
         postToastToParent(ok ? 'success' : 'error', ok ? 'Object URL copied.' : 'Could not copy the URL.');
       },
       [bucket.publicUrl, bucket.address],
+    );
+
+    /*
+     * B9 — share ONE file via a public, revoke-safe link. R2 has no per-object public ACL, so the bridge
+     * flips the object public server-side (mints an unguessable share slug) and hands back a link served
+     * by the public gateway. We copy the link to the clipboard immediately so the owner can paste it — one
+     * obvious action, zero config. An honest toast names what happened ("link copied — anyone with it can
+     * view this one file"). On a needs-creds / disabled reply we degrade to a clear warning, never a crash.
+     */
+    const shareObject = useCallback(
+      async (key: string) => {
+        setBusyKey(key);
+        try {
+          const reply = await requestObjectPublic({ action: 'share', bucket: bucket.name, objectKey: key });
+          if (!reply.ok || !reply.url) {
+            postToastToParent(reply.needsCreds ? 'warning' : 'error', reply.error || 'Could not create a public link.');
+            return;
+          }
+          const copied = await copyText(reply.url);
+          postToastToParent(
+            'success',
+            copied
+              ? `Public link copied — anyone with it can view ${objectBaseName(key)}.`
+              : `Public link ready: ${reply.url}`,
+          );
+        } catch (err) {
+          postToastToParent('error', err instanceof Error ? err.message : 'Could not create a public link.');
+        } finally {
+          setBusyKey(null);
+        }
+      },
+      [bucket.name],
+    );
+
+    /** B9 — revoke an object's public link (dies immediately). Idempotent + honest toast. */
+    const revokeShare = useCallback(
+      async (key: string) => {
+        setBusyKey(key);
+        try {
+          const reply = await requestObjectPublic({ action: 'revoke', bucket: bucket.name, objectKey: key });
+          if (!reply.ok) {
+            postToastToParent(reply.needsCreds ? 'warning' : 'error', reply.error || 'Could not stop sharing that file.');
+            return;
+          }
+          postToastToParent(
+            'success',
+            reply.revoked ? `Public link revoked — ${objectBaseName(key)} is private again.` : `${objectBaseName(key)} wasn’t shared.`,
+          );
+        } catch (err) {
+          postToastToParent('error', err instanceof Error ? err.message : 'Could not stop sharing that file.');
+        } finally {
+          setBusyKey(null);
+        }
+      },
+      [bucket.name],
     );
 
     /*
@@ -2363,6 +2446,8 @@ export const ObjectBrowser = memo(
                         onRename={objectOpsAvailable ? (k) => setObjectOp({ key: k, mode: 'rename' }) : undefined}
                         onCopy={objectOpsAvailable ? (k) => setObjectOp({ key: k, mode: 'copy' }) : undefined}
                         onMove={objectOpsAvailable ? (k) => setObjectOp({ key: k, mode: 'move' }) : undefined}
+                        onShare={objectOpsAvailable ? (k) => void shareObject(k) : undefined}
+                        onRevokeShare={objectOpsAvailable ? (k) => void revokeShare(k) : undefined}
                         onDelete={(k) => void deleteObject(k)}
                       >
                       <div
@@ -2536,6 +2621,8 @@ export const ObjectBrowser = memo(
                         onRename={objectOpsAvailable ? (k) => setObjectOp({ key: k, mode: 'rename' }) : undefined}
                         onCopy={objectOpsAvailable ? (k) => setObjectOp({ key: k, mode: 'copy' }) : undefined}
                         onMove={objectOpsAvailable ? (k) => setObjectOp({ key: k, mode: 'move' }) : undefined}
+                        onShare={objectOpsAvailable ? (k) => void shareObject(k) : undefined}
+                        onRevokeShare={objectOpsAvailable ? (k) => void revokeShare(k) : undefined}
                         onDelete={(k) => void deleteObject(k)}
                       >
                       <div

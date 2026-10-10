@@ -27,6 +27,10 @@
  * | POST   | /api/sites/:siteId/r2/buckets/:bucket/keys                | Per-bucket owner key — create (show-once)   |
  * | POST   | /api/sites/:siteId/r2/buckets/:bucket/keys/rotate         | Per-bucket owner key — rotate (show-once)   |
  * | DELETE | /api/sites/:siteId/r2/buckets/:bucket/keys                | Per-bucket owner key — revoke (idempotent)  |
+ * | GET    | /api/sites/:siteId/r2/buckets/:bucket/objects/public      | B9 — one object's current share state       |
+ * | POST   | /api/sites/:siteId/r2/buckets/:bucket/objects/public      | B9 — flip one object public (signed share)  |
+ * | DELETE | /api/sites/:siteId/r2/buckets/:bucket/objects/public      | B9 — revoke an object's share (immediate)   |
+ * | GET    | /api/r2/public/:slug                                       | B9 — UNAUTHED public object gateway (serve)  |
  *
  * Every route: (1) 401 if unauthenticated; (2) **404 (DARK) when `r2_buckets` is off** (never 403, never
  * leak existence); (3) `ownsSiteData` IDOR guard (404 on a foreign/missing site); (4) then resolve the
@@ -51,6 +55,7 @@ import {
   ensureDefaultSiteR2,
   getBucketOwnerKeyStatus,
   getSiteOwnerKeyStatus,
+  getObjectVisibility,
   getSiteR2Object,
   hasObjectOpsForSite,
   isValidBucketDisplayName,
@@ -61,12 +66,15 @@ import {
   provisionSiteR2,
   putSiteR2Object,
   renameSiteR2Object,
+  resolvePublicObject,
   resolveSiteR2Allocation,
   revokeBucketOwnerKey,
+  revokeObjectPublic,
   revokeSiteOwnerKey,
   rotateBucketOwnerKey,
   rotateSiteOwnerKey,
   searchSiteR2Objects,
+  setObjectPublic,
   setSiteR2PublicAccess,
   type SiteR2Allocation,
   type SiteR2Failure,
@@ -78,8 +86,10 @@ import {
   CopyObjectBodySchema,
   CreateBucketBodySchema,
   ListObjectsQuerySchema,
+  MakeObjectPublicBodySchema,
   R2_BUCKETS_FLAG as FLAG,
   R2_OWNER_KEY_FLAG,
+  RevokeObjectPublicBodySchema,
   SetEnvironmentBodySchema,
   SetPublicBodySchema,
   UploadJsonBodySchema,
@@ -213,6 +223,51 @@ function bucketView(c: Context<AppContext>, a: SiteR2Allocation) {
     publicUrl: a.publicAccess ? a.publicBaseUrl : null,
   };
 }
+
+// ── GET /api/r2/public/:slug — UNAUTHED public object gateway (the "signed share" serving path, B9) ──
+//
+// THE public serving endpoint. Mounted under `/api/*` (where `authMiddleware` only POPULATES context and
+// never rejects) but DELIBERATELY runs NO auth/flag/ownership gate — a share link must work for an
+// anonymous visitor. Security lives ENTIRELY in `resolvePublicObject`, which fails CLOSED: it resolves
+// the object SOLELY from the unguessable slug (never a client bucket/key → no IDOR, no enumeration) and
+// returns null (→ 404) when the share is unknown / revoked / expired / not public (and its bucket not
+// public). A valid live slug streams the ONE object's bytes via the per-site scoped token. It returns
+// 404 (NEVER 403, never a distinguishing error) on every denial so a probe can't tell "revoked" from
+// "never existed" from "wrong slug" — no information leak.
+r2Buckets.get('/api/r2/public/:slug', async (c) => {
+  const { slug } = c.req.param();
+  const resolved = await resolvePublicObject(c.env, slug);
+  // DENY → a plain 404 (never 403, never a body that distinguishes the denial reason).
+  if (!resolved) return c.json({ error: { code: 'NOT_FOUND', message: 'Not found' }, ok: false }, 404);
+
+  // Stream the bytes via the per-site scoped token. ctx comes from the RESOLVED row, never the request,
+  // so this can only ever read the one shared object — it can't be pivoted to another key/bucket.
+  const got = await getSiteR2Object(
+    c.env,
+    { orgId: resolved.orgId, siteId: resolved.siteId, tenantId: resolved.tenantId },
+    resolved.bucketName,
+    resolved.objectKey,
+  );
+  // A missing object (deleted after sharing) or any upstream failure also surfaces as 404 — never leak
+  // that the slug WAS valid, and never a 5xx the public can fingerprint.
+  if (!got.ok) return c.json({ error: { code: 'NOT_FOUND', message: 'Not found' }, ok: false }, 404);
+
+  const filename = resolved.objectKey.split('/').pop() || 'file';
+  return new Response(got.body, {
+    headers: {
+      // Revoke-aware cache: a short shared max-age keeps the gateway cheap while bounding how long a
+      // revoked/expired link could still serve from a CDN; the origin control-plane DENY is instant.
+      'cache-control': 'public, max-age=300, must-revalidate',
+      'content-disposition': `inline; filename="${filename.replace(/["\\]/g, '')}"`,
+      'content-length': String(got.size),
+      'content-type': got.contentType,
+      // A shared object is addressed only by its unguessable slug — keep it out of search indexes.
+      'x-content-type-options': 'nosniff',
+      'x-robots-tag': 'noindex, nofollow',
+    },
+    status: 200,
+  });
+});
 
 // ── GET /api/sites/:siteId/r2/buckets — list (lazy-provision the default) ──────────────────────────
 r2Buckets.get('/api/sites/:siteId/r2/buckets', async (c) => {
@@ -528,6 +583,95 @@ r2Buckets.get('/api/sites/:siteId/r2/buckets/:bucket/objects', async (c) => {
     data: { cursor: result.cursor, objects: result.objects, prefixes: result.prefixes, truncated: result.truncated },
     ok: true,
   });
+});
+
+// ── B9: per-object public + revoke-safe signed shares ──────────────────────────────────────────────
+//
+// Flip ONE object of an otherwise-private bucket PUBLIC (returns an unguessable, revoke-safe share link)
+// or revoke it. R2 has NO per-object public S3 ACL (CF #1) → these routes drive the `object_visibility`
+// control plane; the UNAUTHED gateway `GET /api/r2/public/:slug` (registered at the top of this file)
+// is the actual serving path. Registered BEFORE the `…/objects/*` wildcards so the static
+// `/objects/public` segment is never swallowed by the wildcard. Same gate order as the rest of the
+// surface (isolation BEFORE the op): auth → `r2_bucket_manager` flag-dark-404 → ownsSiteData → resolve
+// the OWNED bucket (foreign bucket → 404 via gateAndBucket's `WHERE site_id` scope — the IDOR guard).
+
+// ── POST …/objects/public — flip one object public (mint a revoke-safe signed share) ────────────────
+r2Buckets.post('/api/sites/:siteId/r2/buckets/:bucket/objects/public', async (c) => {
+  const { siteId, bucket } = c.req.param();
+  // The share link IS a live R2 credential surface, so it rides the object-ops flag (same as the keys).
+  const g = await gateAndBucket(c, siteId, bucket, R2_OWNER_KEY_FLAG);
+  if (g instanceof Response) return g;
+
+  const parsed = MakeObjectPublicBodySchema.safeParse(await c.req.json().catch(() => ({})));
+  if (!parsed.success)
+    return c.json({ error: { code: 'BAD_REQUEST', message: 'Choose a file to share' }, ok: false }, 400);
+
+  const ctx = { orgId: g.orgId, siteId, tenantId: g.tenantId };
+  const result = await setObjectPublic(c.env, ctx, g.allocation, parsed.data.objectKey, {
+    expiresInSeconds: parsed.data.expiresInSeconds ?? null,
+  });
+  if (!result.ok) return r2Failure(c, result.reason, result.message);
+
+  // Audit the share (never a secret — the slug is the public handle, logged for traceability).
+  await writeAuditLog(c.env.DB, {
+    action: 'r2.object.made_public',
+    actor_id: c.get('userId') ?? null,
+    metadata_json: { bucket, expiresAt: result.expiresAt, objectKey: parsed.data.objectKey, slug: result.publicSlug },
+    org_id: g.orgId,
+    request_id: c.get('requestId') ?? null,
+    target_id: siteId,
+    target_type: 'site',
+  });
+
+  return c.json(
+    { data: { expiresAt: result.expiresAt, objectKey: parsed.data.objectKey, publicSlug: result.publicSlug, url: result.url }, ok: true },
+    201,
+  );
+});
+
+// ── DELETE …/objects/public — revoke an object's public share (link dies immediately) ───────────────
+// MUST precede `DELETE …/objects/*` so the static `/objects/public` isn't captured by the wildcard.
+r2Buckets.delete('/api/sites/:siteId/r2/buckets/:bucket/objects/public', async (c) => {
+  const { siteId, bucket } = c.req.param();
+  const g = await gateAndBucket(c, siteId, bucket, R2_OWNER_KEY_FLAG);
+  if (g instanceof Response) return g;
+
+  // Accept `objectKey` from the JSON body OR a query param — a DELETE often can't carry a body cleanly
+  // through a proxy/HTTP client, so the admin bridge sends it as `?objectKey=…`. Body wins when present.
+  const bodyParsed = RevokeObjectPublicBodySchema.safeParse(await c.req.json().catch(() => ({})));
+  const objectKey = bodyParsed.success ? bodyParsed.data.objectKey : c.req.query('objectKey');
+  if (!objectKey)
+    return c.json({ error: { code: 'BAD_REQUEST', message: 'Choose a file to stop sharing' }, ok: false }, 400);
+
+  const ctx = { orgId: g.orgId, siteId, tenantId: g.tenantId };
+  const result = await revokeObjectPublic(c.env, ctx, g.allocation, objectKey);
+  if (!result.ok) return r2Failure(c, result.reason, result.message);
+
+  if (result.revoked)
+    await writeAuditLog(c.env.DB, {
+      action: 'r2.object.revoked',
+      actor_id: c.get('userId') ?? null,
+      metadata_json: { bucket, objectKey },
+      org_id: g.orgId,
+      request_id: c.get('requestId') ?? null,
+      target_id: siteId,
+      target_type: 'site',
+    });
+
+  return c.json({ data: { objectKey, revoked: result.revoked }, ok: true });
+});
+
+// ── GET …/objects/public?objectKey=… — current share state for one object (owner view) ──────────────
+r2Buckets.get('/api/sites/:siteId/r2/buckets/:bucket/objects/public', async (c) => {
+  const { siteId, bucket } = c.req.param();
+  const g = await gateAndBucket(c, siteId, bucket, R2_OWNER_KEY_FLAG);
+  if (g instanceof Response) return g;
+  const objectKey = c.req.query('objectKey');
+  if (!objectKey)
+    return c.json({ error: { code: 'BAD_REQUEST', message: 'Missing objectKey' }, ok: false }, 400);
+  const ctx = { orgId: g.orgId, siteId, tenantId: g.tenantId };
+  const view = await getObjectVisibility(c.env, ctx, g.allocation, objectKey);
+  return c.json({ data: view, ok: true });
 });
 
 /** Extract the object key from a wildcard route (`…/objects/*`), URL-decoded + traversal-guarded. */

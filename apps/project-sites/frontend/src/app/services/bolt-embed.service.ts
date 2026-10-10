@@ -350,6 +350,10 @@ interface PsMessage {
   readonly overwrite?: boolean;
   /** PS_R2_COPY (cross-bucket): another of the site's bucket display names to copy/move INTO. */
   readonly destBucket?: string;
+  /** PS_R2_OBJECT_PUBLIC (B9): the object key to share / revoke / inspect. */
+  readonly objectKey?: string;
+  /** PS_R2_OBJECT_PUBLIC (B9, share): optional server-enforced TTL in seconds (absent ⇒ never expires). */
+  readonly expiresInSeconds?: number;
 }
 
 /**
@@ -3858,6 +3862,74 @@ export class BoltEmbedService {
                 else reply({ ok: false, error: r2ErrMessage(err) ?? 'Could not complete that.' });
               },
             });
+          break;
+        }
+        case 'PS_R2_OBJECT_PUBLIC': {
+          // Resources → Buckets (B9) — share / revoke / inspect ONE object's PUBLIC link (a revoke-safe
+          // signed share). R2 has no per-object public ACL, so we proxy to the worker's `…/objects/public`
+          // routes; the public bytes serve from the UNAUTHED gateway at the returned `url`. No object bytes
+          // cross the bridge. Reply PS_R2_OBJECT_PUBLIC_RESULT. Dark behind `r2_bucket_manager` →
+          // {ok:false, enabled:false}; a 503 → {ok:false, needsCreds:true}.
+          const iframe = this.iframeEl;
+          const site = this.currentSite;
+          const cid = msg.correlationId;
+          const reply = (payload: Record<string, unknown>): void => {
+            iframe?.contentWindow?.postMessage({ type: 'PS_R2_OBJECT_PUBLIC_RESULT', correlationId: cid, ...payload }, EDITOR_BASE);
+          };
+          if (!site) {
+            reply({ ok: false, error: 'No site selected' });
+            break;
+          }
+          const bucket = typeof msg.bucket === 'string' ? encodeURIComponent(msg.bucket) : '';
+          const objectKey = typeof msg.objectKey === 'string' ? msg.objectKey : '';
+          const action = msg.action === 'revoke' || msg.action === 'status' ? msg.action : 'share';
+          if (!bucket || !objectKey) {
+            reply({ ok: false, error: 'Missing bucket or file' });
+            break;
+          }
+          const base = `/sites/${site.id}/r2/buckets/${bucket}/objects/public`;
+          const onError = (err: unknown): void => {
+            if (err instanceof HttpErrorResponse && err.status === 404 && r2NotEnabled(err)) reply({ ok: false, enabled: false });
+            else if (err instanceof HttpErrorResponse && err.status === 503) reply({ ok: false, needsCreds: true, error: r2ErrMessage(err) ?? 'Public sharing needs file storage to finish setting up.' });
+            else reply({ ok: false, error: r2ErrMessage(err) ?? 'Could not update sharing for that file.' });
+          };
+          if (action === 'revoke') {
+            // objectKey rides as a query param — a DELETE body isn't reliably forwarded; the worker reads either.
+            this.api
+              .delete<{ data?: { revoked?: boolean } }>(`${base}?objectKey=${encodeURIComponent(objectKey)}`, { silent: true })
+              .subscribe({ next: (res) => reply({ ok: true, objectKey, revoked: res?.data?.revoked ?? false }), error: onError });
+          } else if (action === 'status') {
+            this.api
+              .get<{ data?: { url?: string; publicSlug?: string; expiresAt?: string | null; visibility?: string } | null }>(
+                `${base}?objectKey=${encodeURIComponent(objectKey)}`,
+                undefined,
+                { silent: true },
+              )
+              .subscribe({
+                next: (res) =>
+                  reply({
+                    expiresAt: res?.data?.expiresAt ?? null,
+                    live: res?.data?.visibility === 'public',
+                    objectKey,
+                    ok: true,
+                    publicSlug: res?.data?.publicSlug,
+                    url: res?.data?.url,
+                  }),
+                error: onError,
+              });
+          } else {
+            this.api
+              .post<{ data?: { url?: string; publicSlug?: string; expiresAt?: string | null } }>(
+                base,
+                { objectKey, ...(typeof msg.expiresInSeconds === 'number' ? { expiresInSeconds: msg.expiresInSeconds } : {}) },
+                { silent: true },
+              )
+              .subscribe({
+                next: (res) =>
+                  reply({ expiresAt: res?.data?.expiresAt ?? null, live: true, objectKey, ok: true, publicSlug: res?.data?.publicSlug, url: res?.data?.url }),
+                error: onError,
+              });
+          }
           break;
         }
         case 'PS_R2_CLONE': {
