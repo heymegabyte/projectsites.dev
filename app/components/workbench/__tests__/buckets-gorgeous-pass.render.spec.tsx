@@ -197,7 +197,7 @@ describe('gorgeous3 — no text/bg accent-alpha no-op survives (hardened, catche
   it('the exact owner-key / per-bucket-key ACTIVE pill is a color-mix tint (the bug that shipped once)', () => {
     // The ACTIVE pill MUST paint its fill with color-mix so the solid-accent label stays legible.
     expect(PANEL_SRC).toContain(
-      "bg-[color-mix(in_oklch,var(--bolt-elements-item-contentAccent)_15%,transparent)] text-bolt-elements-item-contentAccent",
+      'bg-[color-mix(in_oklch,var(--bolt-elements-item-contentAccent)_15%,transparent)] text-bolt-elements-item-contentAccent',
     );
     // …and the broken form must be gone entirely.
     expect(PANEL_SRC).not.toContain('bg-bolt-elements-item-contentAccent/15 text-bolt-elements-item-contentAccent');
