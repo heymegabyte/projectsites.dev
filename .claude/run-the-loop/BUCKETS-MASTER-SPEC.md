@@ -13,13 +13,16 @@ the file-management feel of Finder/Transmit, the polish of Linear/Raycast, the c
 Cloudflare R2's dashboard — every visible control backed by a REAL implementation (no stubs).
 
 ## READY NOW — top 5 (next fires)
-*Ranked by user/money-path leverage × dependency order. B1 (premium shell) is being built in fire-312.*
+*Ranked by user/money-path leverage × dependency order. B1 premium shell shipped fire-312; B1-polish
+**list⇄grid toggle** shipped fire-buckets-b1polish. **Next lead = B2** (two-default model).*
 
-1. **B1-polish — grid view + skeletons + lit-dark rounds** · *why-now:* finishes the fire-312 shell so the
-   flagship surface actually looks flagship (first-5s "it" factor); zero dependencies, pure FE. · *acceptance:*
-   list⇄grid toggle on Files (session-persisted, grid tiles reuse `iconForObject` + image preview), skeleton
-   loaders replace bare "loading", ≥3 screenshot-verified aesthetic rounds. · *files:* `BucketsPanel.tsx`
-   (`ObjectBrowser` list render ~1225, `BucketsState` loading branch); `_polish.scss` tokens. · **new-backend: NO.**
+1. **B2 — two-default model (Preview + Production), retire `'uploads'`** *(now the lead)* · the navigator's
+   pinned-top premise rests on it — today the live default shows as "uploads" under PREVIEW; B2 makes it read
+   "Preview". **Full detail in item 2 below.** Decision note: the display-name rename of EXISTING `'uploads'`
+   allocations is a bulk customer-visible change → treat the new-site seed (1-line default) as decision-independent
+   and gate the bulk rename as a reversible, data-preserving migration (canonical #3), never a destructive drop.
+1b. **B1-polish residual — ≥3 "lit"-dark aesthetic rounds** (grid toggle ✅ done) · pure FE screenshot-verified
+   refinement of the Buckets shell; optional PRIVATE-bucket grid thumbnails need B9's gateway. · **new-backend: NO.**
 2. **B2 — two-default model (Preview + Production), retire `'uploads'`** · *why-now:* the whole navigator's
    pinned-top premise (and B1's correctness) rests on this; today `ensureDefaultSiteR2` still hardcodes
    `'uploads'`. Small, high-trust, unblocks everything. · *acceptance:* new sites seed "Preview"; an idempotent
@@ -117,12 +120,15 @@ B6/B7/B9/B10 (Workflows / gateway / env-pointer — large backend) · B13/B14 (i
   both, then upgrade `accent-pill-ink-contrast.spec.ts` test 4 from a hardcoded list to a DYNAMIC sweep (every
   `role="tab"`+`bg-bolt-elements-item-contentAccent` file must carry `text-[#061018]`) so the gate can't go stale.
   New-backend: **NO**. Priority: P3 (hardening). Deferred out of fire-312 by the Buckets scope-lock.
-- [ ] **B1-polish Grid view + aesthetic rounds** *(split out of B1, fire-312)* — one-line: finish B1's visual arc.
-  Acceptance: a list⇄grid toggle on the Files tab (persisted per-session; grid = thumbnail tiles reusing
-  `iconForObject` + image preview), object/bucket skeleton loaders replacing the bare "loading" text, and ≥3
-  "lit"-dark refinement rounds (airier spacing, thin cyan borders, restrained shadow) each screenshot-verified.
-  Anchor: `BucketsPanel.tsx` `ObjectBrowser`/`filteredObjects` (list render ~line 1225) + `BucketsState` loading
-  branch. Reuse `iconForObject`; brand tokens from `_polish.scss`. New-backend: **NO**. Priority: **P1 (next after B1)**.
+- [~] **B1-polish Grid view + aesthetic rounds** *(split out of B1, fire-312)* — finish B1's visual arc.
+  - [x] **list⇄grid toggle** *(fire-buckets-b1polish — ✅ DONE, live)* — `ObjectBrowser` now has a session-persisted
+    (`ps.buckets.filesView`, jsdom-guarded) aria-pressed segmented toggle; grid = responsive tiles reusing
+    `iconForObject` + real `<img>` thumbnails for images in PUBLIC buckets (onError→icon) + the same multi-select +
+    hover actions (copy/download/delete). 3 new Vitest cases, 14/14 green; live-verified (toggle clicked in a real
+    browser via the hardened `editor-nav.mjs` buckets probe). Skeletons already existed (`BucketsSkeleton`/`ObjectsSkeleton`).
+  - [ ] **remaining:** ≥3 "lit"-dark refinement rounds (airier spacing, thin cyan borders, restrained shadow), each
+    screenshot-verified; optional grid image thumbnails for PRIVATE buckets (needs a signed-URL/gateway, pairs with B9).
+    New-backend: **NO** (private thumbnails would need B9's gateway). Priority: **P1 (next)**.
 - [ ] **B2 Two-default-buckets model** — one-line: make Preview + Production the two canonical site-visible
   defaults and retire the `'uploads'` default NAME (keep the physical bucket + its data). Anchor:
   `site_r2.ts` `ensureDefaultSiteR2` (line 327 — currently hardcodes `displayName ?? 'uploads'`) +

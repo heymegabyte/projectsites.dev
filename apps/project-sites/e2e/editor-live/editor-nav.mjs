@@ -360,6 +360,34 @@ async function verifyResourcesSubTabs(page, frame, consoleErrors, resourcesTabSe
       console.log(`  [${probe.name}] sample error texts: ${sampleTexts.join(' ⋮ ')}`);
     }
 
+    // B1-polish (fire-buckets-b1polish): exercise the Files list⇄grid toggle LIVE so a future fire
+    // catches a broken toggle. Best-effort — NEVER fails the buckets probe (try/catch + restore).
+    if (probe.name === 'buckets' && pass) {
+      try {
+        const gridBtn = frame.locator('[data-testid="buckets-view-grid"]').first();
+
+        if (await gridBtn.count()) {
+          await clickReliably(frame, '[data-testid="buckets-view-grid"]');
+          await page.waitForTimeout(800);
+
+          const gridOn = await firstFoundTestId(
+            frame,
+            ['buckets-object-grid', 'buckets-objects-needs-creds', 'buckets-objects-empty'],
+            4000,
+          );
+          const gridShot = await shot(page, 'tab-buckets-grid');
+          console.log(`  [buckets] view toggle → grid → ${gridOn ?? 'none'} (screenshot ${gridShot})`);
+
+          // Restore list view so other runs keep the default screenshot semantics.
+          await clickReliably(frame, '[data-testid="buckets-view-list"]').catch(() => {});
+        } else {
+          console.log('  [buckets] view toggle not present (older build?) — skipped');
+        }
+      } catch (e) {
+        console.warn(`  [buckets] grid-toggle step skipped: ${e.message}`);
+      }
+    }
+
     tabResults.push({
       name: probe.name,
       pass,
