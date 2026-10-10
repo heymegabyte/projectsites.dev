@@ -490,3 +490,63 @@ describe('BucketsPanel — owner-friendly needs-creds copy (embarrassingly-easy)
     expect(region.textContent ?? '').toMatch(/being (set up|enabled)/i);
   });
 });
+
+describe('BucketsPanel — B14: modal focus trap + Escape (ModalShell)', () => {
+  function readyWorld() {
+    requestR2.mockImplementation(async (input: { op: string }) => {
+      if (input.op === 'listBuckets') {
+        return {
+          type: 'PS_R2_RESULT',
+          ok: true,
+          objectOpsAvailable: false,
+          buckets: [{ name: 'Preview', isDefault: true, public: false, environment: 'preview' }],
+        };
+      }
+
+      return { type: 'PS_R2_RESULT', ok: true, objects: [], prefixes: [], truncated: false };
+    });
+  }
+
+  it('traps Tab focus within a bucket modal (WCAG 2.4.3 dialog)', async () => {
+    readyWorld();
+    render(<BucketsPanel />);
+    await waitFor(() => expect(screen.getByTestId('buckets-create')).toBeTruthy());
+
+    fireEvent.click(screen.getByTestId('buckets-create'));
+
+    const modal = await screen.findByTestId('buckets-create-modal');
+
+    const focusables = Array.from(modal.querySelectorAll<HTMLElement>('button:not([disabled]),input:not([disabled])'));
+    expect(focusables.length).toBeGreaterThan(1);
+
+    const first = focusables[0];
+    const last = focusables[focusables.length - 1];
+
+    // Tab from the last focusable wraps to the first.
+    last.focus();
+    fireEvent.keyDown(last, { key: 'Tab' });
+    expect(document.activeElement).toBe(first);
+
+    // Shift+Tab from the first wraps to the last.
+    first.focus();
+    fireEvent.keyDown(first, { key: 'Tab', shiftKey: true });
+    expect(document.activeElement).toBe(last);
+  });
+
+  it('moves focus into the shortcuts sheet and closes it on Escape (shell-level)', async () => {
+    readyWorld();
+    render(<BucketsPanel />);
+    await waitFor(() => expect(screen.getByTestId('buckets-shortcuts-trigger')).toBeTruthy());
+
+    fireEvent.click(screen.getByTestId('buckets-shortcuts-trigger'));
+
+    const sheet = await screen.findByTestId('buckets-shortcuts-sheet');
+
+    // Focus moved INTO the dialog (not left on the trigger behind it).
+    expect(sheet.contains(document.activeElement)).toBe(true);
+
+    // Escape closes it — the sheet has no own Escape handler, so this proves ModalShell handles it.
+    fireEvent.keyDown(document, { key: 'Escape' });
+    await waitFor(() => expect(screen.queryByTestId('buckets-shortcuts-sheet')).toBeNull());
+  });
+});

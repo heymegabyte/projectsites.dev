@@ -2598,49 +2598,118 @@ const ModalShell = memo(
     onClose: () => void;
     testId?: string;
     children: React.ReactNode;
-  }) => (
-    <div
-      className="fixed inset-0 z-[100000] flex items-center justify-center p-4"
-      role="dialog"
-      aria-modal="true"
-      aria-label={title}
-      data-testid={testId}
-    >
+  }) => {
+    const panelRef = useRef<HTMLDivElement>(null);
+    const onCloseRef = useRef(onClose);
+    onCloseRef.current = onClose;
+
+    /*
+     * Accessible dialog (WCAG 2.4.3 / 2.1.2): move focus in on open, TRAP Tab within, close on Escape.
+     * Runs once per mount (latest onClose via ref) so it never steals focus on re-render.
+     */
+    useEffect(() => {
+      const panel = panelRef.current;
+
+      if (!panel) {
+        return undefined;
+      }
+
+      const FOCUSABLE =
+        'a[href],button:not([disabled]),input:not([disabled]),select:not([disabled]),textarea:not([disabled]),[tabindex]:not([tabindex="-1"])';
+      const focusables = () => Array.from(panel.querySelectorAll<HTMLElement>(FOCUSABLE));
+
+      // Pull focus in only if it isn't already inside (a child modal may have autofocused its input).
+      if (!panel.contains(document.activeElement)) {
+        (focusables()[0] ?? panel).focus();
+      }
+
+      const onKey = (e: KeyboardEvent) => {
+        if (e.key === 'Escape') {
+          e.preventDefault();
+          onCloseRef.current();
+
+          return;
+        }
+
+        if (e.key !== 'Tab') {
+          return;
+        }
+
+        const els = focusables();
+
+        if (els.length === 0) {
+          e.preventDefault();
+          panel.focus();
+
+          return;
+        }
+
+        const first = els[0];
+        const last = els[els.length - 1];
+        const active = document.activeElement;
+
+        if (e.shiftKey && (active === first || active === panel)) {
+          e.preventDefault();
+          last.focus();
+        } else if (!e.shiftKey && active === last) {
+          e.preventDefault();
+          first.focus();
+        }
+      };
+
+      document.addEventListener('keydown', onKey, true);
+
+      return () => document.removeEventListener('keydown', onKey, true);
+    }, []);
+
+    return (
       <div
-        className="absolute inset-0 bg-black/60 backdrop-blur-sm motion-safe:animate-[fadeIn_.15s_ease-out]"
-        onClick={onClose}
-        aria-hidden
-      />
-      {/* POLISH 5: glass modal card — cyan-tinted border, brand shadow, @starting-style-style entrance. */}
-      <div className="relative w-full max-w-md rounded-2xl border border-bolt-elements-borderColor bg-bolt-elements-background-depth-2 shadow-2xl shadow-black/40 overflow-hidden">
+        className="fixed inset-0 z-[100000] flex items-center justify-center p-4"
+        role="dialog"
+        aria-modal="true"
+        aria-label={title}
+        data-testid={testId}
+      >
         <div
+          className="absolute inset-0 bg-black/60 backdrop-blur-sm motion-safe:animate-[fadeIn_.15s_ease-out]"
+          onClick={onClose}
           aria-hidden
-          className="pointer-events-none absolute inset-x-0 top-0 h-px"
-          style={{
-            background: danger
-              ? 'linear-gradient(90deg, transparent, #f87171, transparent)'
-              : `linear-gradient(90deg, transparent, ${CYAN}, ${PURPLE}, transparent)`,
-          }}
         />
-        <div className="flex items-center gap-2 px-4 py-3 border-b border-bolt-elements-borderColor/60">
+        {/* POLISH 5: glass modal card — cyan-tinted border, brand shadow, @starting-style-style entrance. */}
+        <div
+          ref={panelRef}
+          tabIndex={-1}
+          className="relative w-full max-w-md rounded-2xl border border-bolt-elements-borderColor bg-bolt-elements-background-depth-2 shadow-2xl shadow-black/40 overflow-hidden focus:outline-none"
+        >
           <div
-            className={classNames(icon, 'text-lg', danger ? 'text-red-400' : 'text-bolt-elements-item-contentAccent')}
             aria-hidden
+            className="pointer-events-none absolute inset-x-0 top-0 h-px"
+            style={{
+              background: danger
+                ? 'linear-gradient(90deg, transparent, #f87171, transparent)'
+                : `linear-gradient(90deg, transparent, ${CYAN}, ${PURPLE}, transparent)`,
+            }}
           />
-          <h3 className="text-[13px] font-semibold text-bolt-elements-textPrimary flex-1 truncate">{title}</h3>
-          <button
-            type="button"
-            onClick={onClose}
-            aria-label="Close"
-            className={classNames(BTN_GHOST, 'min-h-[24px] min-w-[24px] p-1')}
-          >
-            <div className="i-ph:x text-sm" />
-          </button>
+          <div className="flex items-center gap-2 px-4 py-3 border-b border-bolt-elements-borderColor/60">
+            <div
+              className={classNames(icon, 'text-lg', danger ? 'text-red-400' : 'text-bolt-elements-item-contentAccent')}
+              aria-hidden
+            />
+            <h3 className="text-[13px] font-semibold text-bolt-elements-textPrimary flex-1 truncate">{title}</h3>
+            <button
+              type="button"
+              onClick={onClose}
+              aria-label="Close"
+              className={classNames(BTN_GHOST, 'min-h-[24px] min-w-[24px] p-1')}
+            >
+              <div className="i-ph:x text-sm" />
+            </button>
+          </div>
+          <div className="p-4">{children}</div>
         </div>
-        <div className="p-4">{children}</div>
       </div>
-    </div>
-  ),
+    );
+  },
 );
 
 ModalShell.displayName = 'BucketsPanel.ModalShell';
