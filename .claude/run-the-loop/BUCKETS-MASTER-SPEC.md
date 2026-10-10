@@ -281,4 +281,15 @@ on every op · beautiful loading/empty/error/success · a11y+keyboard+touch+resp
   proves the change landed AND the untouched columns are byte-identical. Data migrations are reversible + additive
   → canonical #3 (ship when green); a DESTRUCTIVE drop/bulk-overwrite is canonical #4 (pause). Schema-changing
   migrations still mirror the `[[env.production.migrations]]` tracked path.
+- **Owner-facing copy = the owner's words, NEVER infra jargon** *(fire-buckets-ux §7).* Every user-visible string
+  (headings, messages, button titles, errors, subtitles) must be understandable by a non-technical business owner —
+  NEVER "R2 keys / R2 S3 credentials / object ops" etc. A "fix one place" does NOT cover all instances: GREP ALL
+  user-facing strings for the jargon (the needs-creds jargon survived in 6 places after a prior banner-only fix).
+  Regression-gated by the "owner-friendly needs-creds copy" Vitest case (needs-creds region has no `R2|S3|credential`).
+- **⚠ Externally-blocked + saturated-session discipline** *(fire-buckets-ux §7).* When (a) the fully-verifiable
+  backlog is nearly exhausted AND (b) the high-value work is externally-blocked (here: the R2-S3-creds decision) AND
+  (c) the session is deep/saturated — do NOT grind thin ceremony slices (per [[focus-cron-on-completed-externally-blocked-target-stop-ceremony-fires]] + [[loop-fires-need-fresh-context-not-saturated-session]]). Ship a genuine
+  decision-independent win if one exists (e.g. this fire's owner-copy fix), ESCALATE the gating decision crisply, and
+  RECOMMEND Brian decide or pause the cron. The cron is NOT CronDelete'd (DoD unmet) but continued identical re-fires
+  on a blocked target trend toward flooding.
 - **Retire the loop cron when this DoD is genuinely met** (per [[loop-cron-refires-one-prompt-retire-when-directive-complete]]) — don't flood.
