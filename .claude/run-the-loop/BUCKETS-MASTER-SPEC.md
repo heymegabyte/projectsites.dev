@@ -13,22 +13,16 @@ the file-management feel of Finder/Transmit, the polish of Linear/Raycast, the c
 Cloudflare R2's dashboard — every visible control backed by a REAL implementation (no stubs).
 
 ## READY NOW — top 5 (next fires)
-*Ranked by user/money-path leverage × dependency order. B1 premium shell shipped fire-312; B1-polish
-**list⇄grid toggle** shipped fire-buckets-b1polish. **Next lead = B2** (two-default model).*
+*Ranked by user/money-path leverage × dependency order. Shipped so far: B1 premium shell (fire-312);
+B1-polish **list⇄grid toggle** (fire-buckets-b1polish); **B2 two-default model** (fire-buckets-b2 —
+defaults renamed Preview + Production, 'uploads' retired, prod-migrated). **Next lead = B12** (rich previews).*
 
-1. **B2 — two-default model (Preview + Production), retire `'uploads'`** *(now the lead)* · the navigator's
-   pinned-top premise rests on it — today the live default shows as "uploads" under PREVIEW; B2 makes it read
-   "Preview". **Full detail in item 2 below.** Decision note: the display-name rename of EXISTING `'uploads'`
-   allocations is a bulk customer-visible change → treat the new-site seed (1-line default) as decision-independent
-   and gate the bulk rename as a reversible, data-preserving migration (canonical #3), never a destructive drop.
+1. **B12 — rich sandboxed previews** *(now the lead)* · the highest capability-for-cost P2 item and the ONLY
+   backend-free one; makes Files feel like Finder/Transmit, pairs with B1's grid. **Full detail in item 3 below.**
 1b. **B1-polish residual — ≥3 "lit"-dark aesthetic rounds** (grid toggle ✅ done) · pure FE screenshot-verified
    refinement of the Buckets shell; optional PRIVATE-bucket grid thumbnails need B9's gateway. · **new-backend: NO.**
-2. **B2 — two-default model (Preview + Production), retire `'uploads'`** · *why-now:* the whole navigator's
-   pinned-top premise (and B1's correctness) rests on this; today `ensureDefaultSiteR2` still hardcodes
-   `'uploads'`. Small, high-trust, unblocks everything. · *acceptance:* new sites seed "Preview"; an idempotent
-   data-preserving migration renames existing `'uploads'` display_name→"Preview" (bucket_name/objects untouched);
-   exactly two pinned; nothing destroyed. · *files:* `site_r2.ts` `ensureDefaultSiteR2` (327) + `ensureProductionSiteR2`
-   (351); NEW D1 migration on `site_r2_allocations`. · **new-backend: YES (small — migration + 1-line default).**
+2. **B15 — Code-view bucket source selector** · the Code surface is where owners spend real time (money path);
+   reuses every existing op. **Full detail in item 4 below.** · **new-backend: NO.**
 3. **B12 — rich sandboxed previews** · *why-now:* highest capability-for-cost of the P2 set and the ONLY backend-free
    one; makes Files feel like Finder/Transmit immediately, pairs perfectly with B1. · *acceptance:* sandboxed
    inspector for image/video/audio/pdf/text/md/json/code, SVG/HTML never in the privileged origin, metadata +
@@ -129,15 +123,14 @@ B6/B7/B9/B10 (Workflows / gateway / env-pointer — large backend) · B13/B14 (i
   - [ ] **remaining:** ≥3 "lit"-dark refinement rounds (airier spacing, thin cyan borders, restrained shadow), each
     screenshot-verified; optional grid image thumbnails for PRIVATE buckets (needs a signed-URL/gateway, pairs with B9).
     New-backend: **NO** (private thumbnails would need B9's gateway). Priority: **P1 (next)**.
-- [ ] **B2 Two-default-buckets model** — one-line: make Preview + Production the two canonical site-visible
-  defaults and retire the `'uploads'` default NAME (keep the physical bucket + its data). Anchor:
-  `site_r2.ts` `ensureDefaultSiteR2` (line 327 — currently hardcodes `displayName ?? 'uploads'`) +
-  `ensureProductionSiteR2` (line 351, prod-deploy hook, already seeds production). Acceptance: a new site seeds a
-  "Preview" default (not "uploads"); an EXISTING `'uploads'` allocation is display-renamed to "Preview" by an
-  idempotent, data-preserving migration (D1 `site_r2_allocations`, rename display_name only — bucket_name/objects
-  untouched); navigator pins exactly these two; no existing bucket destroyed. Reuse the deploy-hook path for
-  Production. New-backend: **YES (small)** — a migration + a one-line default-name change; no new route.
-  Priority: **P1**.
+- [x] **B2 Two-default-buckets model** *(fire-buckets-b2 — ✅ DONE, prod-migrated)* — the two site-visible defaults
+  are now named **Preview** (preview) + **Production** (production); the legacy `'uploads'`/`'production'` display
+  names are retired. Seed (`site_r2.ts`): `ensureDefaultSiteR2` seeds `'Preview'`, `ensureProductionSiteR2` seeds
+  `'Production'`; an existing default keeps its stored display_name. Migration `0649` renamed existing rows
+  **display_name-only** (physical `bucket_name` + objects untouched — proven on prod: `ps-site-…-uploads` now reads
+  `display_name='Preview'`); additive + reversible + idempotent + collision-guarded + default-scoped. TDD: 5 Jest
+  cases (real-SQLite + mocked CF fetch). Prod rollout: migration applied to `project-sites-db-production` (3
+  uploads→Preview + 1 production→Production, 4 rows written, bucket_name preserved); worker deployed (seed) `af35afb4`.
 - [ ] **B3 Context menus + keyboard + command palette** — one-line: make every bucket/file action reachable by
   right-click, ellipsis, long-press, and desktop shortcuts. Anchor: `BucketsPanel.tsx` `BucketRow` (row actions
   ~line 718) + `ObjectBrowser` object rows (~line 1276) + the existing `selected: Set<string>` multi-select
@@ -251,4 +244,13 @@ on every op · beautiful loading/empty/error/success · a11y+keyboard+touch+resp
 - One coherent VERIFIED slice per fire. Build on the existing backend; add backend only where a GAP needs it.
 - TDD-first where practical (Vitest for editor, Jest for worker). Prod-verify after deploy.
 - Flag depth additions behind `r2_bucket_manager` (DARK) until a slice is complete, then promote.
+- **Prod data-migration recipe** *(fire-buckets-b2 §7 — reuse for B4–B13 which add backend/migrations):*
+  TDD the migration SQL against **real SQLite** via `createD1Sqlite()` (`src/__tests__/helpers/d1_sqlite.ts`) —
+  prove rename/transform + data-preservation + **idempotency** (apply twice) + collision/edge guards before prod.
+  Then: (1) read-only **blast-radius** count on `project-sites-db-production` (`wrangler d1 execute … --remote --json`);
+  (2) capture **BEFORE** rows (esp. the columns you promise NOT to touch, e.g. `bucket_name`); (3) apply the file
+  `wrangler d1 execute project-sites-db-production --remote --file migrations/NNNN_*.sql`; (4) **AFTER** read-back
+  proves the change landed AND the untouched columns are byte-identical. Data migrations are reversible + additive
+  → canonical #3 (ship when green); a DESTRUCTIVE drop/bulk-overwrite is canonical #4 (pause). Schema-changing
+  migrations still mirror the `[[env.production.migrations]]` tracked path.
 - **Retire the loop cron when this DoD is genuinely met** (per [[loop-cron-refires-one-prompt-retire-when-directive-complete]]) — don't flood.
