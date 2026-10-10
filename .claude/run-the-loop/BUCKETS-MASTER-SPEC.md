@@ -14,15 +14,21 @@ Cloudflare R2's dashboard — every visible control backed by a REAL implementat
 
 ## READY NOW — top 5 (next fires)
 *Ranked by user/money-path leverage × dependency order. Shipped so far: B1 premium shell (fire-312);
-B1-polish **list⇄grid toggle** (fire-buckets-b1polish); **B2 two-default model** (fire-buckets-b2 —
-defaults renamed Preview + Production, 'uploads' retired, prod-migrated). **Next lead = B12** (rich previews).*
+B1-polish **list⇄grid toggle** (fire-buckets-b1polish); **B2 two-default model** (fire-buckets-b2); **B3
+bucket row actions menu** (fire-buckets-b3). ⚠ **Object ops are BLOCKED** (no worker R2 S3 creds — see the
+Object-ops blocker in GAPS) → the object-centric leads (B12/B15/B6–B11/grid-tiles) can't be prod-verified
+until that's resolved. **So the next FULLY-verifiable leads are the FE-only non-object items below.*
 
-1. **B12 — rich sandboxed previews** *(now the lead)* · the highest capability-for-cost P2 item and the ONLY
-   backend-free one; makes Files feel like Finder/Transmit, pairs with B1's grid. **Full detail in item 3 below.**
+1. **B14 — a11y + hardening pass** *(now the lead — fully verifiable)* · the panel is now feature-rich (navigator,
+   Files/Settings tabs, grid toggle, row menu) → a WCAG 2.2 AA pass is timely + needs no object ops. · *acceptance:*
+   axe 0 @ 6bp on the Buckets panel, keyboard-complete (navigator roving + menu + tabs + modals), SR-friendly live
+   status; visual-regression screenshots. · *files:* `BucketsPanel.tsx` + a Playwright/axe spec. · **new-backend: NO.**
 1b. **B1-polish residual — ≥3 "lit"-dark aesthetic rounds** (grid toggle ✅ done) · pure FE screenshot-verified
-   refinement of the Buckets shell; optional PRIVATE-bucket grid thumbnails need B9's gateway. · **new-backend: NO.**
-2. **B15 — Code-view bucket source selector** · the Code surface is where owners spend real time (money path);
-   reuses every existing op. **Full detail in item 4 below.** · **new-backend: NO.**
+   refinement of the Buckets shell. · **new-backend: NO.**
+2. **B3 residual — shortcut sheet + navigator keyboard** · a discoverable "?" shortcut sheet + arrow-key roving in
+   the navigator (the object-row menu + multi-select shortcuts are BLOCKED on object ops). · **new-backend: NO.**
+2b. **⚠ UNBLOCKER — object ops** (Brian-gated): provision the worker R2 S3 creds OR build B4/B5 scoped tokens to
+   unblock B6–B12/B15/grid-tiles. See the Object-ops blocker. · **new-backend: YES / decision.**
 3. **B12 — rich sandboxed previews** · *why-now:* highest capability-for-cost of the P2 set and the ONLY backend-free
    one; makes Files feel like Finder/Transmit immediately, pairs perfectly with B1. · *acceptance:* sandboxed
    inspector for image/video/audio/pdf/text/md/json/code, SVG/HTML never in the privileged origin, metadata +
@@ -131,14 +137,31 @@ B6/B7/B9/B10 (Workflows / gateway / env-pointer — large backend) · B13/B14 (i
   `display_name='Preview'`); additive + reversible + idempotent + collision-guarded + default-scoped. TDD: 5 Jest
   cases (real-SQLite + mocked CF fetch). Prod rollout: migration applied to `project-sites-db-production` (3
   uploads→Preview + 1 production→Production, 4 rows written, bucket_name preserved); worker deployed (seed) `af35afb4`.
-- [ ] **B3 Context menus + keyboard + command palette** — one-line: make every bucket/file action reachable by
-  right-click, ellipsis, long-press, and desktop shortcuts. Anchor: `BucketsPanel.tsx` `BucketRow` (row actions
-  ~line 718) + `ObjectBrowser` object rows (~line 1276) + the existing `selected: Set<string>` multi-select
-  state (line 795). Acceptance: right-click on bucket/file/empty/multi-select opens a context menu wired to the
-  SAME handlers the visible buttons call; shortcuts Cmd/Ctrl-click, Shift-range, Cmd+A, Delete, F2 (rename —
-  gated on B8), Esc, Cmd+C fire ONLY when no input/editor is focused; a discoverable "?" shortcut sheet.
-  Reuse existing action callbacks + selection set — do NOT duplicate op calls. New-backend: **NO** (F2/rename
-  needs B8 first; everything else is pure FE). Priority: **P1**.
+- [~] **B3 Context menus + keyboard + command palette** — make every bucket/file action reachable by
+  right-click, ellipsis, long-press, and desktop shortcuts.
+  - [x] **bucket row actions menu** *(fire-buckets-b3 — ✅ DONE, live)* — a Radix `DropdownMenu` ellipsis (⋯) per
+    bucket nav row (`BucketRowMenu` in `BucketsPanel.tsx`): Address · Make public/private · Promote · Delete
+    (non-default), reusing the existing handlers (all CF-REST bucket ops — work WITHOUT object creds). Discoverable
+    + keyboard + touch + a11y (Radix roles/Escape/portal). 2 Vitest cases; live-verified (menu opened in a real
+    browser via the hardened `editor-nav.mjs` buckets probe).
+  - [ ] **remaining:** object-row context menu + multi-select shortcuts (Cmd/Ctrl-click, Shift-range, Cmd+A,
+    Delete, F2[B8], Esc, Cmd+C) + a discoverable "?" shortcut sheet + a command palette. **⚠ object-level parts are
+    BLOCKED on object ops** (see the Object-ops blocker below) — the bucket-row menu + shortcut sheet are the FE-only
+    parts. New-backend: **NO**. Priority: **P2**.
+
+> **⚠ OBJECT-OPS BLOCKER + DECISION (discovered fire-buckets-b3).** The worker's R2 **S3** credentials
+> (`R2_S3_ACCESS_KEY_ID` / `R2_S3_SECRET_ACCESS_KEY`) are **unset** → `hasObjectOps(env)` is false →
+> `objectOpsAvailable=false` for EVERY site (the UI shows "Object storage needs R2 keys"; bucket CRUD still works).
+> This BLOCKS live-verification of every object-centric slice: **B6 clone · B7 zip · B8 move/rename · B9 per-object
+> public · B11 search · B12 previews · B15 Code selector · B1-polish grid tiles · B3 object-row menus · upload/
+> browse/download**. These can be built + UNIT-tested but NOT prod-verified in a real browser until object ops are
+> enabled. **Brian-gated decision:** (a) provision the WORKER's internal R2 S3 key (one account-wide key; per-site
+> isolation stays in code via the `ps-site-` prefix + `FORBIDDEN_BUCKET_NAMES`) to unblock all object ops — a NEW
+> secret (`wrangler secret put`), reversible, but an account-level credential decision; OR (b) prioritize **B4/B5**
+> (customer-facing SCOPED tokens — the spec's "never account-wide" model) which also provision usable creds; OR
+> (c) keep shipping the FULLY-verifiable non-object work (B1-polish aesthetic rounds, B14 a11y pass, the B3 shortcut
+> sheet). Until resolved, the loop should prefer (c) + surface this each fire — do NOT claim an object feature
+> "works" without a real-browser object-op proof.
 
 **P2 — capability depth (backend-heavy):**
 - [ ] **B4 Per-bucket Access Keys** — one-line: issue bucket-scoped R2 API tokens with lifecycle + an Access Keys

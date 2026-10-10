@@ -364,6 +364,16 @@ async function verifyResourcesSubTabs(page, frame, consoleErrors, resourcesTabSe
     // catches a broken toggle. Best-effort — NEVER fails the buckets probe (try/catch + restore).
     if (probe.name === 'buckets' && pass) {
       try {
+        // The one-time preview auto-switch can yank the view off Resources before these extra
+        // interaction steps run (it contaminated the grid + menu screenshots pre-fix). Restore
+        // Resources + re-select Buckets so the steps act on the REAL panel, not the Preview iframe.
+        for (let fix = 0; fix < 2 && resourcesTabSel && !(await topTabActive(frame, resourcesTabSel)); fix++) {
+          await clickReliably(frame, resourcesTabSel);
+          await page.waitForTimeout(1000);
+          await clickReliably(frame, `[data-testid="${probe.tabTestId}"]`);
+          await page.waitForTimeout(1500);
+        }
+
         const gridBtn = frame.locator('[data-testid="buckets-view-grid"]').first();
 
         if (await gridBtn.count()) {
@@ -385,6 +395,45 @@ async function verifyResourcesSubTabs(page, frame, consoleErrors, resourcesTabSe
         }
       } catch (e) {
         console.warn(`  [buckets] grid-toggle step skipped: ${e.message}`);
+      }
+    }
+
+    // B3 (fire-buckets-b3): open a bucket row's actions menu (⋯) LIVE so a future fire catches a
+    // broken menu. Real .click() fires the pointer events Radix needs (fallback to clickReliably).
+    // Best-effort — NEVER fails the buckets probe (try/catch + Escape to close).
+    if (probe.name === 'buckets' && pass) {
+      try {
+        // Restore Resources+Buckets if the preview auto-switch yanked the view (see the grid step).
+        for (let fix = 0; fix < 2 && resourcesTabSel && !(await topTabActive(frame, resourcesTabSel)); fix++) {
+          await clickReliably(frame, resourcesTabSel);
+          await page.waitForTimeout(1000);
+          await clickReliably(frame, `[data-testid="${probe.tabTestId}"]`);
+          await page.waitForTimeout(1500);
+        }
+
+        const menuBtn = frame.locator('[data-testid="buckets-row-menu-trigger"]').first();
+
+        if (await menuBtn.count()) {
+          await menuBtn.click({ timeout: 5000 }).catch(async () => {
+            await clickReliably(frame, '[data-testid="buckets-row-menu-trigger"]');
+          });
+          await page.waitForTimeout(500);
+
+          const menuOpen = await firstFoundTestId(
+            frame,
+            ['buckets-row-menu-promote', 'buckets-row-menu-address', 'buckets-row-menu-visibility'],
+            3000,
+          );
+          const menuShot = await shot(page, 'tab-buckets-row-menu');
+          console.log(`  [buckets] row actions menu → ${menuOpen ?? 'none'} (screenshot ${menuShot})`);
+
+          // Close the menu so it doesn't overlay later probes.
+          await page.keyboard.press('Escape').catch(() => {});
+        } else {
+          console.log('  [buckets] row actions menu trigger not present (older build?) — skipped');
+        }
+      } catch (e) {
+        console.warn(`  [buckets] row-menu step skipped: ${e.message}`);
       }
     }
 
