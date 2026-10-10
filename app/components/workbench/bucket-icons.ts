@@ -161,7 +161,10 @@ export function objectTypeLabel(key: string): string {
     return 'FILE';
   }
 
-  return base.slice(dot + 1).toUpperCase().slice(0, 4);
+  return base
+    .slice(dot + 1)
+    .toUpperCase()
+    .slice(0, 4);
 }
 
 /**
