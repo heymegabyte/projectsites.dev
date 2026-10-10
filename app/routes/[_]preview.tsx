@@ -31,8 +31,10 @@ import {
   BucketAnimationStyles,
   OBJECT_ENTRANCE_CLASS,
   objectEntranceStyle,
+  TILE_THUMB_SLOT_CLASS,
+  TILE_SHELL_RESTING_CLASS,
 } from '~/components/workbench/BucketsPanel';
-import { iconForObject, isImageKey, colorForObject } from '~/components/workbench/bucket-icons';
+import { iconForObject, isImageKey, colorForObject, objectTypeLabel } from '~/components/workbench/bucket-icons';
 
 export const meta: MetaFunction = () => [
   { title: 'Panel Primitive Gallery · ProjectSites editor' },
@@ -211,9 +213,10 @@ function ObjectGridSample({ testId }: { testId?: string }) {
         <div
           key={o.key}
           style={objectEntranceStyle(index)}
-          className={`group flex flex-col gap-1.5 rounded-xl border border-bolt-elements-borderColor/70 bg-bolt-elements-background-depth-2 p-2 hover:border-bolt-elements-item-contentAccent/40 hover:bg-bolt-elements-background-depth-3 hover:shadow-[0_10px_26px_-10px_rgba(0,0,0,0.65)] motion-safe:hover:-translate-y-1 ${OBJECT_ENTRANCE_CLASS}`}
+          className={`group flex flex-col gap-1.5 rounded-xl border p-2 ${TILE_SHELL_RESTING_CLASS} ${OBJECT_ENTRANCE_CLASS}`}
         >
-          <div className="relative flex aspect-square items-center justify-center overflow-hidden rounded-lg bg-[radial-gradient(130%_90%_at_50%_0%,color-mix(in_oklch,var(--bolt-elements-item-contentAccent)_7%,transparent),transparent_60%),linear-gradient(180deg,var(--bolt-elements-bg-depth-1),color-mix(in_oklch,var(--bolt-elements-item-contentAccent)_4%,var(--bolt-elements-bg-depth-1)))] ring-1 ring-inset ring-bolt-elements-borderColor/45 shadow-[inset_0_1px_0_rgba(255,255,255,0.03)]">
+          {/* Same shared thumbnail-slot gradient + crisp inset ring the live grid tile renders (SSOT). */}
+          <div className={TILE_THUMB_SLOT_CLASS}>
             {isImageKey(o.key) ? (
               <span
                 className="i-ph:image-duotone text-4xl text-sky-300 transition-transform duration-200 motion-reduce:transition-none motion-safe:group-hover:scale-110"
@@ -225,6 +228,13 @@ function ObjectGridSample({ testId }: { testId?: string }) {
                 aria-hidden="true"
               />
             )}
+            {/* Hover-reveal type chip — mirrors the live tile's VS Code / Finder "inspect" affordance. */}
+            <span
+              aria-hidden="true"
+              className="pointer-events-none absolute bottom-1 right-1 rounded-md border border-bolt-elements-item-contentAccent/30 bg-[color-mix(in_oklch,var(--bolt-elements-item-contentAccent)_12%,transparent)] px-1 py-px font-mono text-[8px] font-semibold uppercase tracking-wide text-bolt-elements-item-contentAccent opacity-0 backdrop-blur-sm transition-opacity duration-200 motion-reduce:transition-none group-hover:opacity-100"
+            >
+              {objectTypeLabel(o.key)}
+            </span>
           </div>
           <p className="min-w-0 truncate font-mono text-[11px] text-bolt-elements-textPrimary" title={o.key}>
             {o.key}

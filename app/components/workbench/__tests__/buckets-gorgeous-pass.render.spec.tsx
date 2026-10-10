@@ -20,11 +20,22 @@ import { afterEach, describe, expect, it } from 'vitest';
 import {
   BucketsEmpty,
   BucketsTwoPane,
+  EMPTY_LAUNCHPAD_CLASS,
   OBJECT_ENTRANCE_CLASS,
+  TILE_SHELL_RESTING_CLASS,
+  TILE_THUMB_SLOT_CLASS,
   objectEntranceStyle,
 } from '~/components/workbench/BucketsPanel';
 
 afterEach(cleanup);
+
+/**
+ * HARD GUARDRAIL regression (a real bug shipped once): the `/[opacity]` modifier SILENTLY FAILS on the
+ * hex-valued `--bolt-elements-item-contentAccent` var → it renders SOLID cyan (invisible cyan-on-cyan).
+ * Any accent alpha MUST go through `color-mix(... , transparent)`. These craft constants are the ones
+ * most tempted to tint the accent, so assert NONE of them carry a bracket-opacity on contentAccent.
+ */
+const FORBIDDEN_ACCENT_ALPHA = /contentAccent\/\[/;
 
 describe('gorgeous pass — elevated primary action (dimensional, not flat)', () => {
   it('renders the create-first-bucket primary with a gradient fill + inner highlight ring', () => {
@@ -70,13 +81,81 @@ describe('gorgeous pass — two-pane rail depth', () => {
     render(<BucketsTwoPane left={<div>list</div>} right={<div>browser</div>} />);
     const pane = screen.getByTestId('buckets-two-pane');
 
-    // A gradient divider overlay rides inside the rail (decorative, pointer-events-none).
-    const divider = pane.querySelector('.pointer-events-none[aria-hidden]');
+    // A gradient divider overlay rides inside the rail (decorative, pointer-events-none). Scope to the
+    // linear-gradient layer specifically — the rail now also carries a radial vignette (asserted below),
+    // so pick the divider by its gradient kind rather than by "first pointer-events-none child".
+    const decorativeLayers = Array.from(pane.querySelectorAll<HTMLElement>('.pointer-events-none[aria-hidden]'));
+    const divider = decorativeLayers.find((el) => el.className.includes('linear-gradient'));
     expect(divider).toBeTruthy();
     expect(divider?.className).toContain('linear-gradient');
 
     // The clip guard the narrow editor panel depends on survives the polish.
     expect(screen.getByTestId('buckets-object-pane').className).toContain('min-w-0');
     expect(pane.className).toContain('overflow-hidden');
+  });
+
+  it('layers a restrained radial vignette behind the rail (decorative, pointer-events-none, 0 CLS)', () => {
+    render(<BucketsTwoPane left={<div data-testid="l">list</div>} right={<div>browser</div>} />);
+    const pane = screen.getByTestId('buckets-two-pane');
+
+    // A radial-gradient vignette overlay exists AND is non-interactive (never steals a click from a row).
+    const vignette = Array.from(pane.querySelectorAll<HTMLElement>('[aria-hidden].pointer-events-none')).find((el) =>
+      el.querySelector('[class*="radial-gradient"]'),
+    );
+    expect(vignette).toBeTruthy();
+
+    // The list content still renders ABOVE the decorative layer (left content is present + reachable).
+    expect(screen.getByTestId('l')).toBeTruthy();
+  });
+});
+
+describe('gorgeous pass — signature grid tile (shared SSOT, depth + hover bloom, 0 CLS)', () => {
+  it('thumbnail slot carries richer OKLCH depth (layered radial + blend) and a crisp inset ring', () => {
+    // A multi-stop radial depth over a vertical blend reads as a lit recess, not a flat panel.
+    expect(TILE_THUMB_SLOT_CLASS).toContain('radial-gradient');
+    expect(TILE_THUMB_SLOT_CLASS).toContain('color-mix(in_oklch');
+    // The machined lip: an inset ring + a top-edge inset highlight.
+    expect(TILE_THUMB_SLOT_CLASS).toContain('ring-inset');
+    expect(TILE_THUMB_SLOT_CLASS).toMatch(/shadow-\[inset/);
+  });
+
+  it('tile shell hover is a transform lift + shadow bloom + accent border-GLOW via color-mix', () => {
+    // The lift is transform-only (0 CLS) and motion-safe gated.
+    expect(TILE_SHELL_RESTING_CLASS).toMatch(/motion-safe:hover:-translate-y/);
+    // The hover glow is a box-shadow ring painted with color-mix (never a layout-box property).
+    expect(TILE_SHELL_RESTING_CLASS).toMatch(/hover:shadow-\[/);
+    expect(TILE_SHELL_RESTING_CLASS).toContain('color-mix(in_oklch');
+    expect(TILE_SHELL_RESTING_CLASS).not.toMatch(/\b(width|height|top|left|margin|padding)\b/);
+  });
+
+  it('NEVER tints the hex contentAccent var with a bracket-opacity (the silent-cyan-on-cyan bug)', () => {
+    // color-mix is the only legal accent-alpha path for this hex-valued var.
+    expect(TILE_THUMB_SLOT_CLASS).not.toMatch(FORBIDDEN_ACCENT_ALPHA);
+    expect(TILE_SHELL_RESTING_CLASS).not.toMatch(FORBIDDEN_ACCENT_ALPHA);
+    expect(EMPTY_LAUNCHPAD_CLASS).not.toMatch(FORBIDDEN_ACCENT_ALPHA);
+    expect(OBJECT_ENTRANCE_CLASS).not.toMatch(FORBIDDEN_ACCENT_ALPHA);
+  });
+});
+
+describe('gorgeous pass — cinematic empty launchpads (aura + balanced type, reduced-motion safe)', () => {
+  it('BucketsEmpty gets a radial stage aura + balanced headline, with the badge float-in reduced-motion gated', () => {
+    render(<BucketsEmpty onCreate={() => {}} />);
+    const launchpad = screen.getByTestId('buckets-empty');
+    const cls = launchpad.className;
+
+    // A decorative radial aura sits behind the launchpad (a `before:` pseudo painted via background).
+    expect(cls).toContain('before:');
+    expect(cls).toContain('radial-gradient');
+    // The headline is wrap-balanced + fluid (clamp), so short copy never widows / overflows the pane.
+    expect(cls).toContain('text-balance');
+    expect(cls).toContain('clamp(');
+    // The icon-badge float-in only runs under motion-safe, with an explicit reduced-motion opt-out.
+    expect(cls).toContain('motion-safe:');
+    expect(cls).toMatch(/motion-reduce:\[&>div:first-child\]:animate-none/);
+  });
+
+  it('the launchpad aura never introduces a CLS-causing layout animation', () => {
+    // Decorative depth is background/box-shadow only — no animated width/height/top/left/margin/padding.
+    expect(EMPTY_LAUNCHPAD_CLASS).not.toMatch(/animate-\[[^\]]*(width|height|top|left|margin|padding)/);
   });
 });

@@ -141,6 +141,30 @@ export function isImageKey(key: string): boolean {
 }
 
 /**
+ * A SHORT, uppercase type label for an object key — the grid tile's hover-reveal chip (and any other
+ * at-a-glance type badge). A folder → `DIR`; otherwise the file EXTENSION uppercased (`webp`→`WEBP`),
+ * truncated to 4 chars so the chip never bloats. No extension → `FILE`. Pure + dependency-free so the
+ * live grid tile and the `/_preview` gallery render the identical label from one SSOT.
+ *
+ * @param key - The object key (e.g. `images/hero.webp`, `report.pdf`, or a prefix `images/`).
+ * @returns A compact type label, e.g. `WEBP`, `PDF`, `DIR`, `FILE`.
+ */
+export function objectTypeLabel(key: string): string {
+  if (key.endsWith('/')) {
+    return 'DIR';
+  }
+
+  const base = key.slice(key.lastIndexOf('/') + 1);
+  const dot = base.lastIndexOf('.');
+
+  if (dot <= 0 || dot === base.length - 1) {
+    return 'FILE';
+  }
+
+  return base.slice(dot + 1).toUpperCase().slice(0, 4);
+}
+
+/**
  * A restrained, brand-coherent TEXT-COLOR class for an object's file-type glyph — so the object
  * browser reads like a polished file explorer (VS Code / Finder): the file TYPE is legible by COLOR
  * at a glance, not just by shape. Tints are 300-level jewel tones chosen to sit on the `#060610`

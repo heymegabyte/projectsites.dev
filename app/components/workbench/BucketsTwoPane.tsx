@@ -25,7 +25,18 @@ export function BucketsTwoPane({ left, right }: { left: React.ReactNode; right: 
         like Linear/Stripe chrome. Decorative + pointer-events-none → zero a11y / interaction impact.
       */}
       <div className="relative lg:w-72 shrink-0 border-b lg:border-b-0 border-bolt-elements-borderColor/50 overflow-auto modern-scrollbar bg-[linear-gradient(180deg,color-mix(in_oklch,var(--bolt-elements-item-contentAccent)_3%,transparent),transparent_42%)]">
-        {left}
+        {/*
+          Whisper-faint layered radial VIGNETTE — a top-left accent bloom + a dimming bottom floor —
+          gives the navigator the depth of a lit recess (Linear/Raycast sidebar) without any hard-coded
+          brand color (OKLCH color-mix off the accent token; the floor is a plain black alpha). Sits
+          BEHIND the list (`-z-[1]` relative to the `relative` children), decorative + pointer-events-none
+          → zero a11y / interaction impact. `sticky top-0 h-0` + the `inset`-spanning child keeps it
+          pinned to the viewport of the scroll container so it never scrolls away with a long list.
+        */}
+        <div aria-hidden className="pointer-events-none sticky top-0 z-0 h-0">
+          <div className="absolute inset-x-0 top-0 h-full min-h-[420px] bg-[radial-gradient(70%_38%_at_18%_0%,color-mix(in_oklch,var(--bolt-elements-item-contentAccent)_7%,transparent),transparent_60%),radial-gradient(90%_32%_at_50%_100%,rgba(0,0,0,0.28),transparent_55%)]" />
+        </div>
+        <div className="relative z-[1]">{left}</div>
         <div
           aria-hidden
           className="pointer-events-none absolute inset-y-0 right-0 hidden lg:block w-px bg-[linear-gradient(180deg,transparent,color-mix(in_oklch,var(--bolt-elements-item-contentAccent)_28%,var(--bolt-elements-borderColor))_30%,color-mix(in_oklch,var(--bolt-elements-item-contentAccent)_28%,var(--bolt-elements-borderColor))_70%,transparent)]"

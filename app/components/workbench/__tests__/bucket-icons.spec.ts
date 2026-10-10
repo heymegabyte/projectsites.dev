@@ -7,7 +7,7 @@
  * visual proof against silent coalescing back to a coarse one-glyph map.
  */
 import { describe, expect, it } from 'vitest';
-import { iconForObject, isImageKey, colorForObject } from '~/components/workbench/bucket-icons';
+import { iconForObject, isImageKey, colorForObject, objectTypeLabel } from '~/components/workbench/bucket-icons';
 
 describe('iconForObject — distinct glyph per file type', () => {
   // Each tuple: a representative key → the expected DISTINCT duotone class.
@@ -114,5 +114,32 @@ describe('colorForObject — color-coded file-type tint', () => {
   it('returns ≥10 DISTINCT tints across the case set (proves color differentiation by type)', () => {
     const distinct = new Set(cases.map(([key]) => colorForObject(key)));
     expect(distinct.size).toBeGreaterThanOrEqual(10);
+  });
+});
+
+describe('objectTypeLabel — compact type badge for the grid tile hover chip', () => {
+  const cases: [string, string][] = [
+    ['images/', 'DIR'], // folder shape
+    ['photos/2026/', 'DIR'], // nested prefix
+    ['hero.webp', 'WEBP'], // extension uppercased
+    ['portrait.JPG', 'JPG'], // already-upper extension stays
+    ['report.pdf', 'PDF'],
+    ['images/nested/logo.svg', 'SVG'], // deepest segment's extension
+    ['archive.tar.gz', 'GZ'], // only the LAST extension
+    ['no-extension', 'FILE'], // no dot → FILE
+    ['.gitignore', 'FILE'], // leading-dot dotfile is not an extension
+    ['trailing.', 'FILE'], // dot with no extension chars → FILE
+    ['data.jsonc', 'JSON'], // truncated to 4 chars
+  ];
+
+  it.each(cases)('labels %s → %s', (key, expected) => {
+    expect(objectTypeLabel(key)).toBe(expected);
+  });
+
+  it('never returns a label longer than 4 characters', () => {
+    for (const [key] of cases) {
+      expect(objectTypeLabel(key).length).toBeLessThanOrEqual(4);
+    }
+    expect(objectTypeLabel('a.markdown')).toBe('MARK'); // long extension is capped at 4
   });
 });
