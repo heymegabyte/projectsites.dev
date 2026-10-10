@@ -21,9 +21,13 @@ try {
   const res = await page.goto(URL, { waitUntil: 'domcontentloaded', timeout: 60000 });
   const status = res?.status();
 
-  // 1 — propagation: wait for BOTH new showcases (if absent → deploy not yet live on this origin).
+  // 1 — propagation: wait for the new showcases (if absent → deploy not yet live on this origin).
   let propagated = true;
-  for (const id of ['buckets-loading-showcase', 'buckets-status-pills-showcase']) {
+  for (const id of [
+    'buckets-loading-showcase',
+    'buckets-status-pills-showcase',
+    'buckets-upload-progress-showcase',
+  ]) {
     try {
       await page.waitForSelector(`[data-testid="${id}"]`, { timeout: 15000 });
     } catch {
@@ -32,7 +36,7 @@ try {
   }
 
   const report = await page.evaluate(() => {
-    const out = { activePill: null, shimmer: false, invisible: [] };
+    const out = { activePill: null, shimmer: false, uploadBar: false, invisible: [] };
 
     const toRGBA = (c) => {
       const m = c.match(/[\d.]+/g);
@@ -70,6 +74,10 @@ try {
       );
     }
 
+    // 3b — the gorgeous4 upload progress strip: an a11y progressbar is present.
+    const up = document.querySelector('[data-testid="buckets-upload-progress"]');
+    out.uploadBar = Boolean(up && up.getAttribute('role') === 'progressbar' && up.getAttribute('aria-busy') === 'true');
+
     // 4 — full-gallery invisible-text sweep: a text node whose color === an OPAQUE background is invisible.
     const walk = document.querySelectorAll('[data-testid^="buckets-"] *');
     for (const el of walk) {
@@ -94,11 +102,12 @@ try {
     `[gorgeous3] ACTIVE pill → color=${ap?.color} bg=${ap?.backgroundColor} bgAlpha=${ap?.bgAlpha} legible=${ap?.legible}`,
   );
   console.log(`[gorgeous3] shimmer sweep present: ${report.shimmer}`);
+  console.log(`[gorgeous3] upload progressbar present (gorgeous4): ${report.uploadBar}`);
   console.log(`[gorgeous3] invisible-text offenders: ${report.invisible.length}`);
   for (const o of report.invisible) console.log(`   ✗ "${o.text}" color=${o.color}`);
   console.log(`[gorgeous3] screenshot: ${SHOT}`);
 
-  const ok = propagated && ap?.legible && report.shimmer && report.invisible.length === 0;
+  const ok = propagated && ap?.legible && report.shimmer && report.uploadBar && report.invisible.length === 0;
   if (ok) {
     console.log(
       'VERDICT: ✅ gorgeous3 live — new showcases propagated · ACTIVE pill legible (color-mix tint, not cyan-on-cyan) · shimmer present · 0 invisible-text.',

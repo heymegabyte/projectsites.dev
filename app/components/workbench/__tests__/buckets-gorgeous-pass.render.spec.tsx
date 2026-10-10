@@ -26,6 +26,7 @@ import {
   BucketsSkeleton,
   ObjectsSkeleton,
   ShimmerBar,
+  UploadProgressStrip,
   EMPTY_LAUNCHPAD_CLASS,
   OBJECT_ENTRANCE_CLASS,
   TILE_SHELL_RESTING_CLASS,
@@ -55,6 +56,14 @@ const HERE = dirname(fileURLToPath(import.meta.url));
 const PANEL_SRC = readFileSync(join(HERE, '../BucketsPanel.tsx'), 'utf8');
 const GALLERY_SRC = readFileSync(join(HERE, '../../../routes/[_]preview.tsx'), 'utf8');
 const FORBIDDEN_TEXTBG_ACCENT_ALPHA = /(?:text|bg)-bolt-elements-item-contentAccent\/(?:\[|\d)/g;
+
+/**
+ * gorgeous4 HARDENING — an opacity modifier on a MUTED text token double-mutes it below WCAG AA.
+ * `text-bolt-elements-textTertiary/70` (tertiary #737a93 ≈ 4.17:1 solid on the gray-900 panel, LOWER
+ * dimmed) shipped on 6 metadata/credential sites → sub-AA. The fix is a legible TOKEN (textSecondary
+ * #9aa0b6 ≈ 6.8:1), never an opacity dim. Forbid `text-<token>/<opacity>` on any bolt text token.
+ */
+const FORBIDDEN_DIMMED_TEXT = /text-bolt-elements-text(?:Primary|Secondary|Tertiary)\/(?:\[|\d)/g;
 
 describe('gorgeous pass — elevated primary action (dimensional, not flat)', () => {
   it('renders the create-first-bucket primary with a gradient fill + inner highlight ring', () => {
@@ -238,5 +247,43 @@ describe('gorgeous3 — premium shimmer loading (brand sheen, 0 CLS, reduced-mot
     expect(b.querySelector('[data-testid="buckets-objects-skeleton"]')).toBeTruthy();
     expect(b.innerHTML).toContain('psBucketShimmer');
     expect(b.innerHTML).not.toContain('animate-pulse');
+  });
+});
+
+describe('gorgeous4 — no opacity-dimmed text token survives (sub-AA metadata legibility)', () => {
+  it('BucketsPanel.tsx never dims a text token with an opacity modifier (use a legible token)', () => {
+    const hits = PANEL_SRC.match(FORBIDDEN_DIMMED_TEXT) ?? [];
+    expect(
+      hits,
+      `double-muted text tokens fall below WCAG AA — swap to a legible token (e.g. textSecondary):\n  ${hits.join('\n  ')}`,
+    ).toEqual([]);
+  });
+
+  it('the /_preview gallery holds the same discipline', () => {
+    const hits = GALLERY_SRC.match(FORBIDDEN_DIMMED_TEXT) ?? [];
+    expect(hits, `gallery dimmed-text-token offenders:\n  ${hits.join('\n  ')}`).toEqual([]);
+  });
+});
+
+describe('gorgeous4 — cinematic upload progress (honest indeterminate, a11y, reduced-motion safe)', () => {
+  it('injects the psBucketIndeterminate keyframe alongside the other two', () => {
+    expect(PANEL_SRC).toContain('@keyframes psBucketIndeterminate');
+  });
+
+  it('UploadProgressStrip is an a11y progressbar with an indeterminate sweep + reduced-motion fallback', () => {
+    const { getByTestId } = render(<UploadProgressStrip name="portrait.jpg" />);
+    const strip = getByTestId('buckets-upload-progress');
+    // Announced to assistive tech as an active progressbar.
+    expect(strip.getAttribute('role')).toBe('progressbar');
+    expect(strip.getAttribute('aria-busy')).toBe('true');
+    expect(strip.getAttribute('aria-label')).toContain('portrait.jpg');
+
+    // The sweep bar rides the indeterminate keyframe under motion-safe, with a static motion-reduce fill.
+    const html = strip.innerHTML;
+    expect(html).toMatch(/motion-safe:animate-\[psBucketIndeterminate/);
+    expect(html).toContain('motion-reduce:w-full');
+    // Painted with the solid accent / a color-mix gradient — never a text/bg opacity no-op on the hex var
+    // (border-*/NN is allowed — cosmetically harmless).
+    expect(strip.outerHTML.match(/(?:text|bg)-bolt-elements-item-contentAccent\/(?:\[|\d)/g) ?? []).toEqual([]);
   });
 });

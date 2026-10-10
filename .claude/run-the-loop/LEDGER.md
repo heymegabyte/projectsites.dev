@@ -1765,3 +1765,11 @@ Cron 068517cc. Inline surgical slice (single 5.5k-line file — fan-out would in
 - **Headless showcases**: added REAL `BucketsSkeleton`/`ObjectsSkeleton` (imported, not mirrored) + ACTIVE/revoked status pills to `/_preview` (testids `buckets-loading-showcase`, `buckets-status-pills-showcase`) — so the shimmer + the fix are visual-QA'd (neither ever was).
 - **Guardrail HARDENED** (the gorgeous1 lesson, extended): file-level sweep forbids `(text|bg)-contentAccent/(\[|NN)` in BOTH forms across BucketsPanel + the gallery (border-* stays allowed). New durable probe `verify:buckets-gorgeous3`.
 - Verified: Vitest 20/20 (7 new) · tsc 0 · build clean · grep 0 no-ops · **axe 6bp 0/0** (correct URL — earlier "18" was the wrong deployment-subdomain shell) · DOM probe legible+shimmer+0-invisible+propagated · visual. Editor Pages 669ace16.
+
+## fire-buckets-gorgeous4 (2026-10-10) — AA metadata legibility fix + cinematic upload progress
+Cron 068517cc. Inline surgical slice. Theme: "object-pane polish — legible metadata + a gorgeous upload moment".
+- **Real sub-AA bug fixed** (axe-blind — not all in gallery): 6× `text-bolt-elements-textTertiary/70` (double-muted: tertiary #737a93 ≈ 4.17:1 SOLID on the gray-900 panel, lower when dimmed) on nav hint · storage cost · object-row size · both credential strips · a hint helper → all → `textSecondary` (#9aa0b6 ≈ 6.8:1). Computed from the real variables.scss dark-theme token values.
+- **Cinematic upload progress** (gorgeous): replaced the bare circle-notch strip with SSOT `UploadProgressStrip` — an HONEST indeterminate accent sweep (`psBucketIndeterminate` keyframe; the upload is a single fetch, no byte %), `motion-reduce:` → static full fill, `role=progressbar`+`aria-busy`, cloud-arrow glyph.
+- **Headless showcase**: real `UploadProgressStrip` added to `/_preview` (`buckets-upload-progress-showcase`) so the bar is axe+visual verified.
+- **Guardrail HARDENED**: new `FORBIDDEN_DIMMED_TEXT` forbids `text-<bolt-text-token>/<opacity>` (any double-muting) across panel + gallery; durable probe extended to assert the upload progressbar + propagation.
+- Verified: Vitest 24/24 (4 new) · tsc 0 · build clean · grep 0 (dimmed-text + accent-alpha + old strip gone) · **axe 6bp 0/0** (production alias) · DOM probe (pill legible + shimmer + upload bar + 0 invisible + propagated) · visual. Editor Pages 495a6dcf.

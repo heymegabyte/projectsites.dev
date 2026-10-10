@@ -35,6 +35,7 @@ import {
   TILE_SHELL_RESTING_CLASS,
   BucketsSkeleton,
   ObjectsSkeleton,
+  UploadProgressStrip,
 } from '~/components/workbench/BucketsPanel';
 import { iconForObject, isImageKey, colorForObject, objectTypeLabel } from '~/components/workbench/bucket-icons';
 
@@ -578,6 +579,27 @@ export default function PanelPrimitiveGallery() {
         </div>
         <figcaption className="text-[11px] font-mono uppercase tracking-wider text-bolt-elements-textSecondary">
           Credential status pills (ACTIVE now legible — solid cyan on a faint tint, never cyan-on-cyan)
+        </figcaption>
+      </figure>
+
+      {/* In-flight upload — the REAL UploadProgressStrip (gorgeous4). Honest indeterminate sweep on the
+          top edge (the upload is a single fetch, no byte progress); reduced-motion → static full fill. */}
+      <figure className="m-0 mt-10 flex max-w-[640px] flex-col gap-2" data-testid="buckets-upload-progress-showcase">
+        <div className="overflow-hidden rounded-2xl border border-bolt-elements-borderColor shadow-xl shadow-black/40">
+          <PanelShell>
+            <PanelHeader icon="i-ph:cloud-arrow-up-duotone" title="Uploading" subtitle="In-flight progress" />
+            <div className="p-4">
+              <div className="overflow-hidden rounded-lg border border-bolt-elements-borderColor bg-bolt-elements-background-depth-1">
+                <div className="px-3 py-6 text-center text-[11px] text-bolt-elements-textSecondary">
+                  Object browser (files land here when the upload completes)
+                </div>
+                <UploadProgressStrip name="portrait.jpg" />
+              </div>
+            </div>
+          </PanelShell>
+        </div>
+        <figcaption className="text-[11px] font-mono uppercase tracking-wider text-bolt-elements-textSecondary">
+          Upload progress (indeterminate accent sweep · reduced-motion → static fill · role=progressbar)
         </figcaption>
       </figure>
     </div>
