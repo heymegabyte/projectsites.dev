@@ -1703,3 +1703,10 @@ Lean a11y fire. ONE coherent verified slice = B14 (DoD testing clause). No migra
 - B14-groom `6eb10e644`/`fb7ea2786` — B11 DONE; DoD §21 ≈ 96%.
 - lead — editor Pages 47904cea; B14 axe gate PROD-VERIFIED GREEN: 0 critical/serious/moderate/minor at ALL 6 breakpoints. (6× 200 loads = no-regression.)
 - DoD §21 ≈ 96% → ~97% (axe clause MET). Remaining feature: B10 env reassign+rollback · B6 clone (heavy) · B7 zip · B9 per-object public+shares (heavy) + fast-follows (B8-cross-bucket, B15-tree, 502-GET fix). Cron b1182793 KEPT.
+
+## fire-buckets-502fix (2026-10-10) — GET missing object returns 404 not 502
+Lean bug-fix fire. ONE coherent verified slice. No migration. Backend-only.
+- 502-fix `eac3493f3` — root cause: getSiteR2Object treated ANY non-2xx S3 GET as 's3_error' → r2Failure default → 502, swallowing R2's 404 NoSuchKey. Fix: typed SiteR2Failure 'object_not_found' returned on S3 404 (before the generic branch); handler maps → 404 NOT_FOUND; genuine 5xx still → 502; ownsSiteData gate still first (no IDOR existence leak). TDD RED→GREEN (2 service + 2 route tests). tsc 0 · jest r2_buckets site_r2 112/112 (12 suites — FULL set per the prior-fire lesson).
+- 502-groom `82a994097`/`513e1255d` — B14 DONE. HONESTY CORRECTION: prior "~97% / B6/B9 post-DoD" was wrong — B6 (clone) + B9 (per-object public) are LITERAL §21 clauses. True DoD ≈ 88% (~17/21); ~6-9 fires remain.
+- lead — worker f536ad5c; PROD-VERIFIED via workers.dev: GET a missing object → 404 (was 502).
+- DoD §21 ≈ 88% (honest). Remaining REQUIRED: B10 env reassign+rollback · B7 zip · B6 clone (heavy) · B9 per-object public+shares (heavy) + fast-follows (B8-cross-bucket, B15-tree). Cron b1182793 KEPT — CronDelete only when ALL (incl. both heavies) ship + prod-verify + final visual walkthrough clean.
