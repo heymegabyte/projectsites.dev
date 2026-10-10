@@ -8,12 +8,14 @@
 2. **slice4-ui** — owner-key credential strip (show-once/copy/rotate/revoke) + cinematic `psBucketRise` animation (reduced-motion safe) + audit-logging + **site-scoped** credential-validity E2E (200 own / 403 scoped / 401 revoked).
 3. **b4** — per-**bucket** owner keys (routes + migration `0662` + `bucketScopeResources([bucket])`) + per-bucket credential-validity E2E (200/403/401). Migration-first deploy ordering.
 4. **b12** — rich **sandboxed** object previews (image→inert img · pdf→sandboxed iframe no-scripts · text/code→escaped `<pre>` · media→inert controls · else→download) via `requestBucketDownload`.
+5. **b3** — object-row **context menu** (Radix ContextMenu) + **keyboard multi-select** (Cmd+A · Shift-range · Esc) + **animated bulk bar** (role=toolbar, psBucketRise). 21 tests.
 
-## DoD §21 ≈ 82% — REMAINING slices (each one fire)
+## DoD §21 ≈ 85% — REMAINING slices (each one fire)
 - **B4-UI** — per-bucket Access Keys workspace in bucket Settings (backend DONE; reuse `OwnerKeySection` scoped to selected bucket, consume `PS_R2_BUCKET_KEY_*`).
 - **B6** clone bucket · **B7** zip export · **B8** copy/move/rename objects · **B9** per-object public + signed shares · **B10** env reassign + rollback (`EnvAssignmentGrid` is read-only; needs `assignBucketEnv` mutation) · **B11** server-side search · **B15** Code-view bucket source selector (`EditorPanel.tsx` Source picker, money-path).
-- **B14** axe @ 6bp on the Buckets panel · **≥5 explicit visual-refinement rounds** (log each).
-- READY-NOW top: **B3** object-row context-menu + multi-select (FE) · **B15** · **B4-UI** · **B6**.
+- **B14** axe @ 6bp on the Buckets panel.
+- ✅ **≥5 visual-refinement rounds** — DONE + numbered in LEDGER (5 logged).
+- READY-NOW top: **B15** Code-view selector · **B4-UI** · **B8** copy/move/rename · **B6** clone.
 
 ## Infra invariants for the next fire (do-not-rediscover)
 - **Deploy:** worker `cd apps/project-sites && wrangler deploy --env production` (Docker up, creds via `get-secret CLOUDFLARE_API_KEY` + `CLOUDFLARE_EMAIL=blzalewski@gmail.com`); editor `npm run build` (root) → `wrangler pages deploy build/client --project-name=bolt-diy --branch=main --commit-dirty=true`.
