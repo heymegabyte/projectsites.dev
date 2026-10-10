@@ -257,3 +257,78 @@ describe('BucketsPanel — B1 premium shell (grouped navigator + per-bucket work
     expect(screen.queryByTestId('buckets-settings-delete')).toBeNull();
   });
 });
+
+describe('BucketsPanel — B1-polish: Files list/grid view toggle', () => {
+  beforeEach(() => {
+    try {
+      sessionStorage.clear();
+    } catch {
+      /* jsdom opaque-origin storage — the component guards this too */
+    }
+  });
+
+  /** A ready single-bucket world with two objects (object ops on). */
+  function mockObjectsWorld() {
+    requestR2.mockImplementation(async (input: { op: string }) => {
+      if (input.op === 'listBuckets') {
+        return {
+          type: 'PS_R2_RESULT',
+          ok: true,
+          objectOpsAvailable: true,
+          buckets: [{ name: 'uploads', isDefault: true, public: false, environment: 'preview' }],
+        };
+      }
+
+      if (input.op === 'listObjects') {
+        return {
+          type: 'PS_R2_RESULT',
+          ok: true,
+          objects: [
+            { key: 'logo.png', size: 2048, uploadedAt: new Date().toISOString() },
+            { key: 'notes.txt', size: 120, uploadedAt: new Date().toISOString() },
+          ],
+          prefixes: [],
+          truncated: false,
+        };
+      }
+
+      return { type: 'PS_R2_RESULT', ok: true };
+    });
+  }
+
+  it('defaults to list view and offers both list + grid toggle controls', async () => {
+    mockObjectsWorld();
+    render(<BucketsPanel />);
+    await waitFor(() => expect(screen.getByTestId('buckets-object-list')).toBeTruthy());
+    expect(screen.getByTestId('buckets-view-list')).toBeTruthy();
+    expect(screen.getByTestId('buckets-view-grid')).toBeTruthy();
+    expect(screen.queryByTestId('buckets-object-grid')).toBeNull();
+  });
+
+  it('switches to a grid of object tiles when grid is selected', async () => {
+    mockObjectsWorld();
+    render(<BucketsPanel />);
+    await waitFor(() => expect(screen.getByTestId('buckets-object-list')).toBeTruthy());
+
+    fireEvent.click(screen.getByTestId('buckets-view-grid'));
+
+    await waitFor(() => expect(screen.getByTestId('buckets-object-grid')).toBeTruthy());
+    expect(screen.getAllByTestId('buckets-object-tile').length).toBe(2);
+    expect(screen.getByText('logo.png')).toBeTruthy();
+    expect(screen.queryByTestId('buckets-object-list')).toBeNull();
+  });
+
+  it('persists the chosen view across remounts (session)', async () => {
+    mockObjectsWorld();
+
+    const first = render(<BucketsPanel />);
+    await waitFor(() => expect(screen.getByTestId('buckets-object-list')).toBeTruthy());
+
+    fireEvent.click(screen.getByTestId('buckets-view-grid'));
+    await waitFor(() => expect(screen.getByTestId('buckets-object-grid')).toBeTruthy());
+    first.unmount();
+
+    render(<BucketsPanel />);
+    await waitFor(() => expect(screen.getByTestId('buckets-object-grid')).toBeTruthy());
+  });
+});

@@ -799,6 +799,19 @@ BucketNavRow.displayName = 'BucketsPanel.BucketNavRow';
 
 // ── Object browser ───────────────────────────────────────────────────────────
 
+/** Files view mode — persists for the editor session (survives bucket/tab switches). */
+type FilesViewMode = 'list' | 'grid';
+
+const VIEW_MODE_KEY = 'ps.buckets.filesView';
+
+function readStoredViewMode(): FilesViewMode {
+  try {
+    return sessionStorage.getItem(VIEW_MODE_KEY) === 'grid' ? 'grid' : 'list';
+  } catch {
+    return 'list';
+  }
+}
+
 const ObjectBrowser = memo(
   ({
     bucket,
@@ -813,6 +826,8 @@ const ObjectBrowser = memo(
     const [prefix, setPrefix] = useState('');
     const [search, setSearch] = useState('');
     const [sort, setSort] = useState<SortKey>('name');
+    const [viewMode, setViewMode] = useState<FilesViewMode>(readStoredViewMode);
+    const [failedThumbs, setFailedThumbs] = useState<Set<string>>(new Set());
     const [selected, setSelected] = useState<Set<string>>(new Set());
     const [uploading, setUploading] = useState(false);
     const [uploadName, setUploadName] = useState<string | null>(null);
@@ -1169,6 +1184,49 @@ const ObjectBrowser = memo(
               <option value="size">Size</option>
               <option value="time">Newest</option>
             </select>
+            {/* View mode — list / grid (session-persisted). */}
+            <div
+              className="inline-flex shrink-0 overflow-hidden rounded-lg border border-bolt-elements-borderColor"
+              role="group"
+              aria-label="Object view"
+            >
+              {(
+                [
+                  ['list', 'i-ph:list-bullets', 'List'],
+                  ['grid', 'i-ph:squares-four', 'Grid'],
+                ] as const
+              ).map(([mode, icon, label]) => {
+                const on = viewMode === mode;
+                return (
+                  <button
+                    key={mode}
+                    type="button"
+                    onClick={() => {
+                      setViewMode(mode);
+
+                      try {
+                        sessionStorage.setItem(VIEW_MODE_KEY, mode);
+                      } catch {
+                        /* storage unavailable — in-memory only */
+                      }
+                    }}
+                    data-testid={`buckets-view-${mode}`}
+                    aria-pressed={on}
+                    aria-label={`${label} view`}
+                    title={`${label} view`}
+                    className={classNames(
+                      'inline-flex items-center justify-center min-h-[26px] min-w-[28px] px-2 transition-colors motion-reduce:transition-none',
+                      'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-bolt-elements-item-contentAccent',
+                      on
+                        ? 'bg-bolt-elements-item-contentAccent text-[#061018]'
+                        : 'bg-bolt-elements-background-depth-2 text-bolt-elements-textTertiary hover:text-bolt-elements-item-contentAccent',
+                    )}
+                  >
+                    <div className={classNames(icon, 'text-sm')} aria-hidden />
+                  </button>
+                );
+              })}
+            </div>
             {/* Copy bucket address */}
             <button
               type="button"
@@ -1243,7 +1301,7 @@ const ObjectBrowser = memo(
               objectOpsAvailable={objectOpsAvailable}
             />
           ) : (
-            <div data-testid="buckets-object-list">
+            <div data-testid={viewMode === 'grid' ? 'buckets-object-grid' : 'buckets-object-list'}>
               {/* Header row with select-all + count/size. */}
               <div className="flex items-center gap-2 px-3 py-1.5 border-b border-bolt-elements-borderColor/40 sticky top-0 z-[1] bg-bolt-elements-background-depth-1/90 backdrop-blur">
                 <input
@@ -1260,142 +1318,297 @@ const ObjectBrowser = memo(
                 </span>
               </div>
 
-              {/* Folders (common prefixes). */}
-              {objects.prefixes.map((p) => {
-                const label = p.slice(prefix.length).replace(/\/$/, '');
-                return (
-                  <button
-                    key={p}
-                    type="button"
-                    onClick={() => setPrefix(p)}
-                    className="group w-full flex items-center gap-2.5 px-3 py-2 border-b border-bolt-elements-borderColor/25 hover:bg-bolt-elements-item-backgroundActive transition-colors motion-reduce:transition-none text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-bolt-elements-item-contentAccent"
-                  >
-                    <div
-                      className="i-ph:folder-duotone text-base text-bolt-elements-item-contentAccent shrink-0"
-                      aria-hidden
-                    />
-                    <span className="text-[12px] font-medium text-bolt-elements-textPrimary truncate flex-1">
-                      {label}/
-                    </span>
-                    <div
-                      className="i-ph:caret-right text-xs text-bolt-elements-textTertiary group-hover:text-bolt-elements-item-contentAccent"
-                      aria-hidden
-                    />
-                  </button>
-                );
-              })}
+              {viewMode === 'list' ? (
+                <>
+                  {/* Folders (common prefixes). */}
+                  {objects.prefixes.map((p) => {
+                    const label = p.slice(prefix.length).replace(/\/$/, '');
+                    return (
+                      <button
+                        key={p}
+                        type="button"
+                        onClick={() => setPrefix(p)}
+                        className="group w-full flex items-center gap-2.5 px-3 py-2 border-b border-bolt-elements-borderColor/25 hover:bg-bolt-elements-item-backgroundActive transition-colors motion-reduce:transition-none text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-bolt-elements-item-contentAccent"
+                      >
+                        <div
+                          className="i-ph:folder-duotone text-base text-bolt-elements-item-contentAccent shrink-0"
+                          aria-hidden
+                        />
+                        <span className="text-[12px] font-medium text-bolt-elements-textPrimary truncate flex-1">
+                          {label}/
+                        </span>
+                        <div
+                          className="i-ph:caret-right text-xs text-bolt-elements-textTertiary group-hover:text-bolt-elements-item-contentAccent"
+                          aria-hidden
+                        />
+                      </button>
+                    );
+                  })}
 
-              {/* Objects. */}
-              {shownObjects.map((obj) => {
-                const name = obj.key.slice(prefix.length);
-                const checked = selected.has(obj.key);
-                const busy = busyKey === obj.key;
+                  {/* Objects. */}
+                  {shownObjects.map((obj) => {
+                    const name = obj.key.slice(prefix.length);
+                    const checked = selected.has(obj.key);
+                    const busy = busyKey === obj.key;
 
-                return (
-                  <div
-                    key={obj.key}
-                    className="group flex items-center gap-2.5 px-3 py-2 border-b border-bolt-elements-borderColor/25 hover:bg-bolt-elements-item-backgroundActive transition-colors motion-reduce:transition-none"
-                    data-testid="buckets-object-row"
-                  >
-                    <input
-                      type="checkbox"
-                      checked={checked}
-                      onChange={(e) =>
-                        setSelected((cur) => {
-                          const next = new Set(cur);
+                    return (
+                      <div
+                        key={obj.key}
+                        className="group flex items-center gap-2.5 px-3 py-2 border-b border-bolt-elements-borderColor/25 hover:bg-bolt-elements-item-backgroundActive transition-colors motion-reduce:transition-none"
+                        data-testid="buckets-object-row"
+                      >
+                        <input
+                          type="checkbox"
+                          checked={checked}
+                          onChange={(e) =>
+                            setSelected((cur) => {
+                              const next = new Set(cur);
 
-                          if (e.target.checked) {
-                            next.add(obj.key);
-                          } else {
-                            next.delete(obj.key);
+                              if (e.target.checked) {
+                                next.add(obj.key);
+                              } else {
+                                next.delete(obj.key);
+                              }
+
+                              return next;
+                            })
                           }
-
-                          return next;
-                        })
-                      }
-                      aria-label={`Select ${name}`}
-                      className="h-3.5 w-3.5 accent-[var(--bolt-elements-item-contentAccent)] cursor-pointer shrink-0"
-                    />
-                    <div
-                      className={classNames(
-                        iconForObject(obj.key),
-                        'text-base text-bolt-elements-textTertiary group-hover:text-bolt-elements-item-contentAccent transition-colors shrink-0',
-                      )}
-                      aria-hidden
-                    />
-                    <span
-                      className="text-[12px] font-mono text-bolt-elements-textPrimary truncate flex-1"
-                      title={obj.key}
-                    >
-                      {name}
-                    </span>
-                    <span className="text-[10px] text-bolt-elements-textTertiary tabular-nums shrink-0">
-                      {formatBytes(obj.size)}
-                    </span>
-                    {formatRelativeTime(obj.uploadedAt) && (
-                      <span className="hidden sm:inline text-[10px] text-bolt-elements-textTertiary/70 tabular-nums shrink-0 w-14 text-right">
-                        {formatRelativeTime(obj.uploadedAt)}
-                      </span>
-                    )}
-
-                    {/* Row actions. */}
-                    <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 transition-opacity motion-reduce:transition-none shrink-0">
-                      {isImageKey(obj.key) && (
-                        <button
-                          type="button"
-                          onClick={() => void downloadObject(obj.key)}
-                          disabled={busy}
-                          title="Preview / download"
-                          aria-label={`Preview ${name}`}
-                          className={classNames(BTN_GHOST, 'min-h-[24px] min-w-[24px] p-1')}
+                          aria-label={`Select ${name}`}
+                          className="h-3.5 w-3.5 accent-[var(--bolt-elements-item-contentAccent)] cursor-pointer shrink-0"
+                        />
+                        <div
+                          className={classNames(
+                            iconForObject(obj.key),
+                            'text-base text-bolt-elements-textTertiary group-hover:text-bolt-elements-item-contentAccent transition-colors shrink-0',
+                          )}
+                          aria-hidden
+                        />
+                        <span
+                          className="text-[12px] font-mono text-bolt-elements-textPrimary truncate flex-1"
+                          title={obj.key}
                         >
-                          <div className="i-ph:eye text-xs" />
-                        </button>
-                      )}
+                          {name}
+                        </span>
+                        <span className="text-[10px] text-bolt-elements-textTertiary tabular-nums shrink-0">
+                          {formatBytes(obj.size)}
+                        </span>
+                        {formatRelativeTime(obj.uploadedAt) && (
+                          <span className="hidden sm:inline text-[10px] text-bolt-elements-textTertiary/70 tabular-nums shrink-0 w-14 text-right">
+                            {formatRelativeTime(obj.uploadedAt)}
+                          </span>
+                        )}
+
+                        {/* Row actions. */}
+                        <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 transition-opacity motion-reduce:transition-none shrink-0">
+                          {isImageKey(obj.key) && (
+                            <button
+                              type="button"
+                              onClick={() => void downloadObject(obj.key)}
+                              disabled={busy}
+                              title="Preview / download"
+                              aria-label={`Preview ${name}`}
+                              className={classNames(BTN_GHOST, 'min-h-[24px] min-w-[24px] p-1')}
+                            >
+                              <div className="i-ph:eye text-xs" />
+                            </button>
+                          )}
+                          <button
+                            type="button"
+                            onClick={() => void copyObjectUrl(obj.key)}
+                            title="Copy object URL"
+                            aria-label={`Copy URL for ${name}`}
+                            className={classNames(BTN_GHOST, 'min-h-[24px] min-w-[24px] p-1')}
+                          >
+                            <div className="i-ph:link text-xs" />
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => void downloadObject(obj.key)}
+                            disabled={busy}
+                            title="Download"
+                            aria-label={`Download ${name}`}
+                            className={classNames(BTN_GHOST, 'min-h-[24px] min-w-[24px] p-1')}
+                          >
+                            <div
+                              className={classNames(
+                                busy
+                                  ? 'i-ph:circle-notch animate-spin motion-reduce:animate-none'
+                                  : 'i-ph:download-simple',
+                                'text-xs',
+                              )}
+                            />
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => void deleteObject(obj.key)}
+                            disabled={busy}
+                            title="Delete"
+                            aria-label={`Delete ${name}`}
+                            className={classNames(BTN_DESTRUCTIVE, 'min-h-[24px] min-w-[24px] p-1')}
+                            data-testid="buckets-object-delete"
+                          >
+                            <div
+                              className={classNames(
+                                busy ? 'i-ph:circle-notch animate-spin motion-reduce:animate-none' : 'i-ph:trash',
+                                'text-xs',
+                              )}
+                            />
+                          </button>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </>
+              ) : (
+                <div className="grid grid-cols-[repeat(auto-fill,minmax(132px,1fr))] gap-2.5 p-3">
+                  {/* Folder tiles */}
+                  {objects.prefixes.map((p) => {
+                    const label = p.slice(prefix.length).replace(/\/$/, '');
+                    return (
                       <button
+                        key={p}
                         type="button"
-                        onClick={() => void copyObjectUrl(obj.key)}
-                        title="Copy object URL"
-                        aria-label={`Copy URL for ${name}`}
-                        className={classNames(BTN_GHOST, 'min-h-[24px] min-w-[24px] p-1')}
-                      >
-                        <div className="i-ph:link text-xs" />
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => void downloadObject(obj.key)}
-                        disabled={busy}
-                        title="Download"
-                        aria-label={`Download ${name}`}
-                        className={classNames(BTN_GHOST, 'min-h-[24px] min-w-[24px] p-1')}
+                        onClick={() => setPrefix(p)}
+                        data-testid="buckets-folder-tile"
+                        title={`${label}/`}
+                        className="group flex aspect-square flex-col items-center justify-center gap-1.5 rounded-xl border border-bolt-elements-borderColor bg-bolt-elements-background-depth-2 p-3 text-center transition-colors motion-reduce:transition-none hover:border-bolt-elements-item-contentAccent/40 hover:bg-bolt-elements-background-depth-3 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-bolt-elements-item-contentAccent"
                       >
                         <div
-                          className={classNames(
-                            busy ? 'i-ph:circle-notch animate-spin motion-reduce:animate-none' : 'i-ph:download-simple',
-                            'text-xs',
-                          )}
+                          className="i-ph:folder-duotone text-3xl text-bolt-elements-item-contentAccent"
+                          aria-hidden
                         />
+                        <span className="w-full truncate text-[11px] font-medium text-bolt-elements-textPrimary">
+                          {label}/
+                        </span>
                       </button>
-                      <button
-                        type="button"
-                        onClick={() => void deleteObject(obj.key)}
-                        disabled={busy}
-                        title="Delete"
-                        aria-label={`Delete ${name}`}
-                        className={classNames(BTN_DESTRUCTIVE, 'min-h-[24px] min-w-[24px] p-1')}
-                        data-testid="buckets-object-delete"
+                    );
+                  })}
+
+                  {/* Object tiles */}
+                  {shownObjects.map((obj) => {
+                    const name = obj.key.slice(prefix.length);
+                    const checked = selected.has(obj.key);
+                    const busy = busyKey === obj.key;
+                    const publicBase = bucket.publicUrl || bucket.address?.publicUrl;
+                    const thumbUrl =
+                      publicBase && isImageKey(obj.key) && !failedThumbs.has(obj.key)
+                        ? `${publicBase.replace(/\/$/, '')}/${obj.key}`
+                        : null;
+
+                    return (
+                      <div
+                        key={obj.key}
+                        data-testid="buckets-object-tile"
+                        className={classNames(
+                          'group relative flex flex-col gap-1.5 rounded-xl border p-2 transition-colors motion-reduce:transition-none',
+                          checked
+                            ? 'border-bolt-elements-item-contentAccent/70 bg-bolt-elements-item-contentAccent/[0.08]'
+                            : 'border-bolt-elements-borderColor bg-bolt-elements-background-depth-2 hover:border-bolt-elements-item-contentAccent/40 hover:bg-bolt-elements-background-depth-3',
+                        )}
                       >
-                        <div
+                        <input
+                          type="checkbox"
+                          checked={checked}
+                          onChange={(e) =>
+                            setSelected((cur) => {
+                              const next = new Set(cur);
+
+                              if (e.target.checked) {
+                                next.add(obj.key);
+                              } else {
+                                next.delete(obj.key);
+                              }
+
+                              return next;
+                            })
+                          }
+                          aria-label={`Select ${name}`}
                           className={classNames(
-                            busy ? 'i-ph:circle-notch animate-spin motion-reduce:animate-none' : 'i-ph:trash',
-                            'text-xs',
+                            'absolute left-1.5 top-1.5 z-[1] h-3.5 w-3.5 cursor-pointer accent-[var(--bolt-elements-item-contentAccent)] transition-opacity',
+                            checked
+                              ? 'opacity-100'
+                              : 'opacity-0 group-hover:opacity-100 group-focus-within:opacity-100',
                           )}
                         />
-                      </button>
-                    </div>
-                  </div>
-                );
-              })}
+
+                        <div className="flex aspect-square items-center justify-center overflow-hidden rounded-lg bg-bolt-elements-background-depth-1">
+                          {thumbUrl ? (
+                            <img
+                              src={thumbUrl}
+                              alt={name}
+                              loading="lazy"
+                              onError={() => setFailedThumbs((c) => new Set(c).add(obj.key))}
+                              className="h-full w-full object-cover"
+                            />
+                          ) : (
+                            <div
+                              className={classNames(
+                                iconForObject(obj.key),
+                                'text-3xl text-bolt-elements-textTertiary transition-colors group-hover:text-bolt-elements-item-contentAccent',
+                              )}
+                              aria-hidden
+                            />
+                          )}
+                        </div>
+
+                        <div className="min-w-0">
+                          <p className="truncate text-[11px] font-mono text-bolt-elements-textPrimary" title={obj.key}>
+                            {name}
+                          </p>
+                          <p className="text-[9px] tabular-nums text-bolt-elements-textTertiary">
+                            {formatBytes(obj.size)}
+                          </p>
+                        </div>
+
+                        <div className="absolute right-1.5 top-1.5 flex items-center gap-1 opacity-0 transition-opacity motion-reduce:transition-none group-hover:opacity-100 group-focus-within:opacity-100">
+                          <button
+                            type="button"
+                            onClick={() => void copyObjectUrl(obj.key)}
+                            title="Copy object URL"
+                            aria-label={`Copy URL for ${name}`}
+                            className={classNames(BTN_GHOST, 'min-h-[22px] min-w-[22px] p-1')}
+                          >
+                            <div className="i-ph:link text-xs" />
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => void downloadObject(obj.key)}
+                            disabled={busy}
+                            title="Download"
+                            aria-label={`Download ${name}`}
+                            className={classNames(BTN_GHOST, 'min-h-[22px] min-w-[22px] p-1')}
+                          >
+                            <div
+                              className={classNames(
+                                busy
+                                  ? 'i-ph:circle-notch animate-spin motion-reduce:animate-none'
+                                  : 'i-ph:download-simple',
+                                'text-xs',
+                              )}
+                            />
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => void deleteObject(obj.key)}
+                            disabled={busy}
+                            title="Delete"
+                            aria-label={`Delete ${name}`}
+                            data-testid="buckets-tile-delete"
+                            className={classNames(BTN_DESTRUCTIVE, 'min-h-[22px] min-w-[22px] p-1')}
+                          >
+                            <div
+                              className={classNames(
+                                busy ? 'i-ph:circle-notch animate-spin motion-reduce:animate-none' : 'i-ph:trash',
+                                'text-xs',
+                              )}
+                            />
+                          </button>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
 
               {/* Pagination. */}
               {objects.truncated && (
