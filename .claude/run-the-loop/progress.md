@@ -15,14 +15,14 @@
 9. **b11** — **server-side whole-bucket search** (`searchSiteR2Objects` bounded scan + native prefix + honest `scannedAll`/`scanned`/`truncated`; route `?search=`; reused `PS_R2 listObjects`; debounced UI + truncation note). 13 jest + 137 Vitest. **Prod-verified on real R2** (2 matches found, non-match excluded, honest flags). ALSO fixed **4 red token tests** (harness now applies 0661+0662) — **LESSON: per-fire verify must run the FULL jest suite, not just `jest r2_buckets`.**
 10. **b14** — **axe @ 6 breakpoints** gate (`verify:buckets-axe` on `/_preview`). Found + fixed a real serious `scrollable-region-focusable` violation. **Prod-verified GREEN at all 6 bp** (0 critical/serious).
 
-## DoD §21 ≈ 88% (HONEST — corrected from an over-optimistic ~97%) — REMAINING slices
-> B6 (clone) + B9 (per-object public) are LITERAL §21 clauses — they CANNOT be deferred as "post-DoD depth". Genuine DoD needs them → ~6–9 fires remain.
-- **B10** env reassign + rollback (`EnvAssignmentGrid` read-only; needs `assignBucketEnv`) — medium · **B7** zip export — medium.
-- **B6** clone bucket · **B9** per-object public + signed shares — the 2 heavies (2–3 fires each, CF Workflow / signed-URL gateway + `object_visibility` D1). **REQUIRED for DoD.**
+## DoD §21 ≈ 90% (HONEST) — REMAINING REQUIRED slices
+> B6 (clone) + B9 (per-object public) are LITERAL §21 clauses — NOT deferrable. Genuine DoD ≈ 4–7 fires out.
+- **B10** env reassign + rollback (`EnvAssignmentGrid` read-only; needs `assignBucketEnv`) — medium, **mutates serving → prod-verify carefully + rollback**.
+- **B6** clone bucket · **B9** per-object public + signed shares — the 2 heavies (2–3 fires each, CF Workflow / signed-URL gateway + `object_visibility` D1). **REQUIRED.**
 - Fast-follows: **B8 cross-bucket** copy/move · **B15 object-tree** load/edit/save-back.
-- ✅ DONE: ≥5 visual rounds · axe @ 6bp clean · **502-GET fix** (GET missing → 404, prod-verified).
-- READY-NOW top: **B10** env reassign+rollback · **B7** zip · B8-cross-bucket · B15-object-tree.
-- **CronDelete `b1182793`** ONLY when B10 + B7 + B6 + B9 all ship + prod-verify on real R2, fast-follows ship (or Brian scopes them out), and a final headless visual walkthrough shows no user-visible defect.
+- ✅ DONE: ≥5 visual rounds · axe @ 6bp · 502-GET fix · **B7 ZIP export** (prod-verified, 3-surface deploy — note: touches the Angular `frontend/` admin bridge → needs the `frontend` R2 deploy too).
+- READY-NOW top: **B10** env reassign+rollback · **B8-cross-bucket** · **B15-object-tree** · then the heavies **B6**/**B9**.
+- **CronDelete `b1182793`** ONLY when B10 + B6 + B9 all ship + prod-verify on real R2, fast-follows ship (or Brian scopes out), and a final headless visual walkthrough shows no user-visible defect.
 
 ## Infra invariants for the next fire (do-not-rediscover)
 - **Deploy:** worker `cd apps/project-sites && wrangler deploy --env production` (Docker up, creds via `get-secret CLOUDFLARE_API_KEY` + `CLOUDFLARE_EMAIL=blzalewski@gmail.com`); editor `npm run build` (root) → `wrangler pages deploy build/client --project-name=bolt-diy --branch=main --commit-dirty=true`.
