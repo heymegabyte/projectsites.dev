@@ -244,6 +244,7 @@ interface PsMessage {
     | 'deleteBucket'
     | 'address'
     | 'setPublic'
+    | 'setEnv'
     | 'promote'
     | 'listObjects'
     | 'deleteObject';
@@ -3607,6 +3608,21 @@ export class BoltEmbedService {
             this.api
               .post<{ data?: unknown }>(`${base}/${bucket}/public`, { public: msg.makePublic ?? false }, { silent: true })
               .subscribe({ next: (res) => reply({ ok: true, bucket: res?.data }), error: (err) => onErr(err, 'Could not change public access.') });
+          } else if (op === 'setEnv' && bucket) {
+            // B10 — reassign the bucket's environment (preview ↔ production). The worker returns the
+            // affected bucket + the PREVIOUS environment so the editor can offer a one-click Undo; a move
+            // that would break the two-default model comes back as a 409 → surfaced as the error message.
+            this.api
+              .post<{ data?: { bucket?: unknown; previousEnvironment?: 'preview' | 'production' } }>(
+                `${base}/${bucket}/environment`,
+                { environment: msg.environment },
+                { silent: true },
+              )
+              .subscribe({
+                next: (res) =>
+                  reply({ ok: true, bucket: res?.data?.bucket, previousEnvironment: res?.data?.previousEnvironment }),
+                error: (err) => onErr(err, 'Could not reassign the environment.'),
+              });
           } else if (op === 'promote' && bucket) {
             this.api
               .post<{ data?: { objectsCopied?: number; production?: unknown } }>(`${base}/${bucket}/promote`, {}, { silent: true })

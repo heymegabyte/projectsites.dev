@@ -2311,6 +2311,7 @@ export interface R2RequestMessage {
     | 'deleteBucket'
     | 'address'
     | 'setPublic'
+    | 'setEnv'
     | 'promote'
     | 'listObjects'
     | 'deleteObject';
@@ -2326,6 +2327,14 @@ export interface R2RequestMessage {
 
   /** `setPublic`: the desired public state. */
   makePublic?: boolean;
+
+  /**
+   * `setEnv` (B10): the environment to reassign this bucket to (`preview` | `production`). The admin
+   * POSTs it to `/r2/buckets/:bucket/environment`; the reply carries {@link R2ResponseMessage.previousEnvironment}
+   * so the editor can offer a one-click Undo. A move that would break the two-default model → `ok:false` + a
+   * clear conflict message.
+   */
+  environment?: 'preview' | 'production';
 
   /** `listObjects`: key prefix (folder path). */
   prefix?: string;
@@ -2363,8 +2372,14 @@ export interface R2ResponseMessage {
   /** `listBuckets`: whether object ops (S3 creds) are available — the FE advertises this. */
   objectOpsAvailable?: boolean;
 
-  /** `createBucket`/`address`/`setPublic`/`promote`: the affected bucket. */
+  /** `createBucket`/`address`/`setPublic`/`setEnv`/`promote`: the affected bucket. */
   bucket?: BucketEntry;
+
+  /**
+   * `setEnv` (B10): the environment the bucket was in BEFORE the reassignment — the editor passes this
+   * back to `setEnv` to roll the change back (Undo). Absent on every other op.
+   */
+  previousEnvironment?: 'preview' | 'production';
 
   /** `address`: the standalone address bundle. */
   address?: BucketAddress;
@@ -3769,6 +3784,19 @@ export function requestR2(input: Omit<R2RequestMessage, 'type' | 'correlationId'
     { type: 'PS_R2', correlationId: nextBridgeCorrelationId(), ...input },
     'PS_R2_RESULT',
   );
+}
+
+/**
+ * Resources → Buckets (B10): reassign a bucket's environment (preview ↔ production). The admin POSTs to
+ * `/api/sites/:id/r2/buckets/:bucket/environment`. Resolves with the parent's {@link R2ResponseMessage};
+ * `previousEnvironment` on success is what the editor passes back to roll the change back (Undo). A move
+ * that would break the two-default model resolves `{ok:false}` with a clear conflict message.
+ */
+export function requestR2SetEnv(input: {
+  bucket: string;
+  environment: 'preview' | 'production';
+}): Promise<R2ResponseMessage> {
+  return requestR2({ bucket: input.bucket, environment: input.environment, op: 'setEnv' });
 }
 
 /** Upload one object to a bucket (base64 data URL). Resolves with the parent's {@link BucketUploadResponseMessage}. */

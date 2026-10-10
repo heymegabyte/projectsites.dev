@@ -16,6 +16,7 @@
  * | DELETE | /api/sites/:siteId/r2/buckets/:bucket                      | Empty then delete a bucket                  |
  * | GET    | /api/sites/:siteId/r2/buckets/:bucket/address             | The copyable address bundle                 |
  * | POST   | /api/sites/:siteId/r2/buckets/:bucket/public              | Toggle public access                        |
+ * | POST   | /api/sites/:siteId/r2/buckets/:bucket/environment         | Reassign env preview↔production (reversible, B10) |
  * | POST   | /api/sites/:siteId/r2/buckets/:bucket/promote             | Snapshot preview → production               |
  * | GET    | /api/sites/:siteId/r2/buckets/:bucket/objects             | List objects (prefix+cursor+delimiter) OR whole-bucket search (`?search=`, B11) |
  * | GET    | /api/sites/:siteId/r2/buckets/:bucket/zip                 | Download the whole bucket as one bounded `.zip` (B7) |
@@ -39,6 +40,7 @@ import { type Context, Hono } from 'hono';
 import type { Env, Variables } from '../../../src/types/env.js';
 import { isFlagOn } from '../../../src/modules/feature_flags/services.js';
 import {
+  assignBucketEnv,
   bucketAddress,
   copySiteR2Object,
   createBucketOwnerKey,
@@ -76,6 +78,7 @@ import {
   ListObjectsQuerySchema,
   R2_BUCKETS_FLAG as FLAG,
   R2_OWNER_KEY_FLAG,
+  SetEnvironmentBodySchema,
   SetPublicBodySchema,
   UploadJsonBodySchema,
 } from './schemas.js';
@@ -127,6 +130,21 @@ function r2Failure(c: Context<AppContext>, reason: SiteR2Failure, message?: stri
           error: {
             code: 'CONFLICT',
             message: message ?? 'Something with that name already exists here. Choose a different name.',
+          },
+          ok: false,
+        },
+        409,
+      );
+    case 'default_invariant':
+      // B10 — the reassignment would leave an environment without its default bucket (or give one two).
+      // A clear, actionable 409 the owner can understand — never a silent corruption of which bucket serves.
+      return c.json(
+        {
+          error: {
+            code: 'CONFLICT',
+            message:
+              message ??
+              'That is this environment’s default bucket, so it can’t be moved — create a new bucket to assign instead.',
           },
           ok: false,
         },
@@ -403,6 +421,43 @@ r2Buckets.post('/api/sites/:siteId/r2/buckets/:bucket/public', async (c) => {
     return c.json({ error: { code: 'BAD_REQUEST', message: 'Invalid request' }, ok: false }, 400);
   const updated = await setSiteR2PublicAccess(c.env, siteId, g.allocation, parsed.data.public);
   return c.json({ data: bucketView(c, updated), ok: true });
+});
+
+// ── POST /api/sites/:siteId/r2/buckets/:bucket/environment — reassign env (reversible, B10) ──────────
+//
+// SERVING-SENSITIVE: a bucket's `environment` affects which bucket serves that environment. Same gate
+// order as the rest of the surface (isolation BEFORE the mutation): auth → `r2_buckets` dark-404 →
+// ownsSiteData → resolve the OWNED bucket (foreign bucket → 404 via `gateAndBucket`'s `WHERE site_id`
+// scope — the IDOR guard). The service returns the PREVIOUS environment (so the editor can offer Undo)
+// and REJECTS (`default_invariant` → 409) any move that would break the two-default-per-site model. A
+// successful reassignment is audited `r2.bucket.env_reassigned` with the bucket + from/to (never a secret).
+r2Buckets.post('/api/sites/:siteId/r2/buckets/:bucket/environment', async (c) => {
+  const { siteId, bucket } = c.req.param();
+  const g = await gateAndBucket(c, siteId, bucket);
+  if (g instanceof Response) return g;
+
+  const parsed = SetEnvironmentBodySchema.safeParse(await c.req.json().catch(() => ({})));
+  if (!parsed.success)
+    return c.json({ error: { code: 'BAD_REQUEST', message: 'Choose preview or production.' }, ok: false }, 400);
+
+  const result = await assignBucketEnv(c.env, siteId, g.allocation, parsed.data.environment);
+  if (!result.ok) return r2Failure(c, result.reason, result.message);
+
+  // Audit the reassignment (SERVING-SENSITIVE change) — bucket + from/to, never a secret.
+  await writeAuditLog(c.env.DB, {
+    action: 'r2.bucket.env_reassigned',
+    actor_id: c.get('userId') ?? null,
+    metadata_json: { bucket, from: result.previousEnvironment, to: parsed.data.environment },
+    org_id: g.orgId,
+    request_id: c.get('requestId') ?? null,
+    target_id: siteId,
+    target_type: 'site',
+  });
+
+  return c.json({
+    data: { bucket: bucketView(c, result.bucket), previousEnvironment: result.previousEnvironment },
+    ok: true,
+  });
 });
 
 // ── POST /api/sites/:siteId/r2/buckets/:bucket/promote — snapshot preview → production ──────────────

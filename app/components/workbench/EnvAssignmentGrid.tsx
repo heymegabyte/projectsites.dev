@@ -19,6 +19,8 @@ import {
   isEmbedded,
   onParentMessage,
   postToParent,
+  requestR2,
+  requestR2SetEnv,
   type ResourceOverviewEntry,
   type ResOverviewResponseMessage,
 } from '~/lib/embed/embedded-mode';
@@ -48,6 +50,35 @@ type GridState =
   | { status: 'disabled' }
   | { status: 'error'; message: string }
   | { status: 'ready'; preview: EnvSlot; production: EnvSlot };
+
+/** The other environment — a reassignment always flips preview↔production. */
+const OTHER_ENV: Record<Env, Env> = { preview: 'production', production: 'preview' };
+
+/**
+ * One of the site's OWN R2 buckets, as the per-site Buckets list reports it — the tenant-facing DISPLAY
+ * name + which environment it's assigned to + whether it's that environment's DEFAULT (B2). Only
+ * NON-default buckets are reassignable (moving a default would break the two-default model), so the grid
+ * drives its reassign control off this list (the overview only surfaces the real CF name, not the
+ * display name the reassign op targets). r2-kind only.
+ */
+interface R2BucketInfo {
+  name: string;
+  environment: Env;
+  isDefault: boolean;
+}
+
+/**
+ * The B10 reassign flow state (r2 only). `confirm` holds a pending move awaiting the user's explicit
+ * confirmation (names the serving consequence); `busy` while the bridge call is in flight; `undo` offers a
+ * one-click revert to the environment the bucket came FROM (the reply's `previousEnvironment`); `error`
+ * surfaces a rejected move (e.g. the two-default conflict) without corrupting the grid.
+ */
+type ReassignState =
+  | { kind: 'idle' }
+  | { kind: 'confirm'; bucket: string; from: Env; to: Env }
+  | { kind: 'busy'; bucket: string }
+  | { kind: 'undo'; bucket: string; backTo: Env }
+  | { kind: 'error'; message: string };
 
 let correlationCounter = 0;
 
@@ -230,6 +261,81 @@ export const EnvAssignmentGrid = memo(({ kind, environment }: EnvAssignmentGridP
     void load();
   }, [load]);
 
+  // ── B10: per-site R2 bucket list + reversible env reassignment (r2 kind only) ───────────────────
+  const isR2 = kind.toLowerCase() === 'r2';
+  const [buckets, setBuckets] = useState<R2BucketInfo[]>([]);
+  const [reassign, setReassign] = useState<ReassignState>({ kind: 'idle' });
+
+  /**
+   * Resolve the site's OWN R2 buckets (display name + env + isDefault) — the reassign op targets the
+   * tenant-facing DISPLAY name, which the overview (CF-name only) doesn't carry. r2 only; a non-r2 kind
+   * never calls the bridge. Silent (a failure just leaves the grid read-only; the overview cells still show).
+   */
+  const loadBuckets = useCallback(async () => {
+    if (!isR2 || !isEmbedded) {
+      return;
+    }
+
+    try {
+      const reply = await requestR2({ op: 'listBuckets' });
+
+      if (reply.ok && Array.isArray(reply.buckets)) {
+        setBuckets(
+          reply.buckets.map((b) => ({
+            environment: b.environment === 'production' ? 'production' : 'preview',
+            isDefault: !!b.isDefault,
+            name: b.name,
+          })),
+        );
+      }
+    } catch {
+      // Leave the grid read-only on a transient bucket-list failure — never block the overview cells.
+    }
+  }, [isR2]);
+
+  useEffect(() => {
+    void loadBuckets();
+  }, [loadBuckets]);
+
+  /** The reassignable (NON-default) bucket in an environment, if any — drives the per-cell Move control. */
+  const reassignableIn = useCallback(
+    (env: Env): R2BucketInfo | undefined => buckets.find((b) => b.environment === env && !b.isDefault),
+    [buckets],
+  );
+
+  /** Perform a reassignment (or Undo) through the bridge, then refresh the grid + bucket list. */
+  const applyReassign = useCallback(
+    async (bucket: string, to: Env, isUndo: boolean) => {
+      setReassign({ bucket, kind: 'busy' });
+
+      try {
+        const reply = await requestR2SetEnv({ bucket, environment: to });
+
+        if (!reply.ok) {
+          setReassign({ kind: 'error', message: reply.error || 'Could not reassign the environment.' });
+          return;
+        }
+
+        // Reflect the move everywhere — but DON'T block the result state on the refresh (a silent
+        // overview/bucket reload can be slow / the poll keeps the cells current anyway). Fire-and-forget.
+        void load(true);
+        void loadBuckets();
+
+        if (isUndo) {
+          // The revert landed — back to idle (no further Undo chaining).
+          setReassign({ kind: 'idle' });
+        } else {
+          // Offer a one-click revert to where the bucket came FROM (the reply's previousEnvironment,
+          // falling back to the other env — a reassignment always flips preview↔production).
+          setReassign({ backTo: reply.previousEnvironment ?? OTHER_ENV[to], bucket, kind: 'undo' });
+        }
+      } catch {
+        setReassign({ kind: 'error', message: 'Could not reassign the environment.' });
+      }
+    },
+    [load, loadBuckets],
+  );
+
   /*
    * Visibility-aware real-time poll (per `real-time-data-no-manual-refresh`) — the manual Refresh
    * control is gone; the grid keeps ITSELF current. Registered once; it reads the latest loader
@@ -369,10 +475,110 @@ export const EnvAssignmentGrid = memo(({ kind, environment }: EnvAssignmentGridP
                 ) : (
                   <p className="mt-1 text-[11px] text-bolt-elements-textTertiary italic">Not provisioned</p>
                 )}
+
+                {/* B10 — reassign the NON-default bucket in this environment to the other env. Default
+                    buckets carry NO control (moving one breaks the two-default model — no doomed control). */}
+                {isR2 &&
+                  (() => {
+                    const movable = reassignableIn(envName);
+
+                    if (!movable) {
+                      return null;
+                    }
+
+                    const to = OTHER_ENV[envName];
+
+                    return (
+                      <button
+                        type="button"
+                        data-testid={`env-reassign-${movable.name}`}
+                        onClick={() => setReassign({ bucket: movable.name, from: envName, kind: 'confirm', to })}
+                        disabled={reassign.kind === 'busy'}
+                        title={`Move “${movable.name}” to ${to}`}
+                        className="mt-1.5 inline-flex items-center gap-1 rounded-md border border-bolt-elements-borderColor px-1.5 py-0.5 text-[9px] font-medium text-bolt-elements-textSecondary transition-colors hover:border-bolt-elements-item-contentAccent/50 hover:text-bolt-elements-item-contentAccent focus:outline-none focus-visible:ring-1 focus-visible:ring-bolt-elements-item-contentAccent disabled:opacity-50 disabled:cursor-not-allowed"
+                      >
+                        <span className="i-ph:arrows-left-right text-[10px]" aria-hidden="true" />
+                        Move to {to}
+                      </button>
+                    );
+                  })()}
               </div>
             );
           })}
         </div>
+      )}
+
+      {/* B10 — confirm dialog: a reassignment changes which bucket serves an environment, so the owner
+          confirms the consequence BEFORE anything moves. One obvious primary action; Cancel is safe. */}
+      {reassign.kind === 'confirm' && (
+        <div
+          data-testid="env-reassign-confirm"
+          role="alertdialog"
+          aria-modal="true"
+          aria-label="Confirm environment reassignment"
+          className="mt-1.5 rounded-lg border border-bolt-elements-item-contentAccent/40 bg-bolt-elements-background-depth-2 p-2.5 space-y-2"
+        >
+          <p className="text-[11px] leading-snug text-bolt-elements-textPrimary">
+            Move <span className="font-semibold">{reassign.bucket}</span> from {reassign.from} to{' '}
+            <span className="font-semibold">{reassign.to}</span>? This changes which bucket serves{' '}
+            {reassign.to}. You can undo it right after.
+          </p>
+          <div className="flex items-center justify-end gap-1.5">
+            <button
+              type="button"
+              data-testid="env-reassign-confirm-cancel"
+              onClick={() => setReassign({ kind: 'idle' })}
+              className="rounded-md px-2 py-1 text-[10px] font-medium text-bolt-elements-textSecondary hover:text-bolt-elements-textPrimary focus:outline-none focus-visible:ring-1 focus-visible:ring-bolt-elements-item-contentAccent"
+            >
+              Cancel
+            </button>
+            <button
+              type="button"
+              data-testid="env-reassign-confirm-apply"
+              onClick={() => void applyReassign(reassign.bucket, reassign.to, false)}
+              className="rounded-md bg-bolt-elements-item-backgroundAccent px-2 py-1 text-[10px] font-semibold text-bolt-elements-item-contentAccent hover:brightness-110 focus:outline-none focus-visible:ring-1 focus-visible:ring-bolt-elements-item-contentAccent"
+            >
+              Move to {reassign.to}
+            </button>
+          </div>
+        </div>
+      )}
+
+      {reassign.kind === 'busy' && (
+        <p
+          className="mt-1.5 flex items-center gap-1.5 px-1 text-[10px] text-bolt-elements-textTertiary"
+          role="status"
+        >
+          <span className="i-ph:circle-notch animate-spin motion-reduce:animate-none text-[11px]" aria-hidden="true" />
+          Reassigning {reassign.bucket}…
+        </p>
+      )}
+
+      {/* B10 — Undo affordance after a successful move (re-assigns back to where the bucket came from). */}
+      {reassign.kind === 'undo' && (
+        <div
+          className="mt-1.5 flex items-center justify-between gap-2 rounded-lg border border-emerald-500/30 bg-emerald-500/10 px-2 py-1.5"
+          role="status"
+        >
+          <span className="text-[10px] text-emerald-200">
+            Moved <span className="font-semibold">{reassign.bucket}</span>.
+          </span>
+          <button
+            type="button"
+            data-testid="env-reassign-undo"
+            onClick={() => void applyReassign(reassign.bucket, reassign.backTo, true)}
+            className="inline-flex items-center gap-1 rounded-md px-1.5 py-0.5 text-[10px] font-semibold text-emerald-200 underline-offset-2 hover:underline focus:outline-none focus-visible:ring-1 focus-visible:ring-emerald-300"
+          >
+            <span className="i-ph:arrow-counter-clockwise text-[11px]" aria-hidden="true" />
+            Undo
+          </button>
+        </div>
+      )}
+
+      {reassign.kind === 'error' && (
+        <p data-testid="env-reassign-error" className="mt-1.5 px-1 text-[10px] text-red-300" role="alert">
+          {reassign.message}
+        </p>
       )}
     </div>
   );

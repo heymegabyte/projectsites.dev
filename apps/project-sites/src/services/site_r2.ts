@@ -84,6 +84,10 @@ export type SiteR2Failure =
   // The requested OBJECT doesn't exist (S3 GET → 404 NoSuchKey). DISTINCT from `s3_error` (a real
   // upstream 5xx): a missing object is a CLIENT 404, never a 502. See `getSiteR2Object`.
   | 'object_not_found'
+  // A bucket env reassignment (B10) would break the two-default-buckets invariant (exactly one default
+  // per environment). The route maps this to a 409 CONFLICT with an actionable message — never a silent
+  // corruption. See `assignBucketEnv`.
+  | 'default_invariant'
   | 'cf_error'
   | 's3_error';
 
@@ -1350,6 +1354,85 @@ export async function setSiteR2PublicAccess(
     publicAccess: makePublic,
     publicBaseUrl: makePublic ? publicBaseUrlFor(allocation.bucketName) : null,
   };
+}
+
+// ── B10: reversible bucket env reassignment (preview ↔ production) ──────────────────────────────────
+//
+// A bucket's `environment` affects which bucket serves that environment, so the reassignment is a
+// SERVING-SENSITIVE mutation. Three safety properties the slice guarantees:
+//   1. REVERSIBLE — `assignBucketEnv` returns the PREVIOUS environment so the caller (UI) can roll back
+//      with a single `rollbackBucketEnv` call (which just re-assigns to that previous value).
+//   2. INVARIANT-GUARDED — the "exactly 2 default site-visible buckets" model (B2: one default per
+//      environment, Preview + Production) is never silently corrupted. Moving a DEFAULT bucket out of
+//      its environment would ORPHAN that environment's default; moving it INTO the other environment
+//      would DUPLICATE that environment's default. Either is rejected with `default_invariant` (→ 409).
+//      A NON-default (custom / "unassigned") bucket is free to move — it's the `reassign unassigned→env`
+//      §21 DoD clause. (R2 bindings are static + the physical bucket is unchanged — only the logical
+//      `environment` pointer moves — so this is a pure D1 UPDATE, no CF/R2 call.)
+//   3. HONEST no-op — reassigning to the environment a bucket is ALREADY in returns ok with
+//      `previousEnvironment === target` (idempotent; the UI shows nothing changed).
+
+/**
+ * Reassign a bucket's `environment` (preview ↔ production), reversibly + invariant-guarded. Returns the
+ * PREVIOUS environment on success so the UI can offer Undo. Rejects with `default_invariant` when the
+ * move would break the two-default-per-site model (a DEFAULT bucket whose move orphans/duplicates a
+ * default). `updated_at` is bumped. The caller MUST pass an allocation it already resolved as the site's
+ * OWN (the route's `gateAndBucket` does this — IDOR is structural there, not re-checked here).
+ *
+ * @param env - worker env (DB)
+ * @param siteId - the OWNED site (ownership proven upstream)
+ * @param allocation - the already-resolved target bucket allocation
+ * @param newEnvironment - `preview` | `production`
+ */
+export async function assignBucketEnv(
+  env: Env,
+  siteId: string,
+  allocation: SiteR2Allocation,
+  newEnvironment: 'preview' | 'production',
+): Promise<SiteR2Result<{ previousEnvironment: 'preview' | 'production'; bucket: SiteR2Allocation }>> {
+  if (FORBIDDEN_BUCKET_NAMES.has(allocation.bucketName))
+    return { ok: false, reason: 'forbidden_bucket' };
+
+  const previousEnvironment = allocation.environment;
+  // No-op: already in the target environment. Idempotent success — nothing to change, nothing to break.
+  if (previousEnvironment === newEnvironment)
+    return { bucket: allocation, ok: true, previousEnvironment };
+
+  // Invariant guard — only DEFAULT buckets are load-bearing for the two-default model. Moving the
+  // default OUT of its environment orphans that env's default AND (because the target env already has
+  // its own default) duplicates the target's default. Reject rather than corrupt. A non-default bucket
+  // carries no default obligation, so it moves freely (the `reassign unassigned→env` path).
+  if (allocation.isDefault) return { ok: false, reason: 'default_invariant' };
+
+  await dbExecute(
+    env.DB,
+    `UPDATE site_r2_allocations
+        SET environment = ?, updated_at = datetime('now')
+      WHERE id = ? AND site_id = ?`,
+    [newEnvironment, allocation.id, siteId],
+  );
+
+  return {
+    bucket: { ...allocation, environment: newEnvironment },
+    ok: true,
+    previousEnvironment,
+  };
+}
+
+/**
+ * Roll a bucket's `environment` back to a prior value — the reverse of {@link assignBucketEnv}. Mechanically
+ * identical to an `assignBucketEnv` call targeting `previousEnvironment` (same invariant guard + UPDATE), so
+ * rolling a non-default bucket back always succeeds; a roll that would itself break the two-default model is
+ * rejected the same way (it can't, for a non-default bucket). Exposed as a named op so the UI's Undo reads
+ * cleanly at the call site.
+ */
+export async function rollbackBucketEnv(
+  env: Env,
+  siteId: string,
+  allocation: SiteR2Allocation,
+  previousEnvironment: 'preview' | 'production',
+): Promise<SiteR2Result<{ previousEnvironment: 'preview' | 'production'; bucket: SiteR2Allocation }>> {
+  return assignBucketEnv(env, siteId, allocation, previousEnvironment);
 }
 
 /** The copyable "address bundle" for a bucket — S3 endpoint + binding name + public URL. */

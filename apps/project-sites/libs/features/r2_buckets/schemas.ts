@@ -58,6 +58,17 @@ export type ListObjectsQuery = z.infer<typeof ListObjectsQuerySchema>;
 /** Body for `POST /r2/buckets/:bucket/public` — toggle public access. */
 export const SetPublicBodySchema = z.object({ public: z.boolean() }).strict();
 
+/**
+ * Body for `POST /r2/buckets/:bucket/environment` (B10) — reassign a bucket's environment (preview ↔
+ * production). Bounded to the two valid environments; the route rejects a move that would break the
+ * two-default-per-site invariant with a 409 (never a silent corruption). The reply carries
+ * `previousEnvironment` so the UI can roll the reassignment back with a single Undo.
+ */
+export const SetEnvironmentBodySchema = z
+  .object({ environment: z.enum(['preview', 'production']) })
+  .strict();
+export type SetEnvironmentBody = z.infer<typeof SetEnvironmentBodySchema>;
+
 /** Body for a JSON (base64) upload fallback when multipart isn't used. */
 export const UploadJsonBodySchema = z
   .object({
