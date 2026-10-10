@@ -192,12 +192,41 @@ export const BucketAnimationStyles = memo(() => (
     data-testid="buckets-animation-styles"
     dangerouslySetInnerHTML={{
       __html:
-        '@keyframes psBucketRise{from{opacity:0;transform:translateY(7px) scale(.985)}to{opacity:1;transform:translateY(0) scale(1)}}',
+        '@keyframes psBucketRise{from{opacity:0;transform:translateY(7px) scale(.985)}to{opacity:1;transform:translateY(0) scale(1)}}' +
+        '@keyframes psBucketShimmer{from{transform:translateX(-100%)}to{transform:translateX(100%)}}',
     }}
   />
 ));
 
 BucketAnimationStyles.displayName = 'BucketsPanel.BucketAnimationStyles';
+
+/**
+ * A single shimmering skeleton bar — the Linear/Stripe-grade loading placeholder that REPLACES the old
+ * flat `animate-pulse` block. A neutral depth-3 base (the resting shape) carries a diagonal brand-accent
+ * sheen that sweeps across on the injected `psBucketShimmer` keyframe. The sweep is a transform-only
+ * overlay ⇒ ZERO CLS (never animates width/height); `motion-reduce:hidden` drops the sweep so a
+ * reduced-motion user gets a calm static bar (WCAG 2.3.3). The sheen is painted with `color-mix` off the
+ * accent token — NEVER `/[opacity]` on the hex var (the gorgeous1 invisibility trap). Exported so the
+ * `/_preview` gallery renders the SAME bar (faithful headless pixel-proof).
+ */
+export const ShimmerBar = memo(({ className }: { className?: string }) => (
+  <div
+    className={classNames(
+      'relative overflow-hidden rounded bg-bolt-elements-background-depth-3',
+      className,
+    )}
+  >
+    <div
+      aria-hidden
+      className={
+        'absolute inset-0 motion-safe:animate-[psBucketShimmer_1.5s_cubic-bezier(0.4,0,0.2,1)_infinite] motion-reduce:hidden ' +
+        'bg-[linear-gradient(100deg,transparent_28%,color-mix(in_oklch,var(--bolt-elements-item-contentAccent)_18%,transparent)_50%,transparent_72%)]'
+      }
+    />
+  </div>
+));
+
+ShimmerBar.displayName = 'BucketsPanel.ShimmerBar';
 
 // ── Formatting helpers ───────────────────────────────────────────────────────
 
@@ -299,8 +328,7 @@ export { iconForObject, isImageKey } from './bucket-icons';
 export type PreviewKind = 'image' | 'pdf' | 'text' | 'video' | 'audio' | 'none';
 
 /** Extensions rendered as ESCAPED text in a `<pre>` (never executed, never `dangerouslySetInnerHTML`). */
-const TEXT_PREVIEW_RE =
-  /\.(txt|md|markdown|mdx|json|jsonc|csv|tsv|log|ts|tsx|js|mjs|cjs|jsx|css|scss|html?|xml|ya?ml|toml)$/i;
+const TEXT_PREVIEW_RE = /\.(txt|md|markdown|mdx|json|jsonc|csv|tsv|log|ts|tsx|js|mjs|cjs|jsx|css|scss|html?|xml|ya?ml|toml)$/i;
 const VIDEO_PREVIEW_RE = /\.(mp4|webm|mov|m4v|ogv)$/i;
 const AUDIO_PREVIEW_RE = /\.(mp3|wav|ogg|m4a|flac|aac|opus)$/i;
 
@@ -1039,14 +1067,17 @@ const BucketNavigator = memo(
             <div key={group.key} role="group" aria-label={group.label} data-testid={`buckets-nav-group-${group.key}`}>
               <div className="flex items-center gap-1.5 px-1.5 pb-1.5">
                 <div
-                  className={classNames(group.icon, 'text-xs text-bolt-elements-item-contentAccent/80 shrink-0')}
+                  className={classNames(
+                    group.icon,
+                    'text-xs text-[color-mix(in_oklch,var(--bolt-elements-item-contentAccent)_80%,transparent)] shrink-0',
+                  )}
                   aria-hidden
                 />
                 <span className="text-[9px] font-semibold uppercase tracking-[0.1em] text-bolt-elements-textTertiary">
                   {group.label}
                 </span>
                 {items.length > 0 && (
-                  <span className="inline-flex items-center justify-center min-w-[16px] h-[15px] px-1 rounded-full bg-[color-mix(in_oklch,var(--bolt-elements-item-contentAccent)_10%,transparent)] text-[9px] font-semibold text-bolt-elements-item-contentAccent/90 tabular-nums">
+                  <span className="inline-flex items-center justify-center min-w-[16px] h-[15px] px-1 rounded-full bg-[color-mix(in_oklch,var(--bolt-elements-item-contentAccent)_10%,transparent)] text-[9px] font-semibold text-[color-mix(in_oklch,var(--bolt-elements-item-contentAccent)_90%,transparent)] tabular-nums">
                     {items.length}
                   </span>
                 )}
@@ -1722,10 +1753,7 @@ export const ObjectBrowser = memo(
 
           if (!reply.ok) {
             if (reply.needsCreds) {
-              setObjects({
-                status: 'needs-creds',
-                message: 'Uploading and browsing files is being enabled for your site.',
-              });
+              setObjects({ status: 'needs-creds', message: 'Uploading and browsing files is being enabled for your site.' });
               return;
             }
             if (reply.enabled === false) {
@@ -1965,17 +1993,12 @@ export const ObjectBrowser = memo(
         try {
           const reply = await requestObjectPublic({ action: 'revoke', bucket: bucket.name, objectKey: key });
           if (!reply.ok) {
-            postToastToParent(
-              reply.needsCreds ? 'warning' : 'error',
-              reply.error || 'Could not stop sharing that file.',
-            );
+            postToastToParent(reply.needsCreds ? 'warning' : 'error', reply.error || 'Could not stop sharing that file.');
             return;
           }
           postToastToParent(
             'success',
-            reply.revoked
-              ? `Public link revoked — ${objectBaseName(key)} is private again.`
-              : `${objectBaseName(key)} wasn’t shared.`,
+            reply.revoked ? `Public link revoked — ${objectBaseName(key)} is private again.` : `${objectBaseName(key)} wasn’t shared.`,
           );
         } catch (err) {
           postToastToParent('error', err instanceof Error ? err.message : 'Could not stop sharing that file.');
@@ -2140,7 +2163,8 @@ export const ObjectBrowser = memo(
       (e: React.KeyboardEvent<HTMLDivElement>) => {
         const target = e.target as HTMLElement | null;
         const typing =
-          !!target && (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable);
+          !!target &&
+          (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable);
 
         if ((e.metaKey || e.ctrlKey) && (e.key === 'a' || e.key === 'A') && !typing) {
           if (shownObjects.length === 0) {
@@ -2445,7 +2469,10 @@ export const ObjectBrowser = memo(
                   <span className="text-bolt-elements-textTertiary/70"> · ~{estMonthlyCost(totalBytes)}/mo</span>
                   {/* B11 — in server-search mode, say so explicitly ("searched all objects"). */}
                   {typeof objects.search === 'string' && (
-                    <span className="text-bolt-elements-item-contentAccent/80"> · whole-bucket search</span>
+                    <span className="text-[color-mix(in_oklch,var(--bolt-elements-item-contentAccent)_80%,transparent)]">
+                      {' '}
+                      · whole-bucket search
+                    </span>
                   )}
                 </span>
               </div>
@@ -2459,15 +2486,12 @@ export const ObjectBrowser = memo(
                   role="status"
                   className="flex items-start gap-2 px-3 py-2 border-b border-bolt-elements-borderColor/40 bg-[color-mix(in_oklch,var(--bolt-elements-item-contentAccent)_5%,transparent)] text-[11px] text-bolt-elements-textSecondary"
                 >
-                  <div
-                    className="i-ph:info-duotone text-sm text-bolt-elements-item-contentAccent shrink-0 mt-px"
-                    aria-hidden
-                  />
+                  <div className="i-ph:info-duotone text-sm text-bolt-elements-item-contentAccent shrink-0 mt-px" aria-hidden />
                   <span>
                     {objects.truncated ? (
                       <>
-                        Showing the first{' '}
-                        <span className="tabular-nums font-medium">{shownObjects.length.toLocaleString()}</span> matches
+                        Showing the first <span className="tabular-nums font-medium">{shownObjects.length.toLocaleString()}</span>{' '}
+                        matches
                       </>
                     ) : (
                       <>
@@ -2477,8 +2501,7 @@ export const ObjectBrowser = memo(
                     )}
                     {typeof objects.scanned === 'number' && (
                       <>
-                        {' '}
-                        · scanned up to{' '}
+                        {' '}· scanned up to{' '}
                         <span className="tabular-nums font-medium">{objects.scanned.toLocaleString()}</span> object
                         {objects.scanned === 1 ? '' : 's'}
                       </>
@@ -2501,10 +2524,7 @@ export const ObjectBrowser = memo(
                         className="group w-full flex items-center gap-3 px-3 py-2.5 border-b border-bolt-elements-borderColor/20 hover:bg-[color-mix(in_oklch,var(--bolt-elements-item-contentAccent)_5%,transparent)] hover:border-bolt-elements-item-contentAccent/20 transition-[background-color,border-color,transform] duration-150 ease-[cubic-bezier(0.22,1,0.36,1)] motion-reduce:transition-none motion-safe:hover:translate-x-0.5 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-bolt-elements-item-contentAccent"
                       >
                         <div className="flex items-center justify-center h-7 w-7 shrink-0 rounded-lg ring-1 ring-inset ring-bolt-elements-item-contentAccent/20 bg-[color-mix(in_oklch,var(--bolt-elements-item-contentAccent)_7%,transparent)]">
-                          <div
-                            className="i-ph:folder-duotone text-lg text-bolt-elements-item-contentAccent"
-                            aria-hidden
-                          />
+                          <div className="i-ph:folder-duotone text-lg text-bolt-elements-item-contentAccent" aria-hidden />
                         </div>
                         <span className="text-[12px] font-medium text-bolt-elements-textPrimary truncate flex-1">
                           {label}/
@@ -2539,136 +2559,136 @@ export const ObjectBrowser = memo(
                         onRevokeShare={objectOpsAvailable ? (k) => void revokeShare(k) : undefined}
                         onDelete={(k) => void deleteObject(k)}
                       >
-                        <div
-                          style={objectEntranceStyle(index)}
-                          className={classNames(
-                            'group relative flex items-center gap-3 px-3 py-2.5 border-b',
+                      <div
+                        style={objectEntranceStyle(index)}
+                        className={classNames(
+                          'group relative flex items-center gap-3 px-3 py-2.5 border-b',
 
-                            // Cinematic staggered entrance (transform-only ⇒ no CLS) + spring select-scale.
-                            OBJECT_ENTRANCE_CLASS,
-                            checked
-                              ? 'border-bolt-elements-item-contentAccent/30 bg-[linear-gradient(90deg,color-mix(in_oklch,var(--bolt-elements-item-contentAccent)_10%,transparent),transparent_70%)] shadow-[inset_0_1px_0_color-mix(in_oklch,var(--bolt-elements-item-contentAccent)_12%,transparent)] motion-safe:scale-[1.004]'
-                              : 'border-bolt-elements-borderColor/20 hover:bg-[color-mix(in_oklch,var(--bolt-elements-item-contentAccent)_5%,transparent)] hover:border-bolt-elements-item-contentAccent/20 motion-safe:hover:translate-x-0.5',
-                          )}
-                          data-testid="buckets-object-row"
-                        >
-                          {checked && (
-                            <span
-                              aria-hidden
-                              className="absolute left-0 top-1.5 bottom-1.5 w-[3px] rounded-full bg-bolt-elements-item-contentAccent shadow-[0_0_8px_color-mix(in_oklch,var(--bolt-elements-item-contentAccent)_55%,transparent)]"
-                            />
-                          )}
-                          <input
-                            type="checkbox"
-                            checked={checked}
-                            // Capture Shift at pointer/keyboard-down; `change` can't see modifier keys.
-                            onMouseDown={(e) => (shiftHeld.current = e.shiftKey)}
-                            onKeyDown={(e) => (shiftHeld.current = e.shiftKey)}
-                            onChange={() => {
-                              // Shift+click extends a range from the anchor; plain click toggles + re-anchors.
-                              toggleObjectAt(index, shiftHeld.current);
-                              shiftHeld.current = false;
-                            }}
-                            aria-label={`Select ${name}`}
-                            className="h-3.5 w-3.5 accent-[var(--bolt-elements-item-contentAccent)] cursor-pointer shrink-0"
+                          // Cinematic staggered entrance (transform-only ⇒ no CLS) + spring select-scale.
+                          OBJECT_ENTRANCE_CLASS,
+                          checked
+                            ? 'border-bolt-elements-item-contentAccent/30 bg-[linear-gradient(90deg,color-mix(in_oklch,var(--bolt-elements-item-contentAccent)_10%,transparent),transparent_70%)] shadow-[inset_0_1px_0_color-mix(in_oklch,var(--bolt-elements-item-contentAccent)_12%,transparent)] motion-safe:scale-[1.004]'
+                            : 'border-bolt-elements-borderColor/20 hover:bg-[color-mix(in_oklch,var(--bolt-elements-item-contentAccent)_5%,transparent)] hover:border-bolt-elements-item-contentAccent/20 motion-safe:hover:translate-x-0.5',
+                        )}
+                        data-testid="buckets-object-row"
+                      >
+                        {checked && (
+                          <span
+                            aria-hidden
+                            className="absolute left-0 top-1.5 bottom-1.5 w-[3px] rounded-full bg-bolt-elements-item-contentAccent shadow-[0_0_8px_color-mix(in_oklch,var(--bolt-elements-item-contentAccent)_55%,transparent)]"
                           />
-                          {/* File-type glyph in a subtle inset chip — gives each row the dimensional
+                        )}
+                        <input
+                          type="checkbox"
+                          checked={checked}
+                          // Capture Shift at pointer/keyboard-down; `change` can't see modifier keys.
+                          onMouseDown={(e) => (shiftHeld.current = e.shiftKey)}
+                          onKeyDown={(e) => (shiftHeld.current = e.shiftKey)}
+                          onChange={() => {
+                            // Shift+click extends a range from the anchor; plain click toggles + re-anchors.
+                            toggleObjectAt(index, shiftHeld.current);
+                            shiftHeld.current = false;
+                          }}
+                          aria-label={`Select ${name}`}
+                          className="h-3.5 w-3.5 accent-[var(--bolt-elements-item-contentAccent)] cursor-pointer shrink-0"
+                        />
+                        {/* File-type glyph in a subtle inset chip — gives each row the dimensional
                             "asset" feel of a premium file explorer; the duotone tint reads the type. */}
+                        <div
+                          className={classNames(
+                            'flex items-center justify-center h-7 w-7 shrink-0 rounded-lg ring-1 ring-inset transition-[background-color,box-shadow] duration-150 motion-reduce:transition-none',
+                            checked
+                              ? 'bg-[color-mix(in_oklch,var(--bolt-elements-item-contentAccent)_12%,transparent)] ring-bolt-elements-item-contentAccent/30'
+                              : 'bg-bolt-elements-background-depth-2/70 ring-bolt-elements-borderColor/50 group-hover:ring-bolt-elements-item-contentAccent/25',
+                          )}
+                          aria-hidden
+                        >
                           <div
                             className={classNames(
-                              'flex items-center justify-center h-7 w-7 shrink-0 rounded-lg ring-1 ring-inset transition-[background-color,box-shadow] duration-150 motion-reduce:transition-none',
-                              checked
-                                ? 'bg-[color-mix(in_oklch,var(--bolt-elements-item-contentAccent)_12%,transparent)] ring-bolt-elements-item-contentAccent/30'
-                                : 'bg-bolt-elements-background-depth-2/70 ring-bolt-elements-borderColor/50 group-hover:ring-bolt-elements-item-contentAccent/25',
+                              iconForObject(obj.key),
+                              'text-lg transition-colors',
+
+                              /*
+                               * Color-code by file type at rest (reads like a polished file explorer);
+                               * a selected row shows the brand accent so selection still reads first.
+                               */
+                              checked ? 'text-bolt-elements-item-contentAccent' : colorForObject(obj.key),
                             )}
-                            aria-hidden
+                          />
+                        </div>
+                        <span
+                          className="text-[12px] font-mono text-bolt-elements-textPrimary truncate flex-1"
+                          title={obj.key}
+                        >
+                          {name}
+                        </span>
+                        <span className="text-[10px] text-bolt-elements-textTertiary tabular-nums shrink-0 tracking-tight">
+                          {formatBytes(obj.size)}
+                        </span>
+                        {formatRelativeTime(obj.uploadedAt) && (
+                          <span className="hidden sm:inline text-[10px] text-bolt-elements-textTertiary/70 tabular-nums shrink-0 w-14 text-right">
+                            {formatRelativeTime(obj.uploadedAt)}
+                          </span>
+                        )}
+
+                        {/* Row actions. */}
+                        <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 transition-opacity motion-reduce:transition-none shrink-0">
+                          {isPreviewable(obj.key) && (
+                            <button
+                              type="button"
+                              onClick={() => setPreviewKey(obj.key)}
+                              title="Preview"
+                              aria-label={`Preview ${name}`}
+                              data-testid="buckets-object-preview"
+                              className={classNames(BTN_GHOST, 'min-h-[24px] min-w-[24px] p-1')}
+                            >
+                              <div className="i-ph:eye text-xs" />
+                            </button>
+                          )}
+                          <button
+                            type="button"
+                            onClick={() => void copyObjectUrl(obj.key)}
+                            title="Copy object URL"
+                            aria-label={`Copy URL for ${name}`}
+                            className={classNames(BTN_GHOST, 'min-h-[24px] min-w-[24px] p-1')}
+                          >
+                            <div className="i-ph:link text-xs" />
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => void downloadObject(obj.key)}
+                            disabled={busy}
+                            title="Download"
+                            aria-label={`Download ${name}`}
+                            className={classNames(BTN_GHOST, 'min-h-[24px] min-w-[24px] p-1')}
                           >
                             <div
                               className={classNames(
-                                iconForObject(obj.key),
-                                'text-lg transition-colors',
-
-                                /*
-                                 * Color-code by file type at rest (reads like a polished file explorer);
-                                 * a selected row shows the brand accent so selection still reads first.
-                                 */
-                                checked ? 'text-bolt-elements-item-contentAccent' : colorForObject(obj.key),
+                                busy
+                                  ? 'i-ph:circle-notch animate-spin motion-reduce:animate-none'
+                                  : 'i-ph:download-simple',
+                                'text-xs',
                               )}
                             />
-                          </div>
-                          <span
-                            className="text-[12px] font-mono text-bolt-elements-textPrimary truncate flex-1"
-                            title={obj.key}
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => void deleteObject(obj.key)}
+                            disabled={busy}
+                            title="Delete"
+                            aria-label={`Delete ${name}`}
+                            className={classNames(BTN_DESTRUCTIVE, 'min-h-[24px] min-w-[24px] p-1')}
+                            data-testid="buckets-object-delete"
                           >
-                            {name}
-                          </span>
-                          <span className="text-[10px] text-bolt-elements-textTertiary tabular-nums shrink-0 tracking-tight">
-                            {formatBytes(obj.size)}
-                          </span>
-                          {formatRelativeTime(obj.uploadedAt) && (
-                            <span className="hidden sm:inline text-[10px] text-bolt-elements-textTertiary/70 tabular-nums shrink-0 w-14 text-right">
-                              {formatRelativeTime(obj.uploadedAt)}
-                            </span>
-                          )}
-
-                          {/* Row actions. */}
-                          <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 transition-opacity motion-reduce:transition-none shrink-0">
-                            {isPreviewable(obj.key) && (
-                              <button
-                                type="button"
-                                onClick={() => setPreviewKey(obj.key)}
-                                title="Preview"
-                                aria-label={`Preview ${name}`}
-                                data-testid="buckets-object-preview"
-                                className={classNames(BTN_GHOST, 'min-h-[24px] min-w-[24px] p-1')}
-                              >
-                                <div className="i-ph:eye text-xs" />
-                              </button>
-                            )}
-                            <button
-                              type="button"
-                              onClick={() => void copyObjectUrl(obj.key)}
-                              title="Copy object URL"
-                              aria-label={`Copy URL for ${name}`}
-                              className={classNames(BTN_GHOST, 'min-h-[24px] min-w-[24px] p-1')}
-                            >
-                              <div className="i-ph:link text-xs" />
-                            </button>
-                            <button
-                              type="button"
-                              onClick={() => void downloadObject(obj.key)}
-                              disabled={busy}
-                              title="Download"
-                              aria-label={`Download ${name}`}
-                              className={classNames(BTN_GHOST, 'min-h-[24px] min-w-[24px] p-1')}
-                            >
-                              <div
-                                className={classNames(
-                                  busy
-                                    ? 'i-ph:circle-notch animate-spin motion-reduce:animate-none'
-                                    : 'i-ph:download-simple',
-                                  'text-xs',
-                                )}
-                              />
-                            </button>
-                            <button
-                              type="button"
-                              onClick={() => void deleteObject(obj.key)}
-                              disabled={busy}
-                              title="Delete"
-                              aria-label={`Delete ${name}`}
-                              className={classNames(BTN_DESTRUCTIVE, 'min-h-[24px] min-w-[24px] p-1')}
-                              data-testid="buckets-object-delete"
-                            >
-                              <div
-                                className={classNames(
-                                  busy ? 'i-ph:circle-notch animate-spin motion-reduce:animate-none' : 'i-ph:trash',
-                                  'text-xs',
-                                )}
-                              />
-                            </button>
-                          </div>
+                            <div
+                              className={classNames(
+                                busy ? 'i-ph:circle-notch animate-spin motion-reduce:animate-none' : 'i-ph:trash',
+                                'text-xs',
+                              )}
+                            />
+                          </button>
                         </div>
+                      </div>
                       </ObjectActionMenu>
                     );
                   })}
@@ -2725,139 +2745,136 @@ export const ObjectBrowser = memo(
                         onRevokeShare={objectOpsAvailable ? (k) => void revokeShare(k) : undefined}
                         onDelete={(k) => void deleteObject(k)}
                       >
-                        <div
-                          style={objectEntranceStyle(index)}
-                          data-testid="buckets-object-tile"
+                      <div
+                        style={objectEntranceStyle(index)}
+                        data-testid="buckets-object-tile"
+                        className={classNames(
+                          'group relative flex flex-col gap-1.5 rounded-xl border p-2',
+
+                          // Cinematic staggered entrance (transform-only ⇒ no CLS) — same on every grid flip.
+                          OBJECT_ENTRANCE_CLASS,
+                          checked
+                            ? 'border-bolt-elements-item-contentAccent/60 bg-[color-mix(in_oklch,var(--bolt-elements-item-contentAccent)_8%,transparent)] shadow-[0_0_0_1px_color-mix(in_oklch,var(--bolt-elements-item-contentAccent)_30%,transparent),0_8px_22px_-8px_color-mix(in_oklch,var(--bolt-elements-item-contentAccent)_55%,transparent)] motion-safe:scale-[1.02]'
+                            : TILE_SHELL_RESTING_CLASS,
+                        )}
+                      >
+                        <input
+                          type="checkbox"
+                          checked={checked}
+                          onMouseDown={(e) => (shiftHeld.current = e.shiftKey)}
+                          onKeyDown={(e) => (shiftHeld.current = e.shiftKey)}
+                          onChange={() => {
+                            toggleObjectAt(index, shiftHeld.current);
+                            shiftHeld.current = false;
+                          }}
+                          aria-label={`Select ${name}`}
                           className={classNames(
-                            'group relative flex flex-col gap-1.5 rounded-xl border p-2',
-
-                            // Cinematic staggered entrance (transform-only ⇒ no CLS) — same on every grid flip.
-                            OBJECT_ENTRANCE_CLASS,
+                            'absolute left-1.5 top-1.5 z-[1] h-3.5 w-3.5 cursor-pointer accent-[var(--bolt-elements-item-contentAccent)] transition-opacity',
                             checked
-                              ? 'border-bolt-elements-item-contentAccent/60 bg-[color-mix(in_oklch,var(--bolt-elements-item-contentAccent)_8%,transparent)] shadow-[0_0_0_1px_color-mix(in_oklch,var(--bolt-elements-item-contentAccent)_30%,transparent),0_8px_22px_-8px_color-mix(in_oklch,var(--bolt-elements-item-contentAccent)_55%,transparent)] motion-safe:scale-[1.02]'
-                              : TILE_SHELL_RESTING_CLASS,
+                              ? 'opacity-100'
+                              : 'opacity-0 group-hover:opacity-100 group-focus-within:opacity-100',
                           )}
-                        >
-                          <input
-                            type="checkbox"
-                            checked={checked}
-                            onMouseDown={(e) => (shiftHeld.current = e.shiftKey)}
-                            onKeyDown={(e) => (shiftHeld.current = e.shiftKey)}
-                            onChange={() => {
-                              toggleObjectAt(index, shiftHeld.current);
-                              shiftHeld.current = false;
-                            }}
-                            aria-label={`Select ${name}`}
-                            className={classNames(
-                              'absolute left-1.5 top-1.5 z-[1] h-3.5 w-3.5 cursor-pointer accent-[var(--bolt-elements-item-contentAccent)] transition-opacity',
-                              checked
-                                ? 'opacity-100'
-                                : 'opacity-0 group-hover:opacity-100 group-focus-within:opacity-100',
-                            )}
-                          />
+                        />
 
-                          <div className={TILE_THUMB_SLOT_CLASS}>
-                            {thumbUrl ? (
-                              <img
-                                src={thumbUrl}
-                                alt={name}
-                                loading="lazy"
-                                onError={() => setFailedThumbs((c) => new Set(c).add(obj.key))}
-                                className="h-full w-full object-cover transition-transform duration-300 ease-[cubic-bezier(0.22,1,0.36,1)] motion-reduce:transition-none motion-safe:group-hover:scale-[1.06]"
-                              />
-                            ) : (
-                              <div
-                                className={classNames(
-                                  iconForObject(obj.key),
-                                  'text-4xl transition-[transform,color] duration-200 motion-reduce:transition-none motion-safe:group-hover:scale-110',
+                        <div className={TILE_THUMB_SLOT_CLASS}>
+                          {thumbUrl ? (
+                            <img
+                              src={thumbUrl}
+                              alt={name}
+                              loading="lazy"
+                              onError={() => setFailedThumbs((c) => new Set(c).add(obj.key))}
+                              className="h-full w-full object-cover transition-transform duration-300 ease-[cubic-bezier(0.22,1,0.36,1)] motion-reduce:transition-none motion-safe:group-hover:scale-[1.06]"
+                            />
+                          ) : (
+                            <div
+                              className={classNames(
+                                iconForObject(obj.key),
+                                'text-4xl transition-[transform,color] duration-200 motion-reduce:transition-none motion-safe:group-hover:scale-110',
 
-                                  // Color-code the file-type glyph at rest; selected tile keeps the accent.
-                                  checked ? 'text-bolt-elements-item-contentAccent' : colorForObject(obj.key),
-                                )}
-                                aria-hidden
-                              />
-                            )}
-                            {/* Hover-reveal type chip — a quiet file-type badge that fades in on hover so the
+                                // Color-code the file-type glyph at rest; selected tile keeps the accent.
+                                checked ? 'text-bolt-elements-item-contentAccent' : colorForObject(obj.key),
+                              )}
+                              aria-hidden
+                            />
+                          )}
+                          {/* Hover-reveal type chip — a quiet file-type badge that fades in on hover so the
                               grid stays calm at rest but gains a VS Code / Finder "inspect" affordance on
                               intent. Accent text on a ≤12% accent tint (NOT a /[opacity] on the hex var),
                               opacity-only reveal ⇒ 0 CLS. Images show "IMG"; folders are never tiles here. */}
-                            <span
-                              aria-hidden
-                              className="pointer-events-none absolute bottom-1 right-1 rounded-md border border-bolt-elements-item-contentAccent/30 bg-[color-mix(in_oklch,var(--bolt-elements-item-contentAccent)_12%,transparent)] px-1 py-px font-mono text-[8px] font-semibold uppercase tracking-wide text-bolt-elements-item-contentAccent opacity-0 backdrop-blur-sm transition-opacity duration-200 motion-reduce:transition-none group-hover:opacity-100"
-                            >
-                              {objectTypeLabel(obj.key)}
-                            </span>
-                          </div>
-
-                          <div className="min-w-0">
-                            <p
-                              className="truncate text-[11px] font-mono text-bolt-elements-textPrimary"
-                              title={obj.key}
-                            >
-                              {name}
-                            </p>
-                            <p className="text-[9px] tabular-nums text-bolt-elements-textTertiary">
-                              {formatBytes(obj.size)}
-                            </p>
-                          </div>
-
-                          <div className="absolute right-1.5 top-1.5 flex items-center gap-1 opacity-0 transition-opacity motion-reduce:transition-none group-hover:opacity-100 group-focus-within:opacity-100">
-                            {isPreviewable(obj.key) && (
-                              <button
-                                type="button"
-                                onClick={() => setPreviewKey(obj.key)}
-                                title="Preview"
-                                aria-label={`Preview ${name}`}
-                                data-testid="buckets-tile-preview"
-                                className={classNames(BTN_GHOST, 'min-h-[22px] min-w-[22px] p-1')}
-                              >
-                                <div className="i-ph:eye text-xs" />
-                              </button>
-                            )}
-                            <button
-                              type="button"
-                              onClick={() => void copyObjectUrl(obj.key)}
-                              title="Copy object URL"
-                              aria-label={`Copy URL for ${name}`}
-                              className={classNames(BTN_GHOST, 'min-h-[22px] min-w-[22px] p-1')}
-                            >
-                              <div className="i-ph:link text-xs" />
-                            </button>
-                            <button
-                              type="button"
-                              onClick={() => void downloadObject(obj.key)}
-                              disabled={busy}
-                              title="Download"
-                              aria-label={`Download ${name}`}
-                              className={classNames(BTN_GHOST, 'min-h-[22px] min-w-[22px] p-1')}
-                            >
-                              <div
-                                className={classNames(
-                                  busy
-                                    ? 'i-ph:circle-notch animate-spin motion-reduce:animate-none'
-                                    : 'i-ph:download-simple',
-                                  'text-xs',
-                                )}
-                              />
-                            </button>
-                            <button
-                              type="button"
-                              onClick={() => void deleteObject(obj.key)}
-                              disabled={busy}
-                              title="Delete"
-                              aria-label={`Delete ${name}`}
-                              data-testid="buckets-tile-delete"
-                              className={classNames(BTN_DESTRUCTIVE, 'min-h-[22px] min-w-[22px] p-1')}
-                            >
-                              <div
-                                className={classNames(
-                                  busy ? 'i-ph:circle-notch animate-spin motion-reduce:animate-none' : 'i-ph:trash',
-                                  'text-xs',
-                                )}
-                              />
-                            </button>
-                          </div>
+                          <span
+                            aria-hidden
+                            className="pointer-events-none absolute bottom-1 right-1 rounded-md border border-bolt-elements-item-contentAccent/30 bg-[color-mix(in_oklch,var(--bolt-elements-item-contentAccent)_12%,transparent)] px-1 py-px font-mono text-[8px] font-semibold uppercase tracking-wide text-bolt-elements-item-contentAccent opacity-0 backdrop-blur-sm transition-opacity duration-200 motion-reduce:transition-none group-hover:opacity-100"
+                          >
+                            {objectTypeLabel(obj.key)}
+                          </span>
                         </div>
+
+                        <div className="min-w-0">
+                          <p className="truncate text-[11px] font-mono text-bolt-elements-textPrimary" title={obj.key}>
+                            {name}
+                          </p>
+                          <p className="text-[9px] tabular-nums text-bolt-elements-textTertiary">
+                            {formatBytes(obj.size)}
+                          </p>
+                        </div>
+
+                        <div className="absolute right-1.5 top-1.5 flex items-center gap-1 opacity-0 transition-opacity motion-reduce:transition-none group-hover:opacity-100 group-focus-within:opacity-100">
+                          {isPreviewable(obj.key) && (
+                            <button
+                              type="button"
+                              onClick={() => setPreviewKey(obj.key)}
+                              title="Preview"
+                              aria-label={`Preview ${name}`}
+                              data-testid="buckets-tile-preview"
+                              className={classNames(BTN_GHOST, 'min-h-[22px] min-w-[22px] p-1')}
+                            >
+                              <div className="i-ph:eye text-xs" />
+                            </button>
+                          )}
+                          <button
+                            type="button"
+                            onClick={() => void copyObjectUrl(obj.key)}
+                            title="Copy object URL"
+                            aria-label={`Copy URL for ${name}`}
+                            className={classNames(BTN_GHOST, 'min-h-[22px] min-w-[22px] p-1')}
+                          >
+                            <div className="i-ph:link text-xs" />
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => void downloadObject(obj.key)}
+                            disabled={busy}
+                            title="Download"
+                            aria-label={`Download ${name}`}
+                            className={classNames(BTN_GHOST, 'min-h-[22px] min-w-[22px] p-1')}
+                          >
+                            <div
+                              className={classNames(
+                                busy
+                                  ? 'i-ph:circle-notch animate-spin motion-reduce:animate-none'
+                                  : 'i-ph:download-simple',
+                                'text-xs',
+                              )}
+                            />
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => void deleteObject(obj.key)}
+                            disabled={busy}
+                            title="Delete"
+                            aria-label={`Delete ${name}`}
+                            data-testid="buckets-tile-delete"
+                            className={classNames(BTN_DESTRUCTIVE, 'min-h-[22px] min-w-[22px] p-1')}
+                          >
+                            <div
+                              className={classNames(
+                                busy ? 'i-ph:circle-notch animate-spin motion-reduce:animate-none' : 'i-ph:trash',
+                                'text-xs',
+                              )}
+                            />
+                          </button>
+                        </div>
+                      </div>
                       </ObjectActionMenu>
                     );
                   })}
@@ -2902,7 +2919,9 @@ export const ObjectBrowser = memo(
             <p className="text-sm font-semibold text-bolt-elements-textPrimary">Drop to upload</p>
             <p className="text-[11px] text-bolt-elements-textTertiary">
               Files land under{' '}
-              <span className="font-mono text-bolt-elements-item-contentAccent/90">{prefix || bucket.name}</span>
+              <span className="font-mono text-[color-mix(in_oklch,var(--bolt-elements-item-contentAccent)_90%,transparent)]">
+                {prefix || bucket.name}
+              </span>
             </p>
           </div>
         )}
@@ -3295,94 +3314,92 @@ BucketSettings.displayName = 'BucketsPanel.BucketSettings';
  * server-side; when the worker reports `truncated`, we surface an HONEST "capped at N files / X" warning
  * (never imply the archive is complete). While zipping, the button shows a live "Zipping…" state.
  */
-export const BucketExportSection = memo(
-  ({ bucket, objectOpsAvailable }: { bucket: BucketEntry; objectOpsAvailable: boolean }) => {
-    const [zipping, setZipping] = useState(false);
+export const BucketExportSection = memo(({ bucket, objectOpsAvailable }: { bucket: BucketEntry; objectOpsAvailable: boolean }) => {
+  const [zipping, setZipping] = useState(false);
 
-    const downloadZip = useCallback(async () => {
-      if (zipping) {
+  const downloadZip = useCallback(async () => {
+    if (zipping) {
+      return;
+    }
+
+    setZipping(true);
+    postToastToParent('info', `Preparing ${bucket.name}.zip…`);
+
+    try {
+      const reply = await requestBucketZip({ bucket: bucket.name });
+
+      if (!reply.ok || !reply.dataUrl) {
+        postToastToParent(reply.needsCreds ? 'warning' : 'error', reply.error || 'Could not build the archive.');
         return;
       }
 
-      setZipping(true);
-      postToastToParent('info', `Preparing ${bucket.name}.zip…`);
+      // Save via a temporary anchor (same as the single-object download path).
+      const a = document.createElement('a');
+      a.href = reply.dataUrl;
+      a.download = reply.filename || `${bucket.name}.zip`;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
 
-      try {
-        const reply = await requestBucketZip({ bucket: bucket.name });
-
-        if (!reply.ok || !reply.dataUrl) {
-          postToastToParent(reply.needsCreds ? 'warning' : 'error', reply.error || 'Could not build the archive.');
-          return;
-        }
-
-        // Save via a temporary anchor (same as the single-object download path).
-        const a = document.createElement('a');
-        a.href = reply.dataUrl;
-        a.download = reply.filename || `${bucket.name}.zip`;
-        document.body.appendChild(a);
-        a.click();
-        a.remove();
-
-        if (reply.truncated) {
-          // HONEST partial-export notice — never let the filename imply a complete archive.
-          const n = reply.includedCount ?? 0;
-          const total = reply.totalCount ?? n;
-          postToastToParent(
-            'warning',
-            `Downloaded the first ${n} of ${total} file${total === 1 ? '' : 's'} (${formatBytes(reply.bytesIncluded)}). The bucket is larger than one archive can hold — download the rest by folder.`,
-          );
-        } else {
-          const n = reply.includedCount ?? 0;
-          postToastToParent(
-            'success',
-            n === 0
-              ? 'That bucket is empty — downloaded an empty archive.'
-              : `Downloaded ${n} file${n === 1 ? '' : 's'} (${formatBytes(reply.bytesIncluded)}).`,
-          );
-        }
-      } catch (err) {
-        postToastToParent('error', err instanceof Error ? err.message : 'Could not build the archive.');
-      } finally {
-        setZipping(false);
+      if (reply.truncated) {
+        // HONEST partial-export notice — never let the filename imply a complete archive.
+        const n = reply.includedCount ?? 0;
+        const total = reply.totalCount ?? n;
+        postToastToParent(
+          'warning',
+          `Downloaded the first ${n} of ${total} file${total === 1 ? '' : 's'} (${formatBytes(reply.bytesIncluded)}). The bucket is larger than one archive can hold — download the rest by folder.`,
+        );
+      } else {
+        const n = reply.includedCount ?? 0;
+        postToastToParent(
+          'success',
+          n === 0
+            ? 'That bucket is empty — downloaded an empty archive.'
+            : `Downloaded ${n} file${n === 1 ? '' : 's'} (${formatBytes(reply.bytesIncluded)}).`,
+        );
       }
-    }, [bucket.name, zipping]);
+    } catch (err) {
+      postToastToParent('error', err instanceof Error ? err.message : 'Could not build the archive.');
+    } finally {
+      setZipping(false);
+    }
+  }, [bucket.name, zipping]);
 
-    return (
-      <SettingsSection
-        title="Download as ZIP"
-        icon="i-ph:file-zip-duotone"
-        hint={
-          objectOpsAvailable
-            ? 'Download every object in this bucket as one .zip (bounded — very large buckets export the first slice).'
-            : 'Available once file storage for this site finishes setting up.'
-        }
+  return (
+    <SettingsSection
+      title="Download as ZIP"
+      icon="i-ph:file-zip-duotone"
+      hint={
+        objectOpsAvailable
+          ? 'Download every object in this bucket as one .zip (bounded — very large buckets export the first slice).'
+          : 'Available once file storage for this site finishes setting up.'
+      }
+    >
+      <button
+        type="button"
+        onClick={() => void downloadZip()}
+        disabled={!objectOpsAvailable || zipping}
+        data-testid="buckets-settings-zip"
+        aria-label={`Download ${bucket.name} as a ZIP archive`}
+        aria-busy={zipping}
+        className={classNames(
+          BTN_SECONDARY,
+          'min-h-[28px] px-3 py-1 text-[11px] disabled:opacity-45 disabled:cursor-not-allowed',
+        )}
       >
-        <button
-          type="button"
-          onClick={() => void downloadZip()}
-          disabled={!objectOpsAvailable || zipping}
-          data-testid="buckets-settings-zip"
-          aria-label={`Download ${bucket.name} as a ZIP archive`}
-          aria-busy={zipping}
-          className={classNames(
-            BTN_SECONDARY,
-            'min-h-[28px] px-3 py-1 text-[11px] disabled:opacity-45 disabled:cursor-not-allowed',
-          )}
-        >
-          {zipping ? (
-            <>
-              <div className="i-ph:circle-notch text-sm animate-spin motion-reduce:animate-none" aria-hidden /> Zipping…
-            </>
-          ) : (
-            <>
-              <div className="i-ph:download-simple text-sm" aria-hidden /> Download .zip
-            </>
-          )}
-        </button>
-      </SettingsSection>
-    );
-  },
-);
+        {zipping ? (
+          <>
+            <div className="i-ph:circle-notch text-sm animate-spin motion-reduce:animate-none" aria-hidden /> Zipping…
+          </>
+        ) : (
+          <>
+            <div className="i-ph:download-simple text-sm" aria-hidden /> Download .zip
+          </>
+        )}
+      </button>
+    </SettingsSection>
+  );
+});
 
 BucketExportSection.displayName = 'BucketsPanel.BucketExportSection';
 
@@ -3607,8 +3624,8 @@ export const OwnerKeySection = memo(() => {
                   className={classNames(
                     'inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[9px] font-semibold uppercase tracking-wide',
                     key.status === 'active'
-                      ? 'bg-bolt-elements-item-contentAccent/15 text-bolt-elements-item-contentAccent'
-                      : 'bg-bolt-elements-background-depth-3 text-bolt-elements-textTertiary',
+                      ? 'bg-[color-mix(in_oklch,var(--bolt-elements-item-contentAccent)_15%,transparent)] text-bolt-elements-item-contentAccent'
+                      : 'bg-bolt-elements-background-depth-3 text-bolt-elements-textSecondary',
                   )}
                 >
                   <span
@@ -3779,29 +3796,32 @@ export const BucketKeySection = memo(({ bucket }: { bucket: string }) => {
   const [busy, setBusy] = useState<null | 'create' | 'rotate' | 'revoke'>(null);
 
   /** Translate any per-bucket owner-key reply into local view-state (shared by load + every mutation). */
-  const applyReply = useCallback((reply: Awaited<ReturnType<typeof requestBucketOwnerKeyStatus>>): boolean => {
-    if (!reply.ok) {
-      if (reply.enabled === false) {
-        setState({ status: 'disabled' });
+  const applyReply = useCallback(
+    (reply: Awaited<ReturnType<typeof requestBucketOwnerKeyStatus>>): boolean => {
+      if (!reply.ok) {
+        if (reply.enabled === false) {
+          setState({ status: 'disabled' });
+          return false;
+        }
+
+        if (reply.needsCreds) {
+          setState({ status: 'needs-creds' });
+          return false;
+        }
+
+        setState({ status: 'error', message: reply.error || 'Could not load this bucket’s access key.' });
+
         return false;
       }
 
-      if (reply.needsCreds) {
-        setState({ status: 'needs-creds' });
-        return false;
+      if (reply.status) {
+        setState({ status: 'ready', key: reply.status });
       }
 
-      setState({ status: 'error', message: reply.error || 'Could not load this bucket’s access key.' });
-
-      return false;
-    }
-
-    if (reply.status) {
-      setState({ status: 'ready', key: reply.status });
-    }
-
-    return true;
-  }, []);
+      return true;
+    },
+    [],
+  );
 
   const load = useCallback(async () => {
     setState({ status: 'loading' });
@@ -3993,14 +4013,16 @@ export const BucketKeySection = memo(({ bucket }: { bucket: string }) => {
                   className={classNames(
                     'inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[9px] font-semibold uppercase tracking-wide',
                     key.status === 'active'
-                      ? 'bg-bolt-elements-item-contentAccent/15 text-bolt-elements-item-contentAccent'
-                      : 'bg-bolt-elements-background-depth-3 text-bolt-elements-textTertiary',
+                      ? 'bg-[color-mix(in_oklch,var(--bolt-elements-item-contentAccent)_15%,transparent)] text-bolt-elements-item-contentAccent'
+                      : 'bg-bolt-elements-background-depth-3 text-bolt-elements-textSecondary',
                   )}
                 >
                   <span
                     className={classNames(
                       'h-1.5 w-1.5 rounded-full',
-                      key.status === 'active' ? 'bg-bolt-elements-item-contentAccent' : 'bg-bolt-elements-textTertiary',
+                      key.status === 'active'
+                        ? 'bg-bolt-elements-item-contentAccent'
+                        : 'bg-bolt-elements-textTertiary',
                     )}
                     aria-hidden
                   />
@@ -4543,8 +4565,8 @@ export const CloneBucketModal = memo(
             className="mt-1 w-full min-h-[34px] px-3 py-1.5 text-[13px] rounded-lg border border-bolt-elements-borderColor bg-bolt-elements-background-depth-1 text-bolt-elements-textPrimary placeholder:text-bolt-elements-textTertiary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-bolt-elements-item-contentAccent focus-visible:border-bolt-elements-item-contentAccent/50"
           />
           <span className="mt-1 block text-[10px] text-bolt-elements-textTertiary">
-            Creates a new private bucket and copies every object from {bucket.name} into it. Very large buckets copy the
-            first slice — you’ll be told if so.
+            Creates a new private bucket and copies every object from {bucket.name} into it. Very large buckets
+            copy the first slice — you’ll be told if so.
           </span>
         </label>
 
@@ -4863,11 +4885,7 @@ export const ObjectCopyDialog = memo(
 
         {destKey && valid && (
           <p className="mt-2 text-[10px] text-bolt-elements-textTertiary">
-            →{' '}
-            <span className="font-mono text-bolt-elements-textSecondary">
-              {crossing ? `${destBucket}/` : ''}
-              {destKey}
-            </span>
+            → <span className="font-mono text-bolt-elements-textSecondary">{crossing ? `${destBucket}/` : ''}{destKey}</span>
           </p>
         )}
 
@@ -5497,15 +5515,15 @@ ModalShell.displayName = 'BucketsPanel.ModalShell';
 
 // ── Shared states ────────────────────────────────────────────────────────────
 
-const BucketsSkeleton = memo(() => (
+export const BucketsSkeleton = memo(() => (
   <div className="p-2 space-y-1.5" aria-busy="true" data-testid="buckets-skeleton">
     {Array.from({ length: 4 }).map((_, i) => (
       <div
         key={i}
         className="rounded-xl border border-bolt-elements-borderColor bg-bolt-elements-background-depth-2 p-2.5"
       >
-        <div className="h-3 w-2/3 rounded bg-bolt-elements-background-depth-3 motion-safe:animate-pulse" />
-        <div className="mt-1.5 h-2 w-1/3 rounded bg-bolt-elements-background-depth-3 motion-safe:animate-pulse" />
+        <ShimmerBar className="h-3 w-2/3" />
+        <ShimmerBar className="mt-1.5 h-2 w-1/3" />
       </div>
     ))}
   </div>
@@ -5513,13 +5531,13 @@ const BucketsSkeleton = memo(() => (
 
 BucketsSkeleton.displayName = 'BucketsPanel.BucketsSkeleton';
 
-const ObjectsSkeleton = memo(() => (
+export const ObjectsSkeleton = memo(() => (
   <div aria-busy="true" data-testid="buckets-objects-skeleton">
     {Array.from({ length: 6 }).map((_, i) => (
       <div key={i} className="flex items-center gap-2.5 px-3 py-2 border-b border-bolt-elements-borderColor/25">
-        <div className="h-4 w-4 rounded bg-bolt-elements-background-depth-3 motion-safe:animate-pulse shrink-0" />
-        <div className="h-2.5 flex-1 rounded bg-bolt-elements-background-depth-3 motion-safe:animate-pulse" />
-        <div className="h-2 w-10 rounded bg-bolt-elements-background-depth-3 motion-safe:animate-pulse" />
+        <ShimmerBar className="h-4 w-4 shrink-0" />
+        <ShimmerBar className="h-2.5 flex-1" />
+        <ShimmerBar className="h-2 w-10" />
       </div>
     ))}
   </div>
@@ -5540,22 +5558,10 @@ const ObjectsSearching = memo(({ term }: { term: string }) => (
     data-testid="buckets-objects-searching"
   >
     <div className="flex items-center justify-center h-12 w-12 rounded-2xl border border-bolt-elements-item-contentAccent/30 bg-[color-mix(in_oklch,var(--bolt-elements-item-contentAccent)_7%,transparent)] shadow-[0_0_28px_-6px_color-mix(in_oklch,var(--bolt-elements-item-contentAccent)_55%,transparent)]">
-      <div
-        className="i-ph:magnifying-glass-duotone text-2xl text-bolt-elements-item-contentAccent motion-safe:animate-pulse"
-        aria-hidden
-      />
+      <div className="i-ph:magnifying-glass-duotone text-2xl text-bolt-elements-item-contentAccent motion-safe:animate-pulse" aria-hidden />
     </div>
     <p className="text-xs text-bolt-elements-textSecondary max-w-[280px] leading-relaxed">
-      Searching all objects
-      {term ? (
-        <>
-          {' '}
-          for “<span className="text-bolt-elements-textPrimary font-medium">{term}</span>”
-        </>
-      ) : (
-        ''
-      )}
-      …
+      Searching all objects{term ? <> for “<span className="text-bolt-elements-textPrimary font-medium">{term}</span>”</> : ''}…
     </p>
   </div>
 ));
@@ -5593,9 +5599,7 @@ const DisabledCard = memo(() => (
     <div className="flex items-center justify-center h-16 w-16 rounded-2xl border border-bolt-elements-borderColor bg-[radial-gradient(120%_120%_at_50%_0%,color-mix(in_oklch,var(--bolt-elements-item-contentAccent)_6%,transparent),transparent_60%),var(--bolt-elements-bg-depth-2)]">
       <div className="i-ph:lock-key-duotone text-3xl text-bolt-elements-textTertiary" aria-hidden />
     </div>
-    <p className="text-sm font-semibold text-bolt-elements-textSecondary text-balance">
-      Buckets aren&rsquo;t enabled yet
-    </p>
+    <p className="text-sm font-semibold text-bolt-elements-textSecondary text-balance">Buckets aren&rsquo;t enabled yet</p>
     <p className="text-[11px] text-bolt-elements-textTertiary max-w-[260px] leading-relaxed">
       This is on the way. Once it&rsquo;s turned on, your site&rsquo;s buckets show up here — nothing to set up.
     </p>

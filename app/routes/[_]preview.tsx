@@ -33,6 +33,8 @@ import {
   objectEntranceStyle,
   TILE_THUMB_SLOT_CLASS,
   TILE_SHELL_RESTING_CLASS,
+  BucketsSkeleton,
+  ObjectsSkeleton,
 } from '~/components/workbench/BucketsPanel';
 import { iconForObject, isImageKey, colorForObject, objectTypeLabel } from '~/components/workbench/bucket-icons';
 
@@ -108,7 +110,7 @@ function BucketListSample() {
               Default
             </span>
           )}
-          <span className="ml-auto inline-flex items-center justify-center min-w-[18px] h-[16px] px-1 rounded-full bg-[color-mix(in_oklch,var(--bolt-elements-item-contentAccent)_10%,transparent)] text-[9px] font-semibold tabular-nums text-bolt-elements-item-contentAccent/90">
+          <span className="ml-auto inline-flex items-center justify-center min-w-[18px] h-[16px] px-1 rounded-full bg-[color-mix(in_oklch,var(--bolt-elements-item-contentAccent)_10%,transparent)] text-[9px] font-semibold tabular-nums text-[color-mix(in_oklch,var(--bolt-elements-item-contentAccent)_90%,transparent)]">
             {b.objects}
           </span>
         </li>
@@ -530,6 +532,52 @@ export default function PanelPrimitiveGallery() {
         </div>
         <figcaption className="text-[11px] font-mono uppercase tracking-wider text-bolt-elements-textSecondary">
           Bulk-action bar (glass depth · glowing cyan rail)
+        </figcaption>
+      </figure>
+
+      {/* Loading skeletons — the REAL BucketsSkeleton + ObjectsSkeleton (imported, not mirrored) so the
+          headless screenshot is faithful pixel-proof of the diagonal brand-shimmer sweep (gorgeous3). */}
+      <figure className="m-0 mt-10 flex max-w-[640px] flex-col gap-2" data-testid="buckets-loading-showcase">
+        <div className="grid gap-4 sm:grid-cols-2">
+          <div className="overflow-hidden rounded-2xl border border-bolt-elements-borderColor shadow-xl shadow-black/40">
+            <PanelShell>
+              <PanelHeader icon="i-ph:stack-duotone" title="Buckets" subtitle="Loading…" />
+              <BucketsSkeleton />
+            </PanelShell>
+          </div>
+          <div className="overflow-hidden rounded-2xl border border-bolt-elements-borderColor shadow-xl shadow-black/40">
+            <PanelShell>
+              <PanelHeader icon="i-ph:folder-open-duotone" title="Objects" subtitle="Loading…" />
+              <ObjectsSkeleton />
+            </PanelShell>
+          </div>
+        </div>
+        <figcaption className="text-[11px] font-mono uppercase tracking-wider text-bolt-elements-textSecondary">
+          Loading skeletons (diagonal brand-shimmer sweep · reduced-motion → static · 0 CLS)
+        </figcaption>
+      </figure>
+
+      {/* Credential status pills — the gorgeous3 legibility fix. The ACTIVE pill paints its fill with
+          color-mix (a faint 15% accent tint) so the SOLID accent label + dot stay legible; the old
+          `bg-contentAccent/15` silently no-op'd to a SOLID cyan fill ⇒ cyan-on-cyan invisible text. */}
+      <figure className="m-0 mt-10 flex max-w-[640px] flex-col gap-2" data-testid="buckets-status-pills-showcase">
+        <div className="overflow-hidden rounded-2xl border border-bolt-elements-borderColor shadow-xl shadow-black/40">
+          <PanelShell>
+            <PanelHeader icon="i-ph:key-duotone" title="Access key status" subtitle="Owner-key credential pill" />
+            <div className="flex flex-wrap items-center gap-6 p-4">
+              <span className="inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[9px] font-semibold uppercase tracking-wide bg-[color-mix(in_oklch,var(--bolt-elements-item-contentAccent)_15%,transparent)] text-bolt-elements-item-contentAccent">
+                <span className="h-1.5 w-1.5 rounded-full bg-bolt-elements-item-contentAccent" aria-hidden="true" />
+                Active
+              </span>
+              <span className="inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[9px] font-semibold uppercase tracking-wide bg-bolt-elements-background-depth-3 text-bolt-elements-textSecondary">
+                <span className="h-1.5 w-1.5 rounded-full bg-bolt-elements-textSecondary" aria-hidden="true" />
+                Revoked
+              </span>
+            </div>
+          </PanelShell>
+        </div>
+        <figcaption className="text-[11px] font-mono uppercase tracking-wider text-bolt-elements-textSecondary">
+          Credential status pills (ACTIVE now legible — solid cyan on a faint tint, never cyan-on-cyan)
         </figcaption>
       </figure>
     </div>

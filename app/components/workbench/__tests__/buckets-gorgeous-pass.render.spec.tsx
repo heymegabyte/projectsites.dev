@@ -17,9 +17,15 @@
 import React from 'react';
 import { cleanup, render, screen } from '@testing-library/react';
 import { afterEach, describe, expect, it } from 'vitest';
+import { readFileSync } from 'node:fs';
+import { join, dirname } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import {
   BucketsEmpty,
   BucketsTwoPane,
+  BucketsSkeleton,
+  ObjectsSkeleton,
+  ShimmerBar,
   EMPTY_LAUNCHPAD_CLASS,
   OBJECT_ENTRANCE_CLASS,
   TILE_SHELL_RESTING_CLASS,
@@ -36,6 +42,19 @@ afterEach(cleanup);
  * most tempted to tint the accent, so assert NONE of them carry a bracket-opacity on contentAccent.
  */
 const FORBIDDEN_ACCENT_ALPHA = /contentAccent\/\[/;
+
+/**
+ * gorgeous3 HARDENING — the gorgeous1 guard above only caught the `/[0.x]` BRACKET form, so the
+ * `/NN` SLASH-NUMBER form slipped through (`bg-contentAccent/15 text-contentAccent` on the owner-key
+ * ACTIVE pill shipped INVISIBLE cyan-on-cyan). BOTH forms silently no-op to SOLID cyan on this
+ * hex-valued var. This file-level sweep forbids EITHER opacity form on a TEXT/BG accent utility across
+ * the whole panel + the gallery — color-mix is the only legal accent-alpha path. (border-* opacity is
+ * cosmetically harmless — a slightly brighter hairline, never invisible text — so it stays allowed.)
+ */
+const HERE = dirname(fileURLToPath(import.meta.url));
+const PANEL_SRC = readFileSync(join(HERE, '../BucketsPanel.tsx'), 'utf8');
+const GALLERY_SRC = readFileSync(join(HERE, '../../../routes/[_]preview.tsx'), 'utf8');
+const FORBIDDEN_TEXTBG_ACCENT_ALPHA = /(?:text|bg)-bolt-elements-item-contentAccent\/(?:\[|\d)/g;
 
 describe('gorgeous pass — elevated primary action (dimensional, not flat)', () => {
   it('renders the create-first-bucket primary with a gradient fill + inner highlight ring', () => {
@@ -157,5 +176,67 @@ describe('gorgeous pass — cinematic empty launchpads (aura + balanced type, re
   it('the launchpad aura never introduces a CLS-causing layout animation', () => {
     // Decorative depth is background/box-shadow only — no animated width/height/top/left/margin/padding.
     expect(EMPTY_LAUNCHPAD_CLASS).not.toMatch(/animate-\[[^\]]*(width|height|top|left|margin|padding)/);
+  });
+});
+
+describe('gorgeous3 — no text/bg accent-alpha no-op survives (hardened, catches /[0.x] AND /NN)', () => {
+  it('BucketsPanel.tsx tints every accent fill/text via color-mix — never /[0.x] or /NN', () => {
+    const hits = PANEL_SRC.match(FORBIDDEN_TEXTBG_ACCENT_ALPHA) ?? [];
+    expect(
+      hits,
+      `these text/bg accent-opacity forms SILENTLY no-op to SOLID cyan (invisible-text risk) — ` +
+        `convert to color-mix(…, transparent):\n  ${hits.join('\n  ')}`,
+    ).toEqual([]);
+  });
+
+  it('the /_preview gallery holds the same discipline', () => {
+    const hits = GALLERY_SRC.match(FORBIDDEN_TEXTBG_ACCENT_ALPHA) ?? [];
+    expect(hits, `gallery text/bg accent-opacity no-ops:\n  ${hits.join('\n  ')}`).toEqual([]);
+  });
+
+  it('the exact owner-key / per-bucket-key ACTIVE pill is a color-mix tint (the bug that shipped once)', () => {
+    // The ACTIVE pill MUST paint its fill with color-mix so the solid-accent label stays legible.
+    expect(PANEL_SRC).toContain(
+      "bg-[color-mix(in_oklch,var(--bolt-elements-item-contentAccent)_15%,transparent)] text-bolt-elements-item-contentAccent",
+    );
+    // …and the broken form must be gone entirely.
+    expect(PANEL_SRC).not.toContain('bg-bolt-elements-item-contentAccent/15 text-bolt-elements-item-contentAccent');
+  });
+});
+
+describe('gorgeous3 — premium shimmer loading (brand sheen, 0 CLS, reduced-motion safe)', () => {
+  it('injects the psBucketShimmer keyframe alongside psBucketRise (one <style>, both)', () => {
+    expect(PANEL_SRC).toContain('@keyframes psBucketShimmer');
+    expect(PANEL_SRC).toContain('@keyframes psBucketRise');
+  });
+
+  it('ShimmerBar sweeps a color-mix sheen via transform; motion-reduce drops it; 0 CLS', () => {
+    const { container } = render(<ShimmerBar className="h-3 w-2/3" />);
+    const base = container.firstElementChild as HTMLElement;
+    // The resting shape is a neutral depth bar that clips the sweep.
+    expect(base.className).toContain('overflow-hidden');
+    expect(base.className).toContain('bg-bolt-elements-background-depth-3');
+
+    const sweep = base.querySelector('[aria-hidden]') as HTMLElement;
+    expect(sweep, 'the shimmer sweep overlay exists').toBeTruthy();
+    expect(sweep.className).toMatch(/motion-safe:animate-\[psBucketShimmer/);
+    expect(sweep.className).toContain('motion-reduce:hidden');
+    // The sheen is color-mix off the token — NEVER a bracket/slash opacity on the hex var.
+    expect(sweep.className).toContain('color-mix(in_oklch');
+    expect(sweep.className).not.toMatch(/contentAccent\/(?:\[|\d)/);
+    // Transform-only sweep ⇒ zero CLS (never animates a layout box).
+    expect(sweep.className).not.toMatch(/\b(?:width|height|top|left|margin|padding)\b/);
+  });
+
+  it('both skeletons render shimmer bars, not the old flat animate-pulse', () => {
+    const { container: a } = render(<BucketsSkeleton />);
+    expect(a.querySelector('[data-testid="buckets-skeleton"]')).toBeTruthy();
+    expect(a.innerHTML).toContain('psBucketShimmer');
+    expect(a.innerHTML).not.toContain('animate-pulse');
+
+    const { container: b } = render(<ObjectsSkeleton />);
+    expect(b.querySelector('[data-testid="buckets-objects-skeleton"]')).toBeTruthy();
+    expect(b.innerHTML).toContain('psBucketShimmer');
+    expect(b.innerHTML).not.toContain('animate-pulse');
   });
 });
