@@ -79,6 +79,9 @@ export type SiteR2Failure =
   | 'not_allocated'
   | 'needs_s3_credentials'
   | 'destination_exists'
+  // The requested OBJECT doesn't exist (S3 GET → 404 NoSuchKey). DISTINCT from `s3_error` (a real
+  // upstream 5xx): a missing object is a CLIENT 404, never a 502. See `getSiteR2Object`.
+  | 'object_not_found'
   | 'cf_error'
   | 's3_error';
 
@@ -1850,6 +1853,10 @@ export async function getSiteR2Object(
   if (!resolved.ok) return resolved;
   const s3 = resolved.s3;
   const res = await s3Fetch(s3, 'GET', `/${bucketName}/${key}`);
+  // A missing key (S3 GetObject → 404 NoSuchKey) is a CLIENT not-found, NOT a server error — surface it
+  // as a typed `object_not_found` (route → 404) so we never bucket it into `s3_error` → 502. A genuine
+  // upstream failure (any other non-2xx, e.g. 5xx) still falls through to `s3_error` → 502 below.
+  if (res.status === 404) return { ok: false, reason: 'object_not_found', status: 404 };
   if (!res.ok)
     return {
       message: `S3 get failed (HTTP ${res.status})`,

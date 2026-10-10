@@ -154,6 +154,27 @@ describe('object routes — wildcard key extraction', () => {
     expect(res.status).toBe(400);
     expect(mockGet).not.toHaveBeenCalled();
   });
+
+  // REGRESSION: a GET on a MISSING object returned 502 (the service's `s3_error` → DATA_STORE_ERROR
+  // default). A missing key is a client 404 — the service now returns `object_not_found`, the handler
+  // maps it to 404 NOT_FOUND. A genuine upstream `s3_error` still maps to 502 (next case).
+  it('GET on a missing object → 404 NOT_FOUND (not 502) when the service reports object_not_found', async () => {
+    mockFlag.mockResolvedValue(true);
+    mockResolveAlloc.mockResolvedValue(sampleAllocation);
+    mockGet.mockResolvedValue({ ok: false, reason: 'object_not_found', status: 404 });
+    const res = await authed().request('/api/sites/s1/r2/buckets/uploads/objects/gone.png', {}, mockEnv());
+    expect(res.status).toBe(404);
+    const body = (await res.json()) as { error: { code: string } };
+    expect(body.error.code).toBe('NOT_FOUND');
+  });
+
+  it('GET on a real upstream S3 failure → 502 (s3_error stays a server error)', async () => {
+    mockFlag.mockResolvedValue(true);
+    mockResolveAlloc.mockResolvedValue(sampleAllocation);
+    mockGet.mockResolvedValue({ ok: false, reason: 's3_error', status: 500 });
+    const res = await authed().request('/api/sites/s1/r2/buckets/uploads/objects/boom.png', {}, mockEnv());
+    expect(res.status).toBe(502);
+  });
 });
 
 describe('GET /api/sites/:siteId/r2/buckets', () => {

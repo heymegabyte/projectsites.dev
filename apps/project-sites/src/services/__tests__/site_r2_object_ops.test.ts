@@ -191,6 +191,61 @@ describe('resolveSiteS3Config via object ops (B5 slice 2)', () => {
   });
 });
 
+describe('getSiteR2Object — missing key is 404 not_found, real upstream error is s3_error (502)', () => {
+  // Route the S3 object GET to a CONTROLLABLE status so we can prove the branch: 404 NoSuchKey must
+  // surface as the typed `object_not_found` (→ route 404), a genuine 5xx must stay `s3_error` (→ 502).
+  // Uses the global R2_S3_* escape hatch so no CF token mint is needed — isolates the S3 GET status.
+  function installS3StatusFetch(s3Status: number): void {
+    (globalThis as unknown as { fetch: jest.Mock }).fetch = jest.fn((url: string) => {
+      const u = String(url);
+      if (u.includes('r2.cloudflarestorage.com'))
+        return Promise.resolve({
+          ok: s3Status >= 200 && s3Status < 300,
+          status: s3Status,
+          headers: new Map([['content-type', 'text/plain']]) as unknown as Headers,
+          arrayBuffer: async () => new ArrayBuffer(0),
+          text: async () => '',
+        } as unknown as Response);
+      // Any other URL (CF token endpoints etc.) — should NOT be hit on this path.
+      return Promise.resolve({ ok: false, status: 500, json: async () => ({}), text: async () => '' } as unknown as Response);
+    });
+  }
+
+  it('S3 GET → 404 (missing key) yields a typed `object_not_found` failure, NOT `s3_error`', async () => {
+    const h = createD1Sqlite();
+    try {
+      h.exec(S3_TOKENS_DDL);
+      seedPreviewBucket(h);
+      mockFlag.mockResolvedValue(true);
+      installS3StatusFetch(404);
+      const r = await getSiteR2Object(envWithGlobalS3(h), ctx, 'ps-site-site1-preview', 'missing.txt');
+      expect(r.ok).toBe(false);
+      if (r.ok) throw new Error('expected failure');
+      expect(r.reason).toBe('object_not_found'); // the bug: this used to be 's3_error' → 502
+      expect(r.status).toBe(404);
+    } finally {
+      h.close();
+    }
+  });
+
+  it('S3 GET → 500 (real upstream error) stays `s3_error` (route maps to 502)', async () => {
+    const h = createD1Sqlite();
+    try {
+      h.exec(S3_TOKENS_DDL);
+      seedPreviewBucket(h);
+      mockFlag.mockResolvedValue(true);
+      installS3StatusFetch(500);
+      const r = await getSiteR2Object(envWithGlobalS3(h), ctx, 'ps-site-site1-preview', 'boom.txt');
+      expect(r.ok).toBe(false);
+      if (r.ok) throw new Error('expected failure');
+      expect(r.reason).toBe('s3_error'); // genuine upstream 5xx is NOT reclassified as not-found
+      expect(r.status).toBe(500);
+    } finally {
+      h.close();
+    }
+  });
+});
+
 describe('hasObjectOpsForSite capability matrix', () => {
   it('flag off + no global creds → false; flag on + CF creds → true; global creds → true (flag irrelevant)', async () => {
     const h = createD1Sqlite();

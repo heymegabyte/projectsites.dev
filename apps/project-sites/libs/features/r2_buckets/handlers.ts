@@ -114,6 +114,11 @@ function r2Failure(c: Context<AppContext>, reason: SiteR2Failure, message?: stri
       return c.json({ error: { code: 'INTERNAL_ERROR', message: 'Storage error.' }, ok: false }, 500);
     case 'not_allocated':
       return c.json({ error: { code: 'NOT_FOUND', message: 'Bucket not found' }, ok: false }, 404);
+    case 'object_not_found':
+      // The OBJECT (key) doesn't exist — a client 404, NEVER a 502 (an S3 GET on a missing key returns
+      // 404 NoSuchKey; without this it'd fall into the default DATA_STORE_ERROR 502). The ownership gate
+      // already ran, so this never leaks cross-site existence.
+      return c.json({ error: { code: 'NOT_FOUND', message: message ?? 'File not found' }, ok: false }, 404);
     case 'destination_exists':
       return c.json(
         {
