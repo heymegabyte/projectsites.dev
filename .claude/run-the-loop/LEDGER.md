@@ -1745,3 +1745,10 @@ Full-stack fire (3 surfaces). ONE coherent verified slice = B9 (the LAST §21 cl
 - B9-GROOM `5d7c34bdb` — B6 DONE; confirmed B9 is the LITERAL last §21 clause (walked §21 clause-by-clause).
 - lead — redeployed worker from main (b8b35834) + editor f1289743 + frontend R2. PROD-VERIFIED security round-trip on real R2: PUT object → make-public → UNAUTHED gateway streams body (200) → bad slug 404 → REVOKE → gateway 404 (immediate) → cleanup. Final visual walkthrough: gallery gorgeous + 0 console errors + axe-clean + 17 icons; money path 200.
 - ✅✅✅ **BUCKETS §21 DoD = 100% COMPLETE** — every clause shipped + prod-verified on real R2. Retiring cron b1182793 per Brian's directive. Non-§21 OPTIONAL fast-follows remain (B15-object-tree load/edit/save-back · B6 unbounded-Workflow clone · B13 insights) — available on explicit request, NOT cron-driven.
+
+
+## fire-38061571062-verification (2026-10-10) — named ledger recency repair
+- One bounded fleet iteration; tooling slice `a6b35c95c`. Retained worktree tip `3aabcd6f3` and prior results `e0fa348`/`c8cbc390` confirmed ancestors of fetched origin/main; retained failed receipt reports completion-evidence failure, with no unpublished product fix to recover.
+- RED: two new recency fixtures exposed dropped named headers and truncated fleet identity. GREEN: all 20 `scripts/__tests__/*.test.mjs` tests; syntax and diff checks clean. Independent read-only reviewer found no material issues. Real JSON aligns B9/B6/B10 ledger entries with git chronology; diagnostics report no membership mismatch.
+- Public read-only smoke: projectsites.dev and editor.projectsites.dev/_preview both HTTP 200. No browser actions, authenticated journey, screenshots or vision performed; no product acceptance claimed. No runtime deployment required for repository CLI tooling; publication left to outer runner.
+- Mandatory loop improvement: git-ranked, full-identity ledger recency. Next-wave category-attribution defect recorded in BACKLOG (untagged implementation commits currently yield `other`). No optional Buckets fast-follow implemented.
