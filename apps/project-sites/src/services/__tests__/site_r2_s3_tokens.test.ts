@@ -98,7 +98,9 @@ describe('ensureSiteS3Token', () => {
       expect(resources).toContain('ps-site-site1-preview');
       // Grants BOTH R2 object permission groups — Read AND Write (there is NO single "Read+Write" group;
       // the slice-1 placeholder id was bogus → would have failed the mint in prod). LIVE-confirmed ids.
-      const groupIds = (body.policies[0].permission_groups as Array<{ id: string }>).map((g) => g.id);
+      const groupIds = (body.policies[0].permission_groups as Array<{ id: string }>).map(
+        (g) => g.id,
+      );
       expect(groupIds).toContain('6a018a9f2fc74eb6b293b0c548f38b39'); // Bucket Item Read
       expect(groupIds).toContain('2efd5506f9c8494dacb1fa10a3e7d5b6'); // Bucket Item Write
 

@@ -27,7 +27,10 @@ jest.mock('../../modules/feature_flags/services.js', () => ({ isFlagOn: jest.fn(
 import { isFlagOn } from '../../modules/feature_flags/services.js';
 const mockFlag = isFlagOn as unknown as jest.Mock;
 
-const S3_TOKENS_DDL = readFileSync(join(__dirname, '../../../migrations/0660_site_r2_s3_tokens.sql'), 'utf8');
+const S3_TOKENS_DDL = readFileSync(
+  join(__dirname, '../../../migrations/0660_site_r2_s3_tokens.sql'),
+  'utf8',
+);
 const ALLOC_DDL = `CREATE TABLE site_r2_allocations (
   id TEXT PRIMARY KEY, tenant_id TEXT, site_id TEXT, bucket_name TEXT UNIQUE, display_name TEXT,
   environment TEXT, is_default INTEGER, public_access INTEGER, public_base_url TEXT,
@@ -71,12 +74,23 @@ function installFetch(): void {
         return Promise.resolve({
           ok: true,
           status: 200,
-          json: async () => ({ success: true, result: { id: 'tok-abc', value: 'secret-value-xyz' } }),
+          json: async () => ({
+            success: true,
+            result: { id: 'tok-abc', value: 'secret-value-xyz' },
+          }),
         } as unknown as Response);
       if (u.includes('/accounts/acct-1/tokens/') && opts?.method === 'DELETE')
-        return Promise.resolve({ ok: true, status: 200, json: async () => ({ success: true }) } as unknown as Response);
+        return Promise.resolve({
+          ok: true,
+          status: 200,
+          json: async () => ({ success: true }),
+        } as unknown as Response);
       if (u.includes('/r2/buckets'))
-        return Promise.resolve({ ok: true, status: 200, json: async () => ({ success: true, result: {} }) } as unknown as Response);
+        return Promise.resolve({
+          ok: true,
+          status: 200,
+          json: async () => ({ success: true, result: {} }),
+        } as unknown as Response);
       if (u.includes('r2.cloudflarestorage.com')) {
         s3Calls.push({ authorization: opts?.headers?.authorization ?? '', url: u });
         return Promise.resolve({
@@ -88,7 +102,12 @@ function installFetch(): void {
           arrayBuffer: async () => new ArrayBuffer(5),
         } as unknown as Response);
       }
-      return Promise.resolve({ ok: false, status: 404, json: async () => ({}), text: async () => '' } as unknown as Response);
+      return Promise.resolve({
+        ok: false,
+        status: 404,
+        json: async () => ({}),
+        text: async () => '',
+      } as unknown as Response);
     },
   );
 }
@@ -133,7 +152,11 @@ describe('resolveSiteS3Config via object ops (B5 slice 2)', () => {
       expect(s3Calls[0]!.url).toContain('acct-1.r2.cloudflarestorage.com');
       expect(s3Calls[0]!.authorization).toContain('Credential=tok-abc/'); // the PER-SITE token, not a global key
       // Row persisted (so the next op reuses it, no re-mint).
-      const row = h.raw.prepare("SELECT access_key_id FROM site_r2_s3_tokens WHERE site_id='site1' AND status='active'").get() as { access_key_id: string } | undefined;
+      const row = h.raw
+        .prepare(
+          "SELECT access_key_id FROM site_r2_s3_tokens WHERE site_id='site1' AND status='active'",
+        )
+        .get() as { access_key_id: string } | undefined;
       expect(row?.access_key_id).toBe('tok-abc');
     } finally {
       h.close();
@@ -146,7 +169,12 @@ describe('resolveSiteS3Config via object ops (B5 slice 2)', () => {
       h.exec(S3_TOKENS_DDL);
       seedPreviewBucket(h);
       mockFlag.mockResolvedValue(true); // even with the flag on, global creds short-circuit
-      const r = await getSiteR2Object(envWithGlobalS3(h), ctx, 'ps-site-site1-preview', 'hello.txt');
+      const r = await getSiteR2Object(
+        envWithGlobalS3(h),
+        ctx,
+        'ps-site-site1-preview',
+        'hello.txt',
+      );
       expect(r.ok).toBe(true);
       const calls = fetchMock().mock.calls.map((c) => String(c[0]));
       expect(calls.some((u) => u.includes('/accounts/acct-1/tokens'))).toBe(false); // NO mint
@@ -163,10 +191,16 @@ describe('hasObjectOpsForSite capability matrix', () => {
     const h = createD1Sqlite();
     try {
       mockFlag.mockResolvedValue(false);
-      expect(await hasObjectOpsForSite(envWithCreds(h), { orgId: 'org1', siteId: 'site1' })).toBe(false);
-      expect(await hasObjectOpsForSite(envWithGlobalS3(h), { orgId: 'org1', siteId: 'site1' })).toBe(true);
+      expect(await hasObjectOpsForSite(envWithCreds(h), { orgId: 'org1', siteId: 'site1' })).toBe(
+        false,
+      );
+      expect(
+        await hasObjectOpsForSite(envWithGlobalS3(h), { orgId: 'org1', siteId: 'site1' }),
+      ).toBe(true);
       mockFlag.mockResolvedValue(true);
-      expect(await hasObjectOpsForSite(envWithCreds(h), { orgId: 'org1', siteId: 'site1' })).toBe(true);
+      expect(await hasObjectOpsForSite(envWithCreds(h), { orgId: 'org1', siteId: 'site1' })).toBe(
+        true,
+      );
     } finally {
       h.close();
     }
@@ -174,7 +208,7 @@ describe('hasObjectOpsForSite capability matrix', () => {
 });
 
 describe('token-scope invalidation on new bucket (prevents stale-scope 403s)', () => {
-  it('provisioning a NEW bucket supersedes the site\'s active S3 token so the next op re-mints with the new scope', async () => {
+  it("provisioning a NEW bucket supersedes the site's active S3 token so the next op re-mints with the new scope", async () => {
     const h = createD1Sqlite();
     try {
       h.exec(S3_TOKENS_DDL);
@@ -188,16 +222,34 @@ describe('token-scope invalidation on new bucket (prevents stale-scope 403s)', (
         .run();
       mockFlag.mockResolvedValue(true);
 
-      const p = await provisionSiteR2(envWithCreds(h), { displayName: 'assets', orgId: 'org1', siteId: 'site1', tenantId: 'org1' });
+      const p = await provisionSiteR2(envWithCreds(h), {
+        displayName: 'assets',
+        orgId: 'org1',
+        siteId: 'site1',
+        tenantId: 'org1',
+      });
       expect(p.ok).toBe(true);
       // The old token is now superseded (not active) → next ensureSiteS3Token re-mints covering 'assets'.
-      const old = h.raw.prepare("SELECT status FROM site_r2_s3_tokens WHERE id='t1'").get() as { status: string };
+      const old = h.raw.prepare("SELECT status FROM site_r2_s3_tokens WHERE id='t1'").get() as {
+        status: string;
+      };
       expect(old.status).toBe('superseded');
-      const active = h.raw.prepare("SELECT COUNT(*) c FROM site_r2_s3_tokens WHERE site_id='site1' AND status='active'").get() as { c: number };
+      const active = h.raw
+        .prepare(
+          "SELECT COUNT(*) c FROM site_r2_s3_tokens WHERE site_id='site1' AND status='active'",
+        )
+        .get() as { c: number };
       expect(active.c).toBe(0);
       // Best-effort CF token revoke was attempted.
-      const calls = fetchMock().mock.calls.map((c) => ({ method: (c[1] as { method?: string })?.method, url: String(c[0]) }));
-      expect(calls.some((c) => c.method === 'DELETE' && c.url.includes('/accounts/acct-1/tokens/tok-old'))).toBe(true);
+      const calls = fetchMock().mock.calls.map((c) => ({
+        method: (c[1] as { method?: string })?.method,
+        url: String(c[0]),
+      }));
+      expect(
+        calls.some(
+          (c) => c.method === 'DELETE' && c.url.includes('/accounts/acct-1/tokens/tok-old'),
+        ),
+      ).toBe(true);
     } finally {
       h.close();
     }
