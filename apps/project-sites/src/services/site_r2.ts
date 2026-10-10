@@ -24,6 +24,8 @@
  *
  * @packageDocumentation
  */
+import { zipSync } from 'fflate';
+
 import type { Env } from '../types/env.js';
 
 import { type CfAuth, cfAuthHeaders, resolveCfCredentials } from './cf_credentials.js';
@@ -1893,6 +1895,127 @@ export async function deleteSiteR2Object(
       status: res.status,
     };
   return { deleted: true, ok: true };
+}
+
+/**
+ * Hard ceilings for the B7 whole-bucket ZIP export — the whole archive is built IN MEMORY in the Worker
+ * (CF caps Worker memory at ~128 MB), so the export is BOUNDED by BOTH an object count AND a total
+ * UNCOMPRESSED-bytes budget. Whichever trips first stops the walk; the reply is honest about having
+ * truncated (`truncated` + `includedCount`/`totalCount`) so the UI/filename can signal "capped at N / X MB"
+ * instead of lying that the zip is complete. A background-job + signed-link path for truly huge buckets is
+ * the noted follow-up (the master spec's "large → ZIP64 background job"); this slice ships the bounded
+ * synchronous export that covers the overwhelming majority of per-site buckets.
+ */
+const ZIP_MAX_OBJECTS = 1000;
+const ZIP_MAX_BYTES = 100 * 1024 * 1024; // 100 MB uncompressed
+const ZIP_LIST_MAX_PAGES = 100; // bounded listing walk (100 × 1000 = 100k keys examined worst-case)
+const ZIP_LIST_PAGE_SIZE = 1000; // max S3 ListObjectsV2 page
+
+/**
+ * **Whole-bucket ZIP export (B7).** List every object in `bucketName` (bounded paginated S3 ListObjectsV2),
+ * fetch each object's bytes, and assemble ONE `.zip` with {@link zipSync} (fflate — streaming-friendly,
+ * Worker-safe, far lighter than jszip), each object stored under its full key as the zip entry name (so
+ * folder structure round-trips). READ-ONLY: it never mutates the bucket, so it can't break serving.
+ *
+ * BOUNDED by {@link ZIP_MAX_OBJECTS} (default; overridable via `opts.maxObjects`) AND
+ * {@link ZIP_MAX_BYTES} (uncompressed; `opts.maxBytes`) — the whole archive is built in memory. When
+ * either cap is reached the walk STOPS and the reply is HONEST: `truncated:true` with `includedCount`
+ * (what we actually zipped) vs `totalCount` (objects seen while scanning) + `bytesIncluded`, so the caller
+ * can surface "capped at N files / X MB" and name the file accordingly.
+ *
+ * Failure honesty mirrors the other object ops: no S3 creds (flag off / none) → `needs_s3_credentials`
+ * (the route → 503, "being set up"); a real S3 list error → `s3_error` (→ 502). An individual object that
+ * 404s between list + get (deleted mid-export) is SKIPPED (counted in `totalCount`, omitted from the zip)
+ * rather than failing the whole export. Uses level-0 (store) so a bucket of already-compressed media
+ * (images/video) doesn't burn Worker CPU re-deflating incompressible bytes.
+ */
+export async function zipSiteR2Bucket(
+  env: Env,
+  ctx: SiteR2Context,
+  bucketName: string,
+  opts: { maxObjects?: number; maxBytes?: number; prefix?: string } = {},
+): Promise<
+  SiteR2Result<{
+    zip: Uint8Array;
+    filename: string;
+    includedCount: number;
+    totalCount: number;
+    bytesIncluded: number;
+    truncated: boolean;
+  }>
+> {
+  const resolved = await resolveSiteS3Config(env, ctx);
+  if (!resolved.ok) return resolved;
+  const s3 = resolved.s3;
+
+  const maxObjects = Math.min(Math.max(opts.maxObjects ?? ZIP_MAX_OBJECTS, 1), ZIP_MAX_OBJECTS);
+  const maxBytes = Math.min(Math.max(opts.maxBytes ?? ZIP_MAX_BYTES, 1), ZIP_MAX_BYTES);
+
+  const entries: Record<string, Uint8Array> = {};
+  let includedCount = 0;
+  let totalCount = 0;
+  let bytesIncluded = 0;
+  let truncated = false;
+  let cursor: string | undefined;
+
+  walk: for (let page = 0; page < ZIP_LIST_MAX_PAGES; page++) {
+    const query: Record<string, string> = { 'list-type': '2', 'max-keys': String(ZIP_LIST_PAGE_SIZE) };
+    if (opts.prefix) query.prefix = opts.prefix;
+    if (cursor) query['continuation-token'] = cursor;
+
+    const listRes = await s3Fetch(s3, 'GET', `/${bucketName}`, { query });
+    if (!listRes.ok)
+      return {
+        message: `S3 list failed (HTTP ${listRes.status})`,
+        ok: false,
+        reason: 's3_error',
+        status: listRes.status,
+      };
+    const xml = await listRes.text();
+    const keys = xmlAll(xml, 'Contents')
+      .map((frag) => xmlUnescape(xmlFirst(frag, 'Key') ?? ''))
+      // A "folder marker" (a zero-byte key ending in `/`) isn't a real file — skip it (fflate stores the
+      // path implicitly when a child entry carries it), but still count it toward what we scanned.
+      .filter((k) => k && !k.endsWith('/'));
+
+    for (const key of keys) {
+      totalCount++;
+      // Cap guard BEFORE fetching — if we're already at the object cap, we've truncated; stop.
+      if (includedCount >= maxObjects) {
+        truncated = true;
+        break walk;
+      }
+      const got = await getSiteR2Object(env, ctx, bucketName, key);
+      if (!got.ok) {
+        // Deleted between list + get (404) → skip honestly; a genuine upstream 5xx fails the export.
+        if (got.reason === 'object_not_found') continue;
+        return got;
+      }
+      const bytes = new Uint8Array(got.body);
+      // Byte-budget guard — admit this object only if it fits; otherwise mark truncated + stop. (An object
+      // bigger than the whole budget on its own also trips this → honest truncation rather than OOM.)
+      if (bytesIncluded + bytes.byteLength > maxBytes) {
+        truncated = true;
+        break walk;
+      }
+      entries[key] = bytes;
+      bytesIncluded += bytes.byteLength;
+      includedCount++;
+    }
+
+    if (xmlFirst(xml, 'IsTruncated') !== 'true') break;
+    cursor = xmlFirst(xml, 'NextContinuationToken');
+    if (!cursor) break;
+  }
+
+  // `level: 0` = store (no deflate) — bucket payloads are usually already-compressed media; re-deflating
+  // would burn Worker CPU for near-zero gain. A FIXED `mtime` (fflate requires a 1980-2099 zip date — epoch
+  // 0 throws) keeps the archive deterministic (stable bytes) regardless of when it's built.
+  const zip = zipSync(entries, { level: 0, mtime: new Date('2020-01-01T00:00:00Z') });
+  // Sanitize the bucket name into a safe download filename (the real bucket name is `[a-z0-9-]` already,
+  // but belt-and-suspenders: strip anything a Content-Disposition could choke on).
+  const safe = bucketName.replace(/[^A-Za-z0-9._-]/g, '-') || 'bucket';
+  return { bytesIncluded, filename: `${safe}.zip`, includedCount, ok: true, totalCount, truncated, zip };
 }
 
 /**

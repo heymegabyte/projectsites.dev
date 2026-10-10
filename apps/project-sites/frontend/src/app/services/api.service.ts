@@ -23,7 +23,7 @@
  * ```
  */
 import { Injectable, inject } from '@angular/core';
-import { HttpClient, HttpErrorResponse, HttpHeaders } from '@angular/common/http';
+import { HttpClient, HttpErrorResponse, HttpHeaders, HttpResponse } from '@angular/common/http';
 import { Observable, of, throwError, TimeoutError } from 'rxjs';
 import { catchError, map, timeout } from 'rxjs/operators';
 import { z } from 'zod';
@@ -254,6 +254,21 @@ export class ApiService {
   getBlob(path: string, opts?: { silent?: boolean }): Observable<Blob> {
     return this.http
       .get(`/api${path}`, { headers: this.headers(), responseType: 'blob' })
+      .pipe(this.handleError(opts?.silent));
+  }
+
+  /**
+   * Like {@link getBlob} but resolves with the FULL {@link HttpResponse} so the caller can read response
+   * HEADERS alongside the body — needed when an endpoint rides metadata in headers rather than the body
+   * (e.g. the bucket-ZIP export's honest `x-ps-zip-truncated` / `x-ps-zip-count` / `x-ps-zip-total`
+   * accounting, which can't live in an `application/zip` body). Same bearer + 30s-timeout + telemetry +
+   * 401-redirect handling as {@link getBlob}.
+   *
+   * @param path - Relative to `/api` (e.g. `/sites/s1/r2/buckets/uploads/zip`).
+   */
+  getBlobResponse(path: string, opts?: { silent?: boolean }): Observable<HttpResponse<Blob>> {
+    return this.http
+      .get(`/api${path}`, { headers: this.headers(), observe: 'response', responseType: 'blob' })
       .pipe(this.handleError(opts?.silent));
   }
 

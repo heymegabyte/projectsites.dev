@@ -502,6 +502,17 @@ function blobToDataUrl(blob: Blob): Promise<string> {
 }
 
 /**
+ * Pull the download filename out of a `Content-Disposition` header (e.g. `attachment; filename="x.zip"`),
+ * so the editor's bucket-ZIP download uses the server's suggested name. Returns null when absent/unparseable
+ * (the caller falls back to `{bucket}.zip`).
+ */
+function filenameFromDisposition(disposition: string | null): string | null {
+  if (!disposition) return null;
+  const match = /filename\*?=(?:UTF-8'')?"?([^";]+)"?/i.exec(disposition);
+  return match?.[1] ? decodeURIComponent(match[1]).trim() : null;
+}
+
+/**
  * One row of the per-site resource overview (PS_RES_OVERVIEW_RESPONSE, FIRE 7). The admin only relays
  * the worker's `{ data: { resources: [...] } }` to the editor, so this is a permissive shape — the
  * editor's ResourceOverviewPanel owns the strict rendering contract.
@@ -3721,6 +3732,63 @@ export class BoltEmbedService {
                 if (err instanceof HttpErrorResponse && err.status === 404 && r2NotEnabled(err)) reply({ ok: false, enabled: false });
                 else if (err instanceof HttpErrorResponse && err.status === 503) reply({ ok: false, needsCreds: true, error: r2ErrMessage(err) ?? 'Object downloads need R2 S3 credentials.' });
                 else reply({ ok: false, error: r2ErrMessage(err) ?? 'Could not download the object.' });
+              },
+            });
+          break;
+        }
+        case 'PS_R2_ZIP': {
+          // Resources → Buckets (B7) — download the WHOLE bucket as one .zip. We GET the application/zip
+          // bytes (+ the honest x-ps-zip-* truncation headers) from the worker and return them as a base64
+          // data URL the editor turns into a Blob + browser download. Reply PS_R2_ZIP_RESULT. The export is
+          // bounded server-side; we forward `truncated`/`includedCount`/`totalCount` so the editor can warn
+          // the owner the archive is partial.
+          const iframe = this.iframeEl;
+          const site = this.currentSite;
+          const cid = msg.correlationId;
+          const reply = (payload: Record<string, unknown>): void => {
+            iframe?.contentWindow?.postMessage({ type: 'PS_R2_ZIP_RESULT', correlationId: cid, ...payload }, EDITOR_BASE);
+          };
+          if (!site) {
+            reply({ ok: false, error: 'No site selected' });
+            break;
+          }
+          const bucket = typeof msg.bucket === 'string' ? encodeURIComponent(msg.bucket) : '';
+          if (!bucket) {
+            reply({ ok: false, error: 'Missing bucket' });
+            break;
+          }
+          this.api
+            .getBlobResponse(`/sites/${site.id}/r2/buckets/${bucket}/zip`, { silent: true })
+            .subscribe({
+              next: async (res) => {
+                try {
+                  const blob = res.body ?? new Blob([], { type: 'application/zip' });
+                  const dataUrl = await blobToDataUrl(blob);
+                  // Parse the honest export accounting from the x-ps-zip-* headers (strings → numbers/bool).
+                  const h = res.headers;
+                  const num = (name: string): number | undefined => {
+                    const v = h.get(name);
+                    if (v === null) return undefined;
+                    const n = Number(v);
+                    return Number.isFinite(n) ? n : undefined;
+                  };
+                  reply({
+                    bytesIncluded: num('x-ps-zip-bytes'),
+                    dataUrl,
+                    filename: filenameFromDisposition(h.get('content-disposition')) ?? `${msg.bucket}.zip`,
+                    includedCount: num('x-ps-zip-count'),
+                    ok: true,
+                    totalCount: num('x-ps-zip-total'),
+                    truncated: h.get('x-ps-zip-truncated') === 'true',
+                  });
+                } catch {
+                  reply({ ok: false, error: 'Could not read the archive.' });
+                }
+              },
+              error: (err) => {
+                if (err instanceof HttpErrorResponse && err.status === 404 && r2NotEnabled(err)) reply({ ok: false, enabled: false });
+                else if (err instanceof HttpErrorResponse && err.status === 503) reply({ ok: false, needsCreds: true, error: r2ErrMessage(err) ?? 'Bucket export needs R2 S3 credentials.' });
+                else reply({ ok: false, error: r2ErrMessage(err) ?? 'Could not build the archive.' });
               },
             });
           break;

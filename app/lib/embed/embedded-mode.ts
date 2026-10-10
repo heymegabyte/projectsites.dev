@@ -2510,6 +2510,47 @@ export interface BucketCopyResponseMessage {
   error?: string;
 }
 
+/**
+ * Child → Parent (Resources — Buckets, B7): download the WHOLE bucket as one `.zip`. The editor has no
+ * cross-origin session, so the admin (which holds `selectedSite` + the bearer) GETs the
+ * `application/zip` bytes from `GET /api/sites/:id/r2/buckets/:bucket/zip` and returns them as a base64
+ * data URL the editor turns into a Blob + browser download. The export is BOUNDED server-side (object +
+ * byte caps); the admin forwards the honest truncation accounting from the `x-ps-zip-*` headers so the
+ * editor can warn the owner the archive is partial. Kept a distinct verb (large body, like DOWNLOAD).
+ */
+export interface BucketZipRequestMessage {
+  type: 'PS_R2_ZIP';
+  correlationId: string;
+  bucket: string;
+}
+
+/** Parent → Child: reply to {@link BucketZipRequestMessage}. */
+export interface BucketZipResponseMessage {
+  type: 'PS_R2_ZIP_RESULT';
+  correlationId?: string;
+  ok: boolean;
+
+  /** The zip bytes as a base64 data URL (`data:application/zip;base64,…`). */
+  dataUrl?: string;
+
+  /** Suggested download filename (`{bucket}.zip`). */
+  filename?: string;
+
+  /** Honest export accounting (from the worker's `x-ps-zip-*` headers). */
+  /** True when an object/byte cap stopped the export early — the archive is PARTIAL. */
+  truncated?: boolean;
+  /** Objects actually written into the zip. */
+  includedCount?: number;
+  /** Objects seen while scanning (≥ included; diverges once a cap trips). */
+  totalCount?: number;
+  /** Total uncompressed bytes written into the zip. */
+  bytesIncluded?: number;
+
+  enabled?: boolean;
+  needsCreds?: boolean;
+  error?: string;
+}
+
 /*
  * ── Owner-facing scoped R2 key bridge messages (Resources → Buckets, B5 slice 4) ────────────────
  *
@@ -2796,6 +2837,7 @@ export type ParentToChildMessage =
   | BucketUploadResponseMessage
   | BucketDownloadResponseMessage
   | BucketCopyResponseMessage
+  | BucketZipResponseMessage
   | OwnerKeyResponseMessage
   | BucketKeyResponseMessage
   | ClaudeFlagResponseMessage
@@ -2849,6 +2891,7 @@ export type ChildToParentMessage =
   | BucketUploadRequestMessage
   | BucketDownloadRequestMessage
   | BucketCopyRequestMessage
+  | BucketZipRequestMessage
   | OwnerKeyStatusRequestMessage
   | OwnerKeyCreateRequestMessage
   | OwnerKeyRotateRequestMessage
@@ -3757,6 +3800,23 @@ export function requestR2Copy(input: {
   return requestFromParent<BucketCopyResponseMessage>(
     { type: 'PS_R2_COPY', correlationId: nextBridgeCorrelationId(), ...input },
     'PS_R2_COPY_RESULT',
+  );
+}
+
+/**
+ * Resources → Buckets (B7): download the WHOLE bucket as one `.zip`. The admin GETs the
+ * `application/zip` bytes from `GET /api/sites/:id/r2/buckets/:bucket/zip` + returns them as a base64 data
+ * URL (the editor turns it into a Blob + triggers a browser download). The export is BOUNDED server-side;
+ * the reply carries the honest truncation accounting (`truncated` + `includedCount`/`totalCount`) so the
+ * caller can warn the owner the archive is partial. Resolves with the parent's {@link BucketZipResponseMessage}.
+ */
+export function requestBucketZip(input: { bucket: string }): Promise<BucketZipResponseMessage> {
+  return requestFromParent<BucketZipResponseMessage>(
+    { type: 'PS_R2_ZIP', correlationId: nextBridgeCorrelationId(), ...input },
+    'PS_R2_ZIP_RESULT',
+    // A whole-bucket zip can take a while to list + fetch + assemble — give it a generous timeout window
+    // (the worker caps the work, but a large bucket still needs more than the default bridge RTT).
+    120_000,
   );
 }
 

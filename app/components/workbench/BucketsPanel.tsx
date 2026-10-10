@@ -37,6 +37,7 @@ import {
   requestBucketOwnerKeyRotate,
   requestBucketOwnerKeyStatus,
   requestBucketUpload,
+  requestBucketZip,
   requestOwnerKeyCreate,
   requestOwnerKeyRevoke,
   requestOwnerKeyRotate,
@@ -2799,6 +2800,7 @@ const BucketWorkspace = memo(
           ) : (
             <BucketSettings
               bucket={bucket}
+              objectOpsAvailable={objectOpsAvailable}
               onAddress={onAddress}
               onTogglePublic={onTogglePublic}
               onPromote={onPromote}
@@ -2859,12 +2861,14 @@ SettingsSection.displayName = 'BucketsPanel.SettingsSection';
 const BucketSettings = memo(
   ({
     bucket,
+    objectOpsAvailable,
     onAddress,
     onTogglePublic,
     onPromote,
     onDelete,
   }: {
     bucket: BucketEntry;
+    objectOpsAvailable: boolean;
     onAddress: (b: BucketEntry) => void;
     onTogglePublic: (b: BucketEntry) => void;
     onPromote: (b: BucketEntry) => void;
@@ -2958,6 +2962,9 @@ const BucketSettings = memo(
         </button>
       </SettingsSection>
 
+      {/* Download the whole bucket as one .zip (B7). */}
+      <BucketExportSection bucket={bucket} objectOpsAvailable={objectOpsAvailable} />
+
       {/* Site-wide API access key — works for ALL the owner's buckets (B5 slice 4). */}
       <OwnerKeySection />
 
@@ -2987,6 +2994,109 @@ const BucketSettings = memo(
 );
 
 BucketSettings.displayName = 'BucketsPanel.BucketSettings';
+
+// ── Download-as-ZIP export (B7) ────────────────────────────────────────────────
+
+/**
+ * "Download as ZIP" — export the WHOLE bucket as one `.zip` (B7). Self-contained (like `OwnerKeySection`):
+ * owns its own in-flight state, calls the `requestBucketZip` bridge (admin GETs the `application/zip` +
+ * forwards the honest `x-ps-zip-*` truncation accounting), and triggers a browser download from the
+ * returned data URL via a temporary anchor — the SAME mechanism the single-object download uses.
+ *
+ * Embarrassingly-easy + no doomed control: the button is DISABLED with an inline explanation while object
+ * storage is still being set up (`objectOpsAvailable` false — the whole archive needs R2 S3 creds, exactly
+ * like per-object download), so the owner never clicks a control that can only fail. The export is BOUNDED
+ * server-side; when the worker reports `truncated`, we surface an HONEST "capped at N files / X" warning
+ * (never imply the archive is complete). While zipping, the button shows a live "Zipping…" state.
+ */
+export const BucketExportSection = memo(({ bucket, objectOpsAvailable }: { bucket: BucketEntry; objectOpsAvailable: boolean }) => {
+  const [zipping, setZipping] = useState(false);
+
+  const downloadZip = useCallback(async () => {
+    if (zipping) {
+      return;
+    }
+
+    setZipping(true);
+    postToastToParent('info', `Preparing ${bucket.name}.zip…`);
+
+    try {
+      const reply = await requestBucketZip({ bucket: bucket.name });
+
+      if (!reply.ok || !reply.dataUrl) {
+        postToastToParent(reply.needsCreds ? 'warning' : 'error', reply.error || 'Could not build the archive.');
+        return;
+      }
+
+      // Save via a temporary anchor (same as the single-object download path).
+      const a = document.createElement('a');
+      a.href = reply.dataUrl;
+      a.download = reply.filename || `${bucket.name}.zip`;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+
+      if (reply.truncated) {
+        // HONEST partial-export notice — never let the filename imply a complete archive.
+        const n = reply.includedCount ?? 0;
+        const total = reply.totalCount ?? n;
+        postToastToParent(
+          'warning',
+          `Downloaded the first ${n} of ${total} file${total === 1 ? '' : 's'} (${formatBytes(reply.bytesIncluded)}). The bucket is larger than one archive can hold — download the rest by folder.`,
+        );
+      } else {
+        const n = reply.includedCount ?? 0;
+        postToastToParent(
+          'success',
+          n === 0
+            ? 'That bucket is empty — downloaded an empty archive.'
+            : `Downloaded ${n} file${n === 1 ? '' : 's'} (${formatBytes(reply.bytesIncluded)}).`,
+        );
+      }
+    } catch (err) {
+      postToastToParent('error', err instanceof Error ? err.message : 'Could not build the archive.');
+    } finally {
+      setZipping(false);
+    }
+  }, [bucket.name, zipping]);
+
+  return (
+    <SettingsSection
+      title="Download as ZIP"
+      icon="i-ph:file-zip-duotone"
+      hint={
+        objectOpsAvailable
+          ? 'Download every object in this bucket as one .zip (bounded — very large buckets export the first slice).'
+          : 'Available once file storage for this site finishes setting up.'
+      }
+    >
+      <button
+        type="button"
+        onClick={() => void downloadZip()}
+        disabled={!objectOpsAvailable || zipping}
+        data-testid="buckets-settings-zip"
+        aria-label={`Download ${bucket.name} as a ZIP archive`}
+        aria-busy={zipping}
+        className={classNames(
+          BTN_SECONDARY,
+          'min-h-[28px] px-3 py-1 text-[11px] disabled:opacity-45 disabled:cursor-not-allowed',
+        )}
+      >
+        {zipping ? (
+          <>
+            <div className="i-ph:circle-notch text-sm animate-spin motion-reduce:animate-none" aria-hidden /> Zipping…
+          </>
+        ) : (
+          <>
+            <div className="i-ph:download-simple text-sm" aria-hidden /> Download .zip
+          </>
+        )}
+      </button>
+    </SettingsSection>
+  );
+});
+
+BucketExportSection.displayName = 'BucketsPanel.BucketExportSection';
 
 // ── Owner-key credential strip (B5 slice 4) ────────────────────────────────────
 

@@ -18,6 +18,7 @@
  * | POST   | /api/sites/:siteId/r2/buckets/:bucket/public              | Toggle public access                        |
  * | POST   | /api/sites/:siteId/r2/buckets/:bucket/promote             | Snapshot preview → production               |
  * | GET    | /api/sites/:siteId/r2/buckets/:bucket/objects             | List objects (prefix+cursor+delimiter) OR whole-bucket search (`?search=`, B11) |
+ * | GET    | /api/sites/:siteId/r2/buckets/:bucket/zip                 | Download the whole bucket as one bounded `.zip` (B7) |
  * | PUT    | /api/sites/:siteId/r2/buckets/:bucket/objects/*          | Upload an object (multipart or base64 JSON) |
  * | GET    | /api/sites/:siteId/r2/buckets/:bucket/objects/*          | Download an object                          |
  * | DELETE | /api/sites/:siteId/r2/buckets/:bucket/objects/*         | Delete an object                            |
@@ -67,6 +68,7 @@ import {
   type SiteR2Allocation,
   type SiteR2Failure,
   type SiteR2Result,
+  zipSiteR2Bucket,
 } from '../../../src/services/site_r2.js';
 import {
   CopyObjectBodySchema,
@@ -570,6 +572,49 @@ r2Buckets.get('/api/sites/:siteId/r2/buckets/:bucket/objects/*', async (c) => {
       'content-length': String(result.size),
       'content-type': result.contentType,
       'x-content-type-options': 'nosniff',
+    },
+    status: 200,
+  });
+});
+
+// ── GET /api/sites/:siteId/r2/buckets/:bucket/zip — download the WHOLE bucket as one .zip (B7) ───────
+//
+// READ-ONLY: lists + fetches every object and streams back ONE `application/zip` attachment. BOUNDED by an
+// object-count + total-uncompressed-bytes cap in the service (the archive is built in Worker memory); when
+// a cap trips the service returns `truncated:true` and we surface it in `x-ps-zip-truncated` + the honest
+// `x-ps-zip-count` (included) / `x-ps-zip-total` (seen) / `x-ps-zip-bytes` headers so the UI can warn the
+// owner the archive is partial. Same gate order as the rest of the surface (isolation BEFORE the op):
+// auth → `r2_bucket_manager` dark-404 → ownsSiteData → resolve the OWNED bucket (foreign bucket → 404 via
+// gateAndBucket's `WHERE site_id` scope — the IDOR guard). The download filename uses the owner's display
+// name (friendlier than the real `ps-site-…` bucket name).
+r2Buckets.get('/api/sites/:siteId/r2/buckets/:bucket/zip', async (c) => {
+  const { siteId, bucket } = c.req.param();
+  const g = await gateAndBucket(c, siteId, bucket);
+  if (g instanceof Response) return g;
+
+  const result = await zipSiteR2Bucket(
+    c.env,
+    { orgId: g.orgId, siteId, tenantId: g.tenantId },
+    g.allocation.bucketName,
+  );
+  if (!result.ok) return r2Failure(c, result.reason, result.message);
+
+  // Content-Disposition filename from the owner's DISPLAY name (what they typed), sanitized so a quote /
+  // backslash can't break the header. Falls back to the service's suggestion, then a constant.
+  const dispName = (g.allocation.displayName || bucket || 'bucket').replace(/[^A-Za-z0-9._-]/g, '-');
+  const filename = `${dispName || 'bucket'}.zip`;
+  return new Response(result.zip, {
+    headers: {
+      'cache-control': 'private, max-age=0, no-store',
+      'content-disposition': `attachment; filename="${filename}"`,
+      'content-length': String(result.zip.byteLength),
+      'content-type': 'application/zip',
+      'x-content-type-options': 'nosniff',
+      // Honest export accounting — the UI reads these to show "capped at N files / X MB" when truncated.
+      'x-ps-zip-bytes': String(result.bytesIncluded),
+      'x-ps-zip-count': String(result.includedCount),
+      'x-ps-zip-total': String(result.totalCount),
+      'x-ps-zip-truncated': String(result.truncated),
     },
     status: 200,
   });

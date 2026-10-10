@@ -98,3 +98,22 @@ export const ObjectEntrySchema = z.object({
   contentType: z.string().nullable().optional(),
 });
 export type ObjectEntry = z.infer<typeof ObjectEntrySchema>;
+
+/**
+ * B7 — the honest accounting the bucket-ZIP route (`GET …/r2/buckets/:bucket/zip`) carries back in its
+ * `x-ps-zip-*` response headers (the body is the raw `application/zip`). The export is BOUNDED (object +
+ * byte caps built in-Worker-memory), so this contract lets the client surface a truthful "capped at N
+ * files / X MB" note instead of implying the archive is complete. `truncated` true ⇒ `included < total`.
+ * Header values arrive as strings → coerced here; a consumer that parses the headers validates with this.
+ */
+export const ZipExportMetaSchema = z.object({
+  /** Objects actually written into the zip. */
+  included: z.coerce.number().int().min(0),
+  /** Objects seen while scanning the bucket (≥ included; diverges once a cap trips). */
+  total: z.coerce.number().int().min(0),
+  /** Total UNCOMPRESSED bytes written into the zip. */
+  bytes: z.coerce.number().int().min(0),
+  /** True when an object/byte cap stopped the walk early — the archive is PARTIAL. */
+  truncated: z.coerce.boolean(),
+});
+export type ZipExportMeta = z.infer<typeof ZipExportMetaSchema>;
