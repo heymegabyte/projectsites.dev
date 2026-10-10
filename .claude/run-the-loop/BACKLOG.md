@@ -2274,35 +2274,50 @@ Re-architect every workbench panel onto a shared gorgeous spine so chrome/tokens
 >   bucket · `401` post-revoke (the finer scope PROVEN via SigV4, not just claimed). **B4 UI is DEFERRED to its own
 >   follow-up (= READY-NOW #4 / the [ ] B4-UI slice below).** Do NOT re-open the B4 backend.
 >
-> **🔶 IN-FLIGHT THIS FIRE (B12 — rich sandboxed object previews, FE-only):** a sandboxed inspector for
-> image/pdf/text/media (typed viewer / `<iframe sandbox>`; SVG/HTML NEVER injected into the privileged origin) with a
-> metadata panel + download fallback, reusing `PS_R2_DOWNLOAD` for bytes. No new backend. Verify with the live object
-> round-trip + a visual walkthrough of each type.
+> **✅ B12 DONE (`702456b4b` feat + `98045914b` close — rich sandboxed object previews, FE-only):** typed sandboxed
+> inspector for image/video/audio/pdf/text/md/json/code (`<iframe sandbox>`; SVG/HTML NEVER injected into the privileged
+> origin) + metadata panel + download fallback, reusing `PS_R2_DOWNLOAD`. Visually verified per-type. `buckets-object-preview`
+> testid @`BucketsPanel.tsx:1841`. Do NOT re-open.
+>
+> **🔶 IN-FLIGHT THIS FIRE (B3 object-rows — context menu + keyboard multi-select + animated bulk bar, FE-only):**
+> right-click object rows (`onContextMenu` → an object-row menu mirroring `BucketRowMenu`) + Cmd/Ctrl-click, Shift-range,
+> Cmd+A, Delete, Esc, Cmd+C wired to the EXISTING (now-working) object handlers; the `selected` set + `buckets-bulk-bar`
+> shell already exist (`BucketsPanel.tsx:1673-1679`) — this fire adds the per-object SELECTION wiring + context menu +
+> an animated (count-driven, `motion-reduce`-safe) bulk bar. Fire only when no input is focused; discoverable via the
+> existing "?" `ShortcutsSheet`. (F2/rename deferred to B8.) No new backend. Verify with a visual walkthrough + the live
+> object round-trip (multi-select → bulk delete removes exactly the selected keys).
 
 > ### READY NOW — Buckets top 5 (pick ONE per fire; VERIFY each with the live object round-trip where object-touching)
-> *(B5 s4 CLOSED `daaf2db1c` + B4 BACKEND DONE this session — both dropped from the pick-list. **B12 is IN-FLIGHT this
-> fire** (🔶 banner above) — kept as #1 for continuity but NOT a fresh pick; the next fire picks from #2-#5.)*
-> 1. **🔶 [product] B12 — rich sandboxed previews** *(IN-FLIGHT THIS FIRE — FE-only, object ops live)* — a
->    sandboxed inspector for image/video/audio/pdf/text/md/json/code in `BucketsPanel.tsx` (extend the inline-image
->    preview into a typed viewer / `<iframe sandbox>`); SVG/HTML **NEVER** injected into the privileged origin;
->    metadata panel + download fallback. **Reuse:** `PS_R2_DOWNLOAD` (getObject) for bytes. · **new-backend: NO.** · category product.
-> 2. **[product] B3 object-rows — context menu + multi-select shortcuts** *(FE-only; handlers already exist)* —
->    right-click object rows + Cmd/Ctrl-click, Shift-range, Cmd+A, Delete, Esc, Cmd+C wired to the SAME (now-working)
->    object handlers; fire only when no input is focused; discoverable via the existing "?" sheet. (F2/rename deferred
->    to B8.) **Anchors:** object rows ~L1276 + the `selected` set ~L795 in `BucketsPanel.tsx`. · **new-backend: NO.** · category product.
-> 3. **[product] B15 — Code-view bucket source selector** *(money-path — the Code surface is where owners live)* —
+> *(B5 s4 CLOSED `daaf2db1c` + B4 BACKEND DONE + **B12 rich previews DONE** `98045914b` — all dropped from the pick-list.
+> **B3 object-rows is IN-FLIGHT this fire** (🔶 banner above) — kept as #1 for continuity but NOT a fresh pick; the next
+> fire picks from #2-#5.)*
+> 1. **🔶 [product] B3 object-rows — context menu + keyboard multi-select + animated bulk bar** *(IN-FLIGHT THIS FIRE;
+>    FE-only, object handlers already exist)* — right-click object rows (`onContextMenu` → object-row menu mirroring
+>    `BucketRowMenu`@981) + Cmd/Ctrl-click, Shift-range, Cmd+A, Delete, Esc, Cmd+C wired to the EXISTING object handlers;
+>    fire only when no input is focused; discoverable via the existing "?" `ShortcutsSheet`. The `selected` set + the
+>    `buckets-bulk-bar` shell already exist (`BucketsPanel.tsx:1673-1679`) — this fire adds per-object SELECTION + context
+>    menu + an animated (count-driven, `motion-reduce`-safe) bulk bar. (F2/rename deferred to B8.) **Anchors:** object rows
+>    `buckets-object-row`@L1778 + `buckets-object-tile`@L1934 + the `selected` set @L1673 in `BucketsPanel.tsx`. · **new-backend: NO.** · category product.
+> 2. **[product] B15 — Code-view bucket source selector** *(money-path — the Code surface is where owners live)* —
 >    a `Source ▾` picker in `app/components/workbench/EditorPanel.tsx` (ADD beside the existing `FileTree`/"Source"
 >    control ~L267, NO parallel tree) → website source | R2 bucket; load the bucket tree into the explorer;
 >    open/edit/save-back-to-R2; warn before Production edits; read-only vs editable; stale-save guard. **Reuse:**
 >    `requestR2({op:'listObjects'})` + `PS_R2_UPLOAD`/`PS_R2_DOWNLOAD` + `site_r2_manager.resolveSiteBuckets`. · **new-backend: NO.** · category product.
-> 4. **[product] B4 UI — per-bucket Access Keys workspace** *(FAST-FOLLOW; B4 BACKEND lands this fire — this WIRES it)* —
+> 3. **[product] B4 UI — per-bucket Access Keys workspace** *(FAST-FOLLOW — B4 BACKEND already DONE+PROVEN; this only WIRES the UI)* —
 >    per-bucket key management in the bucket **Settings** tab: **reuse `OwnerKeySection`** (`BucketsPanel.tsx:2291`,
->    already shipped for s4 SITE keys) scoped to the SELECTED bucket, consuming the NEW `PS_R2_BUCKET_KEY_*` bridge ops
->    (mirror the s4 `PS_R2_KEY_*` wiring at `embedded-mode.ts:2469+`) against `…/r2/buckets/:bucket/keys`. **Accept:**
->    show-once secret (create/rotate only, never re-fetchable) · copy-id · rotate re-reveals · revoke → calm create CTA ·
->    owner-copy regression (no `R2|S3|credential` in the section); editor builds + prod 200 with the per-bucket strip
->    visible; a per-bucket credential-VALIDITY E2E proves the key works ONLY on its bucket (another site bucket DENIED).
->    **Reuse:** `OwnerKeySection`/`SettingsSection`/`ModalShell` + `check-owner-key-valid.mjs` pattern. · **new-backend: NO** (B4 backend already in). · category product.
+>    already shipped for s4 SITE keys) scoped to the SELECTED bucket, consuming NEW `PS_R2_BUCKET_KEY_*` bridge ops
+>    (mirror the s4 `PS_R2_KEY_*` wiring at `embedded-mode.ts:2469+`) against `…/r2/buckets/:bucket/keys` (routes + `0662`
+>    already live). **Accept:** show-once secret (create/rotate only, never re-fetchable) · copy-id · rotate re-reveals ·
+>    revoke → calm create CTA · owner-copy regression (no `R2|S3|credential` in the section); editor builds + prod 200 with
+>    the per-bucket strip visible; a per-bucket credential-VALIDITY E2E proves the key works ONLY on its bucket (another
+>    site bucket DENIED). **Reuse:** `OwnerKeySection`/`SettingsSection`/`ModalShell` + `check-owner-key-valid.mjs` pattern. · **new-backend: NO** (B4 backend already in). · category product.
+> 4. **[product] B10 — Reassign bucket → environment (Preview/Production) + rollback** *(a DoD §21 clause; today's
+>    `EnvAssignmentGrid.tsx` is READ-ONLY)* — assign an UNASSIGNED custom bucket to the Preview/Production slot; reassign
+>    swaps the slot; **ROLLBACK** restores the prior binding on failure OR via explicit undo (two-way door); confirm before
+>    touching Production; honest progress+error; tenancy-guarded; capture BEFORE-binding for rollback. **Anchors:** NEW
+>    mutation route in `r2_buckets/handlers.ts` + env/binding model in `src/services/site_r2_manager.ts` (`resolveSiteBuckets`,
+>    system|custom) + NEW bridge op `assignBucketEnv` wired into `EnvAssignmentGrid.tsx` (add assign/undo to the read-only
+>    grid). · **new-backend: YES.** · category product. *(1-2 fires.)*
 > 5. **[testing/a11y] B14 residual — axe @ 6bp on the Buckets panel** — add `@axe-core/playwright` to the PROD E2E
 >    (not a jsdom unit dep), run axe on the Buckets panel @ 375/390/768/1024/1280/1920, fix violations. Keyboard is
 >    already done. · **new-backend: NO.** · category testing. *(MODERATE — start fresh.)*
@@ -2339,10 +2354,10 @@ Re-architect every workbench panel onto a shared gorgeous spine so chrome/tokens
 >   filters (ext/size/date/visibility/prefix) across all objects, cursor pagination, honest "indexing"/"scanning"
 >   status. **Anchors:** NEW route in `handlers.ts` + NEW bridge op `searchObjects`; reuse `listSiteR2Objects` S3
 >   list-paging (`site_r2.ts:677`) for a cursor scan (optionally a D1 metadata index for speed). · cadence every-2-loops · priority P2 · category product · estimate 1-2 fires · **new-backend: YES**.
-> - [~] **B12 — Rich previews** *(= READY-NOW #1; 🔶 IN-FLIGHT THIS FIRE)* — FE-only sandboxed inspector
->   (image/video/audio/pdf/text/md/json/code; `<iframe sandbox>`, SVG/HTML never in the privileged origin) + metadata
->   panel + download fallback; reuse `PS_R2_DOWNLOAD`. Anchors: inline-image preview + object rows ~L1276 in
->   `BucketsPanel.tsx`. · cadence every-loop · priority P2 · category product · estimate 1 fire · **new-backend: NO**.
+> - [x] **B12 — Rich previews** — ✅ DONE (`702456b4b` feat + `98045914b` close; visually verified per-type). FE-only
+>   sandboxed inspector (image/video/audio/pdf/text/md/json/code; `<iframe sandbox>`, SVG/HTML never in the privileged
+>   origin) + metadata panel + download fallback; reuses `PS_R2_DOWNLOAD`. `buckets-object-preview` testid @`BucketsPanel.tsx:1841`.
+>   Do NOT re-open.
 > - [ ] **B13 — Insights + metadata/lifecycle** — storage-by-type · largest-files · activity timeline · metadata
 >   editor · lifecycle/CORS/storage-class. **Accept:** usage rollup by type, largest-files list, timeline from
 >   `audit_logs`, editable object metadata, lifecycle/CORS/storage-class controls (only where CF + user perms allow).
@@ -2396,16 +2411,22 @@ Re-architect every workbench panel onto a shared gorgeous spine so chrome/tokens
 > **Apply to ALL future B4/B9/B11/B15 credential + objectops probes.** (Pairs with memory `[[prod-verify-authed-mutation-via-workers-dev]]`.)
 >
 > ### 📊 DoD §21 PROGRESS (master abridged — see `BUCKETS-MASTER-SPEC.md:323`)
-> **~80% complete** (≈16 of ~20 acceptance clauses met; +1 vs last groom — B4 per-BUCKET key BACKEND now DONE).
+> **~82% complete** (≈17 of ~21 acceptance clauses met; +1 vs last groom — B12 rich sandboxed previews now DONE).
 > **✅ DONE:** exactly-2 defaults (Preview+Production, Uploads retired via `0649`) · custom-bucket CRUD · delete/empty ·
-> type-icon file browser · browse/sort/upload/download/delete + object round-trip (B5 s2, prod-proven) · bucket+file
-> context menus (B3) · per-SITE owner key create/rotate/revoke + show-once secure copy (B5 s4) · **per-BUCKET scoped
-> key create/rotate/revoke BACKEND + validity-E2E (B4, `0662`)** · tenant isolation on every op (`ownsSiteData` IDOR) ·
-> beautiful loading/empty/error/success + `psBucketRise` · a11y keyboard/focus/SR (B14 foundation) · deployed +
-> prod-verified · existing data intact. **🔶 IN-FLIGHT THIS FIRE:** B12 rich sandboxed previews (FE-only).
-> **⬜ REMAINING (the open clauses):** B4-UI per-bucket key workspace (backend done) · B6 clone · B7 zip · B8
-> copy/move/rename · B9 per-object-public + public-bucket-marks-all + revoke-safe · B10 env reassign unassigned→env +
-> rollback · B11 server-side search · B15 Code-editor selector · B14 axe @ 6bp · **≥5 real visual-refinement rounds**
-> (track rounds explicitly). Est. **8-10 one-fire slices** to genuine DoD (B12 closes one as it lands this fire).
-> **Cron-retire trigger:** all the above shipped + prod-verified + ≥5 visual rounds logged → retire the Buckets cron
-> per `[[loop-cron-refires-one-prompt-retire-when-directive-complete]]` (don't flood once DoD is genuinely met).
+> type-icon file browser · browse/sort/upload/download/delete + object round-trip (B5 s2, prod-proven) · **rich sandboxed
+> object previews image/video/audio/pdf/text/md/json/code (B12, `98045914b`)** · bucket+file context menus (B3 bucket-level) ·
+> per-SITE owner key create/rotate/revoke + show-once secure copy (B5 s4) · per-BUCKET scoped key create/rotate/revoke
+> BACKEND + validity-E2E (B4, `0662`) · tenant isolation on every op (`ownsSiteData` IDOR) · beautiful loading/empty/error/
+> success + `psBucketRise` · a11y keyboard/focus/SR (B14 foundation) · deployed + prod-verified · existing data intact.
+> **🔶 IN-FLIGHT THIS FIRE:** B3 object-rows — context menu + keyboard multi-select + animated bulk bar (FE-only; closes
+> the "object context menus" + "bulk actions" DoD clauses when verified).
+> **⬜ REMAINING TO GENUINE DoD (the exact open slices — ~9 + visual rounds):** (1) **B3 object-rows** *(in-flight this
+> fire)* object context menu + multi-select + bulk actions · (2) **B4-UI** per-bucket key workspace (backend done) ·
+> (3) **B6** clone bucket (Workflow) · (4) **B7** ZIP export · (5) **B8** copy/move/rename (unblocks B3 F2/rename) ·
+> (6) **B9** per-object-public + public-bucket-marks-all + revoke-safe · (7) **B10** env reassign unassigned→env +
+> rollback · (8) **B11** server-side bucket-wide search · (9) **B15** Code-editor bucket selector · plus **B14 axe @ 6bp**
+> + **≥5 real visual-refinement rounds** (track rounds EXPLICITLY — none logged as a numbered round yet). Est. **8-9
+> one-fire slices + the visual-rounds tally** to genuine DoD (B3 this fire takes it to ~85%).
+> **Cron-retire trigger (b1182793):** ALL 9 slices above shipped + prod-verified + B14 axe clean + **≥5 visual rounds
+> logged** → THEN CronDelete per `[[loop-cron-refires-one-prompt-retire-when-directive-complete]]` (don't flood once DoD
+> is genuinely met). Not yet — ~9 slices + visual-rounds remain.
