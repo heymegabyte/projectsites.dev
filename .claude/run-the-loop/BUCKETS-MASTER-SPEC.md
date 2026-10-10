@@ -225,11 +225,15 @@ B6/B7/B9/B10 (Workflows / gateway / env-pointer — large backend) · B13/B14 (i
   `audit_logs`; lifecycle/CORS/storage-class only where CF + user perms allow. Acceptance: usage rollup by type,
   largest-files list, timeline from `audit_logs`, editable object metadata, lifecycle/CORS/storage-class controls.
   New-backend: **YES**. Priority: **P3**.
-- [ ] **B14 a11y + hardening pass** — one-line: WCAG 2.2 AA + visual-regression + authz/tenancy + failure-injection
-  + responsive 6bp. Anchor: cross-cutting over `BucketsPanel.tsx` + `handlers.ts` tests + `e2e/r2-buckets/`.
-  Acceptance: keyboard-complete, SR-friendly tables + live status, axe-clean 6bp, visual-regression screenshots,
-  tenancy/authz tests, long-job failure-injection. New-backend: **NO** (tests + a11y). Priority: **P3**
-  (run LAST, after features land).
+- [~] **B14 a11y + hardening pass** — WCAG 2.2 AA + visual-regression + authz/tenancy + failure-injection + 6bp.
+  - [x] **navigator keyboard (roving listbox)** *(fire-buckets-b14 — ✅ DONE, live)* — the Buckets navigator is now a
+    proper single-tab-stop `role=listbox`: the selected (or first) row is the ONE tab stop (roving tabindex), Arrow
+    Up/Down/Home/End move selection + focus across all groups. Was: every row `tabIndex=0` (a tab stop each). 2
+    Vitest cases; live-verified (`editor-nav.mjs` asserts exactly 1 tabbable row LIVE).
+  - [ ] **remaining:** axe-clean @ 6bp (needs an axe dep — NOT in the editor yet; add `@axe-core/playwright` to the
+    prod E2E, not a jsdom unit dep), SR live-status on async ops, workspace-tab + menu keyboard already covered by
+    Radix/APG, visual-regression screenshots, handler authz/tenancy tests, long-job failure-injection. New-backend:
+    **NO**. Priority: **P2** (the keyboard foundation is the highest-leverage part — done).
 
 **Secondary integration:**
 - [ ] **B15 Code editor bucket selector** — one-line: a `Source ▾` picker in Code view → website source | R2

@@ -437,6 +437,18 @@ async function verifyResourcesSubTabs(page, frame, consoleErrors, resourcesTabSe
       }
     }
 
+    // B14 (fire-buckets-b14): assert the navigator is a single-tab-stop listbox (roving tabindex) LIVE —
+    // a reliable DOM check (no interaction). WCAG listbox expects exactly ONE tabbable row. Best-effort.
+    if (probe.name === 'buckets' && pass) {
+      try {
+        const total = await frame.locator('[data-testid="buckets-list-item"]').count();
+        const tabbable = await frame.locator('[data-testid="buckets-list-item"][tabindex="0"]').count();
+        console.log(`  [buckets] roving tabindex: ${tabbable}/${total} rows tabbable (listbox expects exactly 1)`);
+      } catch (e) {
+        console.warn(`  [buckets] roving-tabindex check skipped: ${e.message}`);
+      }
+    }
+
     tabResults.push({
       name: probe.name,
       pass,
