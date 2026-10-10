@@ -1,7 +1,12 @@
-# Buckets convergence — session checkpoint (2026-10-10)
+# Buckets convergence — ✅ COMPLETE (2026-10-10)
 
-> Resume point for the next `/run-the-loop` fire scoped to the **Ultimate R2 Bucket Manager**
-> (`BUCKETS-MASTER-SPEC.md`). Four verified fires shipped this session; DoD ≈ 82%.
+> **BUCKETS-MASTER-SPEC §21 DoD = 100% COMPLETE** — every clause shipped + **prod-verified on real R2**
+> across 16 verified fires this session. **Both Buckets crons RETIRED** (`b1182793` + `70c740a1`,
+> CronDelete'd 2026-10-10) per the directive — the spec DoD is genuinely met; no no-op re-fires.
+>
+> Only NON-§21 OPTIONAL fast-follows remain (available on explicit request, NOT cron-driven):
+> **B15-object-tree** (Code-view in-explorer object-tree load/edit/save-back) · **B6 unbounded-Workflow**
+> clone (bounded path already satisfies §21) · **B13 insights** (P3) · a per-bucket-key `expire` nicety.
 
 ## Shipped this session (all on `origin/main`, prod-verified)
 1. **slice3** — `iconForObject`→`bucket-icons.ts` (18 distinct glyphs) + **color-coded** per-type tints + populated `/_preview` gallery (list+grid) + owner-key backend + AA-contrast empty states.
