@@ -2430,3 +2430,9 @@ Re-architect every workbench panel onto a shared gorgeous spine so chrome/tokens
 > **Cron-retire trigger (b1182793):** ALL 9 slices above shipped + prod-verified + B14 axe clean + **≥5 visual rounds
 > logged** → THEN CronDelete per `[[loop-cron-refires-one-prompt-retire-when-directive-complete]]` (don't flood once DoD
 > is genuinely met). Not yet — ~9 slices + visual-rounds remain.
+
+
+## Fleet fire-38039150213-fleet — orientation tooling (2026-10-10 UTC)
+
+- [x] Include named fires and complete numeric-prefixed fleet IDs in git recency/category input. Regression tests reproduce dropped Buckets fires and named-ID category contamination; repaired in this iteration.
+- [ ] Extend ledger header parsing to named fires with explicit chronological ordering. Current ledger numeric sorting excludes `fire-buckets-*`; git recency now includes them and exposes the bounded membership gap. Preserve numeric-suffix ordering tests and use git chronology rather than lexical name ordering.

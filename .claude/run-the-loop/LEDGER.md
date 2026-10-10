@@ -1654,3 +1654,10 @@ Lean fire (coalesced 2 overlapping cron ticks via lease mutex). ONE coherent ver
 4. b12 — sandboxed preview showcase (image + escaped-text cards, screenshot-verified, 0 console errors).
 5. b3 — animated bulk-action bar (role=toolbar, cyan rail, psBucketRise) + no-regression screenshot (0 errors).
 → ≥5 numbered visual rounds now logged; DoD visual-rounds clause SATISFIED.
+
+
+## fire-38039150213-fleet — named git fire identity repair (2026-10-10 UTC)
+
+Observed orientation defect: git recency omitted `fire-buckets-b3ms` and `fire-buckets-b12`, and truncated `fire-38039150213-fleet`. Added shared token matching for complete numeric/named identities and removed identities before category classification. Two regression tests failed before repair; all 12 recency/reporting tests passed afterward. Production homepage and editor entry points returned HTTP 200; no browser journey or product deployment was performed. This is local tooling, not a completed product golden path. Independent read-only review found no blocking regression; confirmed the existing limitation that feature commits without fire IDs cannot contribute category evidence. Commit is the enclosing `fix(loop)` commit; outer runner owns publication.
+
+Recovery: retained failed worktree was clean; its receipt reports completion-evidence failure rather than unpublished code. Both prior reported successful commits are ancestors of origin/main. Next frontier: named ledger header parsing with git-based chronology, recorded in BACKLOG. Loop improvement: category input now includes the actual recent named fires.

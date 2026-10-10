@@ -50,3 +50,18 @@ test('product fixes and wrapper substance retain exclusive categories', () => {
   assert.equal(classifyFire('abc docs(loop): update category budget (fire-314)'), 'loop');
   assert.equal(classifyFire('abc fix(a11y): repair editor focus'), 'ux');
 });
+
+
+test('git includes named fires without truncating numeric-prefixed fleet IDs', () => {
+  const history = parseGitFires(`abc docs(loop): close fire-buckets-b3ms
+def docs(loop): close fire-buckets-b12
+ghi fix(loop): fire-38039150213-fleet fire-38039150213-fleet
+jkl test: fire-314`);
+  assert.deepEqual(history.order, ['fire-buckets-b3ms', 'fire-buckets-b12', 'fire-38039150213-fleet', 'fire-314']);
+  assert.equal(history.subjects.get('fire-38039150213-fleet').match(/ghi/g).length, 1);
+});
+
+test('named fire IDs do not contaminate substantive category classification', () => {
+  assert.equal(classifyFire('abc docs(loop): fire-editor-smoke — category budget'), 'loop');
+  assert.equal(classifyFire('abc feat(buckets): bulk selection (fire-buckets-b3ms)'), 'product');
+});

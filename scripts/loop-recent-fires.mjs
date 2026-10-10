@@ -26,6 +26,8 @@ import { dirname, join, resolve } from 'node:path';
 const HERE = dirname(fileURLToPath(import.meta.url));
 const REPO = join(HERE, '..');
 const LEDGER = join(REPO, '.claude', 'run-the-loop', 'LEDGER.md');
+// Named fires and fleet IDs are identities too; keep hyphenated segments intact.
+const FIRE_TOKEN = /\bfire-[a-z0-9]+(?:-[a-z0-9]+)*\b/gi;
 const FIRE_HEADER = /^#{1,3}\s*(fire-(\d+)([a-z]*))\b(.*)$/i;
 
 // §3 category budget (run-the-loop.md). floor/ceil are fractions of the recent-fire window.
@@ -103,7 +105,7 @@ export function parseLedgerFires(text, n = 8) {
 }
 
 /**
- * Distinct fire-NN tokens from recent git history, newest-first, each with the ACCUMULATED
+ * Distinct numeric or named fire tokens from recent git history, newest-first, each with the ACCUMULATED
  * commit subjects that mention it (authoritative + chronological — the category signal lives
  * in the substantive commit subjects, not the possibly-stale LEDGER).
  */
@@ -120,7 +122,7 @@ export function parseGitFires(out) {
   const order = [];
   const subjects = new Map(); // token -> accumulated subject text
   for (const line of out.split('\n')) {
-    const toks = line.match(/\bfire-\d+[a-z]*\b/gi);
+    const toks = line.match(FIRE_TOKEN);
     if (!toks) continue;
     for (const raw of new Set(toks.map((token) => token.toLowerCase()))) {
       const tok = raw;
@@ -149,7 +151,7 @@ export function recencyDiagnostics(fires, git) {
  * fire-135's summary used `chore(loop):`, which leaked the prefix into the classifier.
  */
 function stripWrapper(text) {
-  return text.replace(/\w+\(loop\):/gi, ' ').replace(/📘|📥|🔁|🎨/g, ' ').replace(/fire-\d+[a-z]*\s*[—–-]?/gi, ' ');
+  return text.replace(/\w+\(loop\):/gi, ' ').replace(/📘|📥|🔁|🎨/g, ' ').replace(FIRE_TOKEN, ' ');
 }
 
 /** Classify one fire's accumulated subject text into a §3 category (first-match, substance-first). */
