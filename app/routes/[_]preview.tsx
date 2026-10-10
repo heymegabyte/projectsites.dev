@@ -201,6 +201,82 @@ function ObjectBrowserSample() {
 }
 
 /**
+ * STATIC showcase of the B12 in-editor object PREVIEW modal body — an image preview card beside a
+ * text/code preview card — so the headless `/_preview` screenshot proves the sandboxed preview chrome
+ * (brand-dark, cyan, mono source block) lands in production. Pure + static (no bridge, no blob URL):
+ * the image slot shows the inline SVG data URL it would render; the text slot shows ESCAPED source in
+ * a `<pre>` exactly as the live modal does. Carries a `buckets-preview-showcase` testid that does NOT
+ * collide with `buckets-populated-sample` / `buckets-object-list` / `buckets-object-grid`.
+ */
+function PreviewShowcase() {
+  // A tiny inert SVG rendered as an <img> (mirrors the modal's inert image element — never executes).
+  const sampleImage =
+    'data:image/svg+xml;utf8,' +
+    encodeURIComponent(
+      '<svg xmlns="http://www.w3.org/2000/svg" width="240" height="160">' +
+        '<defs><linearGradient id="g" x1="0" y1="0" x2="1" y2="1">' +
+        '<stop offset="0" stop-color="%2300e5ff"/><stop offset="1" stop-color="%237c3aed"/>' +
+        '</linearGradient></defs><rect width="240" height="160" rx="12" fill="url(%23g)"/>' +
+        '<text x="120" y="88" font-family="monospace" font-size="18" fill="%23060610" ' +
+        'text-anchor="middle">hero.webp</text></svg>',
+    );
+
+  const sampleText = `{
+  "name": "site-assets",
+  "objects": 1284,
+  "public": true,
+  "preview": "escaped in a <pre> — never executed"
+}`;
+
+  return (
+    <div className="mt-10 grid gap-8 lg:grid-cols-2 max-w-[940px]" data-testid="buckets-preview-showcase">
+      {/* Image preview card */}
+      <figure className="m-0 flex flex-col gap-2">
+        <div className="w-full overflow-hidden rounded-2xl border border-bolt-elements-borderColor shadow-xl shadow-black/40">
+          <PanelShell>
+            <PanelHeader icon="i-ph:eye-duotone" title="hero.webp" subtitle="image preview" />
+            <div className="p-4">
+              <div className="flex items-center justify-center rounded-xl border border-bolt-elements-borderColor/60 bg-bolt-elements-background-depth-1 p-2">
+                <img
+                  src={sampleImage}
+                  alt="Sample image preview"
+                  className="max-h-[220px] max-w-full rounded-lg object-contain"
+                />
+              </div>
+              <div className="mt-3 flex items-center justify-end border-t border-bolt-elements-borderColor/40 pt-3">
+                <span className="inline-flex items-center gap-1.5 rounded-lg border border-bolt-elements-item-contentAccent/35 bg-bolt-elements-item-contentAccent/[0.06] px-3 py-1 text-[11px] text-bolt-elements-item-contentAccent">
+                  <span className="i-ph:download-simple text-sm" aria-hidden="true" /> Download
+                </span>
+              </div>
+            </div>
+          </PanelShell>
+        </div>
+        <figcaption className="text-[11px] font-mono uppercase tracking-wider text-bolt-elements-textSecondary">
+          Object preview (image · inert img)
+        </figcaption>
+      </figure>
+
+      {/* Text/code preview card */}
+      <figure className="m-0 flex flex-col gap-2">
+        <div className="w-full overflow-hidden rounded-2xl border border-bolt-elements-borderColor shadow-xl shadow-black/40">
+          <PanelShell>
+            <PanelHeader icon="i-ph:eye-duotone" title="config.json" subtitle="text preview · escaped" />
+            <div className="p-4">
+              <pre className="max-h-[240px] overflow-auto modern-scrollbar rounded-xl border border-bolt-elements-borderColor/60 bg-bolt-elements-background-depth-1 p-3 font-mono text-[11px] leading-relaxed text-bolt-elements-textSecondary whitespace-pre-wrap break-words">
+                {sampleText}
+              </pre>
+            </div>
+          </PanelShell>
+        </div>
+        <figcaption className="text-[11px] font-mono uppercase tracking-wider text-bolt-elements-textSecondary">
+          Object preview (text/code · escaped pre)
+        </figcaption>
+      </figure>
+    </div>
+  );
+}
+
+/**
  * The gallery: one frame per primitive, each in a realistic panel chrome, on the brand-dark canvas.
  * Pure + static so a headless browser paints it deterministically (the only dynamic pixel is the
  * contained WebGL nebula inside {@link PanelLoading}, which is the money shot QA screenshots).
@@ -328,6 +404,9 @@ export default function PanelPrimitiveGallery() {
           </figcaption>
         </figure>
       </div>
+
+      {/* 7 — B12 object PREVIEW modal body (image + text/code), static + sandbox-faithful. */}
+      <PreviewShowcase />
     </div>
   );
 }

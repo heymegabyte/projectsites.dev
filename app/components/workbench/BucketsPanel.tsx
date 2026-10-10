@@ -219,6 +219,144 @@ function estMonthlyCost(totalBytes: number): string {
  */
 export { iconForObject, isImageKey } from './bucket-icons';
 
+// ── In-editor object preview (B12) ─────────────────────────────────────────────
+
+/**
+ * How a bucket object should be PREVIEWED in-editor (B12). Drives {@link ObjectPreviewModal}: images
+ * render as inert `<img>`, media as inert `<video>`/`<audio>`, pdf inside a SANDBOXED iframe (no
+ * `allow-scripts`), text/code ESCAPED in a `<pre>`, and anything else → a graceful download fallback.
+ * A pure function (no React / no bridge) so the Vitest suite + the `/_preview` gallery share one SSOT.
+ */
+export type PreviewKind = 'image' | 'pdf' | 'text' | 'video' | 'audio' | 'none';
+
+/** Extensions rendered as ESCAPED text in a `<pre>` (never executed, never `dangerouslySetInnerHTML`). */
+const TEXT_PREVIEW_RE = /\.(txt|md|markdown|mdx|json|jsonc|csv|tsv|log|ts|tsx|js|mjs|cjs|jsx|css|scss|html?|xml|ya?ml|toml)$/i;
+const VIDEO_PREVIEW_RE = /\.(mp4|webm|mov|m4v|ogv)$/i;
+const AUDIO_PREVIEW_RE = /\.(mp3|wav|ogg|m4a|flac|aac|opus)$/i;
+
+/**
+ * Classify an object for the in-editor preview by its key (extension) with an optional content-type
+ * hint. Extension wins for the escaped-text families (so a `text/html` key still renders as inert,
+ * escaped source — never as a live document); `application/pdf` or a `.pdf` key → the sandboxed
+ * iframe. Unknown → `'none'` (the download-only fallback — never a doomed control).
+ *
+ * @param key - The object key (e.g. `report.pdf`, `images/hero.webp`).
+ * @param contentType - Optional MIME hint from the download bridge.
+ * @returns The {@link PreviewKind} to render.
+ */
+export function classifyPreview(key: string, contentType?: string | null): PreviewKind {
+  if (isImageKey(key)) {
+    return 'image';
+  }
+
+  if (/\.pdf$/i.test(key) || contentType === 'application/pdf') {
+    return 'pdf';
+  }
+
+  // Text/code BEFORE the generic MIME sniff so `.html`/`.xml` render as escaped source, not a doc.
+  if (TEXT_PREVIEW_RE.test(key)) {
+    return 'text';
+  }
+
+  if (VIDEO_PREVIEW_RE.test(key)) {
+    return 'video';
+  }
+
+  if (AUDIO_PREVIEW_RE.test(key)) {
+    return 'audio';
+  }
+
+  // Content-type fallbacks for extension-less keys.
+  if (contentType) {
+    if (contentType.startsWith('image/')) {
+      return 'image';
+    }
+
+    if (contentType.startsWith('video/')) {
+      return 'video';
+    }
+
+    if (contentType.startsWith('audio/')) {
+      return 'audio';
+    }
+
+    if (contentType.startsWith('text/') || /\b(json|xml|javascript|csv|yaml)\b/.test(contentType)) {
+      return 'text';
+    }
+  }
+
+  return 'none';
+}
+
+/** True when an object can be previewed in-editor at all (anything but `'none'`). */
+export function isPreviewable(key: string, contentType?: string | null): boolean {
+  return classifyPreview(key, contentType) !== 'none';
+}
+
+/**
+ * Decode a base64 `data:` URL into a Blob so untrusted bytes are rendered from an OPAQUE blob: URL
+ * (not the inline data: URL). Returns `null` if the string isn't a decodable data URL.
+ */
+function dataUrlToBlob(dataUrl: string): Blob | null {
+  const match = /^data:([^;,]*)(;base64)?,(.*)$/s.exec(dataUrl);
+
+  if (!match) {
+    return null;
+  }
+
+  const mime = match[1] || 'application/octet-stream';
+  const isBase64 = !!match[2];
+  const data = match[3];
+
+  try {
+    if (isBase64) {
+      const binary = atob(data);
+      const bytes = new Uint8Array(binary.length);
+
+      for (let i = 0; i < binary.length; i++) {
+        bytes[i] = binary.charCodeAt(i);
+      }
+
+      return new Blob([bytes], { type: mime });
+    }
+
+    return new Blob([decodeURIComponent(data)], { type: mime });
+  } catch {
+    return null;
+  }
+}
+
+/** Decode the TEXT body of a base64 data URL to a string (for the escaped `<pre>` text preview). */
+function dataUrlToText(dataUrl: string): string {
+  const match = /^data:([^;,]*)(;base64)?,(.*)$/s.exec(dataUrl);
+
+  if (!match) {
+    return '';
+  }
+
+  const isBase64 = !!match[2];
+  const data = match[3];
+
+  try {
+    if (isBase64) {
+      const binary = atob(data);
+
+      // Decode as UTF-8 (atob yields a Latin-1 byte string).
+      const bytes = new Uint8Array(binary.length);
+
+      for (let i = 0; i < binary.length; i++) {
+        bytes[i] = binary.charCodeAt(i);
+      }
+
+      return new TextDecoder().decode(bytes);
+    }
+
+    return decodeURIComponent(data);
+  } catch {
+    return '';
+  }
+}
+
 /** Read a File into a base64 data URL (for the upload bridge). */
 function fileToDataUrl(file: File): Promise<string> {
   return new Promise((resolve, reject) => {
@@ -1100,6 +1238,8 @@ const ObjectBrowser = memo(
     const [uploadName, setUploadName] = useState<string | null>(null);
     const [dragging, setDragging] = useState(false);
     const [busyKey, setBusyKey] = useState<string | null>(null);
+    // B12 — the object key whose in-editor preview is open (null = no preview).
+    const [previewKey, setPreviewKey] = useState<string | null>(null);
     const dragDepth = useRef(0);
     const fileInputRef = useRef<HTMLInputElement>(null);
     const cursorStack = useRef<string[]>([]);
@@ -1692,13 +1832,13 @@ const ObjectBrowser = memo(
 
                         {/* Row actions. */}
                         <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 transition-opacity motion-reduce:transition-none shrink-0">
-                          {isImageKey(obj.key) && (
+                          {isPreviewable(obj.key) && (
                             <button
                               type="button"
-                              onClick={() => void downloadObject(obj.key)}
-                              disabled={busy}
-                              title="Preview / download"
+                              onClick={() => setPreviewKey(obj.key)}
+                              title="Preview"
                               aria-label={`Preview ${name}`}
+                              data-testid="buckets-object-preview"
                               className={classNames(BTN_GHOST, 'min-h-[24px] min-w-[24px] p-1')}
                             >
                               <div className="i-ph:eye text-xs" />
@@ -1860,6 +2000,18 @@ const ObjectBrowser = memo(
                         </div>
 
                         <div className="absolute right-1.5 top-1.5 flex items-center gap-1 opacity-0 transition-opacity motion-reduce:transition-none group-hover:opacity-100 group-focus-within:opacity-100">
+                          {isPreviewable(obj.key) && (
+                            <button
+                              type="button"
+                              onClick={() => setPreviewKey(obj.key)}
+                              title="Preview"
+                              aria-label={`Preview ${name}`}
+                              data-testid="buckets-tile-preview"
+                              className={classNames(BTN_GHOST, 'min-h-[22px] min-w-[22px] p-1')}
+                            >
+                              <div className="i-ph:eye text-xs" />
+                            </button>
+                          )}
                           <button
                             type="button"
                             onClick={() => void copyObjectUrl(obj.key)}
@@ -1970,6 +2122,16 @@ const ObjectBrowser = memo(
           }}
           data-testid="buckets-file-input"
         />
+
+        {/* B12 — in-editor sandboxed object preview (bytes via the existing download bridge). */}
+        {previewKey && (
+          <ObjectPreviewModal
+            bucket={bucket.name}
+            objectKey={previewKey}
+            onClose={() => setPreviewKey(null)}
+            onDownload={(key) => void downloadObject(key)}
+          />
+        )}
       </div>
     );
   },
@@ -3055,6 +3217,238 @@ const AddressRow = memo(({ label, value, hint }: { label: string; value: string 
 });
 
 AddressRow.displayName = 'BucketsPanel.AddressRow';
+
+/*
+ * ── In-editor object preview modal (B12) ──────────────────────────────────────
+ * SEE a file without downloading it. Fetches bytes once via the existing `requestBucketDownload`
+ * bridge (→ `PS_R2_DOWNLOAD_RESULT`, a base64 data URL), decodes to an OPAQUE blob: URL, and renders
+ * by {@link classifyPreview}:
+ *   • image  → inert `<img>`
+ *   • pdf    → SANDBOXED `<iframe sandbox>` (NO `allow-scripts` — untrusted bytes never execute)
+ *   • text   → fetched + ESCAPED in a `<pre>` (React escapes text children; never innerHTML)
+ *   • video/audio → inert `<video controls>` / `<audio controls>`
+ *   • none   → graceful "No preview available — Download" fallback (never a doomed control)
+ * Loading + error states included; the blob: URL is REVOKED on close/unmount (no leak). Rendered in
+ * the shared {@link ModalShell} (brand-dark, cyan, motion-safe entrance, focus-trap, Escape-to-close).
+ */
+
+type PreviewState =
+  | { status: 'loading' }
+  | { status: 'error'; message: string }
+  | { status: 'ready'; kind: PreviewKind; blobUrl?: string; text?: string; contentType?: string };
+
+const ObjectPreviewModal = memo(
+  ({
+    bucket,
+    objectKey,
+    onClose,
+    onDownload,
+  }: {
+    bucket: string;
+    objectKey: string;
+    onClose: () => void;
+    /** Reuse the parent's download action for the fallback + the header's Download affordance. */
+    onDownload: (key: string) => void;
+  }) => {
+    const [state, setState] = useState<PreviewState>({ status: 'loading' });
+
+    // Hold the created blob: URL so cleanup revokes exactly what we made (untrusted-bytes hygiene).
+    const blobUrlRef = useRef<string | null>(null);
+    const name = objectKey.split('/').pop() || objectKey;
+
+    useEffect(() => {
+      let cancelled = false;
+
+      const revoke = () => {
+        if (blobUrlRef.current) {
+          URL.revokeObjectURL(blobUrlRef.current);
+          blobUrlRef.current = null;
+        }
+      };
+
+      void (async () => {
+        try {
+          const reply = await requestBucketDownload({ bucket, key: objectKey });
+
+          if (cancelled) {
+            return;
+          }
+
+          if (!reply.ok || !reply.dataUrl) {
+            setState({ status: 'error', message: reply.error || 'Couldn’t load preview.' });
+            return;
+          }
+
+          const kind = classifyPreview(objectKey, reply.contentType);
+
+          if (kind === 'text') {
+            setState({ status: 'ready', kind, text: dataUrlToText(reply.dataUrl), contentType: reply.contentType });
+            return;
+          }
+
+          if (kind === 'none') {
+            setState({ status: 'ready', kind, contentType: reply.contentType });
+            return;
+          }
+
+          // image / pdf / video / audio → render from an opaque blob: URL (never the inline data: URL).
+          const blob = dataUrlToBlob(reply.dataUrl);
+
+          if (!blob) {
+            setState({ status: 'error', message: 'Couldn’t load preview.' });
+            return;
+          }
+
+          revoke();
+
+          const blobUrl = URL.createObjectURL(blob);
+          blobUrlRef.current = blobUrl;
+          setState({ status: 'ready', kind, blobUrl, contentType: reply.contentType });
+        } catch (err) {
+          if (!cancelled) {
+            setState({ status: 'error', message: err instanceof Error ? err.message : 'Couldn’t load preview.' });
+          }
+        }
+      })();
+
+      return () => {
+        cancelled = true;
+        revoke();
+      };
+    }, [bucket, objectKey]);
+
+    const downloadBtn = (
+      <button
+        type="button"
+        onClick={() => {
+          onDownload(objectKey);
+          onClose();
+        }}
+        data-testid="buckets-preview-download"
+        className={classNames(BTN_SECONDARY, 'min-h-[28px] px-3 py-1 text-[11px]')}
+      >
+        <div className="i-ph:download-simple text-sm" aria-hidden /> Download
+      </button>
+    );
+
+    return (
+      <ModalShell title={name} icon="i-ph:eye-duotone" onClose={onClose} testId="buckets-preview-modal">
+        <div className="space-y-3" data-testid="buckets-preview-body">
+          {state.status === 'loading' && (
+            <div
+              className="flex flex-col items-center justify-center gap-2 py-12 text-center"
+              data-testid="buckets-preview-loading"
+              aria-busy="true"
+            >
+              <div
+                className="i-ph:circle-notch text-2xl text-bolt-elements-item-contentAccent animate-spin motion-reduce:animate-none"
+                aria-hidden
+              />
+              <p className="text-[11px] text-bolt-elements-textTertiary">Loading preview…</p>
+            </div>
+          )}
+
+          {state.status === 'error' && (
+            <div
+              className="flex flex-col items-center gap-3 py-10 text-center"
+              role="alert"
+              data-testid="buckets-preview-error"
+            >
+              <div className="i-ph:warning-circle-duotone text-3xl text-red-400" aria-hidden />
+              <p className="text-[12px] text-bolt-elements-textSecondary">Couldn’t load preview.</p>
+              {downloadBtn}
+            </div>
+          )}
+
+          {state.status === 'ready' && state.kind === 'image' && state.blobUrl && (
+            <div className="flex items-center justify-center rounded-xl border border-bolt-elements-borderColor/60 bg-bolt-elements-background-depth-1 p-2">
+              {/* Inert element — bytes can't execute. `bg-[length:...]` checker reads transparency. */}
+              <img
+                src={state.blobUrl}
+                alt={name}
+                data-testid="buckets-preview-image"
+                className="max-h-[60vh] max-w-full rounded-lg object-contain"
+                style={{
+                  backgroundImage:
+                    'linear-gradient(45deg,#1a1a26 25%,transparent 25%),linear-gradient(-45deg,#1a1a26 25%,transparent 25%),linear-gradient(45deg,transparent 75%,#1a1a26 75%),linear-gradient(-45deg,transparent 75%,#1a1a26 75%)',
+                  backgroundSize: '16px 16px',
+                  backgroundPosition: '0 0,0 8px,8px -8px,-8px 0',
+                }}
+              />
+            </div>
+          )}
+
+          {state.status === 'ready' && state.kind === 'pdf' && state.blobUrl && (
+            <iframe
+              // SANDBOXED — NO `allow-scripts`: an untrusted PDF/any-HTML payload can never run code.
+              sandbox=""
+              src={state.blobUrl}
+              title={`Preview of ${name}`}
+              data-testid="buckets-preview-pdf"
+              className="h-[60vh] w-full rounded-xl border border-bolt-elements-borderColor/60 bg-white"
+            />
+          )}
+
+          {state.status === 'ready' && state.kind === 'text' && (
+            <pre
+              data-testid="buckets-preview-text"
+              className="max-h-[60vh] overflow-auto modern-scrollbar rounded-xl border border-bolt-elements-borderColor/60 bg-bolt-elements-background-depth-1 p-3 font-mono text-[11px] leading-relaxed text-bolt-elements-textSecondary whitespace-pre-wrap break-words"
+            >
+              {/* React escapes text children — the source is shown, never executed / interpreted. */}
+              {state.text}
+            </pre>
+          )}
+
+          {state.status === 'ready' && state.kind === 'video' && state.blobUrl && (
+            <video
+              src={state.blobUrl}
+              controls
+              data-testid="buckets-preview-video"
+              className="max-h-[60vh] w-full rounded-xl border border-bolt-elements-borderColor/60 bg-black"
+            >
+              <track kind="captions" />
+            </video>
+          )}
+
+          {state.status === 'ready' && state.kind === 'audio' && state.blobUrl && (
+            <div className="rounded-xl border border-bolt-elements-borderColor/60 bg-bolt-elements-background-depth-1 p-4">
+              <audio src={state.blobUrl} controls data-testid="buckets-preview-audio" className="w-full">
+                <track kind="captions" />
+              </audio>
+            </div>
+          )}
+
+          {state.status === 'ready' && state.kind === 'none' && (
+            <div
+              className="flex flex-col items-center gap-3 py-10 text-center"
+              data-testid="buckets-preview-unavailable"
+            >
+              <div className="i-ph:file-dashed-duotone text-3xl text-bolt-elements-textTertiary" aria-hidden />
+              <div>
+                <p className="text-[12px] font-medium text-bolt-elements-textSecondary">No preview available</p>
+                <p className="mt-0.5 text-[10px] text-bolt-elements-textTertiary">
+                  This file type can’t be shown here — download it to open it.
+                </p>
+              </div>
+              {downloadBtn}
+            </div>
+          )}
+
+          {/* A persistent Download affordance for the renderable types (fallback states embed their own). */}
+          {state.status === 'ready' && state.kind !== 'none' && (
+            <div className="flex items-center justify-end border-t border-bolt-elements-borderColor/40 pt-3">
+              {downloadBtn}
+            </div>
+          )}
+        </div>
+      </ModalShell>
+    );
+  },
+);
+
+ObjectPreviewModal.displayName = 'BucketsPanel.ObjectPreviewModal';
+
+export { ObjectPreviewModal };
 
 // ── Modal shell ──────────────────────────────────────────────────────────────
 
