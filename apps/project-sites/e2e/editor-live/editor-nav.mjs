@@ -444,6 +444,13 @@ async function verifyResourcesSubTabs(page, frame, consoleErrors, resourcesTabSe
         const total = await frame.locator('[data-testid="buckets-list-item"]').count();
         const tabbable = await frame.locator('[data-testid="buckets-list-item"][tabindex="0"]').count();
         console.log(`  [buckets] roving tabindex: ${tabbable}/${total} rows tabbable (listbox expects exactly 1)`);
+
+        // B14 (fire-buckets-livestatus): the needs-creds state must carry role=status so a screen reader
+        // is notified when it appears (WCAG 4.1.3). Reliable DOM check.
+        const srStatus = await frame
+          .locator('[data-testid="buckets-objects-needs-creds"][role="status"]')
+          .count();
+        console.log(`  [buckets] needs-creds role=status (WCAG 4.1.3): ${srStatus > 0 ? 'yes' : 'no'}`);
       } catch (e) {
         console.warn(`  [buckets] roving-tabindex check skipped: ${e.message}`);
       }
