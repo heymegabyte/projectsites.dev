@@ -1696,3 +1696,10 @@ Full-stack fire (coalesced 1 cron tick). ONE coherent verified slice = B11. No m
 - lead — worker 508cbf67 + editor Pages 1939fdf2; PROD-VERIFIED server search via workers.dev: seeded 3 objects, ?search=b11zzz → returned exactly 2 matches (excluded non-match), honest flags scanned:3/scannedAll:true/truncated:false; cleanup 200. No-regression gallery 0 errors.
 - LESSON: per-fire verify must run the FULL jest suite, not just `jest r2_buckets` — a subset pattern missed 4 red tests b4 introduced.
 - DoD §21 NOT met — remaining B10 · B6 · B7 · B9 · B14 axe + fast-follows (B8-cross-bucket, B15-tree, 502-GET). Cron b1182793 KEPT.
+
+## fire-buckets-b14axe (2026-10-10) — axe @ 6 breakpoints gate on /_preview
+Lean a11y fire. ONE coherent verified slice = B14 (DoD testing clause). No migration.
+- B14-axe `c1155dd88` — durable check-buckets-axe.mjs (verify:buckets-axe): @axe-core/playwright at 6 bp (375·390·768·1024·1280·1920) on /_preview, fails on serious/critical. FOUND + FIXED a real serious violation (scrollable-region-focusable WCAG 2.1.1 — the gallery object scroll region had zero focusable descendants): added tabIndex=0 + role=region + aria-label + focus-ring in [_]preview.tsx (real BucketsPanel already passes — its rows carry focusable buttons, NOT touched). tsc clean.
+- B14-groom `6eb10e644`/`fb7ea2786` — B11 DONE; DoD §21 ≈ 96%.
+- lead — editor Pages 47904cea; B14 axe gate PROD-VERIFIED GREEN: 0 critical/serious/moderate/minor at ALL 6 breakpoints. (6× 200 loads = no-regression.)
+- DoD §21 ≈ 96% → ~97% (axe clause MET). Remaining feature: B10 env reassign+rollback · B6 clone (heavy) · B7 zip · B9 per-object public+shares (heavy) + fast-follows (B8-cross-bucket, B15-tree, 502-GET fix). Cron b1182793 KEPT.
