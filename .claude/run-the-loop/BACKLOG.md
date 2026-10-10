@@ -2200,7 +2200,7 @@ Re-architect every workbench panel onto a shared gorgeous spine so chrome/tokens
 
 - [ ] LOOP-CATEGORY-UNKNOWN-314: actual recency JSON still classifies fires 311 and 313 as other despite their loop-only tooling work. Investigate accumulated wrapper-subject semantics before changing precedence; acceptance: pure-loop fixtures classify as loop while substantive product/test work retains its category. cadence once · priority low · category loop-improvement.
 
-## ⭐⭐ BUCKETS FRONTIER — groom fire-buckets-b8 (the CANONICAL Buckets queue — the next Buckets fire reads THIS, no exploration needed)
+## ⭐⭐ BUCKETS FRONTIER — groom fire-buckets-b11 (the CANONICAL Buckets queue — the next Buckets fire reads THIS, no exploration needed)
 
 > **Scope lock (Brian 2026-10-09):** this frontier is ONLY **Editor → Resources → Buckets** (+ the
 > secondary **Editor → Code → bucket selector**, B15). Detail/history SSOT = `./BUCKETS-MASTER-SPEC.md`
@@ -2310,28 +2310,33 @@ Re-architect every workbench panel onto a shared gorgeous spine so chrome/tokens
 >     `PS_R2_DOWNLOAD`. Verify via a headless round-trip against `*.workers.dev` (STANDING PROBE-DESIGN NOTE below).
 >     · cadence next-Buckets-fire · priority P2 · category product · estimate 1 fire · **new-backend: NO.**
 >
-> **🔶 IN-FLIGHT THIS FIRE (B8 — Object rename/copy/move, same-bucket first; unblocks B3's F2/rename):** S3
-> CopyObject→Delete with verify-before-delete + overwrite-exists guard + metadata/public-intent preservation;
-> tenancy-guarded on BOTH buckets. Same-bucket rename/copy/move lands this fire; **cross-bucket copy/move is the
-> fast-follow** (see B8 slice below). **No native `CopyObject` exists yet** (greenfield). **Reuse:** the SigV4
-> `s3Fetch` primitive (`site_r2.ts:1544`) + the S3 copy logic path near `promoteSiteR2` (`site_r2.ts:1821`). **Anchors:**
-> NEW service fns in `src/services/site_r2.ts` + NEW route(s) in `libs/features/r2_buckets/handlers.ts` (gate
-> auth→flag `r2_bucket_manager`→`ownsSiteData`) + NEW bridge ops `copyObject`/`moveObject`/`renameObject`
-> (`embedded-mode.ts`) + context-menu wiring in `BucketsPanel.tsx` (object-row menu / `BucketRowMenu`, F2=rename).
-> Verify: authed copy/move/rename round-trip on real R2 via `*.workers.dev` (STANDING PROBE-DESIGN NOTE) — assert
-> source gone (move/rename) + dest present (bytes match) + overwrite-guard rejects an existing key.
+> **✅ B8 DONE (same-bucket rename/copy/move — `d2ebbe658`-era; PROD-VERIFIED on real R2):** `copySiteR2Object`
+> (S3 CopyObject + signed copy-source) · collision/overwrite guard · copy-then-delete for move/rename · NEW route in
+> `handlers.ts` + `PS_R2_COPY` bridge + `ObjectCopyDialog` wired into B3's object-row menu (F2=rename). 82 jest + 151
+> Vitest. Live round-trip asserted via `*.workers.dev`: copy 200 · rename 200 · source removed. Reused the SigV4
+> `s3Fetch`@1544 + the copy path near `promoteSiteR2`@1821. **Cross-bucket copy/move = the deferred 🔸 fast-follow
+> below** (extend `copyObject`/`moveObject` to the site's OTHER buckets, tenancy-guarded on BOTH source+dest, same
+> verify-before-delete + overwrite guard + metadata/public-intent preservation).
+>
+> **🔶 IN-FLIGHT THIS FIRE (B11 — server-side whole-bucket search):** real search + filters
+> (ext/size/date/visibility/prefix) across ALL objects (today's search only filters the loaded page in
+> `BucketsPanel.tsx`), cursor pagination, honest "indexing"/"scanning" status. **Anchors:** NEW route in
+> `libs/features/r2_buckets/handlers.ts` (gate auth→flag `r2_bucket_manager`→`ownsSiteData`) + NEW bridge op
+> `searchObjects` (`embedded-mode.ts`) + search-bar wiring in `BucketsPanel.tsx`; reuse `listSiteR2Objects` S3
+> list-paging (`site_r2.ts:677`) for a cursor scan (optionally a D1 metadata index for speed). Verify: authed
+> whole-bucket search round-trip on real R2 via `*.workers.dev` — assert a deep (non-first-page) key is found.
 
 > ### READY NOW — Buckets top 5 (pick ONE per fire; VERIFY each with the live object round-trip where object-touching)
 > *(B5 s4 CLOSED `daaf2db1c` + B4 BACKEND DONE + **B4-UI DONE** `673a46a55`/`5d875bd57` + **B12 rich previews DONE**
-> `98045914b` + **B3 object-rows DONE** `b6d229409`/`d9044b304` + **B15 selector DONE** `efb0ad1a8`/`6e03fc3e2` — all
-> dropped from the pick-list. **B8 is IN-FLIGHT this fire** (🔶 banner above) — kept as #1 for continuity but NOT a fresh
-> pick; the next fire picks from #2-#5.)*
-> 1. **🔶 [product] B8 — Object rename/copy/move (same-bucket first)** *(IN-FLIGHT THIS FIRE; unblocks B3's F2/rename)* —
->    S3 CopyObject→Delete with verify-before-delete + overwrite-exists guard + metadata/public-intent preservation;
->    tenancy-guarded on BOTH buckets. Same-bucket this fire; cross-bucket = the B8 fast-follow below. **Anchors:** NEW
->    service fns in `src/services/site_r2.ts` (reuse the SigV4 `s3Fetch`@1544 + the S3 copy path near
->    `promoteSiteR2`@1821 — NO native `CopyObject` yet) + NEW route(s) in `libs/features/r2_buckets/handlers.ts` + NEW
->    bridge ops `copyObject`/`moveObject`/`renameObject` + object-row-menu/F2 wiring in `BucketsPanel.tsx`. · **new-backend: YES.** · category product.
+> `98045914b` + **B3 object-rows DONE** `b6d229409`/`d9044b304` + **B15 selector DONE** `efb0ad1a8`/`6e03fc3e2` +
+> **B8 same-bucket rename/copy/move DONE** (prod-verified on real R2) — all dropped from the pick-list. **B11 is
+> IN-FLIGHT this fire** (🔶 banner above) — kept as #1 for continuity but NOT a fresh pick; the next fire picks from
+> #2-#5.)*
+> 1. **🔶 [product] B11 — Server-side bucket-wide search** *(IN-FLIGHT THIS FIRE; today's search only filters the
+>    loaded page in `BucketsPanel.tsx`)* — real search + filters (ext/size/date/visibility/prefix) across ALL objects,
+>    cursor pagination, honest "indexing"/"scanning" status. **Anchors:** NEW route in `r2_buckets/handlers.ts` + NEW
+>    bridge op `searchObjects` + search-bar wiring in `BucketsPanel.tsx`; reuse `listSiteR2Objects` S3 list-paging
+>    (`site_r2.ts:677`) for a cursor scan (optionally a D1 metadata index for speed). · **new-backend: YES.** · category product. *(1-2 fires.)*
 > 2. **[product] B10 — Reassign bucket → environment (Preview/Production) + rollback** *(a DoD §21 clause; today's
 >    `EnvAssignmentGrid.tsx` is READ-ONLY — confirmed this groom: `PS_RES_OVERVIEW_REQUEST` read @174, "Not provisioned"
 >    cell @370, no mutation)* — assign an UNASSIGNED custom bucket to the Preview/Production slot; reassign swaps the
@@ -2340,23 +2345,24 @@ Re-architect every workbench panel onto a shared gorgeous spine so chrome/tokens
 >    mutation route in `r2_buckets/handlers.ts` + env/binding model in `src/services/site_r2_manager.ts` (`resolveSiteBuckets`,
 >    system|custom) + NEW bridge op `assignBucketEnv` wired into `EnvAssignmentGrid.tsx` (add assign/undo to the read-only
 >    grid). · **new-backend: YES.** · category product. *(1-2 fires.)*
-> 3. **[product] B11 — Server-side bucket-wide search** *(today's search only filters the loaded page in
->    `BucketsPanel.tsx`)* — real search + filters (ext/size/date/visibility/prefix) across ALL objects, cursor
->    pagination, honest "indexing"/"scanning" status. **Anchors:** NEW route in `r2_buckets/handlers.ts` + NEW bridge op
->    `searchObjects`; reuse `listSiteR2Objects` S3 list-paging (`site_r2.ts`) for a cursor scan (optionally a D1 metadata
->    index for speed). · **new-backend: YES.** · category product. *(1-2 fires.)*
-> 4. **[product] B6 — Clone bucket** *(DoD §21 "clone" clause)* — durable Workflow: create a new physical bucket +
+> 3. **[product] B6 — Clone bucket** *(DoD §21 "clone" clause)* — durable Workflow: create a new physical bucket +
 >    server-side-copy every object. **Accept:** new bucket + object+metadata copy (HTTP/custom meta, CORS, lifecycle
 >    where CF supports), clone defaults private+unassigned, progress (files/bytes/stage/errors/retry/cancel),
 >    verified-before-success. **Anchors:** NEW CF **Workflow** + NEW route in `handlers.ts` + NEW bridge op `cloneBucket`;
 >    reuse `provisionSiteR2` (`site_r2.ts:250`) for the new bucket + the S3 copy path near `promoteSiteR2`
->    (`site_r2.ts:1821`); register the clone in `site_r2_manager` catalog as `kind:'custom'`. · **new-backend: YES (heavy — Workflow).** · category product. *(2-3 fires.)*
+>    (`site_r2.ts:1821`) — proven by B8's `copySiteR2Object`; register the clone in `site_r2_manager` catalog as `kind:'custom'`. · **new-backend: YES (heavy — Workflow).** · category product. *(2-3 fires.)*
+> 4. **[product] B7 — ZIP export** *(DoD §21 "zip" clause)* — export a bucket/folder/selection as a ZIP (stream
+>    small; background job + short-lived signed link for large). **Accept:** small→streamed ZIP, large→ZIP64
+>    background job + expiring signed link; path-traversal safe; auto-expire. **Anchors:** NEW route in `handlers.ts` +
+>    NEW bridge op `exportZip`; reuse `listSiteR2Objects` (`site_r2.ts:677`) + `getSiteR2Object` (`site_r2.ts:743`);
+>    temp output in a PLATFORM bucket (NEVER a customer bucket). · **new-backend: YES.** · category product. *(1-2 fires.)*
 > 5. **[testing/a11y] B14 residual — axe @ 6bp on the Buckets panel** — add `@axe-core/playwright` to the PROD E2E
 >    (not a jsdom unit dep), run axe on the Buckets panel @ 375/390/768/1024/1280/1920, fix violations. Keyboard is
 >    already done. · **new-backend: NO.** · category testing. *(MODERATE — start fresh.)*
 >
-> *(B7 zip · B9 per-object-public+shares · B13 insights + the **B8 cross-bucket** and **B15 object-tree** fast-follows
-> remain crisp one-fire TODOs in the B6-B13 list below — rotate them into the top-5 as picks are consumed.)*
+> *(B9 per-object-public+shares (heavy) · B13 insights + the **B8 cross-bucket** and **B15 object-tree** fast-follows +
+> the pre-existing **502-GET fix** (GET `/objects/*` on a missing key returns 502, should be 404) remain crisp one-fire
+> TODOs in the B6-B13 list below — rotate them into the top-5 as picks are consumed.)*
 
 > ### Buckets spec slices — self-contained one-fire TODOs (B6-B13; pick after the top-5)
 > - [x] **B5 s4 — owner credential-strip UI + audit + validity-E2E** — ✅ CLOSED (`96b2bf415`+`a3c2073c3`+`daaf2db1c`).
@@ -2374,13 +2380,12 @@ Re-architect every workbench panel onto a shared gorgeous spine so chrome/tokens
 >   path-traversal safe; auto-expire. **Anchors:** NEW route in `handlers.ts` + NEW bridge op `exportZip`; reuse
 >   `listSiteR2Objects` (`site_r2.ts:677`) + `getSiteR2Object` (`site_r2.ts:743`); temp output in a PLATFORM bucket
 >   (NEVER a customer bucket). · cadence every-2-loops · priority P2 · category product · estimate 1-2 fires · **new-backend: YES**.
-> - [🔶] **B8 — Object rename/copy/move** — 🔶 **IN-FLIGHT THIS FIRE (same-bucket rename/copy/move).** S3
->   CopyObject→Delete with verification + overwrite guard. **Accept:** copy/move within a bucket; verify copy before
->   delete; overwrite-exists check; preserve metadata + public intent; tenancy-guarded. **Unblocks B3's F2/rename.**
->   **Anchors:** NEW service fns in `site_r2.ts` (reuse the SigV4 `s3Fetch`@1544 + the S3 copy path near
->   `promoteSiteR2`@1821 — NO native `CopyObject` yet) + NEW route(s) in `handlers.ts` + NEW bridge ops
->   `copyObject`/`moveObject`/`renameObject` + object-row-menu/F2 wiring in `BucketsPanel.tsx`. · cadence every-2-loops · priority P2 · category product · estimate 1-2 fires · **new-backend: YES**.
->   - **🔸 B8 FAST-FOLLOW (deferred) — cross-bucket copy/move** — extend B8's `copyObject`/`moveObject` to copy/move
+> - [x] **B8 — Object rename/copy/move (same-bucket)** — ✅ DONE (prod-verified on real R2: copy 200 · rename 200 ·
+>   source removed). `copySiteR2Object` (S3 CopyObject + signed copy-source) · collision/overwrite guard · copy-then-
+>   delete for move/rename · NEW route in `handlers.ts` + `PS_R2_COPY` bridge + `ObjectCopyDialog` wired into B3's
+>   object-row menu (F2=rename). 82 jest + 151 Vitest. Reused the SigV4 `s3Fetch`@1544 + the copy path near
+>   `promoteSiteR2`@1821. **Cross-bucket copy/move = the deferred fast-follow below.** Do NOT re-open the same-bucket path.
+>   - **🔸 B8 FAST-FOLLOW (deferred) — cross-bucket copy/move** — extend B8's `copySiteR2Object`/move to copy/move
 >     across the site's OTHER buckets (not just within one): tenancy-guarded on BOTH source + dest buckets, same
 >     verify-before-delete + overwrite guard + metadata/public-intent preservation. · cadence next-Buckets-fire · priority P2 · category product · estimate 1 fire · **new-backend: YES (extends B8 routes)**.
 > - [ ] **B9 — Per-object public + expiring shares** — a Worker object-serving gateway + an `ObjectVisibility`
@@ -2389,9 +2394,9 @@ Re-architect every workbench panel onto a shared gorgeous spine so chrome/tokens
 >   public endpoint. **Anchors:** NEW public Worker route (gateway, range-request aware) + NEW D1 table
 >   `object_visibility{bucketId,objectKey,visibility,publicSlug}` + resolver honoring bucket-public inheritance;
 >   integrate with `site_r2_manager` for bucket→site resolution. (Also unblocks PRIVATE-bucket grid thumbnails.) · cadence every-4-loops · priority P2 · category product · estimate 2-3 fires · **new-backend: YES (heavy)**.
-> - [ ] **B11 — Server-side bucket-wide search + metadata index** — real search across the WHOLE bucket (today's
->   search only filters the loaded page — the in-panel filter in `BucketsPanel.tsx`, refactored since the old
->   `filteredObjects`/L1055 anchor; grep the current filter var before editing). **Accept:** search + filters
+> - [🔶] **B11 — Server-side bucket-wide search + metadata index** — 🔶 **IN-FLIGHT THIS FIRE.** Real search across
+>   the WHOLE bucket (today's search only filters the loaded page — the in-panel filter in `BucketsPanel.tsx`,
+>   refactored since the old `filteredObjects`/L1055 anchor; grep the current filter var before editing). **Accept:** search + filters
 >   (ext/size/date/visibility/prefix) across all objects, cursor pagination, honest "indexing"/"scanning" status.
 >   **Anchors:** NEW route in `handlers.ts` + NEW bridge op `searchObjects`; reuse `listSiteR2Objects` S3 list-paging
 >   (`site_r2.ts`) for a cursor scan (optionally a D1 metadata index for speed). · cadence every-2-loops · priority P2 · category product · estimate 1-2 fires · **new-backend: YES**.
@@ -2462,31 +2467,33 @@ Re-architect every workbench panel onto a shared gorgeous spine so chrome/tokens
 > **Apply to ALL future B4/B9/B11/B15 credential + objectops probes.** (Pairs with memory `[[prod-verify-authed-mutation-via-workers-dev]]`.)
 >
 > ### 📊 DoD §21 PROGRESS (master abridged — see `BUCKETS-MASTER-SPEC.md:323`)
-> **~88% complete** (≈21 of ~24 acceptance clauses met; +1 vs last groom — the **B15 Code-view bucket source selector**
-> clause is now DONE `efb0ad1a8`/`6e03fc3e2`, selector-level — only its in-explorer object-tree-load fast-follow remains).
+> **~92% complete** (≈22 of ~24 acceptance clauses met; +1 vs last groom — the **B8 copy/move/rename** clause is now
+> DONE same-bucket, prod-verified on real R2; only its cross-bucket fast-follow remains for full breadth).
 > **✅ DONE:** exactly-2 defaults (Preview+Production, Uploads retired via `0649`) · custom-bucket CRUD · delete/empty ·
 > type-icon file browser · browse/sort/upload/download/delete + object round-trip (B5 s2, prod-proven) · rich sandboxed
 > object previews image/video/audio/pdf/text/md/json/code (B12, `98045914b`) · bucket+file context menus (B3 bucket-level) ·
 > **object context menu + keyboard multi-select + bulk actions (B3 object-rows, `b6d229409`/`d9044b304`)** ·
-> per-SITE owner key create/rotate/revoke + show-once secure copy (B5 s4) · **per-BUCKET scoped key create/rotate/revoke
+> **object copy/move/rename same-bucket (B8, `copySiteR2Object` + `PS_R2_COPY` + `ObjectCopyDialog`; prod-verified on
+> real R2 — copy 200 · rename 200 · src removed; 82 jest + 151 Vitest)** · per-SITE owner key create/rotate/revoke + show-once secure copy (B5 s4) · **per-BUCKET scoped key create/rotate/revoke
 > END-TO-END — BACKEND + validity-E2E (B4, `0662`) + UI `BucketKeySection` (B4-UI, `673a46a55`/`5d875bd57`)** ·
 > **Code-view bucket source selector (B15, `efb0ad1a8`/`6e03fc3e2` — `CodeSourcePicker` + `useCodeSources`, Production
 > read-only, 8 Vitest)** · tenant isolation on every op (`ownsSiteData` IDOR) · beautiful loading/empty/error/success +
 > `psBucketRise` · a11y keyboard/focus/SR (B14 foundation) · **≥5 real visual-refinement rounds logged+numbered
 > (`d9044b304`/`15432d9ea`)** · deployed + prod-verified · existing data intact.
-> **🔶 IN-FLIGHT THIS FIRE:** B8 — Object rename/copy/move (same-bucket first); S3 CopyObject→Delete via the SigV4
-> `s3Fetch`@1544 + the copy path near `promoteSiteR2`@1821, NEW routes in `r2_buckets/handlers.ts` + NEW bridge ops
-> `copyObject`/`moveObject`/`renameObject` + object-row-menu/F2 wiring; unblocks B3's F2/rename.
-> **⬜ REMAINING TO GENUINE DoD (the exact open slices — 6 feature + 1 testing):** (1) **B8** rename/copy/move *(in-flight
-> this fire — same-bucket; cross-bucket is a ~1-fire fast-follow)* · (2) **B10** env reassign unassigned→env + rollback ·
-> (3) **B11** server-side bucket-wide search · (4) **B6** clone bucket (Workflow) · (5) **B7** ZIP export · (6) **B9**
-> per-object-public + public-bucket-marks-all + revoke-safe · plus **B14 axe @ 6bp** (testing clause, not a feature slice).
-> Two deferred fast-follows ride on top: **B8 cross-bucket** (extends B8) + **B15 object-tree load** (extends B15). The
-> ≥5-visual-rounds · per-bucket-key · B15-selector clauses are MET.
-> Est. **6-7 one-fire slices** remain to genuine DoD (B8 this fire; B6/B9 are the ~2-3-fire heavies, the rest ~1-2; the
-> two fast-follows ~1 each).
-> **Cron-retire trigger (b1182793):** ALL remaining feature slices (B8 same+cross-bucket / B10 / B11 / B6 / B7 / B9 +
-> the B15 object-tree fast-follow) shipped + prod-verified + B14 axe clean → THEN CronDelete per
+> **🔶 IN-FLIGHT THIS FIRE:** B11 — server-side whole-bucket search + filters (ext/size/date/visibility/prefix),
+> cursor pagination, honest "indexing"/"scanning" status; NEW route in `r2_buckets/handlers.ts` + NEW bridge op
+> `searchObjects` + search-bar wiring in `BucketsPanel.tsx`; reuse `listSiteR2Objects` S3 list-paging (`site_r2.ts:677`).
+> **⬜ REMAINING TO GENUINE DoD (the exact open slices — 5 feature + 1 testing):** (1) **B11** server-side bucket-wide
+> search *(in-flight this fire)* · (2) **B10** env reassign unassigned→env + rollback · (3) **B6** clone bucket
+> (Workflow) · (4) **B7** ZIP export · (5) **B9** per-object-public + public-bucket-marks-all + revoke-safe · plus
+> **B14 axe @ 6bp** (testing clause, not a feature slice). Two deferred fast-follows ride on top: **B8 cross-bucket**
+> (extends B8) + **B15 object-tree load** (extends B15), plus the pre-existing **502-GET fix** (GET `/objects/*` on a
+> missing key returns 502, should be 404). The ≥5-visual-rounds · per-bucket-key · B15-selector · **B8 same-bucket**
+> clauses are MET.
+> Est. **5-6 one-fire slices** remain to genuine DoD (B11 this fire; B6/B9 are the ~2-3-fire heavies, the rest ~1-2;
+> the two fast-follows + the 502-GET fix ~1 each).
+> **Cron-retire trigger (b1182793):** ALL remaining feature slices (B11 / B10 / B6 / B7 / B9 + the B8-cross-bucket and
+> B15-object-tree fast-follows + the 502-GET fix) shipped + prod-verified + B14 axe clean → THEN CronDelete per
 > `[[loop-cron-refires-one-prompt-retire-when-directive-complete]]` (don't flood once DoD is genuinely met). Not yet —
-> 6-7 slices + 2 fast-follows + B14 axe remain (B8 in-flight this fire; visual-rounds ✅ + per-bucket-key ✅ + B15
-> selector ✅ already satisfied).
+> 5-6 slices + 2 fast-follows + 502-GET + B14 axe remain (B11 in-flight this fire; visual-rounds ✅ + per-bucket-key ✅ +
+> B15 selector ✅ + B8 same-bucket ✅ already satisfied).
