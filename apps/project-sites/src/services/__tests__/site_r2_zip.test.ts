@@ -81,38 +81,46 @@ function installBucketFetch(
 ): void {
   s3ListUrls.length = 0;
   s3GetKeys.length = 0;
-  (globalThis as unknown as { fetch: jest.Mock }).fetch = jest.fn((url: string, opts?: { method?: string }) => {
-    const u = String(url);
-    if (u.includes('r2.cloudflarestorage.com')) {
-      const parsed = new URL(u);
-      const isList = parsed.searchParams.get('list-type') === '2';
-      if (isList) {
-        s3ListUrls.push(u);
-        const token = parsed.searchParams.get('continuation-token');
-        const idx = token ? Number(token.replace('page-', '')) : 0;
-        const page = pages[idx] ?? { objs: [] };
+  (globalThis as unknown as { fetch: jest.Mock }).fetch = jest.fn(
+    (url: string, opts?: { method?: string }) => {
+      const u = String(url);
+      if (u.includes('r2.cloudflarestorage.com')) {
+        const parsed = new URL(u);
+        const isList = parsed.searchParams.get('list-type') === '2';
+        if (isList) {
+          s3ListUrls.push(u);
+          const token = parsed.searchParams.get('continuation-token');
+          const idx = token ? Number(token.replace('page-', '')) : 0;
+          const page = pages[idx] ?? { objs: [] };
+          return Promise.resolve({
+            ok: true,
+            status: 200,
+            headers: new Map([['content-type', 'application/xml']]) as unknown as Headers,
+            text: async () => listXml(page.objs, page.next),
+          } as unknown as Response);
+        }
+        // Object GET — decode the key from the path (after `/{bucket}/`).
+        const key = decodeURIComponent(parsed.pathname.replace(`/${BUCKET}/`, ''));
+        s3GetKeys.push(key);
+        const bytes = bodyFor(key, perKeyBytes);
         return Promise.resolve({
           ok: true,
           status: 200,
-          headers: new Map([['content-type', 'application/xml']]) as unknown as Headers,
-          text: async () => listXml(page.objs, page.next),
+          headers: new Map([['content-type', 'application/octet-stream']]) as unknown as Headers,
+          arrayBuffer: async () =>
+            bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength),
+          text: async () => '',
         } as unknown as Response);
       }
-      // Object GET — decode the key from the path (after `/{bucket}/`).
-      const key = decodeURIComponent(parsed.pathname.replace(`/${BUCKET}/`, ''));
-      s3GetKeys.push(key);
-      const bytes = bodyFor(key, perKeyBytes);
+      void opts;
       return Promise.resolve({
-        ok: true,
-        status: 200,
-        headers: new Map([['content-type', 'application/octet-stream']]) as unknown as Headers,
-        arrayBuffer: async () => bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength),
+        ok: false,
+        status: 404,
         text: async () => '',
+        json: async () => ({}),
       } as unknown as Response);
-    }
-    void opts;
-    return Promise.resolve({ ok: false, status: 404, text: async () => '', json: async () => ({}) } as unknown as Response);
-  });
+    },
+  );
 }
 const fetchMock = () => globalThis.fetch as unknown as jest.Mock;
 
@@ -127,7 +135,13 @@ describe('zipSiteR2Bucket — assembles a valid zip from listed + fetched object
     try {
       seedPreviewBucket(h);
       installBucketFetch([
-        { objs: [{ key: 'a.txt', size: 7 }, { key: 'dir/b.json', size: 12 }, { key: 'nested/deep/c.bin', size: 3 }] },
+        {
+          objs: [
+            { key: 'a.txt', size: 7 },
+            { key: 'dir/b.json', size: 12 },
+            { key: 'nested/deep/c.bin', size: 3 },
+          ],
+        },
       ]);
       const r = await zipSiteR2Bucket(envWithGlobalS3(h), ctx, BUCKET);
       expect(r.ok).toBe(true);
@@ -199,7 +213,14 @@ describe('zipSiteR2Bucket — HONEST bounds (caps stop early + report truncation
       seedPreviewBucket(h);
       // Four objects available; cap at 2 → only 2 zipped, but totalCount reflects what we saw.
       installBucketFetch([
-        { objs: [{ key: 'o1', size: 5 }, { key: 'o2', size: 5 }, { key: 'o3', size: 5 }, { key: 'o4', size: 5 }] },
+        {
+          objs: [
+            { key: 'o1', size: 5 },
+            { key: 'o2', size: 5 },
+            { key: 'o3', size: 5 },
+            { key: 'o4', size: 5 },
+          ],
+        },
       ]);
       const r = await zipSiteR2Bucket(envWithGlobalS3(h), ctx, BUCKET, { maxObjects: 2 });
       expect(r.ok).toBe(true);
@@ -221,7 +242,15 @@ describe('zipSiteR2Bucket — HONEST bounds (caps stop early + report truncation
       seedPreviewBucket(h);
       // Two 600-byte objects; a 1000-byte budget admits the first, the second would blow it → truncate.
       installBucketFetch(
-        [{ objs: [{ key: 'big1', size: 600 }, { key: 'big2', size: 600 }, { key: 'big3', size: 600 }] }],
+        [
+          {
+            objs: [
+              { key: 'big1', size: 600 },
+              { key: 'big2', size: 600 },
+              { key: 'big3', size: 600 },
+            ],
+          },
+        ],
         { big1: 600, big2: 600, big3: 600 },
       );
       const r = await zipSiteR2Bucket(envWithGlobalS3(h), ctx, BUCKET, { maxBytes: 1000 });
@@ -267,8 +296,17 @@ describe('zipSiteR2Bucket — credential + failure honesty', () => {
       (globalThis as unknown as { fetch: jest.Mock }).fetch = jest.fn((url: string) => {
         const u = String(url);
         if (u.includes('r2.cloudflarestorage.com'))
-          return Promise.resolve({ ok: false, status: 500, text: async () => '', headers: new Map() as unknown as Headers } as unknown as Response);
-        return Promise.resolve({ ok: false, status: 404, text: async () => '' } as unknown as Response);
+          return Promise.resolve({
+            ok: false,
+            status: 500,
+            text: async () => '',
+            headers: new Map() as unknown as Headers,
+          } as unknown as Response);
+        return Promise.resolve({
+          ok: false,
+          status: 404,
+          text: async () => '',
+        } as unknown as Response);
       });
       const r = await zipSiteR2Bucket(envWithGlobalS3(h), ctx, BUCKET);
       expect(r.ok).toBe(false);
@@ -292,11 +330,21 @@ describe('zipSiteR2Bucket — credential + failure honesty', () => {
             ok: true,
             status: 200,
             headers: new Map() as unknown as Headers,
-            text: async () => listXml([{ key: 'keep', size: 5 }, { key: 'gone', size: 5 }]),
+            text: async () =>
+              listXml([
+                { key: 'keep', size: 5 },
+                { key: 'gone', size: 5 },
+              ]),
           } as unknown as Response);
         const key = decodeURIComponent(parsed.pathname.replace(`/${BUCKET}/`, ''));
         if (key === 'gone')
-          return Promise.resolve({ ok: false, status: 404, headers: new Map() as unknown as Headers, arrayBuffer: async () => new ArrayBuffer(0), text: async () => '' } as unknown as Response);
+          return Promise.resolve({
+            ok: false,
+            status: 404,
+            headers: new Map() as unknown as Headers,
+            arrayBuffer: async () => new ArrayBuffer(0),
+            text: async () => '',
+          } as unknown as Response);
         return Promise.resolve({
           ok: true,
           status: 200,

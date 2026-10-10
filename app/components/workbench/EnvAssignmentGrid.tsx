@@ -520,8 +520,8 @@ export const EnvAssignmentGrid = memo(({ kind, environment }: EnvAssignmentGridP
         >
           <p className="text-[11px] leading-snug text-bolt-elements-textPrimary">
             Move <span className="font-semibold">{reassign.bucket}</span> from {reassign.from} to{' '}
-            <span className="font-semibold">{reassign.to}</span>? This changes which bucket serves{' '}
-            {reassign.to}. You can undo it right after.
+            <span className="font-semibold">{reassign.to}</span>? This changes which bucket serves {reassign.to}. You
+            can undo it right after.
           </p>
           <div className="flex items-center justify-end gap-1.5">
             <button
@@ -545,10 +545,7 @@ export const EnvAssignmentGrid = memo(({ kind, environment }: EnvAssignmentGridP
       )}
 
       {reassign.kind === 'busy' && (
-        <p
-          className="mt-1.5 flex items-center gap-1.5 px-1 text-[10px] text-bolt-elements-textTertiary"
-          role="status"
-        >
+        <p className="mt-1.5 flex items-center gap-1.5 px-1 text-[10px] text-bolt-elements-textTertiary" role="status">
           <span className="i-ph:circle-notch animate-spin motion-reduce:animate-none text-[11px]" aria-hidden="true" />
           Reassigning {reassign.bucket}…
         </p>

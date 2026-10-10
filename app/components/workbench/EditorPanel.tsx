@@ -250,7 +250,12 @@ export const CodeSourcePicker = memo(
           </button>
         </DropdownMenu.Trigger>
         <DropdownMenu.Portal>
-          <DropdownMenu.Content data-testid="code-source-menu" align="start" sideOffset={4} className={SOURCE_MENU_CONTENT}>
+          <DropdownMenu.Content
+            data-testid="code-source-menu"
+            align="start"
+            sideOffset={4}
+            className={SOURCE_MENU_CONTENT}
+          >
             <DropdownMenu.Label className="px-2.5 py-1 text-[10px] uppercase tracking-wide text-bolt-elements-textTertiary">
               Code source
             </DropdownMenu.Label>
@@ -313,59 +318,57 @@ CodeSourcePicker.displayName = 'EditorPanel.CodeSourcePicker';
  * today, and offers one click back to the website source. The in-explorer bucket object
  * tree + open/edit/save-back-to-R2 is the backend-wired fast-follow.
  */
-const BucketSourceNotice = memo(
-  ({ source, onBackToWebsite }: { source: CodeSource; onBackToWebsite: () => void }) => {
-    const isProd = source.environment === 'production';
+const BucketSourceNotice = memo(({ source, onBackToWebsite }: { source: CodeSource; onBackToWebsite: () => void }) => {
+  const isProd = source.environment === 'production';
 
-    return (
-      <div className="h-full flex flex-col items-start gap-3 p-4 text-xs" data-testid="code-source-bucket-notice">
-        <div className="flex items-center gap-2 text-bolt-elements-textPrimary">
-          <div className="i-ph:bucket text-base text-bolt-elements-item-contentAccent" aria-hidden />
-          <span className="font-semibold">{source.label}</span>
-          {isProd ? (
-            <span className="rounded px-1.5 py-px text-[9px] font-semibold uppercase tracking-wide text-amber-300/90 bg-amber-400/10">
-              Production · read-only
-            </span>
-          ) : (
-            <span className="rounded px-1.5 py-px text-[9px] font-semibold uppercase tracking-wide text-bolt-elements-item-contentAccent/90 bg-bolt-elements-item-contentAccent/10">
-              Preview
-            </span>
-          )}
-        </div>
-
-        {isProd && (
-          <p className="flex items-start gap-1.5 text-amber-300/90">
-            <div className="i-ph:warning mt-px shrink-0" aria-hidden />
-            <span>
-              This is your live Production bucket. Editing files here changes your public site directly, so it opens
-              read-only. Promote from Preview to publish safely.
-            </span>
-          </p>
+  return (
+    <div className="h-full flex flex-col items-start gap-3 p-4 text-xs" data-testid="code-source-bucket-notice">
+      <div className="flex items-center gap-2 text-bolt-elements-textPrimary">
+        <div className="i-ph:bucket text-base text-bolt-elements-item-contentAccent" aria-hidden />
+        <span className="font-semibold">{source.label}</span>
+        {isProd ? (
+          <span className="rounded px-1.5 py-px text-[9px] font-semibold uppercase tracking-wide text-amber-300/90 bg-amber-400/10">
+            Production · read-only
+          </span>
+        ) : (
+          <span className="rounded px-1.5 py-px text-[9px] font-semibold uppercase tracking-wide text-bolt-elements-item-contentAccent/90 bg-bolt-elements-item-contentAccent/10">
+            Preview
+          </span>
         )}
-
-        <p className="text-bolt-elements-textSecondary leading-relaxed">
-          Browse, upload, and download this bucket&apos;s files in{' '}
-          <span className="font-medium text-bolt-elements-textPrimary">Resources › Buckets</span>. In-editor open and
-          save for bucket files is arriving next.
-        </p>
-
-        <button
-          type="button"
-          onClick={onBackToWebsite}
-          data-testid="code-source-back-to-website"
-          className={classNames(
-            'inline-flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-[11px] font-medium',
-            'bg-bolt-elements-background-depth-3 text-bolt-elements-textPrimary',
-            'hover:bg-bolt-elements-item-backgroundActive transition-colors',
-          )}
-        >
-          <div className="i-ph:arrow-left text-sm" aria-hidden />
-          Back to website source
-        </button>
       </div>
-    );
-  },
-);
+
+      {isProd && (
+        <p className="flex items-start gap-1.5 text-amber-300/90">
+          <div className="i-ph:warning mt-px shrink-0" aria-hidden />
+          <span>
+            This is your live Production bucket. Editing files here changes your public site directly, so it opens
+            read-only. Promote from Preview to publish safely.
+          </span>
+        </p>
+      )}
+
+      <p className="text-bolt-elements-textSecondary leading-relaxed">
+        Browse, upload, and download this bucket&apos;s files in{' '}
+        <span className="font-medium text-bolt-elements-textPrimary">Resources › Buckets</span>. In-editor open and save
+        for bucket files is arriving next.
+      </p>
+
+      <button
+        type="button"
+        onClick={onBackToWebsite}
+        data-testid="code-source-back-to-website"
+        className={classNames(
+          'inline-flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-[11px] font-medium',
+          'bg-bolt-elements-background-depth-3 text-bolt-elements-textPrimary',
+          'hover:bg-bolt-elements-item-backgroundActive transition-colors',
+        )}
+      >
+        <div className="i-ph:arrow-left text-sm" aria-hidden />
+        Back to website source
+      </button>
+    </div>
+  );
+});
 
 BucketSourceNotice.displayName = 'EditorPanel.BucketSourceNotice';
 

@@ -21,24 +21,13 @@ import React from 'react';
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
-import {
-  ObjectActionMenu,
-  extendSelection,
-  rangeKeys,
-  selectAllKeys,
-} from '~/components/workbench/BucketsPanel';
+import { ObjectActionMenu, extendSelection, rangeKeys, selectAllKeys } from '~/components/workbench/BucketsPanel';
 
 afterEach(cleanup);
 
 // ── 1. Pure keyboard / range multi-select math ────────────────────────────────
 
-const shown = [
-  { key: 'a.txt' },
-  { key: 'b.png' },
-  { key: 'c.pdf' },
-  { key: 'd.mp4' },
-  { key: 'e.json' },
-];
+const shown = [{ key: 'a.txt' }, { key: 'b.png' }, { key: 'c.pdf' }, { key: 'd.mp4' }, { key: 'e.json' }];
 
 describe('selectAllKeys — what Cmd/Ctrl+A selects', () => {
   it('returns every loaded object key as a Set', () => {

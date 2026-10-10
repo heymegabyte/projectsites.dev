@@ -80,7 +80,12 @@ function installPagedFetch(pages: Array<{ keys: string[]; next?: string }>): voi
         text: async () => listXml(page.keys, page.next),
       } as unknown as Response);
     }
-    return Promise.resolve({ ok: false, status: 404, text: async () => '', json: async () => ({}) } as unknown as Response);
+    return Promise.resolve({
+      ok: false,
+      status: 404,
+      text: async () => '',
+      json: async () => ({}),
+    } as unknown as Response);
   });
 }
 const fetchMock = () => globalThis.fetch as unknown as jest.Mock;
@@ -105,7 +110,10 @@ describe('searchSiteR2Objects — whole-bucket substring scan (B11)', () => {
       });
       expect(r.ok).toBe(true);
       if (!r.ok) throw new Error('expected ok');
-      expect(r.objects.map((o) => o.key).sort()).toEqual(['assets/logo-dark.svg', 'images/logo.png']);
+      expect(r.objects.map((o) => o.key).sort()).toEqual([
+        'assets/logo-dark.svg',
+        'images/logo.png',
+      ]);
       // Scanned the whole bucket (both pages) → honest "scanned everything" signal.
       expect(r.scannedAll).toBe(true);
       expect(r.truncated).toBe(false);
@@ -143,7 +151,9 @@ describe('searchSiteR2Objects — whole-bucket substring scan (B11)', () => {
       });
       expect(r.ok).toBe(true);
       // The S3 list call carried prefix=images/ (efficient narrowing, not a full-bucket walk).
-      expect(s3ListUrls.some((u) => u.includes('prefix=images%2F') || u.includes('prefix=images/'))).toBe(true);
+      expect(
+        s3ListUrls.some((u) => u.includes('prefix=images%2F') || u.includes('prefix=images/')),
+      ).toBe(true);
     } finally {
       h.close();
     }
@@ -174,7 +184,10 @@ describe('searchSiteR2Objects — whole-bucket substring scan (B11)', () => {
     try {
       seedPreviewBucket(h);
       // Every page says "there's another page" forever; the scan must stop at maxPages and admit it.
-      const pages = Array.from({ length: 50 }, (_, i) => ({ keys: ['nomatch.bin'], next: `page-${i + 1}` }));
+      const pages = Array.from({ length: 50 }, (_, i) => ({
+        keys: ['nomatch.bin'],
+        next: `page-${i + 1}`,
+      }));
       installPagedFetch(pages);
       const r = await searchSiteR2Objects(envWithGlobalS3(h), ctx, 'ps-site-site1-preview', {
         search: 'logo',
@@ -201,12 +214,16 @@ describe('searchSiteR2Objects — whole-bucket substring scan (B11)', () => {
         CLOUDFLARE_EMAIL: 'e@x.com',
         CLOUDFLARE_API_KEY: 'gkey',
       } as unknown as Env;
-      const r = await searchSiteR2Objects(noCredsEnv, ctx, 'ps-site-site1-preview', { search: 'x' });
+      const r = await searchSiteR2Objects(noCredsEnv, ctx, 'ps-site-site1-preview', {
+        search: 'x',
+      });
       expect(r.ok).toBe(false);
       if (r.ok) throw new Error('expected failure');
       expect(r.reason).toBe('needs_s3_credentials');
       // never walked S3 when there are no creds
-      const s3 = fetchMock().mock.calls.filter((c) => String(c[0]).includes('r2.cloudflarestorage.com'));
+      const s3 = fetchMock().mock.calls.filter((c) =>
+        String(c[0]).includes('r2.cloudflarestorage.com'),
+      );
       expect(s3).toHaveLength(0);
     } finally {
       h.close();

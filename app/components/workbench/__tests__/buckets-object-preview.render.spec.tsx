@@ -118,7 +118,12 @@ describe('ObjectPreviewModal — renders bytes in-editor by type (sandboxed)', (
     expect(screen.getByTestId('buckets-preview-loading')).toBeTruthy();
 
     await act(async () => {
-      resolve({ type: 'PS_R2_DOWNLOAD_RESULT', ok: true, dataUrl: dataUrl('image/png', 'PNGBYTES'), contentType: 'image/png' });
+      resolve({
+        type: 'PS_R2_DOWNLOAD_RESULT',
+        ok: true,
+        dataUrl: dataUrl('image/png', 'PNGBYTES'),
+        contentType: 'image/png',
+      });
     });
 
     const img = await screen.findByTestId('buckets-preview-image');
@@ -138,9 +143,7 @@ describe('ObjectPreviewModal — renders bytes in-editor by type (sandboxed)', (
       contentType: 'image/png',
     });
 
-    const { unmount } = render(
-      <ObjectPreviewModal bucket="b" objectKey="a.png" onClose={noop} onDownload={noop} />,
-    );
+    const { unmount } = render(<ObjectPreviewModal bucket="b" objectKey="a.png" onClose={noop} onDownload={noop} />);
     await screen.findByTestId('buckets-preview-image');
 
     unmount();

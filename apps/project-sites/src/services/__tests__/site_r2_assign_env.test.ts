@@ -109,7 +109,9 @@ describe('B10 assignBucketEnv — reversible env reassignment', () => {
       await assignBucketEnv(env(h), 'site-c', alloc!, 'production');
 
       const row = h.raw
-        .prepare(`SELECT updated_at FROM site_r2_allocations WHERE site_id='site-c' AND display_name='Media'`)
+        .prepare(
+          `SELECT updated_at FROM site_r2_allocations WHERE site_id='site-c' AND display_name='Media'`,
+        )
         .get() as { updated_at: string };
       expect(row.updated_at).not.toBe('2020-01-01 00:00:00');
     } finally {

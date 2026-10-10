@@ -207,7 +207,12 @@ describe('getSiteR2Object — missing key is 404 not_found, real upstream error 
           text: async () => '',
         } as unknown as Response);
       // Any other URL (CF token endpoints etc.) — should NOT be hit on this path.
-      return Promise.resolve({ ok: false, status: 500, json: async () => ({}), text: async () => '' } as unknown as Response);
+      return Promise.resolve({
+        ok: false,
+        status: 500,
+        json: async () => ({}),
+        text: async () => '',
+      } as unknown as Response);
     });
   }
 
@@ -218,7 +223,12 @@ describe('getSiteR2Object — missing key is 404 not_found, real upstream error 
       seedPreviewBucket(h);
       mockFlag.mockResolvedValue(true);
       installS3StatusFetch(404);
-      const r = await getSiteR2Object(envWithGlobalS3(h), ctx, 'ps-site-site1-preview', 'missing.txt');
+      const r = await getSiteR2Object(
+        envWithGlobalS3(h),
+        ctx,
+        'ps-site-site1-preview',
+        'missing.txt',
+      );
       expect(r.ok).toBe(false);
       if (r.ok) throw new Error('expected failure');
       expect(r.reason).toBe('object_not_found'); // the bug: this used to be 's3_error' → 502

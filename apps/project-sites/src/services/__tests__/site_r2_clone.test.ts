@@ -85,7 +85,9 @@ let copy5xxKeys: Set<string>; // src keys whose COPY returns a real upstream 500
  * (ListObjectsV2 on the SOURCE bucket + HeadObject collision-guard on the DEST + CopyObject PUT). `pages`
  * drives the source listing. Records the composition for assertions.
  */
-function installFetch(pages: Array<{ objs: Array<{ key: string; size: number }>; next?: string }>): void {
+function installFetch(
+  pages: Array<{ objs: Array<{ key: string; size: number }>; next?: string }>,
+): void {
   r2RestCreates.length = 0;
   s3ListUrls.length = 0;
   s3CopyTargets.length = 0;
@@ -100,7 +102,10 @@ function installFetch(pages: Array<{ objs: Array<{ key: string; size: number }>;
         return Promise.resolve({
           ok: true,
           status: 200,
-          json: async () => ({ success: true, result: { id: 'tok-abc', value: 'secret-value-xyz' } }),
+          json: async () => ({
+            success: true,
+            result: { id: 'tok-abc', value: 'secret-value-xyz' },
+          }),
         } as unknown as Response);
       // CF R2 REST bucket-create (provisionSiteR2) — capture the name + succeed.
       if (u.includes('/r2/buckets')) {
@@ -114,7 +119,11 @@ function installFetch(pages: Array<{ objs: Array<{ key: string; size: number }>;
           // The bucket name is in the POST body; we capture it from the fetch init below (opts has no body
           // typed here, so parse defensively).
         }
-        return Promise.resolve({ ok: true, status: 200, json: async () => ({ success: true, result: {} }) } as unknown as Response);
+        return Promise.resolve({
+          ok: true,
+          status: 200,
+          json: async () => ({ success: true, result: {} }),
+        } as unknown as Response);
       }
 
       if (u.includes('r2.cloudflarestorage.com')) {
@@ -147,13 +156,20 @@ function installFetch(pages: Array<{ objs: Array<{ key: string; size: number }>;
           // Derive the src KEY from the copy-source to apply the per-key fault injectors.
           const srcKey = decodeURIComponent(source.replace(`/${SRC_BUCKET}/`, ''));
           s3CopyTargets.push({ dest: destPath, source });
-          if (getDeletedKeys.has(srcKey)) return Promise.resolve({ ok: false, status: 404 } as unknown as Response);
-          if (copy5xxKeys.has(srcKey)) return Promise.resolve({ ok: false, status: 500 } as unknown as Response);
+          if (getDeletedKeys.has(srcKey))
+            return Promise.resolve({ ok: false, status: 404 } as unknown as Response);
+          if (copy5xxKeys.has(srcKey))
+            return Promise.resolve({ ok: false, status: 500 } as unknown as Response);
           return Promise.resolve({ ok: true, status: 200 } as unknown as Response);
         }
         return Promise.resolve({ ok: true, status: 200 } as unknown as Response);
       }
-      return Promise.resolve({ ok: false, status: 404, json: async () => ({}), text: async () => '' } as unknown as Response);
+      return Promise.resolve({
+        ok: false,
+        status: 404,
+        json: async () => ({}),
+        text: async () => '',
+      } as unknown as Response);
     },
   );
 }
@@ -172,14 +188,26 @@ describe('cloneSiteR2Bucket — composes provision + bounded list + cross-bucket
     const h = createD1Sqlite();
     try {
       seedSourceBucket(h);
-      installFetch([{ objs: [{ key: 'a.txt', size: 7 }, { key: 'dir/b.json', size: 12 }, { key: 'c.bin', size: 3 }] }]);
+      installFetch([
+        {
+          objs: [
+            { key: 'a.txt', size: 7 },
+            { key: 'dir/b.json', size: 12 },
+            { key: 'c.bin', size: 3 },
+          ],
+        },
+      ]);
       const r = await cloneSiteR2Bucket(envWithGlobalS3(h), ctx, SRC_BUCKET, NEW_NAME);
       expect(r.ok).toBe(true);
       if (!r.ok) throw new Error('expected ok');
 
       // The new bucket is provisioned + recorded in the allocation catalog.
       expect(r.newBucket).toBe(NEW_BUCKET);
-      const alloc = h.raw.prepare(`SELECT display_name, bucket_name, is_default, public_access FROM site_r2_allocations WHERE bucket_name = ?`).get(NEW_BUCKET) as
+      const alloc = h.raw
+        .prepare(
+          `SELECT display_name, bucket_name, is_default, public_access FROM site_r2_allocations WHERE bucket_name = ?`,
+        )
+        .get(NEW_BUCKET) as
         | { display_name: string; bucket_name: string; is_default: number; public_access: number }
         | undefined;
       expect(alloc).toBeTruthy();
@@ -233,7 +261,9 @@ describe('cloneSiteR2Bucket — composes provision + bounded list + cross-bucket
       expect(r.totalCount).toBe(0);
       expect(r.truncated).toBe(false);
       // The bucket still exists even with nothing to copy.
-      const alloc = h.raw.prepare(`SELECT bucket_name FROM site_r2_allocations WHERE bucket_name = ?`).get(NEW_BUCKET);
+      const alloc = h.raw
+        .prepare(`SELECT bucket_name FROM site_r2_allocations WHERE bucket_name = ?`)
+        .get(NEW_BUCKET);
       expect(alloc).toBeTruthy();
     } finally {
       h.close();
@@ -246,8 +276,19 @@ describe('cloneSiteR2Bucket — HONEST bounds (same caps as the zip)', () => {
     const h = createD1Sqlite();
     try {
       seedSourceBucket(h);
-      installFetch([{ objs: [{ key: 'o1', size: 5 }, { key: 'o2', size: 5 }, { key: 'o3', size: 5 }, { key: 'o4', size: 5 }] }]);
-      const r = await cloneSiteR2Bucket(envWithGlobalS3(h), ctx, SRC_BUCKET, NEW_NAME, { maxObjects: 2 });
+      installFetch([
+        {
+          objs: [
+            { key: 'o1', size: 5 },
+            { key: 'o2', size: 5 },
+            { key: 'o3', size: 5 },
+            { key: 'o4', size: 5 },
+          ],
+        },
+      ]);
+      const r = await cloneSiteR2Bucket(envWithGlobalS3(h), ctx, SRC_BUCKET, NEW_NAME, {
+        maxObjects: 2,
+      });
       expect(r.ok).toBe(true);
       if (!r.ok) throw new Error('expected ok');
       expect(r.copiedCount).toBe(2);
@@ -265,8 +306,18 @@ describe('cloneSiteR2Bucket — HONEST bounds (same caps as the zip)', () => {
     try {
       seedSourceBucket(h);
       // Three 600-byte objects; a 1000-byte budget admits the first, the second blows it → truncate.
-      installFetch([{ objs: [{ key: 'big1', size: 600 }, { key: 'big2', size: 600 }, { key: 'big3', size: 600 }] }]);
-      const r = await cloneSiteR2Bucket(envWithGlobalS3(h), ctx, SRC_BUCKET, NEW_NAME, { maxBytes: 1000 });
+      installFetch([
+        {
+          objs: [
+            { key: 'big1', size: 600 },
+            { key: 'big2', size: 600 },
+            { key: 'big3', size: 600 },
+          ],
+        },
+      ]);
+      const r = await cloneSiteR2Bucket(envWithGlobalS3(h), ctx, SRC_BUCKET, NEW_NAME, {
+        maxBytes: 1000,
+      });
       expect(r.ok).toBe(true);
       if (!r.ok) throw new Error('expected ok');
       expect(r.truncated).toBe(true);
@@ -336,7 +387,9 @@ describe('cloneSiteR2Bucket — name-collision + credential + failure honesty', 
       if (r.ok) throw new Error('expected failure');
       expect(r.reason).toBe('needs_s3_credentials');
       // A failed precondition must NOT leave a half-provisioned bucket behind.
-      const alloc = h.raw.prepare(`SELECT bucket_name FROM site_r2_allocations WHERE bucket_name = ?`).get(NEW_BUCKET);
+      const alloc = h.raw
+        .prepare(`SELECT bucket_name FROM site_r2_allocations WHERE bucket_name = ?`)
+        .get(NEW_BUCKET);
       expect(alloc).toBeFalsy();
     } finally {
       h.close();
@@ -348,7 +401,14 @@ describe('cloneSiteR2Bucket — name-collision + credential + failure honesty', 
     try {
       seedSourceBucket(h);
       getDeletedKeys = new Set(['gone']);
-      installFetch([{ objs: [{ key: 'keep', size: 5 }, { key: 'gone', size: 5 }] }]);
+      installFetch([
+        {
+          objs: [
+            { key: 'keep', size: 5 },
+            { key: 'gone', size: 5 },
+          ],
+        },
+      ]);
       const r = await cloneSiteR2Bucket(envWithGlobalS3(h), ctx, SRC_BUCKET, NEW_NAME);
       expect(r.ok).toBe(true);
       if (!r.ok) throw new Error('expected ok');
@@ -365,13 +425,23 @@ describe('cloneSiteR2Bucket — name-collision + credential + failure honesty', 
     try {
       seedSourceBucket(h);
       copy5xxKeys = new Set(['boom']);
-      installFetch([{ objs: [{ key: 'ok1', size: 5 }, { key: 'boom', size: 5 }, { key: 'never', size: 5 }] }]);
+      installFetch([
+        {
+          objs: [
+            { key: 'ok1', size: 5 },
+            { key: 'boom', size: 5 },
+            { key: 'never', size: 5 },
+          ],
+        },
+      ]);
       const r = await cloneSiteR2Bucket(envWithGlobalS3(h), ctx, SRC_BUCKET, NEW_NAME);
       expect(r.ok).toBe(false);
       if (r.ok) throw new Error('expected failure');
       expect(r.reason).toBe('s3_error');
       // The new bucket WAS provisioned (honest partial state — never a silent success, never a rollback lie).
-      const alloc = h.raw.prepare(`SELECT bucket_name FROM site_r2_allocations WHERE bucket_name = ?`).get(NEW_BUCKET);
+      const alloc = h.raw
+        .prepare(`SELECT bucket_name FROM site_r2_allocations WHERE bucket_name = ?`)
+        .get(NEW_BUCKET);
       expect(alloc).toBeTruthy();
       // We stopped at the failing object — never attempted the one after it.
       expect(s3CopyTargets.length).toBe(2); // ok1 (success) + boom (500); never reached `never`
@@ -387,7 +457,14 @@ describe('cloneSiteR2Bucket — name-collision + credential + failure honesty', 
     try {
       seedSourceBucket(h);
       headExisting = new Set(['a.txt']); // pretend it HEADs as existing in the dest
-      installFetch([{ objs: [{ key: 'a.txt', size: 5 }, { key: 'b.txt', size: 5 }] }]);
+      installFetch([
+        {
+          objs: [
+            { key: 'a.txt', size: 5 },
+            { key: 'b.txt', size: 5 },
+          ],
+        },
+      ]);
       const r = await cloneSiteR2Bucket(envWithGlobalS3(h), ctx, SRC_BUCKET, NEW_NAME);
       expect(r.ok).toBe(true);
       if (!r.ok) throw new Error('expected ok');

@@ -17,7 +17,12 @@
 import React from 'react';
 import { cleanup, render, screen } from '@testing-library/react';
 import { afterEach, describe, expect, it } from 'vitest';
-import { BucketsEmpty, BucketsTwoPane, OBJECT_ENTRANCE_CLASS, objectEntranceStyle } from '~/components/workbench/BucketsPanel';
+import {
+  BucketsEmpty,
+  BucketsTwoPane,
+  OBJECT_ENTRANCE_CLASS,
+  objectEntranceStyle,
+} from '~/components/workbench/BucketsPanel';
 
 afterEach(cleanup);
 

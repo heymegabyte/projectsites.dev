@@ -154,7 +154,10 @@ function SampleToolbar() {
         site-assets
       </span>
       <div className="relative ml-auto hidden sm:block">
-        <span className="i-ph:magnifying-glass absolute left-2 top-1/2 -translate-y-1/2 text-xs text-bolt-elements-textTertiary" aria-hidden="true" />
+        <span
+          className="i-ph:magnifying-glass absolute left-2 top-1/2 -translate-y-1/2 text-xs text-bolt-elements-textTertiary"
+          aria-hidden="true"
+        />
         <span className="inline-flex min-w-[9rem] items-center rounded-lg border border-bolt-elements-borderColor bg-bolt-elements-background-depth-2 py-1 pl-7 pr-2 text-[11px] text-bolt-elements-textSecondary">
           Search all files…
         </span>
@@ -509,8 +512,9 @@ export default function PanelPrimitiveGallery() {
               </span>
             </div>
             <div className="p-3 text-[11px] text-bolt-elements-textSecondary">
-              The floating bar rises in on the shared <code className="text-bolt-elements-item-contentAccent">psBucketRise</code>{' '}
-              keyframe (motion-safe, with a reduced-motion opt-out) when a selection exists.
+              The floating bar rises in on the shared{' '}
+              <code className="text-bolt-elements-item-contentAccent">psBucketRise</code> keyframe (motion-safe, with a
+              reduced-motion opt-out) when a selection exists.
             </div>
           </PanelShell>
         </div>

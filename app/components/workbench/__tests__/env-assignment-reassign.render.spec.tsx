@@ -171,7 +171,11 @@ describe('EnvAssignmentGrid — B10 reversible env reassignment (r2)', () => {
   });
 
   it('surfaces the server message when a reassignment is rejected (two-default conflict)', async () => {
-    requestR2SetEnv.mockResolvedValue({ type: 'PS_R2_RESULT', ok: false, error: 'That is this environment’s default bucket' });
+    requestR2SetEnv.mockResolvedValue({
+      type: 'PS_R2_RESULT',
+      ok: false,
+      error: 'That is this environment’s default bucket',
+    });
 
     render(<EnvAssignmentGrid kind="r2" environment="preview" />);
     await waitFor(() => expect(postToParent.mock.calls.length).toBeGreaterThanOrEqual(2));

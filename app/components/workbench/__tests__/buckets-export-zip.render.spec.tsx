@@ -46,7 +46,8 @@ function installAnchorSpy(): void {
   vi.spyOn(document, 'createElement').mockImplementation((tag: string) => {
     const el = realCreate(tag) as HTMLElement;
     if (tag === 'a') {
-      (el as HTMLAnchorElement).click = () => anchorClicks.push({ download: (el as HTMLAnchorElement).download, href: (el as HTMLAnchorElement).href });
+      (el as HTMLAnchorElement).click = () =>
+        anchorClicks.push({ download: (el as HTMLAnchorElement).download, href: (el as HTMLAnchorElement).href });
     }
     return el;
   });

@@ -26,7 +26,10 @@ import type { Env } from '../../types/env.js';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 
-const VIS_DDL = readFileSync(join(__dirname, '../../../migrations/0663_object_visibility.sql'), 'utf8');
+const VIS_DDL = readFileSync(
+  join(__dirname, '../../../migrations/0663_object_visibility.sql'),
+  'utf8',
+);
 const ALLOC_DDL = `CREATE TABLE site_r2_allocations (
   id TEXT PRIMARY KEY, tenant_id TEXT, site_id TEXT, bucket_name TEXT UNIQUE, display_name TEXT,
   environment TEXT, is_default INTEGER, public_access INTEGER, public_base_url TEXT,
@@ -48,7 +51,10 @@ const allocation: SiteR2Allocation = {
 };
 
 /** Seed the owning allocation row (optionally bucket-public). */
-function seedAlloc(h: D1SqliteHarness, opts: { publicAccess?: boolean; status?: string } = {}): void {
+function seedAlloc(
+  h: D1SqliteHarness,
+  opts: { publicAccess?: boolean; status?: string } = {},
+): void {
   h.raw
     .prepare(
       `INSERT INTO site_r2_allocations (id, tenant_id, site_id, bucket_name, display_name, environment, is_default, public_access, status)
@@ -87,12 +93,20 @@ describe('setObjectPublic → resolvePublicObject (the happy share path)', () =>
       expect(r.ok).toBe(true);
       if (!r.ok) throw new Error('expected ok');
       expect(r.publicSlug).toMatch(/^[A-Za-z0-9_-]{22,}$/);
-      expect(r.url).toBe(`https://projectsites.dev/api/r2/public/${encodeURIComponent(r.publicSlug)}`);
+      expect(r.url).toBe(
+        `https://projectsites.dev/api/r2/public/${encodeURIComponent(r.publicSlug)}`,
+      );
       expect(r.expiresAt).toBeNull();
 
       const resolved = await resolvePublicObject(env(h), r.publicSlug);
       expect(resolved).not.toBeNull();
-      expect(resolved).toMatchObject({ bucketName: BUCKET, objectKey: KEY, orgId: 'org1', siteId: 'site1', tenantId: 'org1' });
+      expect(resolved).toMatchObject({
+        bucketName: BUCKET,
+        objectKey: KEY,
+        orgId: 'org1',
+        siteId: 'site1',
+        tenantId: 'org1',
+      });
     } finally {
       h.close();
     }
@@ -106,7 +120,9 @@ describe('setObjectPublic → resolvePublicObject (the happy share path)', () =>
       if (!first.ok || !second.ok) throw new Error('expected ok');
       expect(second.publicSlug).not.toBe(first.publicSlug);
       // Only ONE row for the object (upsert, not duplicate).
-      const count = h.raw.prepare('SELECT COUNT(*) c FROM object_visibility').get() as { c: number };
+      const count = h.raw.prepare('SELECT COUNT(*) c FROM object_visibility').get() as {
+        c: number;
+      };
       expect(count.c).toBe(1);
       // The OLD slug no longer resolves; the NEW one does.
       expect(await resolvePublicObject(env(h), first.publicSlug)).toBeNull();
@@ -165,7 +181,9 @@ describe('resolvePublicObject — DENY (fails closed) for every non-live state',
     try {
       const r = await setObjectPublic(env(h), ctx, allocation, KEY);
       if (!r.ok) throw new Error('expected ok');
-      h.raw.prepare(`UPDATE site_r2_allocations SET deleted_at = datetime('now') WHERE id='alloc1'`).run();
+      h.raw
+        .prepare(`UPDATE site_r2_allocations SET deleted_at = datetime('now') WHERE id='alloc1'`)
+        .run();
       expect(await resolvePublicObject(env(h), r.publicSlug)).toBeNull();
     } finally {
       h.close();
@@ -247,7 +265,12 @@ describe('getObjectVisibility — honest owner-facing state', () => {
 
       await revokeObjectPublic(env(h), ctx, allocation, KEY);
       const revokedView = await getObjectVisibility(env(h), ctx, allocation, KEY);
-      expect(revokedView).toMatchObject({ visibility: 'private', revoked: true, publicSlug: null, url: null });
+      expect(revokedView).toMatchObject({
+        visibility: 'private',
+        revoked: true,
+        publicSlug: null,
+        url: null,
+      });
     } finally {
       h.close();
     }

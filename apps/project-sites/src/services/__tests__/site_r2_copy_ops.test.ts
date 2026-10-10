@@ -10,11 +10,7 @@
  *
  * `@swc/jest` only hoists `jest.mock(...)` with the GLOBAL `jest` — do NOT import it (CLAUDE.md gotcha #12).
  */
-import {
-  copySiteR2Object,
-  moveSiteR2Prefix,
-  renameSiteR2Object,
-} from '../site_r2.js';
+import { copySiteR2Object, moveSiteR2Prefix, renameSiteR2Object } from '../site_r2.js';
 import { createD1Sqlite, type D1SqliteHarness } from '../../__tests__/helpers/d1_sqlite.js';
 import type { Env } from '../../types/env.js';
 
@@ -82,12 +78,23 @@ function installFetch(): void {
         return Promise.resolve({
           ok: true,
           status: 200,
-          json: async () => ({ success: true, result: { id: 'tok-abc', value: 'secret-value-xyz' } }),
+          json: async () => ({
+            success: true,
+            result: { id: 'tok-abc', value: 'secret-value-xyz' },
+          }),
         } as unknown as Response);
       if (u.includes('/accounts/acct-1/tokens/') && method === 'DELETE')
-        return Promise.resolve({ ok: true, status: 200, json: async () => ({ success: true }) } as unknown as Response);
+        return Promise.resolve({
+          ok: true,
+          status: 200,
+          json: async () => ({ success: true }),
+        } as unknown as Response);
       if (u.includes('/r2/buckets'))
-        return Promise.resolve({ ok: true, status: 200, json: async () => ({ success: true, result: {} }) } as unknown as Response);
+        return Promise.resolve({
+          ok: true,
+          status: 200,
+          json: async () => ({ success: true, result: {} }),
+        } as unknown as Response);
 
       if (u.includes('r2.cloudflarestorage.com')) {
         const authorization = opts?.headers?.authorization ?? '';
@@ -109,7 +116,8 @@ function installFetch(): void {
           return Promise.resolve({
             ok: true,
             status: 200,
-            text: async () => `<?xml version="1.0"?><ListBucketResult><IsTruncated>false</IsTruncated>${contents}</ListBucketResult>`,
+            text: async () =>
+              `<?xml version="1.0"?><ListBucketResult><IsTruncated>false</IsTruncated>${contents}</ListBucketResult>`,
           } as unknown as Response);
         }
         // A HEAD (collision check) — 200 when the key is in `existingKeys`, else 404. Bucket-aware: the
@@ -122,9 +130,17 @@ function installFetch(): void {
           return Promise.resolve({ ok: exists, status: exists ? 200 : 404 } as unknown as Response);
         }
         // PUT (copy) + DELETE — succeed.
-        return Promise.resolve({ ok: true, status: method === 'DELETE' ? 204 : 200 } as unknown as Response);
+        return Promise.resolve({
+          ok: true,
+          status: method === 'DELETE' ? 204 : 200,
+        } as unknown as Response);
       }
-      return Promise.resolve({ ok: false, status: 404, json: async () => ({}), text: async () => '' } as unknown as Response);
+      return Promise.resolve({
+        ok: false,
+        status: 404,
+        json: async () => ({}),
+        text: async () => '',
+      } as unknown as Response);
     },
   );
 }
@@ -167,7 +183,13 @@ describe('copySiteR2Object — builds an S3 CopyObject (same-bucket)', () => {
     try {
       h.exec(S3_TOKENS_DDL);
       seedPreviewBucket(h);
-      const r = await copySiteR2Object(envWithCreds(h), ctx, BUCKET, 'my folder/a b.png', 'my folder/c d.png');
+      const r = await copySiteR2Object(
+        envWithCreds(h),
+        ctx,
+        BUCKET,
+        'my folder/a b.png',
+        'my folder/c d.png',
+      );
       expect(r.ok).toBe(true);
       const put = s3Calls.find((c) => c.method === 'PUT')!;
       expect(put.copySource).toBe(`/${BUCKET}/my%20folder/a%20b.png`); // encoded, `/` preserved
@@ -198,7 +220,9 @@ describe('copySiteR2Object — builds an S3 CopyObject (same-bucket)', () => {
       h.exec(S3_TOKENS_DDL);
       seedPreviewBucket(h);
       existingKeys.add('taken.txt');
-      const r = await copySiteR2Object(envWithCreds(h), ctx, BUCKET, 'src.txt', 'taken.txt', { overwrite: true });
+      const r = await copySiteR2Object(envWithCreds(h), ctx, BUCKET, 'src.txt', 'taken.txt', {
+        overwrite: true,
+      });
       expect(r.ok).toBe(true);
       expect(s3Calls.some((c) => c.method === 'HEAD')).toBe(false); // guard skipped
       expect(s3Calls.some((c) => c.method === 'PUT')).toBe(true);
@@ -305,7 +329,9 @@ describe('copySiteR2Object — CROSS-bucket (bucket A → bucket B, same site)',
       if (r.ok) throw new Error('expected failure');
       expect(r.reason).toBe('destination_exists');
       // The collision HEAD must target the DEST bucket, and no PUT fires.
-      expect(s3Calls.some((c) => c.method === 'HEAD' && c.url.includes(`/${BUCKET_B}/`))).toBe(true);
+      expect(s3Calls.some((c) => c.method === 'HEAD' && c.url.includes(`/${BUCKET_B}/`))).toBe(
+        true,
+      );
       expect(s3Calls.some((c) => c.method === 'PUT')).toBe(false);
     } finally {
       h.close();

@@ -1389,7 +1389,9 @@ export async function assignBucketEnv(
   siteId: string,
   allocation: SiteR2Allocation,
   newEnvironment: 'preview' | 'production',
-): Promise<SiteR2Result<{ previousEnvironment: 'preview' | 'production'; bucket: SiteR2Allocation }>> {
+): Promise<
+  SiteR2Result<{ previousEnvironment: 'preview' | 'production'; bucket: SiteR2Allocation }>
+> {
   if (FORBIDDEN_BUCKET_NAMES.has(allocation.bucketName))
     return { ok: false, reason: 'forbidden_bucket' };
 
@@ -1431,7 +1433,9 @@ export async function rollbackBucketEnv(
   siteId: string,
   allocation: SiteR2Allocation,
   previousEnvironment: 'preview' | 'production',
-): Promise<SiteR2Result<{ previousEnvironment: 'preview' | 'production'; bucket: SiteR2Allocation }>> {
+): Promise<
+  SiteR2Result<{ previousEnvironment: 'preview' | 'production'; bucket: SiteR2Allocation }>
+> {
   return assignBucketEnv(env, siteId, allocation, previousEnvironment);
 }
 
@@ -1835,7 +1839,12 @@ export async function searchSiteR2Objects(
   bucketName: string,
   opts: { search: string; prefix?: string; maxPages?: number; maxResults?: number },
 ): Promise<
-  SiteR2Result<{ objects: SiteR2Object[]; truncated: boolean; scannedAll: boolean; scanned: number }>
+  SiteR2Result<{
+    objects: SiteR2Object[];
+    truncated: boolean;
+    scannedAll: boolean;
+    scanned: number;
+  }>
 > {
   const resolved = await resolveSiteS3Config(env, ctx);
   if (!resolved.ok) return resolved;
@@ -1843,7 +1852,10 @@ export async function searchSiteR2Objects(
 
   const needle = opts.search.trim().toLowerCase();
   const maxPages = Math.min(Math.max(opts.maxPages ?? SEARCH_MAX_PAGES, 1), SEARCH_MAX_PAGES);
-  const maxResults = Math.min(Math.max(opts.maxResults ?? SEARCH_MAX_RESULTS, 1), SEARCH_MAX_RESULTS);
+  const maxResults = Math.min(
+    Math.max(opts.maxResults ?? SEARCH_MAX_RESULTS, 1),
+    SEARCH_MAX_RESULTS,
+  );
 
   // An empty needle would match everything — treat as "no filter" and just page the bucket flat.
   const matches: SiteR2Object[] = [];
@@ -2042,7 +2054,10 @@ export async function zipSiteR2Bucket(
   let cursor: string | undefined;
 
   walk: for (let page = 0; page < ZIP_LIST_MAX_PAGES; page++) {
-    const query: Record<string, string> = { 'list-type': '2', 'max-keys': String(ZIP_LIST_PAGE_SIZE) };
+    const query: Record<string, string> = {
+      'list-type': '2',
+      'max-keys': String(ZIP_LIST_PAGE_SIZE),
+    };
     if (opts.prefix) query.prefix = opts.prefix;
     if (cursor) query['continuation-token'] = cursor;
 
@@ -2098,7 +2113,15 @@ export async function zipSiteR2Bucket(
   // Sanitize the bucket name into a safe download filename (the real bucket name is `[a-z0-9-]` already,
   // but belt-and-suspenders: strip anything a Content-Disposition could choke on).
   const safe = bucketName.replace(/[^A-Za-z0-9._-]/g, '-') || 'bucket';
-  return { bytesIncluded, filename: `${safe}.zip`, includedCount, ok: true, totalCount, truncated, zip };
+  return {
+    bytesIncluded,
+    filename: `${safe}.zip`,
+    includedCount,
+    ok: true,
+    totalCount,
+    truncated,
+    zip,
+  };
 }
 
 /**
@@ -2149,7 +2172,8 @@ export async function copySiteR2Object(
   if (!resolved.ok) return resolved;
   const s3 = resolved.s3;
   // The PUT target bucket — the dest bucket when cross-bucket, else the source bucket itself.
-  const destBucket = opts.destBucket && opts.destBucket !== bucketName ? opts.destBucket : bucketName;
+  const destBucket =
+    opts.destBucket && opts.destBucket !== bucketName ? opts.destBucket : bucketName;
 
   // Collision guard — never overwrite an existing destination unless the caller opts in explicitly. HEADs
   // the DEST bucket (cross-bucket: the dest-bucket key may be free even when the same key exists in src).
@@ -2227,7 +2251,11 @@ export async function moveSiteR2Prefix(
   let moved = 0;
   let cursor: string | undefined;
   for (let page = 0; page < 100; page++) {
-    const query: Record<string, string> = { 'list-type': '2', 'max-keys': '1000', prefix: srcPrefix };
+    const query: Record<string, string> = {
+      'list-type': '2',
+      'max-keys': '1000',
+      prefix: srcPrefix,
+    };
     if (cursor) query['continuation-token'] = cursor;
     const listRes = await s3Fetch(s3, 'GET', `/${bucketName}`, { query });
     if (!listRes.ok)
@@ -2336,7 +2364,10 @@ export async function cloneSiteR2Bucket(
   let cursor: string | undefined;
 
   walk: for (let page = 0; page < ZIP_LIST_MAX_PAGES; page++) {
-    const listed = await listSiteR2Objects(env, ctx, bucketName, { cursor, maxKeys: ZIP_LIST_PAGE_SIZE });
+    const listed = await listSiteR2Objects(env, ctx, bucketName, {
+      cursor,
+      maxKeys: ZIP_LIST_PAGE_SIZE,
+    });
     if (!listed.ok) return listed; // a real S3 list error aborts (the new bucket already exists — honest partial)
     for (const obj of listed.objects) {
       totalCount++;
@@ -2577,7 +2608,8 @@ export async function setObjectPublic(
   const key = String(objectKey ?? '').trim();
   if (!key) return { ok: false, reason: 'object_not_found', status: 404 };
 
-  const ttl = opts.expiresInSeconds && opts.expiresInSeconds > 0 ? Math.floor(opts.expiresInSeconds) : null;
+  const ttl =
+    opts.expiresInSeconds && opts.expiresInSeconds > 0 ? Math.floor(opts.expiresInSeconds) : null;
   const expiresAt = ttl ? new Date(Date.now() + ttl * 1000).toISOString() : null;
   const slug = generatePublicSlug();
   const existing = await objectVisibilityRow(env, ctx.siteId, allocation.bucketName, key);

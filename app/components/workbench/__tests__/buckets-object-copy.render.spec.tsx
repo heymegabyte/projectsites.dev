@@ -208,9 +208,7 @@ describe('ObjectCopyDialog — rename / copy / move', () => {
   it('surfaces a server-side conflict inline when onSubmit reports it', async () => {
     const onClose = vi.fn();
     const onSubmit = vi.fn(async () => ({ conflict: true, ok: false }));
-    render(
-      <ObjectCopyDialog mode="copy" srcKey="a.png" existingKeys={[]} onClose={onClose} onSubmit={onSubmit} />,
-    );
+    render(<ObjectCopyDialog mode="copy" srcKey="a.png" existingKeys={[]} onClose={onClose} onSubmit={onSubmit} />);
     fireEvent.change(screen.getByTestId('buckets-object-op-input'), { target: { value: 'b.png' } });
     fireEvent.click(screen.getByTestId('buckets-object-op-submit'));
     await waitFor(() => expect(screen.getByTestId('buckets-object-op-error').textContent).toMatch(/already exists/i));
@@ -235,7 +233,10 @@ describe('ObjectCopyDialog — rename / copy / move', () => {
 
 describe('ObjectCopyDialog — cross-bucket destination picker', () => {
   /** Mount with a multi-bucket site so the picker has somewhere to go. */
-  function setup(mode: 'copy' | 'move', opts: { buckets?: string[]; currentBucket?: string; existingKeys?: string[] } = {}) {
+  function setup(
+    mode: 'copy' | 'move',
+    opts: { buckets?: string[]; currentBucket?: string; existingKeys?: string[] } = {},
+  ) {
     const onClose = vi.fn();
     const onSubmit = vi.fn(async () => ({ ok: true }));
     render(

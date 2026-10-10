@@ -122,7 +122,9 @@ describe('ObjectBrowser — B11 whole-bucket server search', () => {
 
     const searchCalls = requestR2.mock.calls
       .slice(initialCalls)
-      .filter((c) => (c[0] as { op?: string; search?: string }).op === 'listObjects' && (c[0] as { search?: string }).search);
+      .filter(
+        (c) => (c[0] as { op?: string; search?: string }).op === 'listObjects' && (c[0] as { search?: string }).search,
+      );
     expect(searchCalls).toHaveLength(1); // debounced → exactly one server search
     expect((searchCalls[0]![0] as { search?: string }).search).toBe('logo');
 
@@ -178,7 +180,15 @@ describe('ObjectBrowser — B11 whole-bucket server search', () => {
     renderBrowser();
     await flush(0);
 
-    requestR2.mockResolvedValue({ ok: true, op: 'listObjects', objects: [], prefixes: [], scannedAll: true, scanned: 0, truncated: false });
+    requestR2.mockResolvedValue({
+      ok: true,
+      op: 'listObjects',
+      objects: [],
+      prefixes: [],
+      scannedAll: true,
+      scanned: 0,
+      truncated: false,
+    });
     fireEvent.change(screen.getByTestId('buckets-object-search'), { target: { value: 'logo' } });
     await flush(400);
 
@@ -188,7 +198,9 @@ describe('ObjectBrowser — B11 whole-bucket server search', () => {
     fireEvent.change(screen.getByTestId('buckets-object-search'), { target: { value: '' } });
     await flush(400);
 
-    const afterClear = requestR2.mock.calls.slice(callsBeforeClear).map((c) => c[0] as { op?: string; search?: string });
+    const afterClear = requestR2.mock.calls
+      .slice(callsBeforeClear)
+      .map((c) => c[0] as { op?: string; search?: string });
     const plainList = afterClear.find((m) => m.op === 'listObjects' && !m.search);
     expect(plainList).toBeTruthy();
   });
