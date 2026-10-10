@@ -449,6 +449,38 @@ async function verifyResourcesSubTabs(page, frame, consoleErrors, resourcesTabSe
       }
     }
 
+    // B3 shortcut sheet (fire-buckets-b3sheet): open the header "?" shortcuts sheet LIVE. ModalShell is
+    // a plain fixed-overlay (not Radix) so a click opens it reliably. Best-effort (try/catch + Escape).
+    if (probe.name === 'buckets' && pass) {
+      try {
+        // Restore Resources+Buckets if the preview auto-switch yanked the view (see the grid step).
+        for (let fix = 0; fix < 2 && resourcesTabSel && !(await topTabActive(frame, resourcesTabSel)); fix++) {
+          await clickReliably(frame, resourcesTabSel);
+          await page.waitForTimeout(1000);
+          await clickReliably(frame, `[data-testid="${probe.tabTestId}"]`);
+          await page.waitForTimeout(1500);
+        }
+
+        const sheetBtn = frame.locator('[data-testid="buckets-shortcuts-trigger"]').first();
+
+        if (await sheetBtn.count()) {
+          await sheetBtn.click({ timeout: 5000 }).catch(async () => {
+            await clickReliably(frame, '[data-testid="buckets-shortcuts-trigger"]');
+          });
+          await page.waitForTimeout(500);
+
+          const sheetOpen = await firstFoundTestId(frame, ['buckets-shortcuts-sheet'], 3000);
+          const sheetShot = await shot(page, 'tab-buckets-shortcuts');
+          console.log(`  [buckets] shortcuts sheet → ${sheetOpen ?? 'none'} (screenshot ${sheetShot})`);
+          await page.keyboard.press('Escape').catch(() => {});
+        } else {
+          console.log('  [buckets] shortcuts trigger not present (older build?) — skipped');
+        }
+      } catch (e) {
+        console.warn(`  [buckets] shortcuts-sheet step skipped: ${e.message}`);
+      }
+    }
+
     tabResults.push({
       name: probe.name,
       pass,

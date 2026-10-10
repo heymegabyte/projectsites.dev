@@ -13,22 +13,20 @@ the file-management feel of Finder/Transmit, the polish of Linear/Raycast, the c
 Cloudflare R2's dashboard — every visible control backed by a REAL implementation (no stubs).
 
 ## READY NOW — top 5 (next fires)
-*Ranked by user/money-path leverage × dependency order. Shipped so far: B1 premium shell (fire-312);
-B1-polish **list⇄grid toggle** (fire-buckets-b1polish); **B2 two-default model** (fire-buckets-b2); **B3
-bucket row actions menu** (fire-buckets-b3). ⚠ **Object ops are BLOCKED** (no worker R2 S3 creds — see the
-Object-ops blocker in GAPS) → the object-centric leads (B12/B15/B6–B11/grid-tiles) can't be prod-verified
-until that's resolved. **So the next FULLY-verifiable leads are the FE-only non-object items below.*
+*Ranked by user/money-path leverage × dependency order. Shipped: B1 premium shell · B1-polish list⇄grid ·
+B2 two-default model · B3 bucket-row menu · B3 shortcut sheet · B14 navigator keyboard (roving listbox).
+⚠ **The fully-verifiable FE-only backlog is now NEARLY EXHAUSTED** — the remaining high-value work
+(B6–B12, B15, grid tiles, object-row menu, upload/browse/download) is ALL gated on the Object-ops blocker.*
 
-1. **B14 — a11y + hardening pass** *(now the lead — fully verifiable)* · the panel is now feature-rich (navigator,
-   Files/Settings tabs, grid toggle, row menu) → a WCAG 2.2 AA pass is timely + needs no object ops. · *acceptance:*
-   axe 0 @ 6bp on the Buckets panel, keyboard-complete (navigator roving + menu + tabs + modals), SR-friendly live
-   status; visual-regression screenshots. · *files:* `BucketsPanel.tsx` + a Playwright/axe spec. · **new-backend: NO.**
-1b. **B1-polish residual — ≥3 "lit"-dark aesthetic rounds** (grid toggle ✅ done) · pure FE screenshot-verified
-   refinement of the Buckets shell. · **new-backend: NO.**
-2. **B3 residual — shortcut sheet + navigator keyboard** · a discoverable "?" shortcut sheet + arrow-key roving in
-   the navigator (the object-row menu + multi-select shortcuts are BLOCKED on object ops). · **new-backend: NO.**
-2b. **⚠ UNBLOCKER — object ops** (Brian-gated): provision the worker R2 S3 creds OR build B4/B5 scoped tokens to
-   unblock B6–B12/B15/grid-tiles. See the Object-ops blocker. · **new-backend: YES / decision.**
+**★ TOP PRIORITY — the UNBLOCKER (Brian-gated decision; everything below it is thin by comparison).**
+0. **⚠ Object ops** — the worker R2 S3 creds (`R2_S3_*`) are unset → ~8 object features can't be built-and-verified.
+   Decide: (a) provision the worker's internal R2 S3 key, OR (b) build **B4/B5** scoped tokens (heavy backend, the
+   spec's "never account-wide" model). Until then the loop can only do thin FE polish. See the Object-ops blocker.
+
+**Fully-verifiable FE-only remainders (thin — do if the loop keeps firing before the decision):**
+1. **B14 residual — axe @ 6bp** · needs `@axe-core/playwright` added to the PROD E2E (not a jsdom unit dep); run axe
+   on the Buckets panel @ 6 breakpoints, fix violations. Keyboard is already done (B14). · **new-backend: NO.**
+1b. **B1-polish — ≥3 "lit"-dark aesthetic rounds** · subjective screenshot-verified refinement. · **new-backend: NO.**
 3. **B12 — rich sandboxed previews** · *why-now:* highest capability-for-cost of the P2 set and the ONLY backend-free
    one; makes Files feel like Finder/Transmit immediately, pairs perfectly with B1. · *acceptance:* sandboxed
    inspector for image/video/audio/pdf/text/md/json/code, SVG/HTML never in the privileged origin, metadata +
@@ -144,10 +142,13 @@ B6/B7/B9/B10 (Workflows / gateway / env-pointer — large backend) · B13/B14 (i
     (non-default), reusing the existing handlers (all CF-REST bucket ops — work WITHOUT object creds). Discoverable
     + keyboard + touch + a11y (Radix roles/Escape/portal). 2 Vitest cases; live-verified (menu opened in a real
     browser via the hardened `editor-nav.mjs` buckets probe).
-  - [ ] **remaining:** object-row context menu + multi-select shortcuts (Cmd/Ctrl-click, Shift-range, Cmd+A,
-    Delete, F2[B8], Esc, Cmd+C) + a discoverable "?" shortcut sheet + a command palette. **⚠ object-level parts are
-    BLOCKED on object ops** (see the Object-ops blocker below) — the bucket-row menu + shortcut sheet are the FE-only
-    parts. New-backend: **NO**. Priority: **P2**.
+  - [x] **discoverable "?" shortcut sheet** *(fire-buckets-b3sheet — ✅ DONE, live)* — a header keyboard (?) trigger
+    opens a `ShortcutsSheet` (reuses `ModalShell`) documenting the panel's interaction model (navigator arrow/Home/
+    End+Enter, ⋯/right-click actions, list/grid toggle, Esc). 2 Vitest cases; live-verified (`editor-nav.mjs` opens it).
+  - [x] **navigator keyboard** — done fire-buckets-b14 (roving-tabindex listbox + arrows). See B14.
+  - [ ] **remaining (⚠ BLOCKED on object ops):** object-row context menu + multi-select shortcuts (Cmd/Ctrl-click,
+    Shift-range, Cmd+A, Delete, F2[B8], Esc, Cmd+C) + a command palette — all need objects. New-backend: **NO**.
+    Priority: **P2** (gated on the Object-ops blocker below). **B3 is now FE-complete except the object-level parts.**
 
 > **⚠ OBJECT-OPS BLOCKER + DECISION (discovered fire-buckets-b3).** The worker's R2 **S3** credentials
 > (`R2_S3_ACCESS_KEY_ID` / `R2_S3_SECRET_ACCESS_KEY`) are **unset** → `hasObjectOps(env)` is false →
