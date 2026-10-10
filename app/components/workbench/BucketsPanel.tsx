@@ -32,6 +32,10 @@ import {
   isEmbedded,
   postToastToParent,
   requestBucketDownload,
+  requestBucketOwnerKeyCreate,
+  requestBucketOwnerKeyRevoke,
+  requestBucketOwnerKeyRotate,
+  requestBucketOwnerKeyStatus,
   requestBucketUpload,
   requestOwnerKeyCreate,
   requestOwnerKeyRevoke,
@@ -2666,8 +2670,11 @@ const BucketSettings = memo(
         </button>
       </SettingsSection>
 
-      {/* API access key — the owner's scoped R2 credential for their own tooling (B5 slice 4). */}
+      {/* Site-wide API access key — works for ALL the owner's buckets (B5 slice 4). */}
       <OwnerKeySection />
+
+      {/* Bucket-scoped API access key — works ONLY for this one bucket (B4-UI). */}
+      <BucketKeySection bucket={bucket.name} />
 
       {/* Danger zone — never for the site default bucket. */}
       {!bucket.isDefault && (
@@ -3052,6 +3059,491 @@ export const OwnerKeySection = memo(() => {
 });
 
 OwnerKeySection.displayName = 'BucketsPanel.OwnerKeySection';
+
+// ── Bucket-scoped owner-key workspace (B4-UI) ──────────────────────────────────
+
+/** Local view-state for the per-bucket key section (same shape as {@link OwnerKeyState}). */
+type BucketKeyState =
+  | { status: 'loading' }
+  | { status: 'disabled' } // r2_bucket_manager flag dark
+  | { status: 'needs-creds' } // platform hasn't configured CF/R2 creds yet
+  | { status: 'error'; message: string }
+  | { status: 'ready'; key: OwnerKeyStatus };
+
+/**
+ * The BUCKET-scoped access-key section — a credential the owner mints that works for ONLY the
+ * currently-selected bucket, in contrast to the SITE-wide {@link OwnerKeySection} above it (which works
+ * for ALL their buckets). It drives the already-built PER-BUCKET bridge helpers
+ * (`requestBucketOwnerKey*`, passed the selected bucket's DISPLAY name, all → `PS_R2_BUCKET_KEY_RESULT`)
+ * — NEVER the site-wide helpers. Behaviour mirrors `OwnerKeySection`: masked id + Active/None + created/
+ * rotated time on select; Create reveals the `secretAccessKey` ONCE in the shared {@link ModalShell}
+ * with copy + honest "shown once — rotate if you lose it" copy; Rotate re-reveals once; Revoke confirms
+ * first. Graceful dark-flag / needs-creds / error cards — never a scary error, never a doomed control.
+ *
+ * Embarrassingly-easy: the copy NAMES the bucket and says "only this bucket" everywhere, so a
+ * non-technical owner can never confuse it with the site-wide key. Re-fetches when the selected bucket
+ * changes. Exported for falsifiable render tests (mirrors {@link OwnerKeySection}).
+ */
+export const BucketKeySection = memo(({ bucket }: { bucket: string }) => {
+  const [state, setState] = useState<BucketKeyState>({ status: 'loading' });
+
+  // The show-once reveal (create/rotate) + the revoke confirm — both overlay dialogs.
+  const [reveal, setReveal] = useState<{ accessKeyId: string; secretAccessKey: string } | null>(null);
+  const [confirmRevoke, setConfirmRevoke] = useState(false);
+  const [busy, setBusy] = useState<null | 'create' | 'rotate' | 'revoke'>(null);
+
+  /** Translate any per-bucket owner-key reply into local view-state (shared by load + every mutation). */
+  const applyReply = useCallback(
+    (reply: Awaited<ReturnType<typeof requestBucketOwnerKeyStatus>>): boolean => {
+      if (!reply.ok) {
+        if (reply.enabled === false) {
+          setState({ status: 'disabled' });
+          return false;
+        }
+
+        if (reply.needsCreds) {
+          setState({ status: 'needs-creds' });
+          return false;
+        }
+
+        setState({ status: 'error', message: reply.error || 'Could not load this bucket’s access key.' });
+
+        return false;
+      }
+
+      if (reply.status) {
+        setState({ status: 'ready', key: reply.status });
+      }
+
+      return true;
+    },
+    [],
+  );
+
+  const load = useCallback(async () => {
+    setState({ status: 'loading' });
+
+    if (!isEmbedded) {
+      setState({ status: 'error', message: 'Open this from the ProjectSites admin to manage this bucket’s key.' });
+      return;
+    }
+
+    try {
+      applyReply(await requestBucketOwnerKeyStatus(bucket));
+    } catch (err) {
+      setState({
+        status: 'error',
+        message: err instanceof Error ? err.message : 'Could not load this bucket’s access key.',
+      });
+    }
+  }, [applyReply, bucket]);
+
+  // Fetch on mount AND whenever the selected bucket changes (scope to the new name).
+  useEffect(() => {
+    void load();
+  }, [load]);
+
+  // A bucket switch mid-reveal/confirm would show the wrong bucket's dialog — close them.
+  useEffect(() => {
+    setReveal(null);
+    setConfirmRevoke(false);
+  }, [bucket]);
+
+  const doCreate = useCallback(async () => {
+    setBusy('create');
+
+    try {
+      const reply = await requestBucketOwnerKeyCreate(bucket);
+
+      if (reply.ok && reply.secretAccessKey && reply.accessKeyId) {
+        setReveal({ accessKeyId: reply.accessKeyId, secretAccessKey: reply.secretAccessKey });
+        postToastToParent('success', `Access key created for ${bucket}.`);
+      }
+
+      applyReply(reply);
+    } catch (err) {
+      postToastToParent('error', err instanceof Error ? err.message : 'Could not create the access key.');
+    } finally {
+      setBusy(null);
+    }
+  }, [applyReply, bucket]);
+
+  const doRotate = useCallback(async () => {
+    setBusy('rotate');
+
+    try {
+      const reply = await requestBucketOwnerKeyRotate(bucket);
+
+      if (reply.ok && reply.secretAccessKey && reply.accessKeyId) {
+        setReveal({ accessKeyId: reply.accessKeyId, secretAccessKey: reply.secretAccessKey });
+        postToastToParent('success', `Access key rotated for ${bucket}.`);
+      }
+
+      applyReply(reply);
+    } catch (err) {
+      postToastToParent('error', err instanceof Error ? err.message : 'Could not rotate the access key.');
+    } finally {
+      setBusy(null);
+    }
+  }, [applyReply, bucket]);
+
+  const doRevoke = useCallback(async () => {
+    setBusy('revoke');
+
+    try {
+      const reply = await requestBucketOwnerKeyRevoke(bucket);
+
+      if (reply.ok) {
+        postToastToParent('success', reply.revoked ? 'Access key revoked.' : 'No access key to revoke.');
+
+        // Re-fetch the (now-empty) status so the UI returns to the Create launchpad.
+        applyReply(await requestBucketOwnerKeyStatus(bucket));
+      } else {
+        applyReply(reply);
+      }
+    } catch (err) {
+      postToastToParent('error', err instanceof Error ? err.message : 'Could not revoke the access key.');
+    } finally {
+      setBusy(null);
+      setConfirmRevoke(false);
+    }
+  }, [applyReply, bucket]);
+
+  // The one-line scope reminder that keeps this from ever being confused with the site-wide key.
+  const scopeHint = `This key works only for the ${bucket} bucket — not your other buckets.`;
+
+  // ── Degraded / loading cards — friendly, never scary, never a doomed button. ──
+  if (state.status === 'loading') {
+    return (
+      <SettingsSection title="Bucket access key" icon="i-ph:key-duotone" hint="Loading…">
+        <div
+          data-testid="buckets-bucket-key"
+          className="h-8 rounded-lg bg-bolt-elements-background-depth-3 motion-safe:animate-pulse"
+          aria-busy="true"
+        />
+      </SettingsSection>
+    );
+  }
+
+  if (state.status === 'disabled') {
+    return (
+      <SettingsSection title="Bucket access key" icon="i-ph:key-duotone" hint={scopeHint}>
+        <p
+          data-testid="buckets-bucket-key-disabled"
+          className="rounded-lg border border-bolt-elements-borderColor bg-bolt-elements-background-depth-1 p-2.5 text-[11px] text-bolt-elements-textTertiary leading-relaxed"
+          role="status"
+        >
+          Per-bucket access keys are on the way. Once this is turned on, you&rsquo;ll be able to mint a key for just
+          this bucket right here — nothing to set up.
+        </p>
+      </SettingsSection>
+    );
+  }
+
+  if (state.status === 'needs-creds') {
+    return (
+      <SettingsSection title="Bucket access key" icon="i-ph:key-duotone" hint={scopeHint}>
+        <p
+          data-testid="buckets-bucket-key-needs-creds"
+          className="rounded-lg border p-2.5 text-[11px] leading-relaxed"
+          style={{
+            borderColor: `color-mix(in oklch, ${PURPLE} 40%, transparent)`,
+            color: PURPLE_INK,
+          }}
+          role="status"
+        >
+          Access keys are being set up for your site. This takes a moment the first time — check back shortly and
+          you&rsquo;ll be able to create one for {bucket} here.
+        </p>
+      </SettingsSection>
+    );
+  }
+
+  if (state.status === 'error') {
+    return (
+      <SettingsSection title="Bucket access key" icon="i-ph:key-duotone" hint={scopeHint}>
+        <div data-testid="buckets-bucket-key" className="space-y-2">
+          <p className="text-[11px] text-red-400" role="alert">
+            {state.message}
+          </p>
+          <button
+            type="button"
+            onClick={() => void load()}
+            className={classNames(BTN_SECONDARY, 'min-h-[28px] px-3 py-1 text-[11px]')}
+          >
+            <div className="i-ph:arrow-clockwise text-sm" aria-hidden /> Try again
+          </button>
+        </div>
+      </SettingsSection>
+    );
+  }
+
+  const { key } = state;
+
+  return (
+    <SettingsSection
+      title="Bucket access key"
+      icon="i-ph:key-duotone"
+      hint={`${scopeHint} The secret is shown once — if you lose it, rotate to get a new one.`}
+    >
+      <div data-testid="buckets-bucket-key" className="space-y-2.5">
+        {/* Scope banner — unmistakable this is NOT the site-wide key above. */}
+        <p
+          className="rounded-lg border border-bolt-elements-item-contentAccent/30 bg-bolt-elements-item-contentAccent/[0.05] px-2.5 py-1.5 text-[10px] leading-relaxed text-bolt-elements-textSecondary"
+          data-testid="buckets-bucket-key-scope"
+        >
+          <span className="i-ph:lock-key text-xs align-[-2px] text-bolt-elements-item-contentAccent" aria-hidden />{' '}
+          Scoped to <span className="font-semibold text-bolt-elements-textPrimary">{bucket}</span> — this key unlocks{' '}
+          <span className="font-semibold">only this bucket</span>. For every bucket at once, use the site-wide key
+          above.
+        </p>
+
+        {key.exists ? (
+          <>
+            {/* Masked identity — NEVER the secret. */}
+            <div className="rounded-lg border border-bolt-elements-borderColor bg-bolt-elements-background-depth-1 p-2.5">
+              <div className="flex items-center justify-between gap-2">
+                <span className="text-[10px] font-medium uppercase tracking-wide text-bolt-elements-textTertiary">
+                  Access key ID
+                </span>
+                <span
+                  className={classNames(
+                    'inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[9px] font-semibold uppercase tracking-wide',
+                    key.status === 'active'
+                      ? 'bg-bolt-elements-item-contentAccent/15 text-bolt-elements-item-contentAccent'
+                      : 'bg-bolt-elements-background-depth-3 text-bolt-elements-textTertiary',
+                  )}
+                >
+                  <span
+                    className={classNames(
+                      'h-1.5 w-1.5 rounded-full',
+                      key.status === 'active'
+                        ? 'bg-bolt-elements-item-contentAccent'
+                        : 'bg-bolt-elements-textTertiary',
+                    )}
+                    aria-hidden
+                  />
+                  {key.status === 'active' ? 'Active' : 'None'}
+                </span>
+              </div>
+              <p className="mt-0.5 text-[12px] font-mono text-bolt-elements-textSecondary break-all">
+                {key.accessKeyIdMasked ?? '—'}
+              </p>
+              {formatRelativeTime(key.createdAt) && (
+                <p className="text-[9px] text-bolt-elements-textTertiary/70 tabular-nums">
+                  created {formatRelativeTime(key.createdAt)}
+                  {key.rotatedAt && formatRelativeTime(key.rotatedAt)
+                    ? ` · rotated ${formatRelativeTime(key.rotatedAt)}`
+                    : ''}
+                </p>
+              )}
+            </div>
+
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={() => void doRotate()}
+                disabled={busy !== null}
+                data-testid="buckets-bucket-key-rotate"
+                className={classNames(BTN_SECONDARY, 'min-h-[28px] px-3 py-1 text-[11px]')}
+              >
+                <div
+                  className={classNames(
+                    busy === 'rotate'
+                      ? 'i-ph:circle-notch animate-spin motion-reduce:animate-none'
+                      : 'i-ph:arrows-clockwise',
+                    'text-sm',
+                  )}
+                  aria-hidden
+                />
+                Rotate
+              </button>
+              <button
+                type="button"
+                onClick={() => setConfirmRevoke(true)}
+                disabled={busy !== null}
+                data-testid="buckets-bucket-key-revoke"
+                className={classNames(BTN_DESTRUCTIVE, 'min-h-[28px] px-3 py-1 text-[11px]')}
+              >
+                <div className="i-ph:prohibit text-sm" aria-hidden /> Revoke
+              </button>
+            </div>
+          </>
+        ) : (
+          <div className="space-y-2">
+            {/* Empty = a launchpad: ONE obvious action, inline guidance. */}
+            <p className="text-[11px] text-bolt-elements-textSecondary leading-relaxed">
+              Create a key that works with just this bucket&rsquo;s storage from your own tools. We&rsquo;ll show the
+              secret once — copy it somewhere safe.
+            </p>
+            <button
+              type="button"
+              onClick={() => void doCreate()}
+              disabled={busy !== null}
+              data-testid="buckets-bucket-key-create"
+              className={classNames(BTN_PRIMARY, 'min-h-[30px] px-4 py-1.5 text-[12px]')}
+            >
+              <div
+                className={classNames(
+                  busy === 'create' ? 'i-ph:circle-notch animate-spin motion-reduce:animate-none' : 'i-ph:key-bold',
+                  'text-sm',
+                )}
+                aria-hidden
+              />
+              <span className="min-w-[12ch] text-center">{busy === 'create' ? 'Creating…' : 'Create access key'}</span>
+            </button>
+          </div>
+        )}
+      </div>
+
+      {/* Show-once secret reveal — the ONLY time the secret is ever visible. */}
+      {reveal && (
+        <BucketKeyRevealModal
+          bucket={bucket}
+          accessKeyId={reveal.accessKeyId}
+          secret={reveal.secretAccessKey}
+          onClose={() => setReveal(null)}
+        />
+      )}
+
+      {/* Revoke confirm — a destructive action is NEVER one click. */}
+      {confirmRevoke && (
+        <ModalShell
+          title={`Revoke the ${bucket} key`}
+          icon="i-ph:prohibit-duotone"
+          danger
+          onClose={() => setConfirmRevoke(false)}
+          testId="buckets-bucket-key-revoke-modal"
+        >
+          <p className="text-[12px] text-bolt-elements-textSecondary leading-relaxed">
+            This immediately stops this bucket&rsquo;s key from working anywhere it&rsquo;s used. Any tool using it will
+            lose access to <span className="font-semibold text-bolt-elements-textPrimary">{bucket}</span>. Your
+            site-wide key and other buckets are unaffected. You can create a new one afterwards.
+          </p>
+          <div className="mt-4 flex items-center justify-end gap-2">
+            <button
+              type="button"
+              onClick={() => setConfirmRevoke(false)}
+              className={classNames(BTN_GHOST, 'min-h-[32px] px-3 py-1.5 text-[12px]')}
+            >
+              Cancel
+            </button>
+            <button
+              type="button"
+              onClick={() => void doRevoke()}
+              disabled={busy === 'revoke'}
+              data-testid="buckets-bucket-key-revoke-confirm"
+              className={classNames(BTN_DESTRUCTIVE, 'min-h-[32px] px-4 py-1.5 text-[12px]')}
+            >
+              <div
+                className={classNames(
+                  busy === 'revoke' ? 'i-ph:circle-notch animate-spin motion-reduce:animate-none' : 'i-ph:prohibit',
+                  'text-sm',
+                )}
+                aria-hidden
+              />
+              <span className="min-w-[7ch] text-center">{busy === 'revoke' ? 'Revoking…' : 'Revoke'}</span>
+            </button>
+          </div>
+        </ModalShell>
+      )}
+    </SettingsSection>
+  );
+});
+
+BucketKeySection.displayName = 'BucketsPanel.BucketKeySection';
+
+/**
+ * The show-once secret reveal dialog for a BUCKET-scoped key — renders inside the shared
+ * {@link ModalShell}. Names the bucket + reiterates the "only this bucket" scope so the owner knows
+ * exactly what this credential unlocks. The Secret Access Key is NEVER re-fetchable, so this is the
+ * owner's one chance to copy it. Mirrors {@link OwnerKeyRevealModal}.
+ */
+const BucketKeyRevealModal = memo(
+  ({
+    bucket,
+    accessKeyId,
+    secret,
+    onClose,
+  }: {
+    bucket: string;
+    accessKeyId: string;
+    secret: string;
+    onClose: () => void;
+  }) => {
+    const [copied, setCopied] = useState(false);
+
+    return (
+      <ModalShell
+        title={`${bucket} access key`}
+        icon="i-ph:key-duotone"
+        onClose={onClose}
+        testId="buckets-bucket-key-reveal"
+      >
+        <p className="text-[12px] text-bolt-elements-textSecondary leading-relaxed">
+          This key works with <span className="font-semibold text-bolt-elements-textPrimary">only the {bucket}</span>{' '}
+          bucket. Copy the <span className="font-semibold text-bolt-elements-textPrimary">Secret Access Key</span> now —
+          it&rsquo;s <span className="font-semibold text-bolt-elements-item-contentAccent">shown once</span>. If you
+          lose it, rotate to get a new one.
+        </p>
+
+        <div className="mt-3 space-y-2">
+          <AddressRow label="Access Key ID" value={accessKeyId} hint="Pairs with the secret below" />
+          <div className="rounded-lg border border-bolt-elements-item-contentAccent/40 bg-bolt-elements-item-contentAccent/[0.05] p-2">
+            <div className="flex items-center justify-between gap-2">
+              <span className="text-[10px] font-medium uppercase tracking-wide text-bolt-elements-item-contentAccent">
+                Secret Access Key
+              </span>
+              <button
+                type="button"
+                onClick={async () => {
+                  const ok = await copyText(secret);
+
+                  if (ok) {
+                    setCopied(true);
+                    setTimeout(() => setCopied(false), 1600);
+                  } else {
+                    postToastToParent('error', 'Could not copy.');
+                  }
+                }}
+                data-testid="buckets-bucket-key-copy-secret"
+                aria-label="Copy the secret access key"
+                className={classNames(BTN_PRIMARY, 'min-h-[24px] px-2 py-0.5 text-[10px]')}
+              >
+                <div className={classNames(copied ? 'i-ph:check-bold' : 'i-ph:copy', 'text-xs')} aria-hidden />
+                <span className="min-w-[6ch] text-center">{copied ? 'Copied' : 'Copy'}</span>
+              </button>
+            </div>
+            <p className="mt-0.5 text-[11px] font-mono text-bolt-elements-textPrimary break-all select-all">{secret}</p>
+          </div>
+        </div>
+
+        <div className="mt-4 flex items-center justify-end gap-2">
+          <button
+            type="button"
+            onClick={async () => {
+              const ok = await copyText(`Access Key ID: ${accessKeyId}\nSecret Access Key: ${secret}`);
+              postToastToParent(ok ? 'success' : 'error', ok ? 'Credentials copied.' : 'Could not copy.');
+            }}
+            className={classNames(BTN_SECONDARY, 'min-h-[32px] px-3 py-1.5 text-[12px]')}
+          >
+            <div className="i-ph:copy text-sm" aria-hidden /> Copy both
+          </button>
+          <button
+            type="button"
+            onClick={onClose}
+            data-testid="buckets-bucket-key-reveal-done"
+            className={classNames(BTN_PRIMARY, 'min-h-[32px] px-4 py-1.5 text-[12px]')}
+          >
+            <div className="i-ph:check text-sm" aria-hidden /> I&rsquo;ve saved it
+          </button>
+        </div>
+      </ModalShell>
+    );
+  },
+);
+
+BucketKeyRevealModal.displayName = 'BucketsPanel.BucketKeyRevealModal';
 
 /**
  * The show-once secret reveal dialog — renders inside the shared {@link ModalShell}. The Secret Access
