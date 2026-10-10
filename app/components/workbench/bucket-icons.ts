@@ -139,3 +139,65 @@ export function iconForObject(key: string): string {
 export function isImageKey(key: string): boolean {
   return /\.(png|jpe?g|gif|webp|avif|svg|bmp|ico|tiff?)$/i.test(key);
 }
+
+/**
+ * A restrained, brand-coherent TEXT-COLOR class for an object's file-type glyph — so the object
+ * browser reads like a polished file explorer (VS Code / Finder): the file TYPE is legible by COLOR
+ * at a glance, not just by shape. Tints are 300-level jewel tones chosen to sit on the `#060610`
+ * brand canvas without going garish; the cool/brand families (folder, code/config) stay cyan so the
+ * accent still anchors the surface.
+ *
+ * ⚠ SAFELIST: these color utilities are CONSUMED from this `.ts` module (not scanned by Uno's default
+ * `.tsx` content glob), so every class returned here is ALSO listed in `uno.config.ts` `safelist` to
+ * guarantee generation. Add a new tint here → add it to that safelist.
+ *
+ * @param key - The object key (e.g. `report.pdf`, `images/`).
+ * @returns A Tailwind/UnoCSS text-color class, e.g. `text-rose-300`.
+ */
+export function colorForObject(key: string): string {
+  if (key.endsWith('/')) {
+    return 'text-cyan-300'; // folder — brand accent
+  }
+
+  const name = key.toLowerCase();
+
+  if (/\.(png|jpe?g|gif|webp|avif|svg|ico|bmp|tiff?)$/.test(name)) {
+    return 'text-sky-300'; // image
+  }
+  if (/\.(mp4|mov|webm|mkv|avi|m4v|flv)$/.test(name)) {
+    return 'text-violet-300'; // video
+  }
+  if (/\.(mp3|wav|ogg|m4a|flac|aac|opus)$/.test(name)) {
+    return 'text-fuchsia-300'; // audio
+  }
+  if (/\.pdf$/.test(name)) {
+    return 'text-rose-300'; // pdf
+  }
+  if (/\.(csv|tsv|xls|xlsx|xlsm|ods)$/.test(name)) {
+    return 'text-emerald-300'; // tabular / spreadsheet
+  }
+  if (/\.(doc|docx|odt|rtf)$/.test(name)) {
+    return 'text-blue-300'; // word doc
+  }
+  if (/\.(ppt|pptx|odp|key)$/.test(name)) {
+    return 'text-orange-300'; // slides
+  }
+  if (/\.(zip|tar|gz|tgz|rar|7z|bz2|xz)$/.test(name)) {
+    return 'text-amber-300'; // archive
+  }
+  if (/\.(woff2?|ttf|otf|eot)$/.test(name)) {
+    return 'text-pink-300'; // font
+  }
+  if (/\.(sql|sqlite|db)$/.test(name)) {
+    return 'text-teal-300'; // sql / database
+  }
+  if (/\.(md|mdx|markdown|txt|log|text)$/.test(name)) {
+    return 'text-slate-300'; // prose / text
+  }
+  // Code + structured config (json/yaml/toml/html/xml/ts/js/css) — the cool brand family.
+  if (/\.(json|jsonc|ya?ml|toml|html?|htm|xml|xhtml|svelte|vue|ts|tsx|mts|cts|js|mjs|cjs|jsx|css|scss|sass|less|styl)$/.test(name)) {
+    return 'text-cyan-200'; // code / config
+  }
+
+  return 'text-bolt-elements-textTertiary'; // unknown — muted
+}

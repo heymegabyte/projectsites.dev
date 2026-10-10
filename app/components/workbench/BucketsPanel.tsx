@@ -26,7 +26,7 @@ import { classNames } from '~/utils/classNames';
 import { PanelShell, PanelHeader } from './panel';
 import { PanelEmpty } from './panel/PanelEmpty';
 import { BucketsTwoPane } from './BucketsTwoPane';
-import { iconForObject, isImageKey } from './bucket-icons';
+import { iconForObject, isImageKey, colorForObject } from './bucket-icons';
 import {
   isEmbedded,
   postToastToParent,
@@ -1615,9 +1615,9 @@ const ObjectBrowser = memo(
                           className={classNames(
                             iconForObject(obj.key),
                             'text-lg shrink-0 transition-colors',
-                            checked
-                              ? 'text-bolt-elements-item-contentAccent'
-                              : 'text-bolt-elements-textTertiary group-hover:text-bolt-elements-item-contentAccent',
+                            // Color-code by file type at rest (reads like a polished file explorer);
+                            // a selected row shows the brand accent so selection still reads first.
+                            checked ? 'text-bolt-elements-item-contentAccent' : colorForObject(obj.key),
                           )}
                           aria-hidden
                         />
@@ -1783,9 +1783,8 @@ const ObjectBrowser = memo(
                               className={classNames(
                                 iconForObject(obj.key),
                                 'text-4xl transition-colors',
-                                checked
-                                  ? 'text-bolt-elements-item-contentAccent'
-                                  : 'text-bolt-elements-textTertiary group-hover:text-bolt-elements-item-contentAccent',
+                                // Color-code the file-type glyph at rest; selected tile keeps the accent.
+                                checked ? 'text-bolt-elements-item-contentAccent' : colorForObject(obj.key),
                               )}
                               aria-hidden
                             />

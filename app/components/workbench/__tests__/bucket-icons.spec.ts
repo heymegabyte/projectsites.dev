@@ -7,7 +7,7 @@
  * visual proof against silent coalescing back to a coarse one-glyph map.
  */
 import { describe, expect, it } from 'vitest';
-import { iconForObject, isImageKey } from '~/components/workbench/bucket-icons';
+import { iconForObject, isImageKey, colorForObject } from '~/components/workbench/bucket-icons';
 
 describe('iconForObject — distinct glyph per file type', () => {
   // Each tuple: a representative key → the expected DISTINCT duotone class.
@@ -77,5 +77,42 @@ describe('isImageKey — previewable-image recognition', () => {
 
   it.each(['report.pdf', 'track.mp3', 'app.tsx', 'images/', 'data.csv'])('treats %s as NOT an image', (key) => {
     expect(isImageKey(key)).toBe(false);
+  });
+});
+
+describe('colorForObject — color-coded file-type tint', () => {
+  // Each tuple: a representative key → the expected restrained brand-coherent tint.
+  const cases: [string, string][] = [
+    ['images/', 'text-cyan-300'], // folder — brand accent
+    ['hero.webp', 'text-sky-300'], // image
+    ['promo.mp4', 'text-violet-300'], // video
+    ['track.mp3', 'text-fuchsia-300'], // audio
+    ['report.pdf', 'text-rose-300'], // pdf
+    ['data.csv', 'text-emerald-300'], // tabular
+    ['budget.xlsx', 'text-emerald-300'], // spreadsheet shares tabular tint
+    ['proposal.docx', 'text-blue-300'], // word doc
+    ['deck.pptx', 'text-orange-300'], // slides
+    ['bundle.zip', 'text-amber-300'], // archive
+    ['font.woff2', 'text-pink-300'], // font
+    ['dump.sql', 'text-teal-300'], // database
+    ['README.md', 'text-slate-300'], // prose
+    ['notes.txt', 'text-slate-300'], // prose
+    ['config.json', 'text-cyan-200'], // code/config family
+    ['app.tsx', 'text-cyan-200'], // code/config family
+    ['styles.css', 'text-cyan-200'], // code/config family
+  ];
+
+  it.each(cases)('tints %s → %s', (key, expected) => {
+    expect(colorForObject(key)).toBe(expected);
+  });
+
+  it('falls back to the muted tertiary token for an unknown type', () => {
+    expect(colorForObject('mystery.xyz')).toBe('text-bolt-elements-textTertiary');
+    expect(colorForObject('no-extension')).toBe('text-bolt-elements-textTertiary');
+  });
+
+  it('returns ≥10 DISTINCT tints across the case set (proves color differentiation by type)', () => {
+    const distinct = new Set(cases.map(([key]) => colorForObject(key)));
+    expect(distinct.size).toBeGreaterThanOrEqual(10);
   });
 });

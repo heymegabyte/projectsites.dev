@@ -27,7 +27,7 @@
 import type { MetaFunction } from '@remix-run/cloudflare';
 import { PanelShell, PanelHeader, PanelLoading, PanelEmpty } from '~/components/workbench/panel';
 import { BucketsTwoPane } from '~/components/workbench/BucketsTwoPane';
-import { iconForObject, isImageKey } from '~/components/workbench/bucket-icons';
+import { iconForObject, isImageKey, colorForObject } from '~/components/workbench/bucket-icons';
 
 export const meta: MetaFunction = () => [
   { title: 'Panel Primitive Gallery · ProjectSites editor' },
@@ -42,7 +42,7 @@ function Frame({ caption, children }: { caption: string; children: React.ReactNo
       <div className="h-[480px] w-[360px] overflow-hidden rounded-2xl border border-bolt-elements-borderColor shadow-xl shadow-black/40">
         {children}
       </div>
-      <figcaption className="text-[11px] font-mono uppercase tracking-wider text-bolt-elements-textTertiary">
+      <figcaption className="text-[11px] font-mono uppercase tracking-wider text-bolt-elements-textSecondary">
         {caption}
       </figcaption>
     </figure>
@@ -70,7 +70,7 @@ function BucketListSample() {
         >
           <span className="i-ph:hard-drives-duotone text-base shrink-0" aria-hidden="true" />
           <span className="truncate text-sm font-medium">{b.name}</span>
-          <span className="ml-auto text-[10px] tabular-nums text-bolt-elements-textTertiary">{b.objects}</span>
+          <span className="ml-auto text-[10px] tabular-nums text-bolt-elements-textSecondary">{b.objects}</span>
         </li>
       ))}
     </ul>
@@ -118,77 +118,78 @@ function SampleToolbar() {
 }
 
 /**
+ * LIST view of a populated bucket — airy rows, a COLOR-CODED per-type glyph ({@link colorForObject}),
+ * and a tabular size. `testId` is optional so the same component serves the probe-scoped sample AND
+ * the standalone grid/list showcases without duplicating the `buckets-object-list` testid.
+ */
+function ObjectListSample({ testId }: { testId?: string }) {
+  return (
+    <ul className="m-0 list-none p-1" data-testid={testId}>
+      {SAMPLE_OBJECTS.map((o) => (
+        <li
+          key={o.key}
+          className="group flex items-center gap-3 rounded-lg px-2.5 py-2 transition-colors hover:bg-bolt-elements-item-contentAccent/[0.06]"
+        >
+          <span className={`${iconForObject(o.key)} ${colorForObject(o.key)} text-lg shrink-0`} aria-hidden="true" />
+          {/* min-w-0 + truncate: the long key shrinks to the pane and ellipsizes instead of overflowing
+              the parent — the exact clip the BucketsTwoPane min-w-0 right pane prevents. */}
+          <span className="min-w-0 flex-1 truncate font-mono text-xs text-bolt-elements-textPrimary">{o.key}</span>
+          <span className="shrink-0 text-[10px] tabular-nums text-bolt-elements-textSecondary tracking-tight">
+            {o.size}
+          </span>
+        </li>
+      ))}
+    </ul>
+  );
+}
+
+/**
+ * GRID view of a populated bucket — image types render a cyan thumbnail SLOT; every other type renders
+ * its big COLOR-CODED file-type glyph ({@link colorForObject}) so the file type reads at a glance.
+ */
+function ObjectGridSample({ testId }: { testId?: string }) {
+  return (
+    <div
+      className="grid grid-cols-[repeat(auto-fill,minmax(104px,1fr))] gap-2.5 p-3"
+      data-testid={testId}
+    >
+      {SAMPLE_OBJECTS.filter((o) => !o.key.endsWith('/')).map((o) => (
+        <div
+          key={o.key}
+          className="group flex flex-col gap-1.5 rounded-xl border border-bolt-elements-borderColor/70 bg-bolt-elements-background-depth-2 p-2 transition-all hover:-translate-y-px hover:border-bolt-elements-item-contentAccent/50 hover:bg-bolt-elements-background-depth-3 hover:shadow-sm hover:shadow-black/30"
+        >
+          <div className="flex aspect-square items-center justify-center overflow-hidden rounded-lg bg-gradient-to-br from-bolt-elements-background-depth-1 to-bolt-elements-item-contentAccent/[0.04] ring-1 ring-inset ring-bolt-elements-borderColor/40">
+            {isImageKey(o.key) ? (
+              <span className="i-ph:image-duotone text-4xl text-sky-300" aria-hidden="true" />
+            ) : (
+              <span className={`${iconForObject(o.key)} ${colorForObject(o.key)} text-4xl`} aria-hidden="true" />
+            )}
+          </div>
+          <p className="min-w-0 truncate font-mono text-[11px] text-bolt-elements-textPrimary" title={o.key}>
+            {o.key}
+          </p>
+          <p className="text-[9px] tabular-nums text-bolt-elements-textSecondary">{o.size}</p>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+/**
  * Right pane sample — the POPULATED object browser (fire-B5). Renders both a LIST view and a GRID view
- * from {@link SAMPLE_OBJECTS} through the REAL {@link iconForObject}, so the headless `/_preview`
- * screenshot proves ~14+ distinct file-type duotone glyphs land. Long keys still prove the min-w-0
- * shrink (truncate) that {@link BucketsTwoPane}'s right pane guarantees.
+ * from {@link SAMPLE_OBJECTS} through the REAL {@link iconForObject} + {@link colorForObject}, so the
+ * headless `/_preview` screenshot proves the distinct, color-coded file-type glyphs land. The probe +
+ * E2E scope to `buckets-populated-sample`, so the canonical `buckets-object-list`/`buckets-object-grid`
+ * testids live HERE (the standalone showcase frames below carry no testid to stay unambiguous).
  */
 function ObjectBrowserSample() {
   return (
     <div className="flex flex-col min-h-0" data-testid="buckets-populated-sample">
       <SampleToolbar />
       <div className="overflow-auto modern-scrollbar">
-        {/* LIST view — airy rows, duotone accent icon, tabular size. */}
-        <ul className="m-0 list-none p-1" data-testid="buckets-object-list">
-          {SAMPLE_OBJECTS.map((o) => {
-            const isFolder = o.key.endsWith('/');
-            return (
-              <li
-                key={o.key}
-                className="group flex items-center gap-3 rounded-lg px-2.5 py-2 text-bolt-elements-textSecondary transition-colors hover:bg-bolt-elements-item-contentAccent/[0.04]"
-              >
-                <span
-                  className={`${iconForObject(o.key)} text-lg shrink-0 ${
-                    isFolder
-                      ? 'text-bolt-elements-item-contentAccent'
-                      : 'text-bolt-elements-textTertiary group-hover:text-bolt-elements-item-contentAccent'
-                  }`}
-                  aria-hidden="true"
-                />
-                {/* min-w-0 + truncate: the long key shrinks to the pane and ellipsizes instead of
-                    overflowing the parent — the exact clip the BucketsTwoPane min-w-0 right pane prevents. */}
-                <span className="min-w-0 flex-1 truncate font-mono text-xs text-bolt-elements-textPrimary">
-                  {o.key}
-                </span>
-                <span className="shrink-0 text-[10px] tabular-nums text-bolt-elements-textTertiary tracking-tight">
-                  {o.size}
-                </span>
-              </li>
-            );
-          })}
-        </ul>
-
-        {/* GRID view — image types get a thumbnail placeholder; others the big duotone file glyph. */}
-        <div
-          className="grid grid-cols-[repeat(auto-fill,minmax(96px,1fr))] gap-2.5 border-t border-bolt-elements-borderColor/40 p-3"
-          data-testid="buckets-object-grid"
-        >
-          {SAMPLE_OBJECTS.filter((o) => !o.key.endsWith('/')).map((o) => (
-            <div
-              key={o.key}
-              className="group flex flex-col gap-1.5 rounded-xl border border-bolt-elements-borderColor/70 bg-bolt-elements-background-depth-2 p-2 transition-colors hover:border-bolt-elements-item-contentAccent/40 hover:bg-bolt-elements-background-depth-3"
-            >
-              {/* Image types render a cyan duotone image placeholder (no network in the static gallery —
-                  it proves the thumbnail SLOT); every other type renders its distinct file-type glyph. */}
-              <div className="flex aspect-square items-center justify-center overflow-hidden rounded-lg bg-gradient-to-br from-bolt-elements-background-depth-1 to-bolt-elements-item-contentAccent/[0.03] ring-1 ring-inset ring-bolt-elements-borderColor/40">
-                {isImageKey(o.key) ? (
-                  <span
-                    className="i-ph:image-duotone text-4xl text-bolt-elements-item-contentAccent/70"
-                    aria-hidden="true"
-                  />
-                ) : (
-                  <span
-                    className={`${iconForObject(o.key)} text-4xl text-bolt-elements-textTertiary transition-colors group-hover:text-bolt-elements-item-contentAccent`}
-                    aria-hidden="true"
-                  />
-                )}
-              </div>
-              <p className="min-w-0 truncate font-mono text-[11px] text-bolt-elements-textPrimary" title={o.key}>
-                {o.key}
-              </p>
-              <p className="text-[9px] tabular-nums text-bolt-elements-textTertiary">{o.size}</p>
-            </div>
-          ))}
+        <ObjectListSample testId="buckets-object-list" />
+        <div className="border-t border-bolt-elements-borderColor/40">
+          <ObjectGridSample testId="buckets-object-grid" />
         </div>
       </div>
     </div>
@@ -285,10 +286,42 @@ export default function PanelPrimitiveGallery() {
             <BucketsTwoPane left={<BucketListSample />} right={<ObjectBrowserSample />} />
           </PanelShell>
         </div>
-        <figcaption className="text-[11px] font-mono uppercase tracking-wider text-bolt-elements-textTertiary">
+        <figcaption className="text-[11px] font-mono uppercase tracking-wider text-bolt-elements-textSecondary">
           BucketsTwoPane (data-bound two-pane · min-w-0 object pane)
         </figcaption>
       </figure>
+
+      {/* 6 — Populated object browser, FULL-HEIGHT showcases (no clipping) so the headless screenshot
+          captures the whole LIST and the whole GRID with their color-coded per-type glyphs. These carry
+          NO testid — the canonical `buckets-object-list`/`buckets-object-grid` live inside the two-pane
+          `buckets-populated-sample` above, so the probe + E2E stay unambiguous. */}
+      <div className="mt-10 grid gap-8 lg:grid-cols-2 max-w-[940px]">
+        <figure className="m-0 flex flex-col gap-2">
+          <div className="w-full overflow-hidden rounded-2xl border border-bolt-elements-borderColor shadow-xl shadow-black/40">
+            <PanelShell>
+              <PanelHeader icon="i-ph:list-bullets-duotone" title="Objects" subtitle="list view · color-coded" />
+              <SampleToolbar />
+              <ObjectListSample />
+            </PanelShell>
+          </div>
+          <figcaption className="text-[11px] font-mono uppercase tracking-wider text-bolt-elements-textSecondary">
+            Object list (color-coded file-type glyphs)
+          </figcaption>
+        </figure>
+
+        <figure className="m-0 flex flex-col gap-2">
+          <div className="w-full overflow-hidden rounded-2xl border border-bolt-elements-borderColor shadow-xl shadow-black/40">
+            <PanelShell>
+              <PanelHeader icon="i-ph:squares-four-duotone" title="Objects" subtitle="grid view · thumbnails" />
+              <SampleToolbar />
+              <ObjectGridSample />
+            </PanelShell>
+          </div>
+          <figcaption className="text-[11px] font-mono uppercase tracking-wider text-bolt-elements-textSecondary">
+            Object grid (thumbnail slot + color-coded glyphs)
+          </figcaption>
+        </figure>
+      </div>
     </div>
   );
 }

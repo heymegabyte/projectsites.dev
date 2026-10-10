@@ -6,7 +6,7 @@
  * LAUNCHPAD (a tasteful icon + a one-line headline + a one-line helper + ONE obvious primary
  * action). Before this, each panel hand-rolled the same centered column
  * (`flex-1 … items-center justify-center text-center gap-N p-8`) with an accent icon badge,
- * a `font-medium`/`font-semibold` title, a `text-[11px] text-bolt-elements-textTertiary` helper,
+ * a `font-medium`/`font-semibold` title, a `text-[11px] text-bolt-elements-textSecondary` helper (AA-contrast on the dark canvas),
  * and a primary button — drifting on gaps, icon size, and max-widths.
  *
  * PanelEmpty is the single source of that chrome, generalized FROM the gold-standard
@@ -62,7 +62,7 @@ export const PanelEmpty = memo(function PanelEmpty({
       <div className="space-y-1">
         <p className="text-sm font-medium text-bolt-elements-textPrimary">{title}</p>
         {description != null && description !== '' && (
-          <p className="text-[11px] text-bolt-elements-textTertiary max-w-[320px] leading-relaxed">{description}</p>
+          <p className="text-[11px] text-bolt-elements-textSecondary max-w-[320px] leading-relaxed">{description}</p>
         )}
       </div>
 
