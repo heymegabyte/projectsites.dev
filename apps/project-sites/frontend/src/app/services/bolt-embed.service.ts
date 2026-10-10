@@ -347,6 +347,8 @@ interface PsMessage {
   readonly deleteSource?: boolean;
   /** PS_R2_COPY: `true` → overwrite an existing destination; omit → refuse with a conflict. */
   readonly overwrite?: boolean;
+  /** PS_R2_COPY (cross-bucket): another of the site's bucket display names to copy/move INTO. */
+  readonly destBucket?: string;
 }
 
 /**
@@ -3811,18 +3813,28 @@ export class BoltEmbedService {
           const bucket = typeof msg.bucket === 'string' ? encodeURIComponent(msg.bucket) : '';
           const srcKey = typeof msg.srcKey === 'string' ? msg.srcKey : '';
           const destKey = typeof msg.destKey === 'string' ? msg.destKey : '';
+          // CROSS-bucket: another of the site's bucket display names. Forwarded raw in the body (the worker
+          // resolves + ownership-checks it); never path-encoded (it's not a path segment here).
+          const destBucket = typeof msg.destBucket === 'string' && msg.destBucket ? msg.destBucket : undefined;
           if (!bucket || !srcKey || !destKey) {
             reply({ ok: false, error: 'Missing bucket, source or destination' });
             break;
           }
           this.api
-            .post<{ data?: { destKey?: string; moved?: number } }>(
+            .post<{ data?: { destBucket?: string; destKey?: string; moved?: number } }>(
               `/sites/${site.id}/r2/buckets/${bucket}/objects/copy`,
-              { deleteSource: msg.deleteSource ?? false, destKey, overwrite: msg.overwrite ?? false, srcKey },
+              {
+                deleteSource: msg.deleteSource ?? false,
+                destKey,
+                overwrite: msg.overwrite ?? false,
+                srcKey,
+                ...(destBucket ? { destBucket } : {}),
+              },
               { silent: true },
             )
             .subscribe({
-              next: (res) => reply({ ok: true, destKey: res?.data?.destKey ?? destKey, moved: res?.data?.moved }),
+              next: (res) =>
+                reply({ ok: true, destBucket: res?.data?.destBucket, destKey: res?.data?.destKey ?? destKey, moved: res?.data?.moved }),
               error: (err) => {
                 if (err instanceof HttpErrorResponse && err.status === 404 && r2NotEnabled(err)) reply({ ok: false, enabled: false });
                 else if (err instanceof HttpErrorResponse && err.status === 503) reply({ ok: false, needsCreds: true, error: r2ErrMessage(err) ?? 'File operations need R2 S3 credentials.' });

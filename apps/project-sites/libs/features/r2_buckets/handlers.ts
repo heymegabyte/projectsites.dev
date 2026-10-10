@@ -638,15 +638,20 @@ r2Buckets.delete('/api/sites/:siteId/r2/buckets/:bucket/objects/*', async (c) =>
   return c.json({ data: { deleted: true, key }, ok: true });
 });
 
-// ── POST /api/sites/:siteId/r2/buckets/:bucket/objects/copy — copy / move / rename (same-bucket) ────
+// ── POST /api/sites/:siteId/r2/buckets/:bucket/objects/copy — copy / move / rename (same- OR cross-bucket) ──
 //
-// One endpoint for three same-bucket object ops (cross-BUCKET is a noted follow-up):
+// One endpoint for the object ops:
 //   • copy    — `deleteSource` falsy, object keys           → S3 CopyObject
 //   • rename  — `deleteSource:true`, object keys            → copy + delete source
 //   • move    — `deleteSource:true`, a trailing `/` on BOTH keys (prefix move) → list + copy + delete per key
-// Gate: auth → `r2_bucket_manager` dark-404 → ownsSiteData → resolve the OWNED bucket (foreign bucket →
-// 404 via gateAndBucket's `WHERE site_id` scope — the IDOR guard). A pre-existing destination 409s unless
-// `overwrite:true`. Audit-logs `r2.object.{copied,moved,renamed}` (keys only — never a secret).
+//   • CROSS-bucket — any of the above + `destBucket` (another of the site's bucket display names) → the copy
+//     lands in that bucket (S3 CopyObject copies across buckets in one account); a cross-bucket MOVE is
+//     copy-to-dest THEN delete-source (no data loss).
+// Gate: auth → `r2_bucket_manager` dark-404 → ownsSiteData → resolve the OWNED source bucket (foreign →
+// 404 via `resolveSiteR2Allocation`'s `WHERE site_id` scope — the IDOR guard). When `destBucket` is present
+// and differs, the DEST bucket is resolved + ownership-checked the SAME way (a foreign dest → 404, never a
+// cross-tenant write). A pre-existing destination 409s unless `overwrite:true`. Audit-logs
+// `r2.object.{copied,moved,renamed}` with BOTH bucket display names (keys only — never a secret).
 r2Buckets.post('/api/sites/:siteId/r2/buckets/:bucket/objects/copy', async (c) => {
   const { siteId, bucket } = c.req.param();
   const g = await gateAndBucket(c, siteId, bucket);
@@ -655,10 +660,26 @@ r2Buckets.post('/api/sites/:siteId/r2/buckets/:bucket/objects/copy', async (c) =
   const parsed = CopyObjectBodySchema.safeParse(await c.req.json().catch(() => ({})));
   if (!parsed.success)
     return c.json({ error: { code: 'BAD_REQUEST', message: 'Invalid copy request' }, ok: false }, 400);
-  const { srcKey, destKey, deleteSource, overwrite } = parsed.data;
+  const { srcKey, destKey, deleteSource, overwrite, destBucket } = parsed.data;
 
   const ctx = { orgId: g.orgId, siteId, tenantId: g.tenantId };
   const bucketName = g.allocation.bucketName;
+
+  // CROSS-bucket: resolve the DEST bucket the SAME `WHERE site_id`-scoped way (the dual IDOR guard). A
+  // foreign/other-site dest → null → 404 (never a cross-tenant write). A destBucket equal to the path
+  // bucket (or absent) stays the same-bucket path — no extra resolve, no behavior change.
+  const isCrossBucket = !!destBucket && destBucket !== bucket;
+  let destReal: string | undefined;
+  let destDisplay: string | undefined;
+  if (isCrossBucket) {
+    const destAlloc = await resolveSiteR2Allocation(c.env, siteId, destBucket);
+    if (!destAlloc)
+      return c.json({ error: { code: 'NOT_FOUND', message: 'Destination bucket not found' }, ok: false }, 404);
+    destReal = destAlloc.bucketName;
+    destDisplay = destAlloc.displayName;
+  }
+  const opOpts = { destBucket: destReal, overwrite };
+
   // A prefix move = both keys end in `/` AND deleteSource (renaming a "folder").
   const isPrefixMove = !!deleteSource && srcKey.endsWith('/') && destKey.endsWith('/');
 
@@ -666,16 +687,17 @@ r2Buckets.post('/api/sites/:siteId/r2/buckets/:bucket/objects/copy', async (c) =
   let result: SiteR2Result<{ key?: string; moved?: number }>;
   if (isPrefixMove) {
     action = 'moved';
-    result = await moveSiteR2Prefix(c.env, ctx, bucketName, srcKey, destKey, { overwrite });
+    result = await moveSiteR2Prefix(c.env, ctx, bucketName, srcKey, destKey, opOpts);
   } else if (deleteSource) {
     // rename vs move: a changed trailing segment (same parent folder) reads as a rename; a changed parent
-    // reads as a move. Purely cosmetic for the audit verb — the mechanism (copy+delete) is identical.
+    // reads as a move. A CROSS-bucket op is ALWAYS a move (it leaves the source bucket). Purely cosmetic
+    // for the audit verb — the mechanism (copy+delete) is identical.
     const parent = (k: string) => k.slice(0, k.lastIndexOf('/') + 1);
-    action = parent(srcKey) === parent(destKey) ? 'renamed' : 'moved';
-    result = await renameSiteR2Object(c.env, ctx, bucketName, srcKey, destKey, { overwrite });
+    action = !isCrossBucket && parent(srcKey) === parent(destKey) ? 'renamed' : 'moved';
+    result = await renameSiteR2Object(c.env, ctx, bucketName, srcKey, destKey, opOpts);
   } else {
     action = 'copied';
-    result = await copySiteR2Object(c.env, ctx, bucketName, srcKey, destKey, { overwrite });
+    result = await copySiteR2Object(c.env, ctx, bucketName, srcKey, destKey, opOpts);
   }
 
   if (!result.ok) return r2Failure(c, result.reason, result.message);
@@ -683,7 +705,13 @@ r2Buckets.post('/api/sites/:siteId/r2/buckets/:bucket/objects/copy', async (c) =
   await writeAuditLog(c.env.DB, {
     action: `r2.object.${action}`,
     actor_id: c.get('userId') ?? null,
-    metadata_json: { bucket, destKey, srcKey, ...(isPrefixMove ? { moved: result.moved } : {}) },
+    metadata_json: {
+      bucket,
+      destKey,
+      srcKey,
+      ...(destDisplay ? { destBucket: destDisplay } : {}),
+      ...(isPrefixMove ? { moved: result.moved } : {}),
+    },
     org_id: g.orgId,
     request_id: c.get('requestId') ?? null,
     target_id: siteId,
@@ -691,7 +719,7 @@ r2Buckets.post('/api/sites/:siteId/r2/buckets/:bucket/objects/copy', async (c) =
   });
 
   return c.json({
-    data: { destKey, moved: result.moved, ok: true, srcKey },
+    data: { destBucket: destDisplay, destKey, moved: result.moved, ok: true, srcKey },
     ok: true,
   });
 });

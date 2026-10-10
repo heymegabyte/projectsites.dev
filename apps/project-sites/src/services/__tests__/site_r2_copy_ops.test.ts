@@ -36,6 +36,8 @@ const ALLOC_DDL = `CREATE TABLE site_r2_allocations (
   jurisdiction TEXT, status TEXT, created_at TEXT, updated_at TEXT, deleted_at TEXT)`;
 const ENC_KEY_B64 = Buffer.from(new Uint8Array(32).fill(7)).toString('base64');
 const BUCKET = 'ps-site-site1-preview';
+/** A SECOND bucket for the same site — the cross-bucket (bucket A → bucket B) destination. */
+const BUCKET_B = 'ps-site-site1-archive';
 
 function seedPreviewBucket(h: D1SqliteHarness): void {
   h.exec(ALLOC_DDL);
@@ -110,9 +112,12 @@ function installFetch(): void {
             text: async () => `<?xml version="1.0"?><ListBucketResult><IsTruncated>false</IsTruncated>${contents}</ListBucketResult>`,
           } as unknown as Response);
         }
-        // A HEAD (collision check) — 200 when the key is in `existingKeys`, else 404.
+        // A HEAD (collision check) — 200 when the key is in `existingKeys`, else 404. Bucket-aware: the
+        // key is stored WITHOUT the bucket segment (strip the leading `/{bucket}/`) so a cross-bucket
+        // collision guard HEADs the DEST bucket + the right key.
         if (method === 'HEAD') {
-          const key = decodeURIComponent(new URL(u).pathname.replace(`/${BUCKET}/`, ''));
+          const path = new URL(u).pathname.replace(/^\//, ''); // `{bucket}/{key...}`
+          const key = decodeURIComponent(path.slice(path.indexOf('/') + 1));
           const exists = existingKeys.has(key);
           return Promise.resolve({ ok: exists, status: exists ? 200 : 404 } as unknown as Response);
         }
@@ -256,6 +261,110 @@ describe('moveSiteR2Prefix — rename a "folder" (list + copy+delete each key)',
       expect(copySources).toContain(`/${BUCKET}/old/a.txt`);
       // And the sources are deleted (move = copy + delete).
       expect(s3Calls.filter((c) => c.method === 'DELETE').length).toBe(2);
+    } finally {
+      h.close();
+    }
+  });
+});
+
+describe('copySiteR2Object — CROSS-bucket (bucket A → bucket B, same site)', () => {
+  it('PUTs the DEST bucket while the copy-source stays the SOURCE bucket (one-account CopyObject)', async () => {
+    const h = createD1Sqlite();
+    try {
+      h.exec(S3_TOKENS_DDL);
+      seedPreviewBucket(h);
+      const r = await copySiteR2Object(envWithCreds(h), ctx, BUCKET, 'a/old.txt', 'a/new.txt', {
+        destBucket: BUCKET_B,
+      });
+      expect(r.ok).toBe(true);
+      if (!r.ok) throw new Error('expected ok');
+      expect(r.key).toBe('a/new.txt');
+
+      const put = s3Calls.find((c) => c.method === 'PUT');
+      expect(put).toBeTruthy();
+      // The PUT request path targets the DESTINATION bucket + dest key …
+      expect(put!.url).toContain(`/${BUCKET_B}/a/new.txt`);
+      // … while the copy-source header still points at the SOURCE bucket + src key.
+      expect(put!.copySource).toBe(`/${BUCKET}/a/old.txt`);
+      expect(put!.signedHeaders).toContain('x-amz-copy-source');
+    } finally {
+      h.close();
+    }
+  });
+
+  it('runs the collision guard against the DEST bucket (an existing dest-bucket key refuses)', async () => {
+    const h = createD1Sqlite();
+    try {
+      h.exec(S3_TOKENS_DDL);
+      seedPreviewBucket(h);
+      existingKeys.add('taken.txt'); // the HEAD (against the dest bucket) → 200
+      const r = await copySiteR2Object(envWithCreds(h), ctx, BUCKET, 'src.txt', 'taken.txt', {
+        destBucket: BUCKET_B,
+      });
+      expect(r.ok).toBe(false);
+      if (r.ok) throw new Error('expected failure');
+      expect(r.reason).toBe('destination_exists');
+      // The collision HEAD must target the DEST bucket, and no PUT fires.
+      expect(s3Calls.some((c) => c.method === 'HEAD' && c.url.includes(`/${BUCKET_B}/`))).toBe(true);
+      expect(s3Calls.some((c) => c.method === 'PUT')).toBe(false);
+    } finally {
+      h.close();
+    }
+  });
+
+  it('a destBucket EQUAL to the source bucket behaves exactly like same-bucket (no behavior change)', async () => {
+    const h = createD1Sqlite();
+    try {
+      h.exec(S3_TOKENS_DDL);
+      seedPreviewBucket(h);
+      const r = await copySiteR2Object(envWithCreds(h), ctx, BUCKET, 'a.txt', 'b.txt', {
+        destBucket: BUCKET,
+      });
+      expect(r.ok).toBe(true);
+      const put = s3Calls.find((c) => c.method === 'PUT')!;
+      expect(put.url).toContain(`/${BUCKET}/b.txt`);
+      expect(put.copySource).toBe(`/${BUCKET}/a.txt`);
+    } finally {
+      h.close();
+    }
+  });
+});
+
+describe('renameSiteR2Object — CROSS-bucket move = copy to DEST bucket THEN delete SOURCE', () => {
+  it('copies into the dest bucket, then DELETEs the source key from the SOURCE bucket (no data loss)', async () => {
+    const h = createD1Sqlite();
+    try {
+      h.exec(S3_TOKENS_DDL);
+      seedPreviewBucket(h);
+      const r = await renameSiteR2Object(envWithCreds(h), ctx, BUCKET, 'old.txt', 'old.txt', {
+        destBucket: BUCKET_B,
+      });
+      expect(r.ok).toBe(true);
+      const put = s3Calls.find((c) => c.method === 'PUT');
+      const del = s3Calls.find((c) => c.method === 'DELETE');
+      // PUT → dest bucket; copy-source → source bucket; DELETE → SOURCE bucket (never the dest).
+      expect(put!.url).toContain(`/${BUCKET_B}/old.txt`);
+      expect(put!.copySource).toBe(`/${BUCKET}/old.txt`);
+      expect(del!.url).toContain(`/${BUCKET}/old.txt`);
+      expect(del!.url).not.toContain(`/${BUCKET_B}/`);
+      // Copy precedes delete (never delete-first).
+      expect(s3Calls.indexOf(put!)).toBeLessThan(s3Calls.indexOf(del!));
+    } finally {
+      h.close();
+    }
+  });
+
+  it('does NOT delete the source when the cross-bucket copy fails (collision in the dest bucket)', async () => {
+    const h = createD1Sqlite();
+    try {
+      h.exec(S3_TOKENS_DDL);
+      seedPreviewBucket(h);
+      existingKeys.add('old.txt'); // dest-bucket key exists → copy refused
+      const r = await renameSiteR2Object(envWithCreds(h), ctx, BUCKET, 'old.txt', 'old.txt', {
+        destBucket: BUCKET_B,
+      });
+      expect(r.ok).toBe(false);
+      expect(s3Calls.some((c) => c.method === 'DELETE')).toBe(false); // source untouched
     } finally {
       h.close();
     }

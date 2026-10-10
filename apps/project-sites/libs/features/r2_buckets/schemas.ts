@@ -70,10 +70,17 @@ export const UploadJsonBodySchema = z
 export type UploadJsonBody = z.infer<typeof UploadJsonBodySchema>;
 
 /**
- * Body for `POST /r2/buckets/:bucket/objects/copy` — copy / move / rename ONE object (or a prefix) WITHIN
- * a bucket (same-bucket this slice). `srcKey`/`destKey` are full object keys (a trailing `/` on BOTH makes
- * it a prefix move). `deleteSource:true` turns a copy into a move/rename (copy-then-delete-source).
- * `overwrite:true` opts into clobbering an existing destination (default: refuse with 409).
+ * Body for `POST /r2/buckets/:bucket/objects/copy` — copy / move / rename ONE object (or a prefix).
+ * `srcKey`/`destKey` are full object keys (a trailing `/` on BOTH makes it a prefix move). `deleteSource:true`
+ * turns a copy into a move/rename (copy-then-delete-source). `overwrite:true` opts into clobbering an
+ * existing destination (default: refuse with 409).
+ *
+ * CROSS-bucket: an optional `destBucket` (another of the SAME site's bucket DISPLAY names) targets the copy
+ * at a DIFFERENT bucket than the `:bucket` path param — S3 CopyObject copies across buckets in one account.
+ * Absent (or equal to the path bucket) ⇒ identical same-bucket behavior. The route ownership-checks BOTH the
+ * path bucket AND `destBucket` (a foreign dest → 404 IDOR). A cross-bucket MOVE is copy-to-dest THEN
+ * delete-source (no data loss). The `srcKey === destKey` refine is relaxed when `destBucket` differs: the
+ * SAME key in ANOTHER bucket is a legitimate copy/move, not a no-op self-copy.
  */
 export const CopyObjectBodySchema = z
   .object({
@@ -81,9 +88,11 @@ export const CopyObjectBodySchema = z
     destKey: z.string().min(1).max(1024),
     deleteSource: z.boolean().optional(),
     overwrite: z.boolean().optional(),
+    /** Another of the site's bucket display names to copy/move INTO (cross-bucket). Same validation as a create name. */
+    destBucket: BucketDisplayNameSchema.optional(),
   })
   .strict()
-  .refine((b) => b.srcKey !== b.destKey, {
+  .refine((b) => b.srcKey !== b.destKey || (!!b.destBucket && b.destBucket.trim() !== ''), {
     message: 'Source and destination must differ',
     path: ['destKey'],
   });

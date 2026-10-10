@@ -172,16 +172,16 @@ describe('ObjectCopyDialog — rename / copy / move', () => {
     fireEvent.change(input(), { target: { value: 'banner.png' } });
     expect(submitBtn().disabled).toBe(false);
     fireEvent.click(submitBtn());
-    // The dialog hands the derived destKey + deleteSource to the parent; the PARENT closes on {ok:true}
-    // (asserted at the ObjectBrowser integration layer), so the dialog itself never self-closes.
-    await waitFor(() => expect(onSubmit).toHaveBeenCalledWith('images/banner.png', true));
+    // The dialog hands the derived destKey + deleteSource (+ destBucket — undefined with no picker) to the
+    // parent; the PARENT closes on {ok:true} (asserted at the ObjectBrowser layer), so no self-close.
+    await waitFor(() => expect(onSubmit).toHaveBeenCalledWith('images/banner.png', true, undefined));
   });
 
   it('copy prefills the name + submits with deleteSource=false (source kept)', async () => {
     const { onSubmit } = setup('copy');
     fireEvent.change(input(), { target: { value: 'hero-copy.png' } });
     fireEvent.click(submitBtn());
-    await waitFor(() => expect(onSubmit).toHaveBeenCalledWith('images/hero-copy.png', false));
+    await waitFor(() => expect(onSubmit).toHaveBeenCalledWith('images/hero-copy.png', false, undefined));
   });
 
   it('move prefills the current folder + submits the NEW-folder destKey (basename kept) with deleteSource=true', async () => {
@@ -189,7 +189,7 @@ describe('ObjectCopyDialog — rename / copy / move', () => {
     expect(input().value).toBe('images/'); // prefilled with the current folder
     fireEvent.change(input(), { target: { value: 'archive' } });
     fireEvent.click(submitBtn());
-    await waitFor(() => expect(onSubmit).toHaveBeenCalledWith('archive/hero.png', true));
+    await waitFor(() => expect(onSubmit).toHaveBeenCalledWith('archive/hero.png', true, undefined));
   });
 
   it('COLLISION guard — a destKey that already exists disables submit + shows a reason (no overwrite)', async () => {
@@ -228,5 +228,110 @@ describe('ObjectCopyDialog — rename / copy / move', () => {
     const dialog = screen.getByTestId('buckets-object-op-modal');
     expect(dialog.getAttribute('role')).toBe('dialog');
     expect(dialog.getAttribute('aria-label')).toBe('Rename file');
+  });
+});
+
+// ── 4. Cross-bucket destination picker (B8 cross-bucket) ────────────────────────
+
+describe('ObjectCopyDialog — cross-bucket destination picker', () => {
+  /** Mount with a multi-bucket site so the picker has somewhere to go. */
+  function setup(mode: 'copy' | 'move', opts: { buckets?: string[]; currentBucket?: string; existingKeys?: string[] } = {}) {
+    const onClose = vi.fn();
+    const onSubmit = vi.fn(async () => ({ ok: true }));
+    render(
+      <ObjectCopyDialog
+        mode={mode}
+        srcKey="images/hero.png"
+        existingKeys={opts.existingKeys ?? []}
+        buckets={opts.buckets ?? ['uploads', 'archive']}
+        currentBucket={opts.currentBucket ?? 'uploads'}
+        onClose={onClose}
+        onSubmit={onSubmit}
+      />,
+    );
+    return { onClose, onSubmit };
+  }
+  const picker = () => screen.queryByTestId('buckets-object-op-destbucket') as HTMLSelectElement | null;
+  const submitBtn = () => screen.getByTestId('buckets-object-op-submit') as HTMLButtonElement;
+  const input = () => screen.getByTestId('buckets-object-op-input') as HTMLInputElement;
+
+  it('renders a destination-bucket picker (copy mode) defaulting to the CURRENT bucket', () => {
+    setup('copy');
+    const sel = picker();
+    expect(sel).toBeTruthy();
+    expect(sel!.value).toBe('uploads'); // default = current bucket → same-bucket path unchanged
+    // Every one of the site's buckets is an option.
+    const opts = Array.from(sel!.options).map((o) => o.value);
+    expect(opts).toContain('uploads');
+    expect(opts).toContain('archive');
+  });
+
+  it('copy to ANOTHER bucket submits destBucket (3rd onSubmit arg) with deleteSource=false', async () => {
+    const { onSubmit } = setup('copy');
+    fireEvent.change(picker()!, { target: { value: 'archive' } });
+    // With a cross-bucket destination the SAME key is allowed (no self-collision in the other bucket).
+    fireEvent.change(input(), { target: { value: 'hero.png' } });
+    fireEvent.click(submitBtn());
+    await waitFor(() => expect(onSubmit).toHaveBeenCalledWith('images/hero.png', false, 'archive'));
+  });
+
+  it('move to ANOTHER bucket submits destBucket with deleteSource=true (copy-then-delete)', async () => {
+    const { onSubmit } = setup('move');
+    fireEvent.change(picker()!, { target: { value: 'archive' } });
+    fireEvent.change(input(), { target: { value: 'done' } });
+    fireEvent.click(submitBtn());
+    await waitFor(() => expect(onSubmit).toHaveBeenCalledWith('done/hero.png', true, 'archive'));
+  });
+
+  it('keeping the picker on the CURRENT bucket submits the current bucket as destBucket (same-bucket semantics preserved)', async () => {
+    const { onSubmit } = setup('copy');
+    fireEvent.change(input(), { target: { value: 'hero-copy.png' } });
+    fireEvent.click(submitBtn());
+    await waitFor(() => expect(onSubmit).toHaveBeenCalledWith('images/hero-copy.png', false, 'uploads'));
+  });
+
+  it('a same-NAME collision is only checked within the CURRENT bucket — the SAME key to ANOTHER bucket is allowed', async () => {
+    // `taken.png` exists in the CURRENT bucket; copying it (same name) to the OTHER bucket must NOT collide.
+    setup('copy', { existingKeys: ['images/taken.png'] });
+    fireEvent.change(input(), { target: { value: 'taken.png' } });
+    // Same bucket → blocked.
+    expect(submitBtn().disabled).toBe(true);
+    // Switch to the other bucket → the collision no longer applies.
+    fireEvent.change(picker()!, { target: { value: 'archive' } });
+    expect(submitBtn().disabled).toBe(false);
+  });
+
+  it('rename mode has NO destination picker (rename is always in-place, same bucket)', () => {
+    render(
+      <ObjectCopyDialog
+        mode="rename"
+        srcKey="images/hero.png"
+        existingKeys={[]}
+        buckets={['uploads', 'archive']}
+        currentBucket="uploads"
+        onClose={vi.fn()}
+        onSubmit={vi.fn(async () => ({ ok: true }))}
+      />,
+    );
+    expect(screen.queryByTestId('buckets-object-op-destbucket')).toBeNull();
+  });
+
+  it('a single-bucket site shows no picker (nowhere else to go) + still submits the current bucket', async () => {
+    const onSubmit = vi.fn(async () => ({ ok: true }));
+    render(
+      <ObjectCopyDialog
+        mode="copy"
+        srcKey="a.png"
+        existingKeys={[]}
+        buckets={['uploads']}
+        currentBucket="uploads"
+        onClose={vi.fn()}
+        onSubmit={onSubmit}
+      />,
+    );
+    expect(screen.queryByTestId('buckets-object-op-destbucket')).toBeNull();
+    fireEvent.change(screen.getByTestId('buckets-object-op-input'), { target: { value: 'b.png' } });
+    fireEvent.click(screen.getByTestId('buckets-object-op-submit'));
+    await waitFor(() => expect(onSubmit).toHaveBeenCalledWith('b.png', false, 'uploads'));
   });
 });

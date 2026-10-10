@@ -659,6 +659,7 @@ export const BucketsPanel = memo(() => {
           selectedBucket && buckets.status === 'ready' ? (
             <BucketWorkspace
               bucket={buckets.buckets.find((b) => b.name === selectedBucket) ?? { name: selectedBucket }}
+              allBuckets={buckets.buckets.map((b) => b.name)}
               objectOpsAvailable={objectOpsAvailable}
               onAddress={openAddress}
               onTogglePublic={onTogglePublic}
@@ -1463,10 +1464,13 @@ function readStoredViewMode(): FilesViewMode {
 export const ObjectBrowser = memo(
   ({
     bucket,
+    allBuckets,
     objectOpsAvailable,
     onCopyBucketAddress,
   }: {
     bucket: BucketEntry;
+    /** All of the site's bucket display names — the cross-bucket copy/move destinations. */
+    allBuckets?: readonly string[];
     objectOpsAvailable: boolean;
     onCopyBucketAddress: () => void;
   }) => {
@@ -1776,17 +1780,31 @@ export const ObjectBrowser = memo(
     );
 
     /*
-     * B8 — copy / move / rename ONE object via the `requestR2Copy` bridge (server-side S3 CopyObject,
-     * same-bucket this slice). `deleteSource` turns copy into move/rename. Returns `true` on success so the
-     * dialog can close; a `conflict` keeps the dialog open (the owner picks another name). Refreshes the
-     * list on success so the new/renamed object appears without a manual reload.
+     * B8 — copy / move / rename ONE object via the `requestR2Copy` bridge (server-side S3 CopyObject).
+     * `deleteSource` turns copy into move/rename. `destBucket` (when it differs from the current bucket)
+     * copies/moves ACROSS buckets — a cross-bucket move is copy-to-dest THEN delete-source server-side.
+     * Returns `true` on success so the dialog can close; a `conflict` keeps the dialog open (the owner
+     * picks another name/bucket). Refreshes the list on success so the change appears without a reload.
      */
     const runObjectOp = useCallback(
-      async (srcKey: string, destKey: string, deleteSource: boolean): Promise<{ ok: boolean; conflict?: boolean }> => {
+      async (
+        srcKey: string,
+        destKey: string,
+        deleteSource: boolean,
+        destBucket?: string,
+      ): Promise<{ ok: boolean; conflict?: boolean }> => {
         setBusyKey(srcKey);
+        // Only send destBucket when it actually crosses buckets (keeps the same-bucket request byte-identical).
+        const crossing = !!destBucket && destBucket !== bucket.name;
 
         try {
-          const reply = await requestR2Copy({ bucket: bucket.name, deleteSource, destKey, srcKey });
+          const reply = await requestR2Copy({
+            bucket: bucket.name,
+            deleteSource,
+            destKey,
+            srcKey,
+            ...(crossing ? { destBucket } : {}),
+          });
 
           if (!reply.ok) {
             if (reply.conflict) {
@@ -1798,8 +1816,13 @@ export const ObjectBrowser = memo(
             return { ok: false };
           }
 
-          const verb = deleteSource ? (objectParentPrefix(srcKey) === objectParentPrefix(destKey) ? 'Renamed' : 'Moved') : 'Copied';
-          postToastToParent('success', `${verb} ${objectBaseName(srcKey)} → ${objectBaseName(destKey)}.`);
+          const verb = deleteSource
+            ? crossing || objectParentPrefix(srcKey) !== objectParentPrefix(destKey)
+              ? 'Moved'
+              : 'Renamed'
+            : 'Copied';
+          const dest = crossing ? `${destBucket}/${objectBaseName(destKey)}` : objectBaseName(destKey);
+          postToastToParent('success', `${verb} ${objectBaseName(srcKey)} → ${dest}.`);
           await loadObjects();
 
           return { ok: true };
@@ -2672,15 +2695,18 @@ export const ObjectBrowser = memo(
           />
         )}
 
-        {/* B8 — rename / copy / move one object (server-side S3 CopyObject via the bridge). */}
+        {/* B8 — rename / copy / move one object (server-side S3 CopyObject via the bridge; copy/move can
+            target ANOTHER of the site's buckets via the destination-bucket picker). */}
         {objectOp && (
           <ObjectCopyDialog
             mode={objectOp.mode}
             srcKey={objectOp.key}
             existingKeys={objects.status === 'ready' ? objects.objects.map((o) => o.key) : []}
+            buckets={allBuckets}
+            currentBucket={bucket.name}
             onClose={() => setObjectOp(null)}
-            onSubmit={async (destKey, deleteSource) => {
-              const r = await runObjectOp(objectOp.key, destKey, deleteSource);
+            onSubmit={async (destKey, deleteSource, destBucket) => {
+              const r = await runObjectOp(objectOp.key, destKey, deleteSource, destBucket);
 
               if (r.ok) {
                 setObjectOp(null);
@@ -2709,6 +2735,7 @@ type WorkspaceTab = 'files' | 'settings';
 const BucketWorkspace = memo(
   ({
     bucket,
+    allBuckets,
     objectOpsAvailable,
     onAddress,
     onTogglePublic,
@@ -2716,6 +2743,8 @@ const BucketWorkspace = memo(
     onDelete,
   }: {
     bucket: BucketEntry;
+    /** All of the site's bucket display names — threaded to the object browser for cross-bucket copy/move. */
+    allBuckets?: readonly string[];
     objectOpsAvailable: boolean;
     onAddress: (b: BucketEntry) => void;
     onTogglePublic: (b: BucketEntry) => void;
@@ -2794,6 +2823,7 @@ const BucketWorkspace = memo(
           {tab === 'files' ? (
             <ObjectBrowser
               bucket={bucket}
+              allBuckets={allBuckets}
               objectOpsAvailable={objectOpsAvailable}
               onCopyBucketAddress={() => onAddress(bucket)}
             />
@@ -4189,36 +4219,60 @@ const OBJECT_OP_COPY: Record<
 };
 
 /**
- * One dialog for the three same-bucket object ops (B8), rendered in the shared {@link ModalShell}
- * (brand-dark, cyan, motion-safe entrance, focus-trap + Escape from ModalShell). `rename`/`copy` prefill
- * the current basename + select it; `move` takes a destination folder (prefix). The destination key is
- * derived by {@link renameDestKey} / {@link moveDestKey}; a live client-side COLLISION GUARD disables
- * submit when the computed key already exists (no doomed overwrite). `onSubmit` returns `{ok, conflict}`
- * so a server-side race still surfaces inline. Never a dead-end: the submit stays disabled with a reason
- * until the input is valid + non-colliding.
+ * One dialog for the object ops (B8), rendered in the shared {@link ModalShell} (brand-dark, cyan,
+ * motion-safe entrance, focus-trap + Escape from ModalShell). `rename`/`copy` prefill the current basename
+ * + select it; `move` takes a destination folder (prefix). The destination key is derived by
+ * {@link renameDestKey} / {@link moveDestKey}; a live client-side COLLISION GUARD disables submit when the
+ * computed key already exists IN THE DESTINATION BUCKET (no doomed overwrite).
+ *
+ * CROSS-bucket: for `copy`/`move` on a multi-bucket site, a **destination-bucket picker** lets the owner
+ * send the object to ANOTHER of their buckets. It defaults to `currentBucket` (same-bucket path unchanged).
+ * `rename` is always in-place (no picker). When the chosen bucket differs from the current one, the
+ * same-bucket collision check (`existingKeys`) no longer applies — the SAME key in another bucket is a
+ * legitimate destination; a real collision there surfaces as a server `conflict`. `onSubmit`'s 3rd arg is
+ * the chosen bucket (or `undefined` when there's no picker). Returns `{ok, conflict}` so a server race still
+ * surfaces inline. Never a dead-end: submit stays disabled with a reason until valid + non-colliding.
  */
 export const ObjectCopyDialog = memo(
   ({
     mode,
     srcKey,
     existingKeys,
+    buckets,
+    currentBucket,
     onClose,
     onSubmit,
   }: {
     mode: 'rename' | 'copy' | 'move';
     srcKey: string;
     existingKeys: readonly string[];
+    /** All of the site's bucket display names — the cross-bucket destination options. Optional. */
+    buckets?: readonly string[];
+    /** The bucket the object currently lives in — the picker's default (same-bucket). Optional. */
+    currentBucket?: string;
     onClose: () => void;
-    onSubmit: (destKey: string, deleteSource: boolean) => Promise<{ ok: boolean; conflict?: boolean }>;
+    onSubmit: (
+      destKey: string,
+      deleteSource: boolean,
+      destBucket?: string,
+    ) => Promise<{ ok: boolean; conflict?: boolean }>;
   }) => {
     const copy = OBJECT_OP_COPY[mode];
     const baseName = objectBaseName(srcKey);
     const parentPrefix = objectParentPrefix(srcKey);
     // rename/copy start from the current name; move starts from the current folder.
     const [value, setValue] = useState(mode === 'move' ? parentPrefix : baseName);
+    // CROSS-bucket destination. Defaults to the current bucket (same-bucket). Only copy/move can cross.
+    const [destBucket, setDestBucket] = useState(currentBucket ?? '');
     const [busy, setBusy] = useState(false);
     const [error, setError] = useState<string | null>(null);
     const inputRef = useRef<HTMLInputElement>(null);
+
+    // The picker shows only when crossing is possible: copy/move + a multi-bucket site. Rename is in-place.
+    const otherBuckets = (buckets ?? []).filter(Boolean);
+    const canCrossBucket = (mode === 'copy' || mode === 'move') && otherBuckets.length > 1 && !!currentBucket;
+    // True once the owner points at a DIFFERENT bucket than the object's current one.
+    const crossing = canCrossBucket && destBucket !== '' && destBucket !== currentBucket;
 
     useEffect(() => {
       const el = inputRef.current;
@@ -4240,8 +4294,11 @@ export const ObjectCopyDialog = memo(
 
     // The computed destination key + validity. rename forbids `/` (that's a move); move is always a prefix.
     const destKey = mode === 'move' ? moveDestKey(srcKey, value) : renameDestKey(srcKey, value);
-    const unchanged = destKey === srcKey;
-    const collides = destKey !== null && !unchanged && existingKeys.includes(destKey);
+    // A no-op only when NOT crossing buckets (the same key in ANOTHER bucket is a real copy/move).
+    const unchanged = destKey === srcKey && !crossing;
+    // The same-bucket collision guard applies only when the destination IS the current bucket. Crossing to
+    // another bucket means `existingKeys` (this bucket's listing) no longer describes the destination.
+    const collides = !crossing && destKey !== null && destKey !== srcKey && existingKeys.includes(destKey);
     const valid = destKey !== null && !unchanged && !collides;
 
     const reason = !destKey
@@ -4250,8 +4307,8 @@ export const ObjectCopyDialog = memo(
         : 'Enter a destination.'
       : unchanged
         ? mode === 'move'
-          ? 'Pick a different folder.'
-          : 'Pick a different name.'
+          ? 'Pick a different folder or bucket.'
+          : 'Pick a different name or bucket.'
         : collides
           ? 'Something with that name already exists here.'
           : null;
@@ -4263,14 +4320,16 @@ export const ObjectCopyDialog = memo(
 
       setBusy(true);
       setError(null);
-      const r = await onSubmit(destKey, mode !== 'copy'); // copy keeps source; rename/move delete it
+      // copy keeps source; rename/move delete it. The 3rd arg is the chosen bucket (undefined = no picker).
+      const chosenBucket = canCrossBucket ? destBucket || currentBucket : currentBucket;
+      const r = await onSubmit(destKey, mode !== 'copy', chosenBucket);
 
       if (!r.ok) {
-        setError(r.conflict ? 'Something with that name already exists here.' : 'Could not complete that.');
+        setError(r.conflict ? 'Something with that name already exists there.' : 'Could not complete that.');
         setBusy(false);
       }
       // On success the parent unmounts this dialog — no need to clear `busy`.
-    }, [valid, busy, destKey, mode, onSubmit]);
+    }, [valid, busy, destKey, mode, onSubmit, canCrossBucket, destBucket, currentBucket]);
 
     return (
       <ModalShell title={copy.title} icon={copy.icon} onClose={onClose} testId="buckets-object-op-modal">
@@ -4303,9 +4362,46 @@ export const ObjectCopyDialog = memo(
           <span className="mt-1 block text-[10px] text-bolt-elements-textTertiary">{copy.help}</span>
         </label>
 
+        {canCrossBucket && (
+          <label className="mt-3 block">
+            <span className="text-[11px] font-medium text-bolt-elements-textSecondary">Destination bucket</span>
+            <div className="relative mt-1">
+              <select
+                value={destBucket}
+                onChange={(e) => {
+                  setDestBucket(e.target.value);
+                  setError(null);
+                }}
+                disabled={busy}
+                aria-label="Destination bucket"
+                data-testid="buckets-object-op-destbucket"
+                className="w-full min-h-[34px] appearance-none rounded-lg border border-bolt-elements-borderColor bg-bolt-elements-background-depth-1 px-3 py-1.5 pr-8 text-[13px] text-bolt-elements-textPrimary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-bolt-elements-item-contentAccent focus-visible:border-bolt-elements-item-contentAccent/50 disabled:opacity-60"
+              >
+                {otherBuckets.map((b) => (
+                  <option key={b} value={b}>
+                    {b}
+                    {b === currentBucket ? ' (this bucket)' : ''}
+                  </option>
+                ))}
+              </select>
+              <div
+                className="i-ph:caret-down pointer-events-none absolute right-2.5 top-1/2 -translate-y-1/2 text-sm text-bolt-elements-textTertiary"
+                aria-hidden
+              />
+            </div>
+            <span className="mt-1 block text-[10px] text-bolt-elements-textTertiary">
+              {crossing
+                ? mode === 'move'
+                  ? 'Moves the file to the other bucket (copied there, then removed from here).'
+                  : 'Copies the file into the other bucket. The original stays here.'
+                : 'Keep this bucket, or pick another one of your buckets.'}
+            </span>
+          </label>
+        )}
+
         {destKey && valid && (
           <p className="mt-2 text-[10px] text-bolt-elements-textTertiary">
-            → <span className="font-mono text-bolt-elements-textSecondary">{destKey}</span>
+            → <span className="font-mono text-bolt-elements-textSecondary">{crossing ? `${destBucket}/` : ''}{destKey}</span>
           </p>
         )}
 

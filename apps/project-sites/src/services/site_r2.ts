@@ -2040,12 +2040,19 @@ async function s3ObjectExists(
 }
 
 /**
- * Copy ONE object WITHIN a bucket (S3 CopyObject). Signs a `PUT /{bucket}/{destKey}` with the
- * `x-amz-copy-source: /{bucket}/{srcKey}` header (each path segment URI-encoded) — R2's server-side copy,
- * no bytes transit the Worker. SAME-BUCKET only this slice (cross-bucket is a noted follow-up); `bucketName`
- * is the already-resolved REAL bucket for BOTH source + destination. Refuses a silent overwrite: unless
- * `overwrite` is true, a pre-existing `destKey` yields a `destination_exists` failure (the route maps it to
- * 409) — never clobbers data. A no-op self-copy (`srcKey === destKey`) is rejected by the caller.
+ * Copy ONE object (S3 CopyObject). Signs a `PUT /{destBucket}/{destKey}` with the
+ * `x-amz-copy-source: /{srcBucket}/{srcKey}` header (each path segment URI-encoded) — R2's server-side copy,
+ * no bytes transit the Worker. `bucketName` is the already-resolved REAL SOURCE bucket.
+ *
+ * CROSS-bucket: when `opts.destBucket` is set AND differs from `bucketName`, the PUT targets `destBucket`
+ * while the copy-source STAYS the source bucket — S3 CopyObject copies across buckets in one account, and
+ * the per-site scoped token covers ALL the site's buckets, so the SAME {@link resolveSiteS3Config} signs
+ * both sides. Absent/equal ⇒ identical same-bucket behavior. `destBucket` MUST already be ownership-verified
+ * by the caller (the route resolves it via `resolveSiteR2Allocation`); this function never resolves names.
+ *
+ * Refuses a silent overwrite: unless `overwrite` is true, a pre-existing `destKey` IN THE DEST BUCKET yields
+ * a `destination_exists` failure (the route maps it to 409) — never clobbers data. A no-op self-copy
+ * (same bucket AND `srcKey === destKey`) is rejected by the caller.
  */
 export async function copySiteR2Object(
   env: Env,
@@ -2053,23 +2060,26 @@ export async function copySiteR2Object(
   bucketName: string,
   srcKey: string,
   destKey: string,
-  opts: { overwrite?: boolean } = {},
+  opts: { overwrite?: boolean; destBucket?: string } = {},
 ): Promise<SiteR2Result<{ key: string }>> {
   const resolved = await resolveSiteS3Config(env, ctx);
   if (!resolved.ok) return resolved;
   const s3 = resolved.s3;
+  // The PUT target bucket — the dest bucket when cross-bucket, else the source bucket itself.
+  const destBucket = opts.destBucket && opts.destBucket !== bucketName ? opts.destBucket : bucketName;
 
-  // Collision guard — never overwrite an existing destination unless the caller opts in explicitly.
+  // Collision guard — never overwrite an existing destination unless the caller opts in explicitly. HEADs
+  // the DEST bucket (cross-bucket: the dest-bucket key may be free even when the same key exists in src).
   if (!opts.overwrite) {
-    const exists = await s3ObjectExists(s3, bucketName, destKey);
+    const exists = await s3ObjectExists(s3, destBucket, destKey);
     if (!exists.ok) return exists;
     if (exists.exists) return { ok: false, reason: 'destination_exists' };
   }
 
-  // `x-amz-copy-source` is the bucket + key, each path segment URI-encoded (R2 follows the S3 contract;
-  // a leading `/` + the bucket name). encodeS3Path keeps `/` separators and encodes the rest.
+  // `x-amz-copy-source` is the SOURCE bucket + key, each path segment URI-encoded (R2 follows the S3
+  // contract; a leading `/` + the bucket name). encodeS3Path keeps `/` separators and encodes the rest.
   const copySource = `/${bucketName}/${encodeS3Path(srcKey)}`;
-  const res = await s3Fetch(s3, 'PUT', `/${bucketName}/${encodeS3Path(destKey)}`, {
+  const res = await s3Fetch(s3, 'PUT', `/${destBucket}/${encodeS3Path(destKey)}`, {
     extraHeaders: { 'x-amz-copy-source': copySource },
   });
   if (!res.ok)
@@ -2083,9 +2093,13 @@ export async function copySiteR2Object(
 }
 
 /**
- * Rename / move ONE object within a bucket = {@link copySiteR2Object} then {@link deleteSiteR2Object} of
- * the source. If the copy fails the source is left untouched (no data loss); the delete only runs after a
- * confirmed copy. Same collision guard as copy (refuses to clobber `destKey` unless `overwrite`).
+ * Rename / move ONE object = {@link copySiteR2Object} then {@link deleteSiteR2Object} of the source. If the
+ * copy fails the source is left untouched (no data loss); the delete only runs after a confirmed copy. Same
+ * collision guard as copy (refuses to clobber `destKey` unless `overwrite`).
+ *
+ * CROSS-bucket move: with `opts.destBucket` set + different, the copy lands in the dest bucket and the delete
+ * removes the source key from the SOURCE bucket (`bucketName`) — never the dest. The order (copy → delete)
+ * guarantees no data loss even across buckets: a failed copy leaves the source intact.
  */
 export async function renameSiteR2Object(
   env: Env,
@@ -2093,10 +2107,11 @@ export async function renameSiteR2Object(
   bucketName: string,
   srcKey: string,
   destKey: string,
-  opts: { overwrite?: boolean } = {},
+  opts: { overwrite?: boolean; destBucket?: string } = {},
 ): Promise<SiteR2Result<{ key: string }>> {
   const copied = await copySiteR2Object(env, ctx, bucketName, srcKey, destKey, opts);
   if (!copied.ok) return copied;
+  // Delete the SOURCE key from the SOURCE bucket (cross-bucket: NOT the dest bucket).
   const removed = await deleteSiteR2Object(env, ctx, bucketName, srcKey);
   // The copy already succeeded; a delete failure leaves a harmless duplicate rather than losing data.
   if (!removed.ok) return removed;
@@ -2104,10 +2119,14 @@ export async function renameSiteR2Object(
 }
 
 /**
- * Move every object under `srcPrefix` to `destPrefix` within a bucket (rename a "folder"). Lists the
- * source prefix page-by-page (bounded at 100×1000) and copy+deletes each object, rewriting only the
- * prefix portion of the key. Partial progress is reported via `moved`; the first hard error stops and is
- * returned (objects already moved stay moved — honest, resumable). Same-bucket only this slice.
+ * Move every object under `srcPrefix` to `destPrefix` (rename a "folder"). Lists the source prefix
+ * page-by-page (bounded at 100×1000) from the SOURCE bucket (`bucketName`) and copy+deletes each object,
+ * rewriting only the prefix portion of the key. Partial progress is reported via `moved`; the first hard
+ * error stops and is returned (objects already moved stay moved — honest, resumable).
+ *
+ * CROSS-bucket: with `opts.destBucket` set + different, each object is copied into the dest bucket (same
+ * key rewrite) and the source key is deleted from the SOURCE bucket — threaded through to
+ * {@link renameSiteR2Object}. `destBucket` MUST be caller-ownership-verified.
  */
 export async function moveSiteR2Prefix(
   env: Env,
@@ -2115,11 +2134,12 @@ export async function moveSiteR2Prefix(
   bucketName: string,
   srcPrefix: string,
   destPrefix: string,
-  opts: { overwrite?: boolean } = {},
+  opts: { overwrite?: boolean; destBucket?: string } = {},
 ): Promise<SiteR2Result<{ moved: number }>> {
   const resolved = await resolveSiteS3Config(env, ctx);
   if (!resolved.ok) return resolved;
   const s3 = resolved.s3;
+  const crossBucket = !!opts.destBucket && opts.destBucket !== bucketName;
 
   let moved = 0;
   let cursor: string | undefined;
@@ -2141,7 +2161,8 @@ export async function moveSiteR2Prefix(
     for (const key of keys) {
       // Rewrite only the leading prefix; the remainder of the key (sub-folders + filename) is preserved.
       const destKey = destPrefix + key.slice(srcPrefix.length);
-      if (destKey === key) continue; // no-op (dest === src prefix)
+      // Skip only a TRUE no-op — same bucket AND unchanged key. Cross-bucket the same key is a real move.
+      if (destKey === key && !crossBucket) continue;
       const r = await renameSiteR2Object(env, ctx, bucketName, key, destKey, opts);
       if (!r.ok) return { ...r, message: r.message ?? `Could not move ${key}` };
       moved++;

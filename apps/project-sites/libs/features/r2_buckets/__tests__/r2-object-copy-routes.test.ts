@@ -97,6 +97,17 @@ const sampleAllocation = {
   publicAccess: false,
   publicBaseUrl: null,
 };
+/** A SECOND bucket for the same site — the cross-bucket destination ("archive"). */
+const archiveAllocation = {
+  bucketName: 'ps-site-s1-archive',
+  createdAt: '2026-09-27T00:00:00.000Z',
+  displayName: 'archive',
+  environment: 'preview' as const,
+  id: 'alloc2',
+  isDefault: false,
+  publicAccess: false,
+  publicBaseUrl: null,
+};
 
 /** POST the copy endpoint with a JSON body. */
 function post(body: unknown, env = mockEnv(), a = authed()) {
@@ -215,5 +226,67 @@ describe('POST …/objects/copy — op dispatch + responses', () => {
     mockCopy.mockResolvedValue({ ok: false, reason: 'needs_s3_credentials' });
     const res = await post({ destKey: 'b.txt', srcKey: 'a.txt' });
     expect(res.status).toBe(503);
+  });
+});
+
+describe('POST …/objects/copy — CROSS-bucket (destBucket), dual ownership check', () => {
+  beforeEach(() => {
+    mockFlag.mockResolvedValue(true);
+  });
+
+  /** Resolve by display name so src + dest buckets get DIFFERENT allocations (the dual-ownership axis). */
+  function resolveByName(map: Record<string, unknown>) {
+    mockResolveAlloc.mockImplementation(async (_env: unknown, _siteId: string, name: string) => map[name] ?? null);
+  }
+
+  it('CROSS-bucket COPY → copySiteR2Object with the resolved SOURCE + DEST real buckets; audits both names', async () => {
+    resolveByName({ archive: archiveAllocation, uploads: sampleAllocation });
+    mockCopy.mockResolvedValue({ key: 'b.txt', ok: true });
+    const res = await post({ destBucket: 'archive', destKey: 'b.txt', srcKey: 'a.txt' });
+    expect(res.status).toBe(200);
+    // copySiteR2Object(env, ctx, SOURCE real bucket, srcKey, destKey, { destBucket: DEST real bucket, ... })
+    const call = mockCopy.mock.calls[0] as [unknown, unknown, string, string, string, { destBucket?: string }];
+    expect(call[2]).toBe('ps-site-s1-uploads'); // source REAL bucket
+    expect(call[5]).toMatchObject({ destBucket: 'ps-site-s1-archive' }); // dest REAL bucket (not the display name)
+    // BOTH buckets were ownership-resolved (the dual IDOR check).
+    expect(mockResolveAlloc).toHaveBeenCalledWith(expect.anything(), 's1', 'uploads');
+    expect(mockResolveAlloc).toHaveBeenCalledWith(expect.anything(), 's1', 'archive');
+    // Audit records BOTH bucket display names.
+    const audit = (mockAudit.mock.calls[0] as [unknown, { action: string; metadata_json: Record<string, unknown> }])[1];
+    expect(audit.action).toBe('r2.object.copied');
+    expect(audit.metadata_json).toMatchObject({ bucket: 'uploads', destBucket: 'archive' });
+  });
+
+  it('CROSS-bucket MOVE (deleteSource) → renameSiteR2Object with destBucket; audits r2.object.moved + both buckets', async () => {
+    resolveByName({ archive: archiveAllocation, uploads: sampleAllocation });
+    mockRename.mockResolvedValue({ key: 'a.txt', ok: true });
+    const res = await post({ deleteSource: true, destBucket: 'archive', destKey: 'a.txt', srcKey: 'a.txt' });
+    expect(res.status).toBe(200);
+    expect(mockRename).toHaveBeenCalledTimes(1);
+    const call = mockRename.mock.calls[0] as [unknown, unknown, string, string, string, { destBucket?: string }];
+    expect(call[2]).toBe('ps-site-s1-uploads'); // source REAL bucket
+    expect(call[5]).toMatchObject({ destBucket: 'ps-site-s1-archive' });
+    // A cross-bucket op is ALWAYS a "moved" (different bucket), never "renamed".
+    const audit = (mockAudit.mock.calls[0] as [unknown, { action: string; metadata_json: Record<string, unknown> }])[1];
+    expect(audit.action).toBe('r2.object.moved');
+    expect(audit.metadata_json).toMatchObject({ bucket: 'uploads', destBucket: 'archive' });
+  });
+
+  it('404 (IDOR) when the DEST bucket is NOT one of the site\'s allocations — copy never runs', async () => {
+    // Source resolves; dest (a foreign/other bucket) resolves to null → the dest-side IDOR guard trips.
+    resolveByName({ uploads: sampleAllocation });
+    const res = await post({ destBucket: 'someone-elses', destKey: 'b.txt', srcKey: 'a.txt' });
+    expect(res.status).toBe(404);
+    expect(mockCopy).not.toHaveBeenCalled();
+    expect(mockAudit).not.toHaveBeenCalled();
+  });
+
+  it('a destBucket EQUAL to the source bucket is same-bucket (keeps the renamed verb; no extra resolve needed)', async () => {
+    resolveByName({ uploads: sampleAllocation });
+    mockRename.mockResolvedValue({ key: 'a/new.txt', ok: true });
+    const res = await post({ deleteSource: true, destBucket: 'uploads', destKey: 'a/new.txt', srcKey: 'a/old.txt' });
+    expect(res.status).toBe(200);
+    const audit = (mockAudit.mock.calls[0] as [unknown, { action: string }])[1];
+    expect(audit.action).toBe('r2.object.renamed'); // same bucket + same parent folder → rename
   });
 });

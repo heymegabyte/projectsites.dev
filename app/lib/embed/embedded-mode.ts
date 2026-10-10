@@ -2489,6 +2489,12 @@ export interface BucketCopyRequestMessage {
 
   /** `true` → overwrite an existing destination; omit/false → refuse with a conflict (the default). */
   overwrite?: boolean;
+
+  /**
+   * CROSS-bucket: another of the site's bucket DISPLAY names to copy/move INTO. Absent (or equal to
+   * `bucket`) ⇒ same-bucket. A cross-bucket MOVE (`deleteSource:true`) is copy-to-dest THEN delete-source.
+   */
+  destBucket?: string;
 }
 
 /** Parent → Child: reply to {@link BucketCopyRequestMessage}. */
@@ -2499,6 +2505,9 @@ export interface BucketCopyResponseMessage {
 
   /** Echoed destination key on success. */
   destKey?: string;
+
+  /** Echoed destination bucket display name on a cross-bucket success. */
+  destBucket?: string;
 
   /** `moveSiteR2Prefix`: number of objects moved (folder move only). */
   moved?: number;
@@ -3784,11 +3793,13 @@ export function requestBucketDownload(input: { bucket: string; key: string }): P
 }
 
 /**
- * Resources → Buckets (B8): copy / move / rename one object (or a prefix) WITHIN a bucket. The admin
- * proxies to `POST /api/sites/:id/r2/buckets/:bucket/objects/copy`. `deleteSource:true` makes it a
- * move/rename; a trailing `/` on BOTH keys makes it a folder (prefix) move. Server-side S3 CopyObject —
- * no bytes cross the bridge. Resolves with the parent's {@link BucketCopyResponseMessage} (`conflict:true`
- * when the destination already exists and `overwrite` wasn't set). Same-bucket this slice.
+ * Resources → Buckets (B8): copy / move / rename one object (or a prefix). The admin proxies to
+ * `POST /api/sites/:id/r2/buckets/:bucket/objects/copy`. `deleteSource:true` makes it a move/rename; a
+ * trailing `/` on BOTH keys makes it a folder (prefix) move. An optional `destBucket` (another of the
+ * site's bucket display names) copies/moves ACROSS buckets (server resolves + ownership-checks it). A
+ * cross-bucket move is copy-to-dest THEN delete-source (no data loss). Server-side S3 CopyObject — no
+ * bytes cross the bridge. Resolves with the parent's {@link BucketCopyResponseMessage} (`conflict:true`
+ * when the destination already exists and `overwrite` wasn't set).
  */
 export function requestR2Copy(input: {
   bucket: string;
@@ -3796,6 +3807,7 @@ export function requestR2Copy(input: {
   destKey: string;
   deleteSource?: boolean;
   overwrite?: boolean;
+  destBucket?: string;
 }): Promise<BucketCopyResponseMessage> {
   return requestFromParent<BucketCopyResponseMessage>(
     { type: 'PS_R2_COPY', correlationId: nextBridgeCorrelationId(), ...input },
