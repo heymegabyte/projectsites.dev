@@ -13,17 +13,19 @@ the file-management feel of Finder/Transmit, the polish of Linear/Raycast, the c
 Cloudflare R2's dashboard — every visible control backed by a REAL implementation (no stubs).
 
 ## READY NOW — top 5 (next fires)
-*Ranked by user/money-path leverage × dependency order. Shipped: B1 premium shell · B1-polish list⇄grid ·
-B2 two-default model · B3 bucket-row menu · B3 shortcut sheet · B14 navigator keyboard (roving listbox).
-⚠ **The fully-verifiable FE-only backlog is now NEARLY EXHAUSTED** — the remaining high-value work
-(B6–B12, B15, grid tiles, object-row menu, upload/browse/download) is ALL gated on the Object-ops blocker.*
+*Ranked by user/money-path leverage × dependency order. Shipped: B1 shell · B1-polish grid · B2 two-default ·
+B3 menu + shortcut sheet · owner-friendly copy · B14 (roving listbox + modal focus-trap + SR status roles).
+The a11y FOUNDATION is complete. ★ **DECISION MADE (Brian 2026-10-10): build B5 scoped tokens (`#2`)** to unblock
+the ~8 object features — see the SCOPE LOCKED block in GAPS.*
 
-**★ TOP PRIORITY — the UNBLOCKER (Brian-gated decision; everything below it is thin by comparison).**
-0. **⚠ Object ops** — the worker R2 S3 creds (`R2_S3_*`) are unset → ~8 object features can't be built-and-verified.
-   Decide: (a) provision the worker's internal R2 S3 key, OR (b) build **B4/B5** scoped tokens (heavy backend, the
-   spec's "never account-wide" model). Until then the loop can only do thin FE polish. See the Object-ops blocker.
+**★ TOP PRIORITY — B5 slice 1 (the object-ops UNBLOCK). START IN A FRESH SESSION (deciding session was 10 fires deep).**
+0. **B5 slice 1 — per-site S3 token service + migration** — `ensureSiteS3Token(env, siteId)` creates a CF R2 api_token
+   scoped to the site's buckets + stores the secret ENCRYPTED (`ai_crypto`) in a NEW D1 `site_r2_s3_tokens` table,
+   idempotent, flag-dark. Jest + real-SQLite + mocked CF fetch (mirror `r2_provisioner.test`). Then slice 2 wires
+   `getS3Config`/`hasObjectOps` to it → flips `objectOpsAvailable` true → unblocks B6–B12/B15/grid/upload/previews.
+   **Full sliced plan in the GAPS § B5.** · **new-backend: YES (heavy).**
 
-**Fully-verifiable FE-only remainders (thin — do if the loop keeps firing before the decision):**
+**Fully-verifiable FE-only remainders (do these if a fire can't take on B5's backend):**
 1. **B14 residual — axe @ 6bp** · needs `@axe-core/playwright` added to the PROD E2E (not a jsdom unit dep); run axe
    on the Buckets panel @ 6 breakpoints, fix violations. Keyboard is already done (B14). · **new-backend: NO.**
 1b. **B1-polish — ≥3 "lit"-dark aesthetic rounds** · subjective screenshot-verified refinement. · **new-backend: NO.**
@@ -165,19 +167,41 @@ B6/B7/B9/B10 (Workflows / gateway / env-pointer — large backend) · B13/B14 (i
 > "works" without a real-browser object-op proof.
 
 **P2 — capability depth (backend-heavy):**
-- [ ] **B4 Per-bucket Access Keys** — one-line: issue bucket-scoped R2 API tokens with lifecycle + an Access Keys
-  tab. Anchor: NEW worker route under `handlers.ts` (`POST/GET/DELETE /api/sites/:siteId/r2/buckets/:bucket/keys`)
-  + NEW service fns in `site_r2.ts` calling CF `POST /accounts/{acct}/r2/api_tokens`; escrow via existing
-  `MCP_ENCRYPTION_KEY`/`ai_crypto` vault (NEVER plaintext); NEW bridge op `createKey`/`listKeys`/`rotateKey`/
-  `revokeKey`. Acceptance: create a token scoped to ONE bucket (Object R/O or R/W), expiry presets
-  (1mo/6mo/1yr/5yr/never), copy-id, step-up reveal, rotate, revoke, rename; warn on never-expiring write keys;
-  authz on every action; tenancy test. New-backend: **YES (heavy)**. Priority: **P2**.
-- [ ] **B5 Global site credential strip** — one-line: one site-scoped R2 token (its buckets only, never
-  account-wide) with masked id/secret + rotate. Anchor: NEW service fn in `site_r2.ts` + NEW route in
-  `handlers.ts`; reuses B4's token + escrow machinery (build B4 first). Acceptance: masked id/secret, copy,
-  step-up reveal, rotate, live status; token perms auto-extend when a new bucket is created; honest "secret not
-  recoverable → rotate" when not escrowed; scope asserted to exclude unrelated buckets. New-backend: **YES**
-  (depends on B4). Priority: **P2**.
+> **★ SCOPE LOCKED (Brian 2026-10-10 — chose option `#2`, the scoped-token path): B5 is THE LEAD + the object-ops
+> UNBLOCK.** The worker turns on the editor's own object ops (browse/upload/download → previews, grid, Code selector,
+> clone/zip) by using each site's SCOPED R2 token — NEVER an account-wide `R2_S3_*` key. Three locked decisions:
+> (1) **worker uses per-site scoped tokens** to unblock the editor; (2) **owner-facing keys are SHOW-ONCE** (secret
+> shown once on create, never persisted; rotate if lost); (3) **B5 (per-site) first, B4 (per-bucket) fast-follow**.
+> Defaults (decide-and-proceed): reuse the DARK `r2_bucket_manager` flag + `site_r2_manager.ts` + `ai_crypto`; new
+> owner keys default **R/O + bounded expiry** (R/W + never with a warning); **audit-log** every create/rotate/revoke;
+> per-bucket **CORS** = fast-follow. **⚠ Key nuance:** the WORKER's internal per-site token MUST be stored ENCRYPTED
+> (it reuses it every request — can't be show-once); SHOW-ONCE applies only to OWNER-facing keys (a separate token the
+> owner copies for external use). **Start the implementation in a FRESH session** (the deciding session was 10 fires deep).
+
+- [~] **B5 Per-site scoped token — THE OBJECT-OPS UNBLOCK** *(scope-locked; NOW THE LEAD)* — one R2 S3 token scoped to
+  a SITE's buckets (enumerated, never account-wide); the worker uses it for the editor's object ops. **Sliced plan
+  (each a fire, TDD-first):**
+  1. **Token service + migration** *(← first slice)* — `ensureSiteS3Token(env, siteId)` (in `site_r2.ts`/`site_r2_manager.ts`):
+     idempotently create a CF R2 api_token scoped to the site's buckets (confirm the exact bucket-scoped permission-group
+     request body from CF docs during impl), store the secret ENCRYPTED (`ai_crypto`) in a NEW D1 table
+     `site_r2_s3_tokens` (site_id, access_key_id, secret_enc, cf_token_id, scope_bucket_ids, status, created/rotated_at).
+     Jest + real-SQLite (`createD1Sqlite`) + mocked CF fetch (mirror `r2_provisioner.test`). Additive migration; flag-dark.
+  2. **Wire object ops to the per-site token** — `getS3Config`/`hasObjectOps` (site_r2.ts) resolve the site's token
+     (lazy-provision via slice 1) instead of the global `R2_S3_*`; sign `listSiteR2Objects`/`put`/`get`/`delete` with it.
+     **Flips `objectOpsAvailable` true per-site → unblocks B6–B12/B15/grid/upload/previews.** Prod-verify: a real bucket
+     lists objects in the editor.
+  3. **Perms auto-extend on new bucket** — when `provisionSiteR2` adds a bucket, extend the site token's scope + re-store.
+  4. **Owner credential strip UI** (editor, Vitest) — a SEPARATE owner-facing scoped key: masked id + **show-once** secret
+     on create/rotate, copy-id, rotate, revoke, live status; honest "secret not recoverable → rotate".
+  5. **Flag promote + docs + prod-verify** once 1–4 are green + live.
+  Acceptance: a site's object ops work via its OWN scoped token (no account-wide key); scope excludes unrelated
+  buckets/account (asserted); owner secret show-once; rotate/status live. New-backend: **YES (heavy, multi-fire)**.
+  Priority: **P1 — THE LEAD**.
+- [ ] **B4 Per-bucket Access Keys** *(FAST-FOLLOW after B5)* — per-BUCKET scoped owner keys (granularity below B5's
+  per-site token), reusing B5's token + record machinery. Route `POST/GET/DELETE /api/sites/:siteId/r2/buckets/:bucket/keys`
+  + CF `POST /accounts/{acct}/r2/api_tokens` (bucket-scoped). SHOW-ONCE secret; default R/O + bounded expiry (R/W +
+  never with a warning); audit-log; Access Keys workspace tab (create/copy-id/rotate/revoke/rename). Authz + tenancy
+  test. New-backend: **YES**. Priority: **P2 (after B5)**.
 - [ ] **B6 Clone bucket** — one-line: durable Workflow that creates a new physical bucket + server-side-copies
   every object. Anchor: NEW Cloudflare **Workflow** + NEW route in `handlers.ts`; reuse `provisionSiteR2`
   (site_r2.ts:244) for the new bucket + the S3 copy primitive used by `promoteSiteR2` (site_r2.ts:830) for the
