@@ -26,6 +26,7 @@ import { classNames } from '~/utils/classNames';
 import { PanelShell, PanelHeader } from './panel';
 import { PanelEmpty } from './panel/PanelEmpty';
 import { BucketsTwoPane } from './BucketsTwoPane';
+import { iconForObject, isImageKey } from './bucket-icons';
 import {
   isEmbedded,
   postToastToParent,
@@ -165,57 +166,13 @@ function estMonthlyCost(totalBytes: number): string {
   return `$${cost.toFixed(2)}`;
 }
 
-/** A phosphor glyph for an object by extension. */
-function iconForObject(key: string): string {
-  const name = key.toLowerCase();
-
-  if (/\.(png|jpe?g|gif|webp|avif|svg|ico|bmp)$/.test(name)) {
-    return 'i-ph:image-duotone';
-  }
-
-  if (/\.(mp4|mov|webm|mkv|avi)$/.test(name)) {
-    return 'i-ph:file-video-duotone';
-  }
-
-  if (/\.(mp3|wav|ogg|m4a|flac)$/.test(name)) {
-    return 'i-ph:file-audio-duotone';
-  }
-
-  if (/\.pdf$/.test(name)) {
-    return 'i-ph:file-pdf-duotone';
-  }
-
-  if (/\.(json|xml|ya?ml|toml)$/.test(name)) {
-    return 'i-ph:brackets-curly-duotone';
-  }
-
-  if (/\.(js|mjs|cjs|jsx|ts|tsx)$/.test(name)) {
-    return 'i-ph:file-js-duotone';
-  }
-
-  if (/\.(css|scss|less)$/.test(name)) {
-    return 'i-ph:file-css-duotone';
-  }
-
-  if (/\.(html?|htm)$/.test(name)) {
-    return 'i-ph:file-html-duotone';
-  }
-
-  if (/\.(zip|tar|gz|rar|7z)$/.test(name)) {
-    return 'i-ph:file-archive-duotone';
-  }
-
-  if (/\.(txt|md|csv|log)$/.test(name)) {
-    return 'i-ph:file-text-duotone';
-  }
-
-  return 'i-ph:file-duotone';
-}
-
-/** True when an object key looks like a previewable image. */
-function isImageKey(key: string): boolean {
-  return /\.(png|jpe?g|gif|webp|avif|svg|bmp|ico)$/i.test(key);
-}
+/*
+ * `iconForObject` (distinct per-type Phosphor duotone glyph) + `isImageKey` live in the pure,
+ * dependency-free `./bucket-icons` module (fire-B5) so the `/_preview` gallery + the Vitest suite can
+ * consume the SAME map without this bridge-coupled component. Re-exported here so existing importers
+ * (`import { iconForObject, isImageKey } from './BucketsPanel'`) keep resolving.
+ */
+export { iconForObject, isImageKey } from './bucket-icons';
 
 /** Read a File into a base64 data URL (for the upload bridge). */
 function fileToDataUrl(file: File): Promise<string> {
@@ -1595,10 +1552,10 @@ const ObjectBrowser = memo(
                         key={p}
                         type="button"
                         onClick={() => setPrefix(p)}
-                        className="group w-full flex items-center gap-2.5 px-3 py-2 border-b border-bolt-elements-borderColor/25 hover:bg-bolt-elements-item-backgroundActive transition-colors motion-reduce:transition-none text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-bolt-elements-item-contentAccent"
+                        className="group w-full flex items-center gap-3 px-3 py-2.5 border-b border-bolt-elements-borderColor/20 hover:bg-bolt-elements-item-contentAccent/[0.05] hover:border-bolt-elements-item-contentAccent/20 transition-all duration-150 motion-reduce:transition-none text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-bolt-elements-item-contentAccent"
                       >
                         <div
-                          className="i-ph:folder-duotone text-base text-bolt-elements-item-contentAccent shrink-0"
+                          className="i-ph:folder-duotone text-lg text-bolt-elements-item-contentAccent shrink-0"
                           aria-hidden
                         />
                         <span className="text-[12px] font-medium text-bolt-elements-textPrimary truncate flex-1">
@@ -1621,9 +1578,20 @@ const ObjectBrowser = memo(
                     return (
                       <div
                         key={obj.key}
-                        className="group flex items-center gap-2.5 px-3 py-2 border-b border-bolt-elements-borderColor/25 hover:bg-bolt-elements-item-backgroundActive transition-colors motion-reduce:transition-none"
+                        className={classNames(
+                          'group relative flex items-center gap-3 px-3 py-2.5 border-b transition-all duration-150 motion-reduce:transition-none',
+                          checked
+                            ? 'border-bolt-elements-item-contentAccent/30 bg-bolt-elements-item-contentAccent/[0.06] shadow-sm shadow-bolt-elements-item-contentAccent/5'
+                            : 'border-bolt-elements-borderColor/20 hover:bg-bolt-elements-item-contentAccent/[0.04] hover:border-bolt-elements-item-contentAccent/20',
+                        )}
                         data-testid="buckets-object-row"
                       >
+                        {checked && (
+                          <span
+                            aria-hidden
+                            className="absolute left-0 top-1.5 bottom-1.5 w-0.5 rounded-full bg-bolt-elements-item-contentAccent"
+                          />
+                        )}
                         <input
                           type="checkbox"
                           checked={checked}
@@ -1646,7 +1614,10 @@ const ObjectBrowser = memo(
                         <div
                           className={classNames(
                             iconForObject(obj.key),
-                            'text-base text-bolt-elements-textTertiary group-hover:text-bolt-elements-item-contentAccent transition-colors shrink-0',
+                            'text-lg shrink-0 transition-colors',
+                            checked
+                              ? 'text-bolt-elements-item-contentAccent'
+                              : 'text-bolt-elements-textTertiary group-hover:text-bolt-elements-item-contentAccent',
                           )}
                           aria-hidden
                         />
@@ -1656,7 +1627,7 @@ const ObjectBrowser = memo(
                         >
                           {name}
                         </span>
-                        <span className="text-[10px] text-bolt-elements-textTertiary tabular-nums shrink-0">
+                        <span className="text-[10px] text-bolt-elements-textTertiary tabular-nums shrink-0 tracking-tight">
                           {formatBytes(obj.size)}
                         </span>
                         {formatRelativeTime(obj.uploadedAt) && (
@@ -1767,10 +1738,10 @@ const ObjectBrowser = memo(
                         key={obj.key}
                         data-testid="buckets-object-tile"
                         className={classNames(
-                          'group relative flex flex-col gap-1.5 rounded-xl border p-2 transition-colors motion-reduce:transition-none',
+                          'group relative flex flex-col gap-1.5 rounded-xl border p-2 transition-all duration-150 motion-reduce:transition-none',
                           checked
-                            ? 'border-bolt-elements-item-contentAccent/70 bg-bolt-elements-item-contentAccent/[0.08]'
-                            : 'border-bolt-elements-borderColor bg-bolt-elements-background-depth-2 hover:border-bolt-elements-item-contentAccent/40 hover:bg-bolt-elements-background-depth-3',
+                            ? 'border-bolt-elements-item-contentAccent/60 bg-bolt-elements-item-contentAccent/[0.08] shadow-sm shadow-bolt-elements-item-contentAccent/15'
+                            : 'border-bolt-elements-borderColor/70 bg-bolt-elements-background-depth-2 hover:border-bolt-elements-item-contentAccent/40 hover:bg-bolt-elements-background-depth-3 motion-safe:hover:-translate-y-px',
                         )}
                       >
                         <input
@@ -1798,7 +1769,7 @@ const ObjectBrowser = memo(
                           )}
                         />
 
-                        <div className="flex aspect-square items-center justify-center overflow-hidden rounded-lg bg-bolt-elements-background-depth-1">
+                        <div className="flex aspect-square items-center justify-center overflow-hidden rounded-lg bg-gradient-to-br from-bolt-elements-background-depth-1 to-bolt-elements-item-contentAccent/[0.03] ring-1 ring-inset ring-bolt-elements-borderColor/40">
                           {thumbUrl ? (
                             <img
                               src={thumbUrl}
@@ -1811,7 +1782,10 @@ const ObjectBrowser = memo(
                             <div
                               className={classNames(
                                 iconForObject(obj.key),
-                                'text-3xl text-bolt-elements-textTertiary transition-colors group-hover:text-bolt-elements-item-contentAccent',
+                                'text-4xl transition-colors',
+                                checked
+                                  ? 'text-bolt-elements-item-contentAccent'
+                                  : 'text-bolt-elements-textTertiary group-hover:text-bolt-elements-item-contentAccent',
                               )}
                               aria-hidden
                             />

@@ -31,17 +31,20 @@ const customIconCollection = iconPaths.reduce(
  *   grep -rhoE 'i-ph:[a-z0-9-]+' app/components/workbench/*.tsx app/components/workbench/panel/*.tsx app/routes/[_]preview.tsx
  * NOTE: `i-ph:bucket` / `i-ph:bucket-duotone` do NOT exist in @iconify-json/ph 1.2.2 (Phosphor
  * removed them) — safelisting is a no-op for those two; their callers need a real icon name.
+ *
+ * `bucket-icons.ts` (a `.ts` module, NOT `.tsx`) holds the Buckets object-browser file-type glyph
+ * map returned as string literals from `iconForObject` — so it is globbed EXPLICITLY (the `*.tsx`
+ * glob would otherwise miss it and the per-type `-duotone` masks would never generate, fire-B5).
  */
 const PANEL_ICON_GLOBS = [
   './app/components/workbench/*.tsx',
+  './app/components/workbench/*.ts',
   './app/components/workbench/panel/*.tsx',
   './app/routes/[[]_[]]preview.tsx',
 ];
 
 const panelIconSafelist = Array.from(
-  new Set(
-    globSync(PANEL_ICON_GLOBS).flatMap((file) => readFileSync(file, 'utf8').match(/i-ph:[a-z0-9-]+/g) ?? []),
-  ),
+  new Set(globSync(PANEL_ICON_GLOBS).flatMap((file) => readFileSync(file, 'utf8').match(/i-ph:[a-z0-9-]+/g) ?? [])),
 ).sort();
 
 const BASE_COLORS = {

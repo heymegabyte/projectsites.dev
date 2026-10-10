@@ -25,7 +25,8 @@
 import React from 'react';
 import { cleanup, fireEvent, render, screen } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { BucketsEmpty, ObjectsEmpty, BucketsTwoPane } from '../BucketsPanel';
+import { BucketsEmpty, ObjectsEmpty, BucketsTwoPane } from '~/components/workbench/BucketsPanel';
+import { iconForObject } from '~/components/workbench/bucket-icons';
 
 afterEach(cleanup);
 
@@ -81,6 +82,7 @@ describe('ObjectsEmpty — object-list launchpad (creds missing)', () => {
 
     // The empty state still renders...
     expect(screen.getByTestId('buckets-objects-empty')).toBeTruthy();
+
     // ...but the upload button that would fail its precondition is absent.
     expect(screen.queryByTestId('buckets-objects-empty-upload')).toBeNull();
   });
@@ -101,10 +103,74 @@ describe('ObjectsEmpty — filtered to zero results', () => {
     render(<BucketsTwoPane left={<div data-testid="l">list</div>} right={<div data-testid="r">browser</div>} />);
     expect(screen.getByTestId('l')).toBeTruthy();
     expect(screen.getByTestId('r')).toBeTruthy();
-    // The object pane MUST carry min-w-0 — without it the flex child can't shrink and the object
-    // browser overflows the overflow-hidden parent (clipped at the ~600px panel edge, fire-153/160).
+
+    /*
+     * The object pane MUST carry min-w-0 — without it the flex child can't shrink and the object
+     * browser overflows the overflow-hidden parent (clipped at the ~600px panel edge, fire-153/160).
+     */
     expect(screen.getByTestId('buckets-object-pane').className).toContain('min-w-0');
+
     // The container is overflow-hidden, so a NON-shrinking child would clip — min-w-0 is the guard.
     expect(screen.getByTestId('buckets-two-pane').className).toContain('overflow-hidden');
+  });
+});
+
+/*
+ * ─── Populated gallery — distinct file-type icons prove-out (fire-B5) ──────────
+ * The `/_preview` gallery's ObjectBrowserSample renders a populated bucket from a fixed object set
+ * through the REAL `iconForObject`. This test mirrors that EXACT object set (the visual-proof surface
+ * the lead screenshots) and asserts it yields ≥10 distinct `i-ph:*` icon classes in the rendered DOM —
+ * so a regression that coalesces the map back to one glyph fails here, not just in the screenshot.
+ */
+
+describe('Populated object gallery — distinct file-type icons', () => {
+  /** The SAME keys ObjectBrowserSample renders in app/routes/[_]preview.tsx. */
+  const GALLERY_KEYS = [
+    'images/',
+    'hero.webp',
+    'portrait.jpg',
+    'logo.svg',
+    'report.pdf',
+    'README.md',
+    'data.csv',
+    'budget.xlsx',
+    'proposal.docx',
+    'deck.pptx',
+    'config.json',
+    'app.tsx',
+    'styles.css',
+    'bundle.zip',
+    'track.mp3',
+    'promo.mp4',
+    'font.woff2',
+  ];
+
+  it('renders ≥10 DISTINCT i-ph icon classes across the populated sample', () => {
+    render(
+      <ul data-testid="gallery">
+        {GALLERY_KEYS.map((key) => (
+          <li key={key}>
+            <span className={`${iconForObject(key)} glyph`} data-icon={iconForObject(key)} />
+          </li>
+        ))}
+      </ul>,
+    );
+
+    const glyphs = Array.from(screen.getByTestId('gallery').querySelectorAll('[data-icon]'));
+    const distinct = new Set(glyphs.map((g) => g.getAttribute('data-icon')));
+
+    // 17 keys spanning folder + 16 type families → well over the ≥10 floor the headless proof needs.
+    expect(glyphs.length).toBe(GALLERY_KEYS.length);
+    expect(distinct.size).toBeGreaterThanOrEqual(10);
+
+    // Every rendered glyph is a real duotone family class (not a flat/empty string).
+    for (const icon of distinct) {
+      expect(icon).toMatch(/^i-ph:[a-z0-9-]+-duotone$/);
+    }
+  });
+
+  it('includes the folder glyph for the prefix row alongside file glyphs', () => {
+    const { container } = render(<span data-testid="folder-glyph" className={iconForObject('images/')} />);
+    expect(container.querySelector('[data-testid="folder-glyph"]')?.className).toBe('i-ph:folder-duotone');
   });
 });

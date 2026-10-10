@@ -27,6 +27,7 @@
 import type { MetaFunction } from '@remix-run/cloudflare';
 import { PanelShell, PanelHeader, PanelLoading, PanelEmpty } from '~/components/workbench/panel';
 import { BucketsTwoPane } from '~/components/workbench/BucketsTwoPane';
+import { iconForObject, isImageKey } from '~/components/workbench/bucket-icons';
 
 export const meta: MetaFunction = () => [
   { title: 'Panel Primitive Gallery · ProjectSites editor' },
@@ -76,38 +77,120 @@ function BucketListSample() {
   );
 }
 
-/** Right pane sample — a prefix breadcrumb + an object table whose long keys prove the min-w-0 shrink. */
-function ObjectBrowserSample() {
-  const objects = [
-    { key: 'images/2026/hero-background-full-bleed-1920x1080.webp', size: '284 KB' },
-    { key: 'images/2026/team/founder-portrait-retouched-final-v3.jpg', size: '198 KB' },
-    { key: 'documents/annual-report-2026-accessible-tagged.pdf', size: '1.2 MB' },
-  ];
+/**
+ * A populated bucket's objects — ONE folder prefix + 16 varied files spanning every distinct file-type
+ * family so the headless gallery is the visual-proof surface for the {@link iconForObject} map. The
+ * list + grid cells both render from THIS array through the REAL `iconForObject`, so a screenshot
+ * proves the distinct duotone glyphs land in production, not hand-rolled placeholders.
+ */
+const SAMPLE_OBJECTS: { key: string; size: string }[] = [
+  { key: 'images/', size: '7 items' }, // folder prefix → folder glyph
+  { key: 'hero.webp', size: '284 KB' }, // image
+  { key: 'portrait.jpg', size: '198 KB' }, // image
+  { key: 'logo.svg', size: '12 KB' }, // image (vector)
+  { key: 'report.pdf', size: '1.2 MB' }, // pdf
+  { key: 'README.md', size: '4 KB' }, // markdown
+  { key: 'data.csv', size: '86 KB' }, // csv
+  { key: 'budget.xlsx', size: '44 KB' }, // spreadsheet
+  { key: 'proposal.docx', size: '72 KB' }, // doc
+  { key: 'deck.pptx', size: '3.4 MB' }, // slides
+  { key: 'config.json', size: '2 KB' }, // data
+  { key: 'app.tsx', size: '9 KB' }, // typescript
+  { key: 'styles.css', size: '18 KB' }, // stylesheet
+  { key: 'bundle.zip', size: '5.1 MB' }, // archive
+  { key: 'track.mp3', size: '6.8 MB' }, // audio
+  { key: 'promo.mp4', size: '48 MB' }, // video
+  { key: 'font.woff2', size: '31 KB' }, // font
+];
 
+/** Shared breadcrumb + upload affordance for the populated samples (mirrors the real object toolbar). */
+function SampleToolbar() {
   return (
-    <div className="flex flex-col min-h-0">
-      <div className="flex items-center gap-1.5 border-b border-bolt-elements-borderColor/60 px-3 py-2 text-xs text-bolt-elements-textSecondary">
-        <span className="text-bolt-elements-item-contentAccent">site-assets</span>
-        <span className="i-ph:caret-right text-[10px]" aria-hidden="true" />
-        <span>images</span>
-        <span className="i-ph:caret-right text-[10px]" aria-hidden="true" />
-        <span className="text-bolt-elements-textPrimary">2026</span>
-        <button className="ml-auto flex items-center gap-1 rounded-md bg-bolt-elements-item-backgroundAccent px-2 py-1 text-[11px] text-bolt-elements-item-contentAccent">
-          <span className="i-ph:upload-simple text-xs" aria-hidden="true" />
-          Upload
-        </button>
+    <div className="flex items-center gap-1.5 border-b border-bolt-elements-borderColor/60 px-3 py-2 text-xs text-bolt-elements-textSecondary shrink-0">
+      <span className="i-ph:hard-drives text-xs text-bolt-elements-item-contentAccent" aria-hidden="true" />
+      <span className="text-bolt-elements-item-contentAccent">site-assets</span>
+      <button className="ml-auto flex items-center gap-1 rounded-md bg-bolt-elements-item-backgroundAccent px-2 py-1 text-[11px] text-bolt-elements-item-contentAccent">
+        <span className="i-ph:upload-simple text-xs" aria-hidden="true" />
+        Upload
+      </button>
+    </div>
+  );
+}
+
+/**
+ * Right pane sample — the POPULATED object browser (fire-B5). Renders both a LIST view and a GRID view
+ * from {@link SAMPLE_OBJECTS} through the REAL {@link iconForObject}, so the headless `/_preview`
+ * screenshot proves ~14+ distinct file-type duotone glyphs land. Long keys still prove the min-w-0
+ * shrink (truncate) that {@link BucketsTwoPane}'s right pane guarantees.
+ */
+function ObjectBrowserSample() {
+  return (
+    <div className="flex flex-col min-h-0" data-testid="buckets-populated-sample">
+      <SampleToolbar />
+      <div className="overflow-auto modern-scrollbar">
+        {/* LIST view — airy rows, duotone accent icon, tabular size. */}
+        <ul className="m-0 list-none p-1" data-testid="buckets-object-list">
+          {SAMPLE_OBJECTS.map((o) => {
+            const isFolder = o.key.endsWith('/');
+            return (
+              <li
+                key={o.key}
+                className="group flex items-center gap-3 rounded-lg px-2.5 py-2 text-bolt-elements-textSecondary transition-colors hover:bg-bolt-elements-item-contentAccent/[0.04]"
+              >
+                <span
+                  className={`${iconForObject(o.key)} text-lg shrink-0 ${
+                    isFolder
+                      ? 'text-bolt-elements-item-contentAccent'
+                      : 'text-bolt-elements-textTertiary group-hover:text-bolt-elements-item-contentAccent'
+                  }`}
+                  aria-hidden="true"
+                />
+                {/* min-w-0 + truncate: the long key shrinks to the pane and ellipsizes instead of
+                    overflowing the parent — the exact clip the BucketsTwoPane min-w-0 right pane prevents. */}
+                <span className="min-w-0 flex-1 truncate font-mono text-xs text-bolt-elements-textPrimary">
+                  {o.key}
+                </span>
+                <span className="shrink-0 text-[10px] tabular-nums text-bolt-elements-textTertiary tracking-tight">
+                  {o.size}
+                </span>
+              </li>
+            );
+          })}
+        </ul>
+
+        {/* GRID view — image types get a thumbnail placeholder; others the big duotone file glyph. */}
+        <div
+          className="grid grid-cols-[repeat(auto-fill,minmax(96px,1fr))] gap-2.5 border-t border-bolt-elements-borderColor/40 p-3"
+          data-testid="buckets-object-grid"
+        >
+          {SAMPLE_OBJECTS.filter((o) => !o.key.endsWith('/')).map((o) => (
+            <div
+              key={o.key}
+              className="group flex flex-col gap-1.5 rounded-xl border border-bolt-elements-borderColor/70 bg-bolt-elements-background-depth-2 p-2 transition-colors hover:border-bolt-elements-item-contentAccent/40 hover:bg-bolt-elements-background-depth-3"
+            >
+              {/* Image types render a cyan duotone image placeholder (no network in the static gallery —
+                  it proves the thumbnail SLOT); every other type renders its distinct file-type glyph. */}
+              <div className="flex aspect-square items-center justify-center overflow-hidden rounded-lg bg-gradient-to-br from-bolt-elements-background-depth-1 to-bolt-elements-item-contentAccent/[0.03] ring-1 ring-inset ring-bolt-elements-borderColor/40">
+                {isImageKey(o.key) ? (
+                  <span
+                    className="i-ph:image-duotone text-4xl text-bolt-elements-item-contentAccent/70"
+                    aria-hidden="true"
+                  />
+                ) : (
+                  <span
+                    className={`${iconForObject(o.key)} text-4xl text-bolt-elements-textTertiary transition-colors group-hover:text-bolt-elements-item-contentAccent`}
+                    aria-hidden="true"
+                  />
+                )}
+              </div>
+              <p className="min-w-0 truncate font-mono text-[11px] text-bolt-elements-textPrimary" title={o.key}>
+                {o.key}
+              </p>
+              <p className="text-[9px] tabular-nums text-bolt-elements-textTertiary">{o.size}</p>
+            </div>
+          ))}
+        </div>
       </div>
-      <ul className="m-0 list-none overflow-auto p-1 modern-scrollbar">
-        {objects.map((o) => (
-          <li key={o.key} className="flex items-center gap-2 rounded-md px-2 py-1.5 text-bolt-elements-textSecondary">
-            <span className="i-ph:file-duotone text-base shrink-0" aria-hidden="true" />
-            {/* min-w-0 + truncate: the long key shrinks to the pane and ellipsizes instead of
-                overflowing the parent — the exact clip the BucketsTwoPane min-w-0 right pane prevents. */}
-            <span className="min-w-0 flex-1 truncate font-mono text-xs">{o.key}</span>
-            <span className="shrink-0 text-[10px] tabular-nums text-bolt-elements-textTertiary">{o.size}</span>
-          </li>
-        ))}
-      </ul>
     </div>
   );
 }
