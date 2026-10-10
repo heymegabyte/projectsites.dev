@@ -412,7 +412,10 @@ export interface SiteR2S3Token {
 }
 
 /** Build the bucket-scoped Access-Policy resource map for the CF Create-Token request. */
-function bucketScopeResources(account: string, bucketNames: readonly string[]): Record<string, '*'> {
+function bucketScopeResources(
+  account: string,
+  bucketNames: readonly string[],
+): Record<string, '*'> {
   const resources: Record<string, '*'> = {};
   for (const name of bucketNames) {
     // JURISDICTION is `default` for non-jurisdictional buckets (the only kind the per-site plane mints).
@@ -512,15 +515,7 @@ export async function ensureSiteS3Token(
     `INSERT INTO site_r2_s3_tokens
        (id, tenant_id, site_id, access_key_id, secret_enc, cf_token_id, scope_bucket_ids, status, created_at, updated_at)
      VALUES (?, ?, ?, ?, ?, ?, ?, 'active', datetime('now'), datetime('now'))`,
-    [
-      uuidv7(),
-      tenantId,
-      siteId,
-      created.id,
-      secretEnc,
-      created.id,
-      JSON.stringify(bucketNames),
-    ],
+    [uuidv7(), tenantId, siteId, created.id, secretEnc, created.id, JSON.stringify(bucketNames)],
   );
 
   return { accessKeyId: created.id, ok: true, secret, tokenId: created.id };
