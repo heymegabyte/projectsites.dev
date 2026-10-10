@@ -42,3 +42,32 @@ test.describe('Per-site R2 Buckets API (auth + dark-launch contract)', () => {
     expect(res.status()).toBe(401);
   });
 });
+
+/**
+ * Object-browser VIEW-MODE toggle (list ⇄ grid).
+ *
+ * The Buckets object browser (editor Resources → Buckets) toggles its object surface between a list
+ * and a grid. In `BucketsPanel.tsx` the SAME body container flips its `data-testid` between
+ * `buckets-object-list` and `buckets-object-grid` based on `viewMode`, driven by the
+ * `buckets-view-list` / `buckets-view-grid` segmented control (and persisted across remounts in
+ * sessionStorage). That toggle is AUTHED-editor UI behind Cloudflare Access — this API-contract spec
+ * runs with no session and no stable prod selector for it, so the toggle has no live assertion HERE.
+ * Its coverage lives where it is reachable:
+ *   - UNIT (green): `app/components/workbench/BucketsPanel.spec.tsx` §"B1-polish: Files list/grid
+ *     view toggle" — defaults to list, both toggle controls present, clicking grid swaps
+ *     `buckets-object-list` → `buckets-object-grid` with two `buckets-object-tile`s, persists across
+ *     remounts.
+ *   - E2E (populated, headless): once the sibling's `/_preview` populated sample renders both the
+ *     `buckets-object-list` and `buckets-object-grid`, `e2e/r2-buckets/populated-gallery.spec.ts`
+ *     asserts both testids live. That is the headless home for the toggle's rendered output; this
+ *     seam records the inventory so the toggle is never left unaccounted-for.
+ */
+test.describe('Per-site R2 Buckets — object-browser view toggle (list ⇄ grid)', () => {
+  test.fixme(
+    'list ⇄ grid toggle swaps buckets-object-list ⇄ buckets-object-grid (authed editor; Vitest-covered, headless via /_preview populated sample)',
+    async () => {
+      // Intentionally a seam: covered by BucketsPanel.spec.tsx (unit) + populated-gallery.spec.ts
+      // (headless). No stable unauthenticated prod selector exists for the authed toggle control.
+    },
+  );
+});
