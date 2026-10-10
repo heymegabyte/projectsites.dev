@@ -15,15 +15,15 @@
 9. **b11** — **server-side whole-bucket search** (`searchSiteR2Objects` bounded scan + native prefix + honest `scannedAll`/`scanned`/`truncated`; route `?search=`; reused `PS_R2 listObjects`; debounced UI + truncation note). 13 jest + 137 Vitest. **Prod-verified on real R2** (2 matches found, non-match excluded, honest flags). ALSO fixed **4 red token tests** (harness now applies 0661+0662) — **LESSON: per-fire verify must run the FULL jest suite, not just `jest r2_buckets`.**
 10. **b14** — **axe @ 6 breakpoints** gate (`verify:buckets-axe` on `/_preview`). Found + fixed a real serious `scrollable-region-focusable` violation. **Prod-verified GREEN at all 6 bp** (0 critical/serious).
 
-## DoD §21 ≈ 93% (HONEST) — ONLY THE 2 HEAVIES + 1 FAST-FOLLOW REMAIN
-> All medium/safe work is DONE (B10 was the last). What's left is exclusively multi-fire heavy backend.
-- **B6** clone bucket — HEAVY, ~2–3 fires. CF Workflow: provision a new bucket + stream-copy all objects (reuse `provisionSiteR2` + the `zipSiteR2Bucket` list→copy loop + cross-bucket `copySiteR2Object` with `destBucket`). REQUIRED §21.
-- **B9** per-object public + revoke-safe signed shares — HEAVY, ~2–3 fires. New `object_visibility` D1 table + a Worker signed-URL gateway (serve a private object via an expiring signed link; public bucket = all public; revoke-safe). REQUIRED §21.
-- Fast-follow: **B15 object-tree** load/edit/save-back (FE-heavy, headless-verifiable).
-- ✅ DONE: ≥5 visual rounds · axe @ 6bp · 502-GET fix · B7 ZIP · B8 cross-bucket · **B10 env reassign+rollback+default-guard** (all prod-verified real R2). B7/B8-cross/B10 touch the Angular `frontend/` admin bridge → 3-surface deploy.
-- READY-NOW top: **B6** clone · **B9** per-object public · **B15-object-tree**.
-- ⚠️ **The remaining 3 ALL strongly warrant FRESH context** — they introduce NEW infra (CF Workflow for clone; a signed-URL gateway + new D1 table for B9) and are 2–3 fires EACH. This is the point in a 14-fires-deep session where fresh context most protects quality.
-- **CronDelete `b1182793`** ONLY when B6 + B9 ship + prod-verify on real R2, B15-object-tree ships (or Brian scopes out), and a final headless visual walkthrough shows no user-visible defect.
+## DoD §21 ≈ 95% (HONEST) — ONE §21 CLAUSE + ONE FAST-FOLLOW REMAIN
+> B6 clone just landed (bounded, prod-verified). B9 is the LAST §21 clause.
+- **B9** per-object public + revoke-safe signed shares — the LAST §21 heavy, ~1–2 fires. NEW `object_visibility{bucketId,objectKey,visibility,publicSlug,expiresAt}` D1 table (**needs a migration** — additive) + a Worker **signed-URL gateway** (serve a private object via an expiring signed link; public bucket inheritance = all public; revoke-safe). No code exists yet. REQUIRED §21.
+- Fast-follow: **B15 object-tree** load/edit/save-back (FE-heavy, headless-verifiable, no new backend — gates CronDelete (c), not DoD-%).
+- Follow-up (NOT a §21 clause): **B6 unbounded clone** via CF Workflow (bounded path already satisfies §21).
+- ✅ DONE: ≥5 visual rounds · axe @ 6bp · 502-GET fix · B7 ZIP · B8 same+cross-bucket · B10 env reassign+rollback+default-guard · **B6 clone** (all prod-verified real R2). B7/B8-cross/B10/B6 touch the Angular `frontend/` admin bridge → 3-surface deploy.
+- READY-NOW top: **B9** per-object public · **B15-object-tree**.
+- ⚠️ **B9 introduces a NEW migration + a signed-URL gateway** — the one remaining piece of genuinely new infra. Best done with fresh context.
+- **CronDelete `b1182793`** ONLY when **B9 ships + prod-verifies on real R2**, B15-object-tree ships (or Brian scopes out), and a final headless visual walkthrough shows no user-visible defect. (B9 is the gate.)
 
 ## Infra invariants for the next fire (do-not-rediscover)
 - **Deploy:** worker `cd apps/project-sites && wrangler deploy --env production` (Docker up, creds via `get-secret CLOUDFLARE_API_KEY` + `CLOUDFLARE_EMAIL=blzalewski@gmail.com`); editor `npm run build` (root) → `wrangler pages deploy build/client --project-name=bolt-diy --branch=main --commit-dirty=true`.
