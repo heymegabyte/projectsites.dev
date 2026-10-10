@@ -1464,3 +1464,12 @@ Interactive desktop fire (user "run /run-the-loop" after the panel work). Lean p
 - Orientation/recovery: Actions 38002666704 failed completion evidence; retained worktree is clean at 3aabcd6f3, already an ancestor of assigned main snapshot. Prior success adce4bbc8 is an ancestor of HEAD. No retained changes to salvage. Inspected GitHub workflow history and canonical loop docs; assigned worktree only, no push.
 - Runtime reality: production /api/health returned HTTP 200 (availability only). Root dependencies and worker .dev.vars absent; standing long-trail and deep-UI roles blocked. No golden journey, browser provider/session, states, screenshots, vision calls or measured vision cost. No runtime changes or deployment; customer acceptance remains open.
 - Next wave: LOOP-CATEGORY-SCOPE-313 records independently observed classification scope drift. Existing money-path/browser acceptance remains unmet. One iteration; outer runner owns publication.
+
+
+## fire-314 — testing-scope category repair (2026-10-10 UTC)
+
+- Advanced LOOP-CATEGORY-SCOPE-313 in `7138ba436`: explicit test types/scopes now precede product keywords in recency classification. Actual git-history fires 310 and 312 classify as testing. Exclusive primary category and existing UX precedence preserved.
+- RED reproduced test(editor-live) → product; GREEN six recency tests. Full Node helper suite: 24 passed, 0 failed. Syntax and whitespace checks passed. Independent adversarial review found no blockers; optional breaking-prefix coverage and comment polish incorporated and retested.
+- Recovery: retained 38002666704 worktree clean; its tip and prior fire-313 result are ancestors of origin/main. Receipt failure was completion-evidence; no unpublished code recovered. GitHub prior two loop runs observed successful.
+- Reality check: production /api/health HTTP 200 (availability only). No authenticated golden journey, deep-UI explorer or vision run; root dependencies absent. Tooling/docs only: no application deployment required. Publication belongs to outer runner.
+- Loop improvement: category advice no longer miscounts testing scopes as product. Next-wave discovery: LOOP-CATEGORY-UNKNOWN-314 records observed uncategorized pure-tooling fires for investigation.
