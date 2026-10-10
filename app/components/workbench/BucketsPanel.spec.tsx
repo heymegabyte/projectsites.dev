@@ -550,3 +550,37 @@ describe('BucketsPanel — B14: modal focus trap + Escape (ModalShell)', () => {
     await waitFor(() => expect(screen.queryByTestId('buckets-shortcuts-sheet')).toBeNull());
   });
 });
+
+describe('BucketsPanel — B14: SR status roles (WCAG 4.1.3 Status Messages)', () => {
+  it('announces the needs-creds state to screen readers (role=status)', async () => {
+    requestR2.mockImplementation(async (input: { op: string }) => {
+      if (input.op === 'listBuckets') {
+        return {
+          type: 'PS_R2_RESULT',
+          ok: true,
+          objectOpsAvailable: false,
+          buckets: [{ name: 'Preview', isDefault: true, public: false, environment: 'preview' }],
+        };
+      }
+
+      return { type: 'PS_R2_RESULT', ok: true, objects: [], prefixes: [], truncated: false };
+    });
+    render(<BucketsPanel />);
+    await waitFor(() => expect(screen.getByTestId('buckets-objects-needs-creds')).toBeTruthy());
+    expect(screen.getByTestId('buckets-objects-needs-creds').getAttribute('role')).toBe('status');
+  });
+
+  it('announces the disabled state to screen readers (role=status)', async () => {
+    requestR2.mockResolvedValue({ type: 'PS_R2_RESULT', ok: false, enabled: false });
+    render(<BucketsPanel />);
+    await waitFor(() => expect(screen.getByTestId('buckets-disabled')).toBeTruthy());
+    expect(screen.getByTestId('buckets-disabled').getAttribute('role')).toBe('status');
+  });
+
+  it('announces a bucket-load error to screen readers (role=alert)', async () => {
+    requestR2.mockResolvedValue({ type: 'PS_R2_RESULT', ok: false, error: 'Could not load your buckets.' });
+    render(<BucketsPanel />);
+    await waitFor(() => expect(screen.getByTestId('buckets-error')).toBeTruthy());
+    expect(screen.getByTestId('buckets-error').getAttribute('role')).toBe('alert');
+  });
+});

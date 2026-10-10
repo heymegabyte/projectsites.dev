@@ -2747,7 +2747,11 @@ const ObjectsSkeleton = memo(() => (
 ObjectsSkeleton.displayName = 'BucketsPanel.ObjectsSkeleton';
 
 const ErrorCard = memo(({ message, onRetry }: { message: string; onRetry: () => void }) => (
-  <div className="flex-1 flex flex-col items-center justify-center gap-3 p-8 text-center" data-testid="buckets-error">
+  <div
+    className="flex-1 flex flex-col items-center justify-center gap-3 p-8 text-center"
+    role="alert"
+    data-testid="buckets-error"
+  >
     <div className="flex items-center justify-center h-12 w-12 rounded-2xl border border-red-400/30 bg-red-500/[0.07]">
       <div className="i-ph:warning-circle-duotone text-2xl text-red-400" aria-hidden />
     </div>
@@ -2767,6 +2771,7 @@ ErrorCard.displayName = 'BucketsPanel.ErrorCard';
 const DisabledCard = memo(() => (
   <div
     className="flex-1 flex flex-col items-center justify-center gap-3 p-8 text-center"
+    role="status"
     data-testid="buckets-disabled"
   >
     <div className="flex items-center justify-center h-14 w-14 rounded-2xl border border-bolt-elements-borderColor bg-bolt-elements-background-depth-2">
@@ -2774,7 +2779,7 @@ const DisabledCard = memo(() => (
     </div>
     <p className="text-sm font-semibold text-bolt-elements-textSecondary">Buckets aren&rsquo;t enabled yet</p>
     <p className="text-[11px] text-bolt-elements-textTertiary max-w-[260px] leading-relaxed">
-      This is on the way. Once it&rsquo;s turned on, your site&rsquo;s R2 buckets show up here — nothing to set up.
+      This is on the way. Once it&rsquo;s turned on, your site&rsquo;s buckets show up here — nothing to set up.
     </p>
   </div>
 ));
@@ -2784,6 +2789,7 @@ DisabledCard.displayName = 'BucketsPanel.DisabledCard';
 const ObjectsNeedsCreds = memo(({ message }: { message: string }) => (
   <div
     className="flex-1 flex flex-col items-center justify-center gap-3 p-8 text-center"
+    role="status"
     data-testid="buckets-objects-needs-creds"
   >
     <div
