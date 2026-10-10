@@ -426,3 +426,43 @@ describe('BucketsPanel — B14: navigator keyboard (roving listbox)', () => {
     );
   });
 });
+
+describe('BucketsPanel — B3: keyboard shortcuts help sheet', () => {
+  function mockWorld() {
+    requestR2.mockImplementation(async (input: { op: string }) => {
+      if (input.op === 'listBuckets') {
+        return {
+          type: 'PS_R2_RESULT',
+          ok: true,
+          objectOpsAvailable: false,
+          buckets: [{ name: 'Preview', isDefault: true, public: false, environment: 'preview' }],
+        };
+      }
+
+      return { type: 'PS_R2_RESULT', ok: true, objects: [], prefixes: [], truncated: false };
+    });
+  }
+
+  it('exposes a discoverable shortcuts/tips trigger, closed by default', async () => {
+    mockWorld();
+    render(<BucketsPanel />);
+    await waitFor(() => expect(screen.getByTestId('buckets-list-item')).toBeTruthy());
+
+    const trigger = screen.getByTestId('buckets-shortcuts-trigger');
+    expect(trigger.tagName).toBe('BUTTON');
+    expect((trigger.getAttribute('aria-label') ?? '').toLowerCase()).toContain('shortcut');
+    expect(screen.queryByTestId('buckets-shortcuts-sheet')).toBeNull();
+  });
+
+  it('opens a sheet listing the navigator + action + files shortcuts', async () => {
+    mockWorld();
+    render(<BucketsPanel />);
+    await waitFor(() => expect(screen.getByTestId('buckets-shortcuts-trigger')).toBeTruthy());
+
+    fireEvent.click(screen.getByTestId('buckets-shortcuts-trigger'));
+
+    await waitFor(() => expect(screen.getByTestId('buckets-shortcuts-sheet')).toBeTruthy());
+    expect(screen.getByText(/move between buckets/i)).toBeTruthy();
+    expect(screen.getByText(/toggle the object view/i)).toBeTruthy();
+  });
+});

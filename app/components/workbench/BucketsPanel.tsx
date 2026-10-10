@@ -540,59 +540,131 @@ const BucketsHeader = memo(
   }) => {
     // POLISH 3: usage rollup across all buckets (count + est. monthly cost surfaced in the object list).
     const count = buckets.length;
+    const [showShortcuts, setShowShortcuts] = useState(false);
+
     return (
-      <PanelHeader
-        icon="i-ph:hard-drives-duotone"
-        title="Buckets"
-        subtitle={
-          count > 0 ? (
-            <span className="tabular-nums">
-              <span className="text-bolt-elements-textSecondary font-medium">{count}</span> bucket
-              {count === 1 ? '' : 's'}
-              {!objectOpsAvailable && (
-                <span className="text-bolt-elements-textTertiary"> · object ops need R2 keys</span>
+      <>
+        <PanelHeader
+          icon="i-ph:hard-drives-duotone"
+          title="Buckets"
+          subtitle={
+            count > 0 ? (
+              <span className="tabular-nums">
+                <span className="text-bolt-elements-textSecondary font-medium">{count}</span> bucket
+                {count === 1 ? '' : 's'}
+                {!objectOpsAvailable && (
+                  <span className="text-bolt-elements-textTertiary"> · object ops need R2 keys</span>
+                )}
+              </span>
+            ) : (
+              'Your site’s own R2 object storage'
+            )
+          }
+          actions={
+            <>
+              {/* POLISH 4: primary label span reserves its widest state so the button never resizes. */}
+              <button
+                type="button"
+                onClick={onCreate}
+                disabled={createDisabled}
+                data-testid="buckets-create"
+                title="Create a new bucket"
+                className={classNames(BTN_PRIMARY, 'min-h-[26px] px-3 py-1 text-[11px]')}
+              >
+                <div className="i-ph:plus-bold text-sm shrink-0" aria-hidden />
+                <span className="min-w-[9ch] text-center">New bucket</span>
+              </button>
+              {!createDisabled && (
+                <button
+                  type="button"
+                  onClick={() => setShowShortcuts(true)}
+                  data-testid="buckets-shortcuts-trigger"
+                  aria-label="Keyboard shortcuts & tips"
+                  title="Keyboard shortcuts & tips"
+                  className={classNames(BTN_GHOST, 'min-h-[26px] min-w-[26px] px-1.5 py-1')}
+                >
+                  <div className="i-ph:keyboard text-sm" aria-hidden />
+                </button>
               )}
-            </span>
-          ) : (
-            'Your site’s own R2 object storage'
-          )
-        }
-        actions={
-          <>
-            {/* POLISH 4: primary label span reserves its widest state so the button never resizes. */}
-            <button
-              type="button"
-              onClick={onCreate}
-              disabled={createDisabled}
-              data-testid="buckets-create"
-              title="Create a new bucket"
-              className={classNames(BTN_PRIMARY, 'min-h-[26px] px-3 py-1 text-[11px]')}
-            >
-              <div className="i-ph:plus-bold text-sm shrink-0" aria-hidden />
-              <span className="min-w-[9ch] text-center">New bucket</span>
-            </button>
-            {/* Live affordance — the inventory self-updates on a visibility-aware poll; no manual
+              {/* Live affordance — the inventory self-updates on a visibility-aware poll; no manual
                 Refresh (per `real-time-data-no-manual-refresh`). */}
-            <span
-              className="hidden sm:inline-flex items-center gap-1.5 text-[10px] text-bolt-elements-textTertiary select-none"
-              role="status"
-              aria-live="off"
-              title="This view updates itself automatically"
-            >
               <span
-                aria-hidden="true"
-                className="h-1.5 w-1.5 rounded-full bg-bolt-elements-item-contentAccent animate-pulse motion-reduce:animate-none"
-              />
-              Live
-            </span>
-          </>
-        }
-      />
+                className="hidden sm:inline-flex items-center gap-1.5 text-[10px] text-bolt-elements-textTertiary select-none"
+                role="status"
+                aria-live="off"
+                title="This view updates itself automatically"
+              >
+                <span
+                  aria-hidden="true"
+                  className="h-1.5 w-1.5 rounded-full bg-bolt-elements-item-contentAccent animate-pulse motion-reduce:animate-none"
+                />
+                Live
+              </span>
+            </>
+          }
+        />
+        {showShortcuts && <ShortcutsSheet onClose={() => setShowShortcuts(false)} />}
+      </>
     );
   },
 );
 
 BucketsHeader.displayName = 'BucketsPanel.Header';
+
+/*
+ * ── Shortcuts & tips sheet (B3) ───────────────────────────────────────────────
+ * A discoverable help affordance ("?" in the header) now that the panel has keyboard nav (B14),
+ * a row actions menu (B3) and a list/grid toggle (B1-polish). Reuses the ModalShell primitive.
+ */
+
+const SHORTCUT_GROUPS: { title: string; items: { keys: string; label: string }[] }[] = [
+  {
+    title: 'Navigate buckets',
+    items: [
+      { keys: '↑ ↓', label: 'Move between buckets' },
+      { keys: 'Home / End', label: 'First / last bucket' },
+      { keys: 'Enter', label: 'Open the selected bucket' },
+    ],
+  },
+  {
+    title: 'Bucket actions',
+    items: [{ keys: '⋯ / right-click', label: 'Address · visibility · promote · delete' }],
+  },
+  {
+    title: 'Files',
+    items: [
+      { keys: 'List / Grid', label: 'Toggle the object view' },
+      { keys: 'Drag & drop', label: 'Upload files to the bucket' },
+    ],
+  },
+  { title: 'General', items: [{ keys: 'Esc', label: 'Close a menu or dialog' }] },
+];
+
+const ShortcutsSheet = memo(({ onClose }: { onClose: () => void }) => (
+  <ModalShell title="Shortcuts & tips" icon="i-ph:keyboard-duotone" onClose={onClose} testId="buckets-shortcuts-sheet">
+    <div className="space-y-3">
+      {SHORTCUT_GROUPS.map((group) => (
+        <div key={group.title}>
+          <p className="mb-1.5 text-[10px] font-semibold uppercase tracking-wide text-bolt-elements-textTertiary">
+            {group.title}
+          </p>
+          <ul className="space-y-1">
+            {group.items.map((item) => (
+              <li key={item.label} className="flex items-center justify-between gap-3">
+                <span className="text-[12px] text-bolt-elements-textSecondary">{item.label}</span>
+                <kbd className="shrink-0 rounded-md border border-bolt-elements-borderColor bg-bolt-elements-background-depth-1 px-1.5 py-0.5 font-mono text-[10px] text-bolt-elements-textTertiary">
+                  {item.keys}
+                </kbd>
+              </li>
+            ))}
+          </ul>
+        </div>
+      ))}
+    </div>
+  </ModalShell>
+));
+
+ShortcutsSheet.displayName = 'BucketsPanel.ShortcutsSheet';
 
 // ── Needs-creds banner ───────────────────────────────────────────────────────
 
