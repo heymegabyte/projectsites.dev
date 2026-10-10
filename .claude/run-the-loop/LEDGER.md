@@ -1687,3 +1687,12 @@ Full-stack fire (coalesced 2 cron ticks). ONE coherent verified slice = B8 same-
 - lead — worker 3218d0ce + editor Pages 0b0d3a90; PROD-VERIFIED real round-trip via workers.dev: PUT src 201 → copy 200 (copy GET 200) → rename deleteSource 200 (renamed GET 200, src removed — confirmed via LIST: 0 probe keys) → cleanup 200. No-regression gallery 0 errors.
 - BUG FOUND (groom, pre-existing not B8): GET /r2/buckets/:bucket/objects/* on a MISSING key returns 502, should be 404 — the GET handler mis-maps R2's missing-object. Small robustness fix for a future fire.
 - DoD §21 NOT met — remaining B8 cross-bucket (fast-follow) · B10 · B11 · B6 · B7 · B9 · B14 axe · B15 tree-load (fast-follow) · the 502-GET fix. Cron b1182793 KEPT.
+
+## fire-buckets-b11 (2026-10-10) — server-side whole-bucket search
+Full-stack fire (coalesced 1 cron tick). ONE coherent verified slice = B11. No migration.
+- B11-FULLSTACK `2027371a9` — searchSiteR2Objects: bounded server-side scan (20 pages×1000=20k cap), case-insensitive CONTAINS + native S3 prefix narrowing, honest flags (scannedAll/scanned/truncated). Route GET /objects?search= (Zod ≤256). Reused PS_R2 listObjects bridge (+search/scannedAll/scanned). UI ObjectBrowser: debounced 280ms server search + instant client filter + role=status truncation note + empty/error. Jest B11 13/13 · r2_buckets 82/82 · Vitest 137/137 · build · lint 0.
+- B11-GROOM `d5f09e186`/`d3cbe43b3` — B8 DONE; DoD §21 ≈ 92%.
+- TEST-DEBT FIX `4c5d8c58c` — site_r2 token test harness now applies 0661+0662 (kind/bucket_name cols); restores 4 RED tests (site_r2_object_ops + site_r2_s3_tokens) that b4's 0662 broke + my `jest r2_buckets` pattern missed. Full suite now green.
+- lead — worker 508cbf67 + editor Pages 1939fdf2; PROD-VERIFIED server search via workers.dev: seeded 3 objects, ?search=b11zzz → returned exactly 2 matches (excluded non-match), honest flags scanned:3/scannedAll:true/truncated:false; cleanup 200. No-regression gallery 0 errors.
+- LESSON: per-fire verify must run the FULL jest suite, not just `jest r2_buckets` — a subset pattern missed 4 red tests b4 introduced.
+- DoD §21 NOT met — remaining B10 · B6 · B7 · B9 · B14 axe + fast-follows (B8-cross-bucket, B15-tree, 502-GET). Cron b1182793 KEPT.
