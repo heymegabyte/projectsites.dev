@@ -1004,7 +1004,13 @@ export async function getBucketOwnerKeyStatus(
   const row = await activeBucketOwnerKeyRow(env, ctx.siteId, owned.bucketName);
   if (!row)
     return {
-      key: { accessKeyIdMasked: null, createdAt: null, exists: false, rotatedAt: null, status: 'none' },
+      key: {
+        accessKeyIdMasked: null,
+        createdAt: null,
+        exists: false,
+        rotatedAt: null,
+        status: 'none',
+      },
       ok: true,
     };
   return {
