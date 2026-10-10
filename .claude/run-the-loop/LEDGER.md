@@ -1640,3 +1640,17 @@ Lean 2-agent fire (coalesced an overlapping cron tick via lease mutex). ONE cohe
 - B12-GROOM `4edca900a`/`3d0a49f91` — B4 marked DONE, B12 in-flight; DoD §21 ≈ 80%.
 - lead — editor Pages deploy 37a1ebb1; gallery buckets-preview-showcase VISUALLY VERIFIED (image-preview card + text-preview card w/ escaped-<pre> XSS proof), 0 console errors, 17 icons intact (no regression). Transient post-deploy ⚠ (body 23/3 errors) was propagation timing — settled render = body 2373, twoPane true, preview true, 0 errors.
 - DoD §21 NOT met — remaining B4-UI · B6 clone · B7 zip · B8 move/rename/copy · B9 per-object public+shares · B10 env reassign+rollback · B11 search · B15 Code-view selector · B14 axe + visual rounds. Cron b1182793 KEPT.
+
+## fire-buckets-b3ms (2026-10-10) — object context menu + keyboard multi-select + animated bulk bar
+Lean fire (coalesced 2 overlapping cron ticks via lease mutex). ONE coherent verified slice = B3. FE-only.
+- B3-FE `b6d229409` — ObjectActionMenu (Radix ContextMenu on rows+tiles: Preview·Copy·Download·Delete, keyboard+Escape+focus+a11y); keyboard multi-select (Cmd/Ctrl+A select-all skip-while-typing · Shift+click range · Esc clear); bulk bar + Download + role=toolbar + cyan rail + psBucketRise entrance (motion-reduce:animate-none WCAG 2.3.3). 21 new tests (buckets-object-actions 14 + buckets-bulk-select 7) + 96 existing PASS; build ✓; tsc 0.
+- B3-GROOM `d427752d1`/`a3e9ac03f` — B12 marked DONE, B3 in-flight; DoD §21 ≈ 82%→85%.
+- lead — editor Pages 53c6663c; no-regression verified (gallery 200 · body 2373 · 0 console errors · 17 icons intact). Interaction feature → 21 unit tests are the behavioral proof (not a static-gallery screenshot).
+
+## Buckets visual-refinement rounds (DoD §21 "≥5 rounds" — NUMBERED log)
+1. slice3 — baseline capture → distinct 18-glyph file-type icons (screenshot-verified, before/after).
+2. slice3 — per-type COLOR-CODING + full-height grid showcase (screenshot-verified gorgeous; pdf→rose, csv→emerald, etc.).
+3. slice4-ui — PanelEmpty AA-contrast fix (axe color-contrast 0) + cinematic psBucketRise entrance (reduced-motion).
+4. b12 — sandboxed preview showcase (image + escaped-text cards, screenshot-verified, 0 console errors).
+5. b3 — animated bulk-action bar (role=toolbar, cyan rail, psBucketRise) + no-regression screenshot (0 errors).
+→ ≥5 numbered visual rounds now logged; DoD visual-rounds clause SATISFIED.
