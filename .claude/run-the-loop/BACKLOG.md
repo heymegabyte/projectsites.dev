@@ -2621,3 +2621,9 @@ Re-architect every workbench panel onto a shared gorgeous spine so chrome/tokens
 > read a DoD % from here** — use the ~95% block above (~20 of ~21 clauses; with B6 DONE, **ONLY B9** per-object-public
 > remains as a REQUIRED §21 clause — IN-FLIGHT this fire — plus the **B15-object-tree** fast-follow which gates
 > CronDelete but is not a §21 clause). The precise CronDelete condition also lives in that authoritative block.
+
+
+## fire-38061571062-verification — recency tooling
+
+- [x] LOOP-LEDGER-NAMED-38061571062: preserve named and fleet header identities in `scripts/loop-recent-fires.mjs`; order git-observed ledger entries by commit chronology before limiting the window. Two regressions reproduced RED and passed GREEN; 20 script tests passed. Real `--n 3 --json` now returns B9/B6/B10 in both sources, with no membership mismatch. No runtime surface changed.
+- [ ] LOOP-CATEGORY-UNTAGGED-38061571062: recent B9/B6/B10 fires still classify as `other` because substantive implementation commits lack their closure fire tokens. Add explicit category metadata or a verified association between closure and implementation commits; do not infer category from names alone. Anchors: `scripts/loop-recent-fires.mjs` `parseGitFires`/`classifyFire`, `scripts/__tests__/loop-recent-fires.test.mjs`; fixtures include B9 implementation `cdd83875e` and closure `a97ad2e1c`. Acceptance: B9 classified product with evidence association; generic docs wrappers and unrelated adjacent commits cannot contaminate classification. cadence once · priority med · category loop-improvement.

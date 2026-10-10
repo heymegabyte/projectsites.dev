@@ -65,3 +65,18 @@ test('named fire IDs do not contaminate substantive category classification', ()
   assert.equal(classifyFire('abc docs(loop): fire-editor-smoke — category budget'), 'loop');
   assert.equal(classifyFire('abc feat(buckets): bulk selection (fire-buckets-b3ms)'), 'product');
 });
+
+
+test('ledger includes complete named and fleet identities in git chronology', () => {
+  const text = '# fire-314 — old numeric\n## fire-buckets-b6 — clone\n## fire-buckets-b9 — shares\n## fire-38039150213-fleet — verification\n## fire-buckets-b9 (cont.)';
+  const order = ['fire-38039150213-fleet', 'fire-buckets-b9', 'fire-buckets-b6', 'fire-314'];
+  const fires = parseLedgerFires(text, 3, order);
+  assert.deepEqual(fires.map((fire) => fire.id), order.slice(0, 3));
+  assert.equal(fires[1].summary, 'shares');
+});
+
+test('unobserved named headers remain deterministic without numeric guessing', () => {
+  const text = '## fire-buckets-b9 — first\n## fire-buckets-b6 — second\n## fire-314 — numeric';
+  assert.deepEqual(parseLedgerFires(text).map((fire) => fire.id), ['fire-314', 'fire-buckets-b9', 'fire-buckets-b6']);
+  assert.deepEqual(parseLedgerFires(text, 1, ['fire-buckets-b6']).map((fire) => fire.id), ['fire-buckets-b6']);
+});

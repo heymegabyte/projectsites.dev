@@ -12,8 +12,8 @@
 // eyeballed. fire-135 added the category mix after the lead had to infer "Product starved"
 // by hand from the raw fire tokens.
 //
-// Prints, newest-first: the last N (default 8) `fire-NN` headers from LEDGER.md with their
-// one-line summaries; the distinct `fire-NN` tokens from `git log` (so a LEDGER-vs-git
+// Prints, newest-first: the last N (default 8) numeric or named fire headers from LEDGER.md with their
+// one-line summaries; the distinct fire tokens from `git log` (so a LEDGER-vs-git
 // mismatch is visible); and the recent CATEGORY MIX with starvation flags.
 //
 // Usage:  node scripts/loop-recent-fires.mjs [--n <N>] [--json]
@@ -28,7 +28,7 @@ const REPO = join(HERE, '..');
 const LEDGER = join(REPO, '.claude', 'run-the-loop', 'LEDGER.md');
 // Named fires and fleet IDs are identities too; keep hyphenated segments intact.
 const FIRE_TOKEN = /\bfire-[a-z0-9]+(?:-[a-z0-9]+)*\b/gi;
-const FIRE_HEADER = /^#{1,3}\s*(fire-(\d+)([a-z]*))\b(.*)$/i;
+const FIRE_HEADER = /^#{1,3}\s*(fire-[a-z0-9]+(?:-[a-z0-9]+)*)\b(.*)$/i;
 
 // §3 category budget (run-the-loop.md). floor/ceil are fractions of the recent-fire window.
 // A fire is tagged to ONE primary category; shares below `floor` flag STARVED → over-weight next fire.
@@ -78,28 +78,39 @@ function parseArgs(argv) {
   return { n, json };
 }
 
-/** Last N fire headers from LEDGER.md, newest-first by numeric fire id (deduped). */
-function ledgerFires(n) {
+/** Last N fire headers from LEDGER.md, git chronology first, legacy numeric fallback (deduped). */
+function ledgerFires(n, gitOrder) {
   let text = '';
   try {
     text = readFileSync(LEDGER, 'utf8');
   } catch {
     return []; // missing/unreadable LEDGER → empty, never throw
   }
-  return parseLedgerFires(text, n);
+  return parseLedgerFires(text, n, gitOrder);
 }
 
-export function parseLedgerFires(text, n = 8) {
+export function parseLedgerFires(text, n = 8, gitOrder = []) {
   const seen = new Map();
   for (const line of text.split('\n')) {
     const m = line.match(FIRE_HEADER);
     if (!m) continue;
     const id = m[1].toLowerCase();
-    const summary = m[4].replace(/^\s*[—–\-:(]\s*/, '').replace(/\s+/g, ' ').trim().slice(0, 160);
+    const summary = m[2].replace(/^\s*[—–\-:(]\s*/, '').replace(/\s+/g, ' ').trim().slice(0, 160);
     if (!seen.has(id)) seen.set(id, summary);
   }
+  const rank = new Map(gitOrder.map((id, index) => [id, index]));
   return [...seen.entries()]
-    .sort((a, b) => Number(b[0].match(/\d+/)[0]) - Number(a[0].match(/\d+/)[0]) || b[0].localeCompare(a[0]))
+    .sort((a, b) => {
+      // Git-observed identities come first, before slicing the bounded window.
+      const ar = rank.get(a[0]) ?? Infinity;
+      const br = rank.get(b[0]) ?? Infinity;
+      if (ar !== br) return ar < br ? -1 : 1;
+      const an = a[0].match(/^fire-(\d+)[a-z]*$/);
+      const bn = b[0].match(/^fire-(\d+)[a-z]*$/);
+      if (an && bn) return Number(bn[1]) - Number(an[1]) || b[0].localeCompare(a[0]);
+      if (an || bn) return an ? -1 : 1;
+      return 0; // Unknown named IDs keep ledger insertion order; do not invent dates.
+    })
     .slice(0, n)
     .map(([id, summary]) => ({ id, summary }));
 }
@@ -193,8 +204,8 @@ function gitSha() {
 
 function main() {
   const { n, json } = parseArgs(process.argv.slice(2));
-  const fires = ledgerFires(n);
   const { order: git, subjects } = gitFires(60);
+  const fires = ledgerFires(n, git);
   const mix = categoryMix(git, subjects, n);
   const diagnostics = recencyDiagnostics(fires, git.slice(0, n));
 
@@ -215,13 +226,13 @@ function main() {
       ) + '\n',
     );
   } else {
-    process.stdout.write(`Last ${fires.length} LEDGER fires (newest-first):\n`);
+    process.stdout.write(`Last ${fires.length} LEDGER fires (git chronology first; fallback order when absent):\n`);
     for (const f of fires) process.stdout.write(`  ${f.id}  ${f.summary}\n`);
     process.stdout.write(`\ngit log recent fire tokens (newest-first): ${git.slice(0, n).join(', ') || '(none)'}\n`);
     const ledgerTop = fires[0]?.id ?? '(none)';
     const gitTop = git[0] ?? '(none)';
     if (ledgerTop !== gitTop) {
-      process.stdout.write(`\n⚠ RECENCY ORDER DIFFERS: LEDGER numeric top=${ledgerTop}, git chronological top=${gitTop} — trust git chronology; order alone does not prove unpublished work.\n`);
+      process.stdout.write(`\n⚠ RECENCY ORDER DIFFERS: LEDGER top=${ledgerTop}, git chronological top=${gitTop} — trust git chronology; order alone does not prove unpublished work.\n`);
     }
     if (diagnostics.ledgerOnly.length) process.stdout.write(`LEDGER-only in bounded window: ${diagnostics.ledgerOnly.join(', ')} — verify commit history.\n`);
     if (diagnostics.gitOnly.length) process.stdout.write(`git-only in bounded window: ${diagnostics.gitOnly.join(', ')} — verify ledger coverage.\n`);
