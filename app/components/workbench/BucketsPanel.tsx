@@ -32,10 +32,15 @@ import {
   postToastToParent,
   requestBucketDownload,
   requestBucketUpload,
+  requestOwnerKeyCreate,
+  requestOwnerKeyRevoke,
+  requestOwnerKeyRotate,
+  requestOwnerKeyStatus,
   requestR2,
   type BucketAddress,
   type BucketEntry,
   type BucketObjectEntry,
+  type OwnerKeyStatus,
 } from '~/lib/embed/embedded-mode';
 
 // ── Brand accents (mirror ResourcesPanel) ────────────────────────────────────
@@ -84,6 +89,46 @@ const BTN_DESTRUCTIVE = classNames(
   'border border-red-400/40 bg-bolt-elements-background-depth-1/90 text-red-400 backdrop-blur',
   'enabled:hover:bg-red-500/20 enabled:hover:border-red-400/70 focus-visible:ring-red-400',
 );
+
+/*
+ * ── Cinematic object-browser entrance (B5 slice 4 — "gorgeous + ANIMATED") ─────────────────────────
+ * A restrained, Linear/Stripe-grade entrance for object rows + tiles: a transform-only
+ * opacity + translateY rise, STAGGERED per index so the browser "assembles" on open and on every
+ * list⇄grid flip. Transform-only ⇒ ZERO CLS (never animate width/height/top/left). The keyframe
+ * (`psBucketRise`) is injected ONCE via {@link BucketAnimationStyles} (self-contained — no global
+ * CSS file edit). Motion is `motion-safe:`-gated AND carries a `motion-reduce:` opt-out, so a user
+ * with `prefers-reduced-motion: reduce` gets the final frame instantly with NO motion (WCAG 2.3.3).
+ */
+/*
+ * The entrance keyframe + a transform-only transition (powers the spring select-scale + hover lift);
+ * both halves are motion-reduce-safe so reduced-motion users get the final frame with no motion.
+ */
+export const OBJECT_ENTRANCE_CLASS =
+  'motion-safe:animate-[psBucketRise_.34s_cubic-bezier(0.22,1,0.36,1)_both] motion-reduce:animate-none ' +
+  'transition-transform duration-150 motion-reduce:transition-none will-change-transform';
+
+/** The per-row stagger — a SMALL 24ms step, CAPPED at 384ms so a 1,000-object bucket never stalls. */
+export function objectEntranceStyle(index: number): React.CSSProperties {
+  const delay = Math.min(index, 16) * 24;
+  return { animationDelay: `${delay}ms` };
+}
+
+/**
+ * Injects the single `psBucketRise` keyframe (opacity 0→1 + a 6px translateY rise) exactly once per
+ * document. Rendered at the top of the panel; harmless if duplicated (same id, idempotent text). The
+ * keyframe itself has no media guard — the `motion-reduce:animate-none` utility on each element is
+ * what honors `prefers-reduced-motion`, so the SAME class works in the panel and the `/_preview` gallery.
+ */
+export const BucketAnimationStyles = memo(() => (
+  <style
+    data-testid="buckets-animation-styles"
+    dangerouslySetInnerHTML={{
+      __html: '@keyframes psBucketRise{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:translateY(0)}}',
+    }}
+  />
+));
+
+BucketAnimationStyles.displayName = 'BucketsPanel.BucketAnimationStyles';
 
 // ── Formatting helpers ───────────────────────────────────────────────────────
 
@@ -416,6 +461,8 @@ export const BucketsPanel = memo(() => {
 
   return (
     <PanelShell testId="buckets-panel">
+      {/* Inject the one `psBucketRise` keyframe the cinematic object-browser entrance rides on. */}
+      <BucketAnimationStyles />
       <BucketsHeader
         buckets={buckets.status === 'ready' ? buckets.buckets : []}
         objectOpsAvailable={objectOpsAvailable}
@@ -1570,7 +1617,7 @@ const ObjectBrowser = memo(
                   })}
 
                   {/* Objects. */}
-                  {shownObjects.map((obj) => {
+                  {shownObjects.map((obj, index) => {
                     const name = obj.key.slice(prefix.length);
                     const checked = selected.has(obj.key);
                     const busy = busyKey === obj.key;
@@ -1578,10 +1625,14 @@ const ObjectBrowser = memo(
                     return (
                       <div
                         key={obj.key}
+                        style={objectEntranceStyle(index)}
                         className={classNames(
                           'group relative flex items-center gap-3 px-3 py-2.5 border-b transition-all duration-150 motion-reduce:transition-none',
+
+                          // Cinematic staggered entrance (transform-only ⇒ no CLS) + spring select-scale.
+                          OBJECT_ENTRANCE_CLASS,
                           checked
-                            ? 'border-bolt-elements-item-contentAccent/30 bg-bolt-elements-item-contentAccent/[0.06] shadow-sm shadow-bolt-elements-item-contentAccent/5'
+                            ? 'border-bolt-elements-item-contentAccent/30 bg-bolt-elements-item-contentAccent/[0.06] shadow-sm shadow-bolt-elements-item-contentAccent/5 motion-safe:scale-[1.005]'
                             : 'border-bolt-elements-borderColor/20 hover:bg-bolt-elements-item-contentAccent/[0.04] hover:border-bolt-elements-item-contentAccent/20',
                         )}
                         data-testid="buckets-object-row"
@@ -1615,8 +1666,11 @@ const ObjectBrowser = memo(
                           className={classNames(
                             iconForObject(obj.key),
                             'text-lg shrink-0 transition-colors',
-                            // Color-code by file type at rest (reads like a polished file explorer);
-                            // a selected row shows the brand accent so selection still reads first.
+
+                            /*
+                             * Color-code by file type at rest (reads like a polished file explorer);
+                             * a selected row shows the brand accent so selection still reads first.
+                             */
                             checked ? 'text-bolt-elements-item-contentAccent' : colorForObject(obj.key),
                           )}
                           aria-hidden
@@ -1723,7 +1777,7 @@ const ObjectBrowser = memo(
                   })}
 
                   {/* Object tiles */}
-                  {shownObjects.map((obj) => {
+                  {shownObjects.map((obj, index) => {
                     const name = obj.key.slice(prefix.length);
                     const checked = selected.has(obj.key);
                     const busy = busyKey === obj.key;
@@ -1736,12 +1790,16 @@ const ObjectBrowser = memo(
                     return (
                       <div
                         key={obj.key}
+                        style={objectEntranceStyle(index)}
                         data-testid="buckets-object-tile"
                         className={classNames(
                           'group relative flex flex-col gap-1.5 rounded-xl border p-2 transition-all duration-150 motion-reduce:transition-none',
+
+                          // Cinematic staggered entrance (transform-only ⇒ no CLS) — same on every grid flip.
+                          OBJECT_ENTRANCE_CLASS,
                           checked
-                            ? 'border-bolt-elements-item-contentAccent/60 bg-bolt-elements-item-contentAccent/[0.08] shadow-sm shadow-bolt-elements-item-contentAccent/15'
-                            : 'border-bolt-elements-borderColor/70 bg-bolt-elements-background-depth-2 hover:border-bolt-elements-item-contentAccent/40 hover:bg-bolt-elements-background-depth-3 motion-safe:hover:-translate-y-px',
+                            ? 'border-bolt-elements-item-contentAccent/60 bg-bolt-elements-item-contentAccent/[0.08] shadow-sm shadow-bolt-elements-item-contentAccent/15 motion-safe:scale-[1.02]'
+                            : 'border-bolt-elements-borderColor/70 bg-bolt-elements-background-depth-2 hover:border-bolt-elements-item-contentAccent/40 hover:bg-bolt-elements-background-depth-3 motion-safe:hover:-translate-y-0.5',
                         )}
                       >
                         <input
@@ -1783,6 +1841,7 @@ const ObjectBrowser = memo(
                               className={classNames(
                                 iconForObject(obj.key),
                                 'text-4xl transition-colors',
+
                                 // Color-code the file-type glyph at rest; selected tile keeps the accent.
                                 checked ? 'text-bolt-elements-item-contentAccent' : colorForObject(obj.key),
                               )}
@@ -2180,6 +2239,9 @@ const BucketSettings = memo(
         </button>
       </SettingsSection>
 
+      {/* API access key — the owner's scoped R2 credential for their own tooling (B5 slice 4). */}
+      <OwnerKeySection />
+
       {/* Danger zone — never for the site default bucket. */}
       {!bucket.isDefault && (
         <SettingsSection
@@ -2203,6 +2265,446 @@ const BucketSettings = memo(
 );
 
 BucketSettings.displayName = 'BucketsPanel.BucketSettings';
+
+// ── Owner-key credential strip (B5 slice 4) ────────────────────────────────────
+
+/** Local view-state for the owner-key section. */
+type OwnerKeyState =
+  | { status: 'loading' }
+  | { status: 'disabled' } // r2_bucket_manager flag dark
+  | { status: 'needs-creds' } // platform hasn't configured CF/R2 creds yet
+  | { status: 'error'; message: string }
+  | { status: 'ready'; key: OwnerKeyStatus };
+
+/**
+ * The owner-facing scoped-R2-key credential strip — a SITE-level credential (NOT per-bucket) the owner
+ * mints to use their R2 from their OWN tooling (wrangler / aws-cli / SDKs), separate from the Worker's
+ * internal object-ops token. It drives the already-built bridge helpers (`requestOwnerKey*`, all →
+ * `PS_R2_KEY_RESULT`). Embarrassingly-easy: ONE obvious primary action (Create), the secret revealed
+ * ONCE in the shared {@link ModalShell} with copy + honest "shown once — rotate for a new one" copy,
+ * Rotate re-reveals once, Revoke confirms first. Graceful dark-flag / needs-creds / error cards — never
+ * a scary error, never a doomed control.
+ *
+ * Exported for falsifiable render tests (mirrors {@link BucketsEmpty}) — it holds its own bridge wiring
+ * so it is self-contained inside the Settings tab.
+ */
+export const OwnerKeySection = memo(() => {
+  const [state, setState] = useState<OwnerKeyState>({ status: 'loading' });
+
+  // The show-once reveal (create/rotate) + the revoke confirm — both overlay dialogs.
+  const [reveal, setReveal] = useState<{ accessKeyId: string; secretAccessKey: string } | null>(null);
+  const [confirmRevoke, setConfirmRevoke] = useState(false);
+  const [busy, setBusy] = useState<null | 'create' | 'rotate' | 'revoke'>(null);
+
+  /** Translate any owner-key reply into local view-state (shared by load + every mutation). */
+  const applyReply = useCallback((reply: Awaited<ReturnType<typeof requestOwnerKeyStatus>>): boolean => {
+    if (!reply.ok) {
+      if (reply.enabled === false) {
+        setState({ status: 'disabled' });
+        return false;
+      }
+
+      if (reply.needsCreds) {
+        setState({ status: 'needs-creds' });
+        return false;
+      }
+
+      setState({ status: 'error', message: reply.error || 'Could not load your access key.' });
+
+      return false;
+    }
+
+    if (reply.status) {
+      setState({ status: 'ready', key: reply.status });
+    }
+
+    return true;
+  }, []);
+
+  const load = useCallback(async () => {
+    setState({ status: 'loading' });
+
+    if (!isEmbedded) {
+      setState({ status: 'error', message: 'Open this from the ProjectSites admin to manage your access key.' });
+      return;
+    }
+
+    try {
+      applyReply(await requestOwnerKeyStatus());
+    } catch (err) {
+      setState({ status: 'error', message: err instanceof Error ? err.message : 'Could not load your access key.' });
+    }
+  }, [applyReply]);
+
+  useEffect(() => {
+    void load();
+  }, [load]);
+
+  const doCreate = useCallback(async () => {
+    setBusy('create');
+
+    try {
+      const reply = await requestOwnerKeyCreate();
+
+      if (reply.ok && reply.secretAccessKey && reply.accessKeyId) {
+        setReveal({ accessKeyId: reply.accessKeyId, secretAccessKey: reply.secretAccessKey });
+        postToastToParent('success', 'Access key created.');
+      }
+
+      applyReply(reply);
+    } catch (err) {
+      postToastToParent('error', err instanceof Error ? err.message : 'Could not create the access key.');
+    } finally {
+      setBusy(null);
+    }
+  }, [applyReply]);
+
+  const doRotate = useCallback(async () => {
+    setBusy('rotate');
+
+    try {
+      const reply = await requestOwnerKeyRotate();
+
+      if (reply.ok && reply.secretAccessKey && reply.accessKeyId) {
+        setReveal({ accessKeyId: reply.accessKeyId, secretAccessKey: reply.secretAccessKey });
+        postToastToParent('success', 'Access key rotated.');
+      }
+
+      applyReply(reply);
+    } catch (err) {
+      postToastToParent('error', err instanceof Error ? err.message : 'Could not rotate the access key.');
+    } finally {
+      setBusy(null);
+    }
+  }, [applyReply]);
+
+  const doRevoke = useCallback(async () => {
+    setBusy('revoke');
+
+    try {
+      const reply = await requestOwnerKeyRevoke();
+
+      if (reply.ok) {
+        postToastToParent('success', reply.revoked ? 'Access key revoked.' : 'No access key to revoke.');
+
+        // Re-fetch the (now-empty) status so the UI returns to the Create launchpad.
+        applyReply(await requestOwnerKeyStatus());
+      } else {
+        applyReply(reply);
+      }
+    } catch (err) {
+      postToastToParent('error', err instanceof Error ? err.message : 'Could not revoke the access key.');
+    } finally {
+      setBusy(null);
+      setConfirmRevoke(false);
+    }
+  }, [applyReply]);
+
+  // ── Degraded / loading cards — friendly, never scary, never a doomed button. ──
+  if (state.status === 'loading') {
+    return (
+      <SettingsSection title="API access key" icon="i-ph:key-duotone" hint="Loading…">
+        <div
+          data-testid="buckets-owner-key"
+          className="h-8 rounded-lg bg-bolt-elements-background-depth-3 motion-safe:animate-pulse"
+          aria-busy="true"
+        />
+      </SettingsSection>
+    );
+  }
+
+  if (state.status === 'disabled') {
+    return (
+      <SettingsSection title="API access key" icon="i-ph:key-duotone" hint="For wrangler, aws-cli + S3 SDKs.">
+        <p
+          data-testid="buckets-owner-key-disabled"
+          className="rounded-lg border border-bolt-elements-borderColor bg-bolt-elements-background-depth-1 p-2.5 text-[11px] text-bolt-elements-textTertiary leading-relaxed"
+          role="status"
+        >
+          Access keys are on the way. Once this is turned on, you&rsquo;ll be able to mint a key for your own tooling
+          right here — nothing to set up.
+        </p>
+      </SettingsSection>
+    );
+  }
+
+  if (state.status === 'needs-creds') {
+    return (
+      <SettingsSection title="API access key" icon="i-ph:key-duotone" hint="For wrangler, aws-cli + S3 SDKs.">
+        <p
+          data-testid="buckets-owner-key-needs-creds"
+          className="rounded-lg border p-2.5 text-[11px] leading-relaxed"
+          style={{
+            borderColor: `color-mix(in oklch, ${PURPLE} 40%, transparent)`,
+            color: PURPLE_INK,
+          }}
+          role="status"
+        >
+          Access keys are being set up for your site. This takes a moment the first time — check back shortly and
+          you&rsquo;ll be able to create one here.
+        </p>
+      </SettingsSection>
+    );
+  }
+
+  if (state.status === 'error') {
+    return (
+      <SettingsSection title="API access key" icon="i-ph:key-duotone" hint="For wrangler, aws-cli + S3 SDKs.">
+        <div data-testid="buckets-owner-key" className="space-y-2">
+          <p className="text-[11px] text-red-400" role="alert">
+            {state.message}
+          </p>
+          <button
+            type="button"
+            onClick={() => void load()}
+            className={classNames(BTN_SECONDARY, 'min-h-[28px] px-3 py-1 text-[11px]')}
+          >
+            <div className="i-ph:arrow-clockwise text-sm" aria-hidden /> Try again
+          </button>
+        </div>
+      </SettingsSection>
+    );
+  }
+
+  const { key } = state;
+
+  return (
+    <SettingsSection
+      title="API access key"
+      icon="i-ph:key-duotone"
+      hint="Use R2 from wrangler, aws-cli + S3 SDKs. The secret is shown once — if you lose it, rotate to get a new one."
+    >
+      <div data-testid="buckets-owner-key" className="space-y-2.5">
+        {key.exists ? (
+          <>
+            {/* Masked identity — NEVER the secret. */}
+            <div className="rounded-lg border border-bolt-elements-borderColor bg-bolt-elements-background-depth-1 p-2.5">
+              <div className="flex items-center justify-between gap-2">
+                <span className="text-[10px] font-medium uppercase tracking-wide text-bolt-elements-textTertiary">
+                  Access key ID
+                </span>
+                <span
+                  className={classNames(
+                    'inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[9px] font-semibold uppercase tracking-wide',
+                    key.status === 'active'
+                      ? 'bg-bolt-elements-item-contentAccent/15 text-bolt-elements-item-contentAccent'
+                      : 'bg-bolt-elements-background-depth-3 text-bolt-elements-textTertiary',
+                  )}
+                >
+                  <span
+                    className={classNames(
+                      'h-1.5 w-1.5 rounded-full',
+                      key.status === 'active' ? 'bg-bolt-elements-item-contentAccent' : 'bg-bolt-elements-textTertiary',
+                    )}
+                    aria-hidden
+                  />
+                  {key.status === 'active' ? 'Active' : 'None'}
+                </span>
+              </div>
+              <p className="mt-0.5 text-[12px] font-mono text-bolt-elements-textSecondary break-all">
+                {key.accessKeyIdMasked ?? '—'}
+              </p>
+              {formatRelativeTime(key.createdAt) && (
+                <p className="text-[9px] text-bolt-elements-textTertiary/70 tabular-nums">
+                  created {formatRelativeTime(key.createdAt)}
+                  {key.rotatedAt && formatRelativeTime(key.rotatedAt)
+                    ? ` · rotated ${formatRelativeTime(key.rotatedAt)}`
+                    : ''}
+                </p>
+              )}
+            </div>
+
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={() => void doRotate()}
+                disabled={busy !== null}
+                data-testid="buckets-owner-key-rotate"
+                className={classNames(BTN_SECONDARY, 'min-h-[28px] px-3 py-1 text-[11px]')}
+              >
+                <div
+                  className={classNames(
+                    busy === 'rotate'
+                      ? 'i-ph:circle-notch animate-spin motion-reduce:animate-none'
+                      : 'i-ph:arrows-clockwise',
+                    'text-sm',
+                  )}
+                  aria-hidden
+                />
+                Rotate
+              </button>
+              <button
+                type="button"
+                onClick={() => setConfirmRevoke(true)}
+                disabled={busy !== null}
+                data-testid="buckets-owner-key-revoke"
+                className={classNames(BTN_DESTRUCTIVE, 'min-h-[28px] px-3 py-1 text-[11px]')}
+              >
+                <div className="i-ph:prohibit text-sm" aria-hidden /> Revoke
+              </button>
+            </div>
+          </>
+        ) : (
+          <div className="space-y-2">
+            {/* Empty = a launchpad: ONE obvious action, inline guidance. */}
+            <p className="text-[11px] text-bolt-elements-textSecondary leading-relaxed">
+              Create a scoped key to use this site&rsquo;s storage from your own tools. We&rsquo;ll show the secret once
+              — copy it somewhere safe.
+            </p>
+            <button
+              type="button"
+              onClick={() => void doCreate()}
+              disabled={busy !== null}
+              data-testid="buckets-owner-key-create"
+              className={classNames(BTN_PRIMARY, 'min-h-[30px] px-4 py-1.5 text-[12px]')}
+            >
+              <div
+                className={classNames(
+                  busy === 'create' ? 'i-ph:circle-notch animate-spin motion-reduce:animate-none' : 'i-ph:key-bold',
+                  'text-sm',
+                )}
+                aria-hidden
+              />
+              <span className="min-w-[12ch] text-center">{busy === 'create' ? 'Creating…' : 'Create access key'}</span>
+            </button>
+          </div>
+        )}
+      </div>
+
+      {/* Show-once secret reveal — the ONLY time the secret is ever visible. */}
+      {reveal && (
+        <OwnerKeyRevealModal
+          accessKeyId={reveal.accessKeyId}
+          secret={reveal.secretAccessKey}
+          onClose={() => setReveal(null)}
+        />
+      )}
+
+      {/* Revoke confirm — a destructive action is NEVER one click. */}
+      {confirmRevoke && (
+        <ModalShell
+          title="Revoke access key"
+          icon="i-ph:prohibit-duotone"
+          danger
+          onClose={() => setConfirmRevoke(false)}
+          testId="buckets-owner-key-revoke-modal"
+        >
+          <p className="text-[12px] text-bolt-elements-textSecondary leading-relaxed">
+            This immediately stops the current key from working anywhere it&rsquo;s used. Any tool using it will lose
+            access. You can create a new key afterwards.
+          </p>
+          <div className="mt-4 flex items-center justify-end gap-2">
+            <button
+              type="button"
+              onClick={() => setConfirmRevoke(false)}
+              className={classNames(BTN_GHOST, 'min-h-[32px] px-3 py-1.5 text-[12px]')}
+            >
+              Cancel
+            </button>
+            <button
+              type="button"
+              onClick={() => void doRevoke()}
+              disabled={busy === 'revoke'}
+              data-testid="buckets-owner-key-revoke-confirm"
+              className={classNames(BTN_DESTRUCTIVE, 'min-h-[32px] px-4 py-1.5 text-[12px]')}
+            >
+              <div
+                className={classNames(
+                  busy === 'revoke' ? 'i-ph:circle-notch animate-spin motion-reduce:animate-none' : 'i-ph:prohibit',
+                  'text-sm',
+                )}
+                aria-hidden
+              />
+              <span className="min-w-[7ch] text-center">{busy === 'revoke' ? 'Revoking…' : 'Revoke'}</span>
+            </button>
+          </div>
+        </ModalShell>
+      )}
+    </SettingsSection>
+  );
+});
+
+OwnerKeySection.displayName = 'BucketsPanel.OwnerKeySection';
+
+/**
+ * The show-once secret reveal dialog — renders inside the shared {@link ModalShell}. The Secret Access
+ * Key is NEVER re-fetchable, so this is the owner's one chance to copy it. Big copy-to-clipboard button,
+ * honest "shown once — rotate to get a new one" copy, and a "Copy both" convenience.
+ */
+const OwnerKeyRevealModal = memo(
+  ({ accessKeyId, secret, onClose }: { accessKeyId: string; secret: string; onClose: () => void }) => {
+    const [copied, setCopied] = useState(false);
+
+    return (
+      <ModalShell
+        title="Your new access key"
+        icon="i-ph:key-duotone"
+        onClose={onClose}
+        testId="buckets-owner-key-reveal"
+      >
+        <p className="text-[12px] text-bolt-elements-textSecondary leading-relaxed">
+          Copy the <span className="font-semibold text-bolt-elements-textPrimary">Secret Access Key</span> now —
+          it&rsquo;s <span className="font-semibold text-bolt-elements-item-contentAccent">shown once</span>. If you
+          lose it, rotate to get a new one.
+        </p>
+
+        <div className="mt-3 space-y-2">
+          <AddressRow label="Access Key ID" value={accessKeyId} hint="Pairs with the secret below" />
+          <div className="rounded-lg border border-bolt-elements-item-contentAccent/40 bg-bolt-elements-item-contentAccent/[0.05] p-2">
+            <div className="flex items-center justify-between gap-2">
+              <span className="text-[10px] font-medium uppercase tracking-wide text-bolt-elements-item-contentAccent">
+                Secret Access Key
+              </span>
+              <button
+                type="button"
+                onClick={async () => {
+                  const ok = await copyText(secret);
+
+                  if (ok) {
+                    setCopied(true);
+                    setTimeout(() => setCopied(false), 1600);
+                  } else {
+                    postToastToParent('error', 'Could not copy.');
+                  }
+                }}
+                data-testid="buckets-owner-key-copy-secret"
+                aria-label="Copy the secret access key"
+                className={classNames(BTN_PRIMARY, 'min-h-[24px] px-2 py-0.5 text-[10px]')}
+              >
+                <div className={classNames(copied ? 'i-ph:check-bold' : 'i-ph:copy', 'text-xs')} aria-hidden />
+                <span className="min-w-[6ch] text-center">{copied ? 'Copied' : 'Copy'}</span>
+              </button>
+            </div>
+            <p className="mt-0.5 text-[11px] font-mono text-bolt-elements-textPrimary break-all select-all">{secret}</p>
+          </div>
+        </div>
+
+        <div className="mt-4 flex items-center justify-end gap-2">
+          <button
+            type="button"
+            onClick={async () => {
+              const ok = await copyText(`Access Key ID: ${accessKeyId}\nSecret Access Key: ${secret}`);
+              postToastToParent(ok ? 'success' : 'error', ok ? 'Credentials copied.' : 'Could not copy.');
+            }}
+            className={classNames(BTN_SECONDARY, 'min-h-[32px] px-3 py-1.5 text-[12px]')}
+          >
+            <div className="i-ph:copy text-sm" aria-hidden /> Copy both
+          </button>
+          <button
+            type="button"
+            onClick={onClose}
+            data-testid="buckets-owner-key-reveal-done"
+            className={classNames(BTN_PRIMARY, 'min-h-[32px] px-4 py-1.5 text-[12px]')}
+          >
+            <div className="i-ph:check text-sm" aria-hidden /> I&rsquo;ve saved it
+          </button>
+        </div>
+      </ModalShell>
+    );
+  },
+);
+
+OwnerKeyRevealModal.displayName = 'BucketsPanel.OwnerKeyRevealModal';
 
 // ── Create modal ─────────────────────────────────────────────────────────────
 

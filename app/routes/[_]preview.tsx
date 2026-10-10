@@ -26,7 +26,12 @@
  */
 import type { MetaFunction } from '@remix-run/cloudflare';
 import { PanelShell, PanelHeader, PanelLoading, PanelEmpty } from '~/components/workbench/panel';
-import { BucketsTwoPane } from '~/components/workbench/BucketsTwoPane';
+import {
+  BucketsTwoPane,
+  BucketAnimationStyles,
+  OBJECT_ENTRANCE_CLASS,
+  objectEntranceStyle,
+} from '~/components/workbench/BucketsPanel';
 import { iconForObject, isImageKey, colorForObject } from '~/components/workbench/bucket-icons';
 
 export const meta: MetaFunction = () => [
@@ -125,10 +130,11 @@ function SampleToolbar() {
 function ObjectListSample({ testId }: { testId?: string }) {
   return (
     <ul className="m-0 list-none p-1" data-testid={testId}>
-      {SAMPLE_OBJECTS.map((o) => (
+      {SAMPLE_OBJECTS.map((o, index) => (
         <li
           key={o.key}
-          className="group flex items-center gap-3 rounded-lg px-2.5 py-2 transition-colors hover:bg-bolt-elements-item-contentAccent/[0.06]"
+          style={objectEntranceStyle(index)}
+          className={`group flex items-center gap-3 rounded-lg px-2.5 py-2 transition-colors hover:bg-bolt-elements-item-contentAccent/[0.06] ${OBJECT_ENTRANCE_CLASS}`}
         >
           <span className={`${iconForObject(o.key)} ${colorForObject(o.key)} text-lg shrink-0`} aria-hidden="true" />
           {/* min-w-0 + truncate: the long key shrinks to the pane and ellipsizes instead of overflowing
@@ -150,10 +156,11 @@ function ObjectListSample({ testId }: { testId?: string }) {
 function ObjectGridSample({ testId }: { testId?: string }) {
   return (
     <div className="grid grid-cols-[repeat(auto-fill,minmax(104px,1fr))] gap-2.5 p-3" data-testid={testId}>
-      {SAMPLE_OBJECTS.filter((o) => !o.key.endsWith('/')).map((o) => (
+      {SAMPLE_OBJECTS.filter((o) => !o.key.endsWith('/')).map((o, index) => (
         <div
           key={o.key}
-          className="group flex flex-col gap-1.5 rounded-xl border border-bolt-elements-borderColor/70 bg-bolt-elements-background-depth-2 p-2 transition-all hover:-translate-y-px hover:border-bolt-elements-item-contentAccent/50 hover:bg-bolt-elements-background-depth-3 hover:shadow-sm hover:shadow-black/30"
+          style={objectEntranceStyle(index)}
+          className={`group flex flex-col gap-1.5 rounded-xl border border-bolt-elements-borderColor/70 bg-bolt-elements-background-depth-2 p-2 transition-all hover:-translate-y-px hover:border-bolt-elements-item-contentAccent/50 hover:bg-bolt-elements-background-depth-3 hover:shadow-sm hover:shadow-black/30 ${OBJECT_ENTRANCE_CLASS}`}
         >
           <div className="flex aspect-square items-center justify-center overflow-hidden rounded-lg bg-gradient-to-br from-bolt-elements-background-depth-1 to-bolt-elements-item-contentAccent/[0.04] ring-1 ring-inset ring-bolt-elements-borderColor/40">
             {isImageKey(o.key) ? (
@@ -201,6 +208,8 @@ function ObjectBrowserSample() {
 export default function PanelPrimitiveGallery() {
   return (
     <div className="min-h-screen bg-[#060610] p-8">
+      {/* The one `psBucketRise` keyframe the object-browser entrance rides on — screenshot-verifiable here. */}
+      <BucketAnimationStyles />
       <h1 className="text-bolt-elements-textPrimary text-lg font-semibold mb-6">Panel Primitive Gallery</h1>
 
       <div className="grid gap-8 [grid-template-columns:repeat(auto-fill,360px)]">
