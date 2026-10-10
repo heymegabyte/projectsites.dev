@@ -39,6 +39,7 @@ import type { Env, Variables } from '../../../src/types/env.js';
 import { isFlagOn } from '../../../src/modules/feature_flags/services.js';
 import {
   bucketAddress,
+  copySiteR2Object,
   createBucketOwnerKey,
   createSiteOwnerKey,
   deleteSiteR2,
@@ -51,9 +52,11 @@ import {
   isValidBucketDisplayName,
   listSiteR2Allocations,
   listSiteR2Objects,
+  moveSiteR2Prefix,
   promoteSiteR2,
   provisionSiteR2,
   putSiteR2Object,
+  renameSiteR2Object,
   resolveSiteR2Allocation,
   revokeBucketOwnerKey,
   revokeSiteOwnerKey,
@@ -62,8 +65,10 @@ import {
   setSiteR2PublicAccess,
   type SiteR2Allocation,
   type SiteR2Failure,
+  type SiteR2Result,
 } from '../../../src/services/site_r2.js';
 import {
+  CopyObjectBodySchema,
   CreateBucketBodySchema,
   ListObjectsQuerySchema,
   R2_BUCKETS_FLAG as FLAG,
@@ -71,6 +76,7 @@ import {
   SetPublicBodySchema,
   UploadJsonBodySchema,
 } from './schemas.js';
+import { writeAuditLog } from '../../../src/services/audit.js';
 import { ownsSiteData } from '../site_data_api/handlers.js';
 
 type AppContext = { Bindings: Env; Variables: Variables };
@@ -107,6 +113,17 @@ function r2Failure(c: Context<AppContext>, reason: SiteR2Failure, message?: stri
       return c.json({ error: { code: 'INTERNAL_ERROR', message: 'Storage error.' }, ok: false }, 500);
     case 'not_allocated':
       return c.json({ error: { code: 'NOT_FOUND', message: 'Bucket not found' }, ok: false }, 404);
+    case 'destination_exists':
+      return c.json(
+        {
+          error: {
+            code: 'CONFLICT',
+            message: message ?? 'Something with that name already exists here. Choose a different name.',
+          },
+          ok: false,
+        },
+        409,
+      );
     default:
       return c.json(
         { error: { code: 'DATA_STORE_ERROR', message: message ?? 'Bucket storage request failed.' }, ok: false },
@@ -546,6 +563,64 @@ r2Buckets.delete('/api/sites/:siteId/r2/buckets/:bucket/objects/*', async (c) =>
   );
   if (!result.ok) return r2Failure(c, result.reason, result.message);
   return c.json({ data: { deleted: true, key }, ok: true });
+});
+
+// ── POST /api/sites/:siteId/r2/buckets/:bucket/objects/copy — copy / move / rename (same-bucket) ────
+//
+// One endpoint for three same-bucket object ops (cross-BUCKET is a noted follow-up):
+//   • copy    — `deleteSource` falsy, object keys           → S3 CopyObject
+//   • rename  — `deleteSource:true`, object keys            → copy + delete source
+//   • move    — `deleteSource:true`, a trailing `/` on BOTH keys (prefix move) → list + copy + delete per key
+// Gate: auth → `r2_bucket_manager` dark-404 → ownsSiteData → resolve the OWNED bucket (foreign bucket →
+// 404 via gateAndBucket's `WHERE site_id` scope — the IDOR guard). A pre-existing destination 409s unless
+// `overwrite:true`. Audit-logs `r2.object.{copied,moved,renamed}` (keys only — never a secret).
+r2Buckets.post('/api/sites/:siteId/r2/buckets/:bucket/objects/copy', async (c) => {
+  const { siteId, bucket } = c.req.param();
+  const g = await gateAndBucket(c, siteId, bucket);
+  if (g instanceof Response) return g;
+
+  const parsed = CopyObjectBodySchema.safeParse(await c.req.json().catch(() => ({})));
+  if (!parsed.success)
+    return c.json({ error: { code: 'BAD_REQUEST', message: 'Invalid copy request' }, ok: false }, 400);
+  const { srcKey, destKey, deleteSource, overwrite } = parsed.data;
+
+  const ctx = { orgId: g.orgId, siteId, tenantId: g.tenantId };
+  const bucketName = g.allocation.bucketName;
+  // A prefix move = both keys end in `/` AND deleteSource (renaming a "folder").
+  const isPrefixMove = !!deleteSource && srcKey.endsWith('/') && destKey.endsWith('/');
+
+  let action: 'copied' | 'moved' | 'renamed';
+  let result: SiteR2Result<{ key?: string; moved?: number }>;
+  if (isPrefixMove) {
+    action = 'moved';
+    result = await moveSiteR2Prefix(c.env, ctx, bucketName, srcKey, destKey, { overwrite });
+  } else if (deleteSource) {
+    // rename vs move: a changed trailing segment (same parent folder) reads as a rename; a changed parent
+    // reads as a move. Purely cosmetic for the audit verb — the mechanism (copy+delete) is identical.
+    const parent = (k: string) => k.slice(0, k.lastIndexOf('/') + 1);
+    action = parent(srcKey) === parent(destKey) ? 'renamed' : 'moved';
+    result = await renameSiteR2Object(c.env, ctx, bucketName, srcKey, destKey, { overwrite });
+  } else {
+    action = 'copied';
+    result = await copySiteR2Object(c.env, ctx, bucketName, srcKey, destKey, { overwrite });
+  }
+
+  if (!result.ok) return r2Failure(c, result.reason, result.message);
+
+  await writeAuditLog(c.env.DB, {
+    action: `r2.object.${action}`,
+    actor_id: c.get('userId') ?? null,
+    metadata_json: { bucket, destKey, srcKey, ...(isPrefixMove ? { moved: result.moved } : {}) },
+    org_id: g.orgId,
+    request_id: c.get('requestId') ?? null,
+    target_id: siteId,
+    target_type: 'site',
+  });
+
+  return c.json({
+    data: { destKey, moved: result.moved, ok: true, srcKey },
+    ok: true,
+  });
 });
 
 /** Decode a base64 data URL (or bare base64) into bytes + optional MIME. Returns null on garbage. */

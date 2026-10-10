@@ -42,6 +42,7 @@ import {
   requestOwnerKeyRotate,
   requestOwnerKeyStatus,
   requestR2,
+  requestR2Copy,
   type BucketAddress,
   type BucketEntry,
   type BucketObjectEntry,
@@ -1256,6 +1257,46 @@ export function extendSelection(current: ReadonlySet<string>, add: ReadonlySet<s
 }
 
 /*
+ * ── Object copy/move/rename key math (B8) ─────────────────────────────────────
+ * Pure, mountless helpers so the Vitest suite asserts the EXACT destination-key derivation (and the
+ * collision guard) without the bridge. The dialogs call these to turn a user's typed name / folder into
+ * the full destination key the `requestR2Copy` bridge sends.
+ */
+
+/** The parent "folder" prefix of a key (everything up to + including the last `/`, or '' at the root). */
+export function objectParentPrefix(key: string): string {
+  const i = key.lastIndexOf('/');
+
+  return i < 0 ? '' : key.slice(0, i + 1);
+}
+
+/** The basename of a key (the segment after the last `/`). */
+export function objectBaseName(key: string): string {
+  const i = key.lastIndexOf('/');
+
+  return i < 0 ? key : key.slice(i + 1);
+}
+
+/** The destination key for a RENAME: the SAME parent folder, a new basename. Blank name → null. */
+export function renameDestKey(srcKey: string, newName: string): string | null {
+  const name = newName.trim();
+
+  if (!name || name.includes('/')) {
+    return null; // a rename changes the name only — a `/` would move it (use Move instead)
+  }
+
+  return objectParentPrefix(srcKey) + name;
+}
+
+/** The destination key for a MOVE: a new folder prefix + the SAME basename. A blank prefix = root. */
+export function moveDestKey(srcKey: string, folder: string): string {
+  const clean = folder.trim().replace(/^\/+/, ''); // never leading-slash; '' means the bucket root
+  const prefix = clean === '' || clean.endsWith('/') ? clean : `${clean}/`;
+
+  return prefix + objectBaseName(srcKey);
+}
+
+/*
  * ── Object row/tile context menu (B3) ─────────────────────────────────────────
  * A Radix ContextMenu wrapping each object row/tile — exposes the SAME four ops the hover buttons do
  * (Preview · Copy URL · Download · Delete), reusing the EXACT handlers. Radix gives us right-click +
@@ -1286,6 +1327,9 @@ export const ObjectActionMenu = memo(
     onPreview,
     onCopyUrl,
     onDownload,
+    onRename,
+    onCopy,
+    onMove,
     onDelete,
   }: {
     objectKey: string;
@@ -1295,6 +1339,12 @@ export const ObjectActionMenu = memo(
     onPreview: (key: string) => void;
     onCopyUrl: (key: string) => void;
     onDownload: (key: string) => void;
+    /** B8 — rename this object (copy to a new name in-place + delete the source). */
+    onRename?: (key: string) => void;
+    /** B8 — duplicate this object to a new name (copy, source kept). */
+    onCopy?: (key: string) => void;
+    /** B8 — move this object to another folder/prefix (copy + delete the source). */
+    onMove?: (key: string) => void;
     onDelete: (key: string) => void;
   }) => (
     <ContextMenu.Root>
@@ -1328,6 +1378,36 @@ export const ObjectActionMenu = memo(
           >
             <div className="i-ph:download-simple text-sm" aria-hidden /> Download
           </ContextMenu.Item>
+          {(onRename || onCopy || onMove) && (
+            <ContextMenu.Separator className="my-1 h-px bg-bolt-elements-borderColor/60" />
+          )}
+          {onRename && (
+            <ContextMenu.Item
+              className={OBJECT_MENU_ITEM}
+              data-testid="buckets-object-context-rename"
+              onSelect={() => onRename(objectKey)}
+            >
+              <div className="i-ph:textbox text-sm" aria-hidden /> Rename…
+            </ContextMenu.Item>
+          )}
+          {onCopy && (
+            <ContextMenu.Item
+              className={OBJECT_MENU_ITEM}
+              data-testid="buckets-object-context-duplicate"
+              onSelect={() => onCopy(objectKey)}
+            >
+              <div className="i-ph:copy text-sm" aria-hidden /> Copy to…
+            </ContextMenu.Item>
+          )}
+          {onMove && (
+            <ContextMenu.Item
+              className={OBJECT_MENU_ITEM}
+              data-testid="buckets-object-context-move"
+              onSelect={() => onMove(objectKey)}
+            >
+              <div className="i-ph:folder-open text-sm" aria-hidden /> Move to…
+            </ContextMenu.Item>
+          )}
           <ContextMenu.Separator className="my-1 h-px bg-bolt-elements-borderColor/60" />
           <ContextMenu.Item
             className={classNames(
@@ -1385,6 +1465,8 @@ export const ObjectBrowser = memo(
     const [busyKey, setBusyKey] = useState<string | null>(null);
     // B12 — the object key whose in-editor preview is open (null = no preview).
     const [previewKey, setPreviewKey] = useState<string | null>(null);
+    // B8 — the active copy/move/rename dialog (null = none). `mode` picks the dialog + the op.
+    const [objectOp, setObjectOp] = useState<{ mode: 'rename' | 'copy' | 'move'; key: string } | null>(null);
     const dragDepth = useRef(0);
     const fileInputRef = useRef<HTMLInputElement>(null);
     const cursorStack = useRef<string[]>([]);
@@ -1600,6 +1682,45 @@ export const ObjectBrowser = memo(
         postToastToParent(ok ? 'success' : 'error', ok ? 'Object URL copied.' : 'Could not copy the URL.');
       },
       [bucket.publicUrl, bucket.address],
+    );
+
+    /*
+     * B8 — copy / move / rename ONE object via the `requestR2Copy` bridge (server-side S3 CopyObject,
+     * same-bucket this slice). `deleteSource` turns copy into move/rename. Returns `true` on success so the
+     * dialog can close; a `conflict` keeps the dialog open (the owner picks another name). Refreshes the
+     * list on success so the new/renamed object appears without a manual reload.
+     */
+    const runObjectOp = useCallback(
+      async (srcKey: string, destKey: string, deleteSource: boolean): Promise<{ ok: boolean; conflict?: boolean }> => {
+        setBusyKey(srcKey);
+
+        try {
+          const reply = await requestR2Copy({ bucket: bucket.name, deleteSource, destKey, srcKey });
+
+          if (!reply.ok) {
+            if (reply.conflict) {
+              return { conflict: true, ok: false };
+            }
+
+            postToastToParent(reply.needsCreds ? 'warning' : 'error', reply.error || 'Could not complete that.');
+
+            return { ok: false };
+          }
+
+          const verb = deleteSource ? (objectParentPrefix(srcKey) === objectParentPrefix(destKey) ? 'Renamed' : 'Moved') : 'Copied';
+          postToastToParent('success', `${verb} ${objectBaseName(srcKey)} → ${objectBaseName(destKey)}.`);
+          await loadObjects();
+
+          return { ok: true };
+        } catch (err) {
+          postToastToParent('error', err instanceof Error ? err.message : 'Could not complete that.');
+
+          return { ok: false };
+        } finally {
+          setBusyKey(null);
+        }
+      },
+      [bucket.name, loadObjects],
     );
 
     /** Bulk-download every selected object (sequential so a large selection never floods the bridge). */
@@ -2032,6 +2153,9 @@ export const ObjectBrowser = memo(
                         onPreview={setPreviewKey}
                         onCopyUrl={(k) => void copyObjectUrl(k)}
                         onDownload={(k) => void downloadObject(k)}
+                        onRename={objectOpsAvailable ? (k) => setObjectOp({ key: k, mode: 'rename' }) : undefined}
+                        onCopy={objectOpsAvailable ? (k) => setObjectOp({ key: k, mode: 'copy' }) : undefined}
+                        onMove={objectOpsAvailable ? (k) => setObjectOp({ key: k, mode: 'move' }) : undefined}
                         onDelete={(k) => void deleteObject(k)}
                       >
                       <div
@@ -2202,6 +2326,9 @@ export const ObjectBrowser = memo(
                         onPreview={setPreviewKey}
                         onCopyUrl={(k) => void copyObjectUrl(k)}
                         onDownload={(k) => void downloadObject(k)}
+                        onRename={objectOpsAvailable ? (k) => setObjectOp({ key: k, mode: 'rename' }) : undefined}
+                        onCopy={objectOpsAvailable ? (k) => setObjectOp({ key: k, mode: 'copy' }) : undefined}
+                        onMove={objectOpsAvailable ? (k) => setObjectOp({ key: k, mode: 'move' }) : undefined}
                         onDelete={(k) => void deleteObject(k)}
                       >
                       <div
@@ -2399,6 +2526,25 @@ export const ObjectBrowser = memo(
             objectKey={previewKey}
             onClose={() => setPreviewKey(null)}
             onDownload={(key) => void downloadObject(key)}
+          />
+        )}
+
+        {/* B8 — rename / copy / move one object (server-side S3 CopyObject via the bridge). */}
+        {objectOp && (
+          <ObjectCopyDialog
+            mode={objectOp.mode}
+            srcKey={objectOp.key}
+            existingKeys={objects.status === 'ready' ? objects.objects.map((o) => o.key) : []}
+            onClose={() => setObjectOp(null)}
+            onSubmit={async (destKey, deleteSource) => {
+              const r = await runObjectOp(objectOp.key, destKey, deleteSource);
+
+              if (r.ok) {
+                setObjectOp(null);
+              }
+
+              return r;
+            }}
           />
         )}
       </div>
@@ -3753,6 +3899,201 @@ const CreateBucketModal = memo(
 );
 
 CreateBucketModal.displayName = 'BucketsPanel.CreateBucketModal';
+
+// ── Object rename / copy / move dialog (B8) ───────────────────────────────────
+
+/** Per-mode dialog copy — title, icon, input label, placeholder, help, and the submit verb. */
+const OBJECT_OP_COPY: Record<
+  'rename' | 'copy' | 'move',
+  { title: string; icon: string; label: string; help: string; verb: string; busyVerb: string; submitIcon: string }
+> = {
+  copy: {
+    busyVerb: 'Copying…',
+    help: 'Makes a duplicate in this bucket. The original stays where it is.',
+    icon: 'i-ph:copy-duotone',
+    label: 'Copy as',
+    submitIcon: 'i-ph:copy-bold',
+    title: 'Copy file',
+    verb: 'Copy',
+  },
+  move: {
+    busyVerb: 'Moving…',
+    help: 'Type a folder (e.g. images/archive). Leave blank to move it to the top level.',
+    icon: 'i-ph:folder-open-duotone',
+    label: 'Move to folder',
+    submitIcon: 'i-ph:arrow-line-right-bold',
+    title: 'Move file',
+    verb: 'Move',
+  },
+  rename: {
+    busyVerb: 'Renaming…',
+    help: 'Renames the file in place. Keep the extension so it still opens correctly.',
+    icon: 'i-ph:textbox-duotone',
+    label: 'New name',
+    submitIcon: 'i-ph:check-bold',
+    title: 'Rename file',
+    verb: 'Rename',
+  },
+};
+
+/**
+ * One dialog for the three same-bucket object ops (B8), rendered in the shared {@link ModalShell}
+ * (brand-dark, cyan, motion-safe entrance, focus-trap + Escape from ModalShell). `rename`/`copy` prefill
+ * the current basename + select it; `move` takes a destination folder (prefix). The destination key is
+ * derived by {@link renameDestKey} / {@link moveDestKey}; a live client-side COLLISION GUARD disables
+ * submit when the computed key already exists (no doomed overwrite). `onSubmit` returns `{ok, conflict}`
+ * so a server-side race still surfaces inline. Never a dead-end: the submit stays disabled with a reason
+ * until the input is valid + non-colliding.
+ */
+export const ObjectCopyDialog = memo(
+  ({
+    mode,
+    srcKey,
+    existingKeys,
+    onClose,
+    onSubmit,
+  }: {
+    mode: 'rename' | 'copy' | 'move';
+    srcKey: string;
+    existingKeys: readonly string[];
+    onClose: () => void;
+    onSubmit: (destKey: string, deleteSource: boolean) => Promise<{ ok: boolean; conflict?: boolean }>;
+  }) => {
+    const copy = OBJECT_OP_COPY[mode];
+    const baseName = objectBaseName(srcKey);
+    const parentPrefix = objectParentPrefix(srcKey);
+    // rename/copy start from the current name; move starts from the current folder.
+    const [value, setValue] = useState(mode === 'move' ? parentPrefix : baseName);
+    const [busy, setBusy] = useState(false);
+    const [error, setError] = useState<string | null>(null);
+    const inputRef = useRef<HTMLInputElement>(null);
+
+    useEffect(() => {
+      const el = inputRef.current;
+
+      if (!el) {
+        return;
+      }
+
+      el.focus();
+      // Select just the filename stem (before the extension) for rename/copy so a quick retype keeps the
+      // extension; move selects all (it's a folder path).
+      if (mode === 'move') {
+        el.select();
+      } else {
+        const dot = baseName.lastIndexOf('.');
+        el.setSelectionRange(0, dot > 0 ? dot : baseName.length);
+      }
+    }, [mode, baseName]);
+
+    // The computed destination key + validity. rename forbids `/` (that's a move); move is always a prefix.
+    const destKey = mode === 'move' ? moveDestKey(srcKey, value) : renameDestKey(srcKey, value);
+    const unchanged = destKey === srcKey;
+    const collides = destKey !== null && !unchanged && existingKeys.includes(destKey);
+    const valid = destKey !== null && !unchanged && !collides;
+
+    const reason = !destKey
+      ? mode === 'rename'
+        ? 'Enter a name (no “/” — use Move to change folders).'
+        : 'Enter a destination.'
+      : unchanged
+        ? mode === 'move'
+          ? 'Pick a different folder.'
+          : 'Pick a different name.'
+        : collides
+          ? 'Something with that name already exists here.'
+          : null;
+
+    const submit = useCallback(async () => {
+      if (!valid || busy || destKey === null) {
+        return;
+      }
+
+      setBusy(true);
+      setError(null);
+      const r = await onSubmit(destKey, mode !== 'copy'); // copy keeps source; rename/move delete it
+
+      if (!r.ok) {
+        setError(r.conflict ? 'Something with that name already exists here.' : 'Could not complete that.');
+        setBusy(false);
+      }
+      // On success the parent unmounts this dialog — no need to clear `busy`.
+    }, [valid, busy, destKey, mode, onSubmit]);
+
+    return (
+      <ModalShell title={copy.title} icon={copy.icon} onClose={onClose} testId="buckets-object-op-modal">
+        <p className="mb-3 text-[11px] text-bolt-elements-textTertiary">
+          <span className="text-bolt-elements-textSecondary">{baseName}</span>
+          {parentPrefix && <span> in {parentPrefix}</span>}
+        </p>
+
+        <label className="block">
+          <span className="text-[11px] font-medium text-bolt-elements-textSecondary">{copy.label}</span>
+          <input
+            ref={inputRef}
+            value={value}
+            onChange={(e) => {
+              setValue(e.target.value);
+              setError(null);
+            }}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') {
+                void submit();
+              }
+            }}
+            placeholder={mode === 'move' ? 'images/archive' : baseName}
+            aria-label={copy.label}
+            aria-invalid={!!reason && value.trim().length > 0}
+            disabled={busy}
+            data-testid="buckets-object-op-input"
+            className="mt-1 w-full min-h-[34px] px-3 py-1.5 text-[13px] rounded-lg border border-bolt-elements-borderColor bg-bolt-elements-background-depth-1 text-bolt-elements-textPrimary placeholder:text-bolt-elements-textTertiary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-bolt-elements-item-contentAccent focus-visible:border-bolt-elements-item-contentAccent/50 disabled:opacity-60"
+          />
+          <span className="mt-1 block text-[10px] text-bolt-elements-textTertiary">{copy.help}</span>
+        </label>
+
+        {destKey && valid && (
+          <p className="mt-2 text-[10px] text-bolt-elements-textTertiary">
+            → <span className="font-mono text-bolt-elements-textSecondary">{destKey}</span>
+          </p>
+        )}
+
+        {(error || (reason && value.trim().length > 0)) && (
+          <p className="mt-3 text-[11px] text-red-400" role="alert" data-testid="buckets-object-op-error">
+            {error ?? reason}
+          </p>
+        )}
+
+        <div className="mt-4 flex items-center justify-end gap-2">
+          <button
+            type="button"
+            onClick={onClose}
+            className={classNames(BTN_GHOST, 'min-h-[32px] px-3 py-1.5 text-[12px]')}
+          >
+            Cancel
+          </button>
+          <button
+            type="button"
+            onClick={() => void submit()}
+            disabled={!valid || busy}
+            data-testid="buckets-object-op-submit"
+            className={classNames(BTN_PRIMARY, 'min-h-[32px] px-4 py-1.5 text-[12px]')}
+          >
+            <div
+              className={classNames(
+                busy ? 'i-ph:circle-notch animate-spin motion-reduce:animate-none' : copy.submitIcon,
+                'text-sm',
+              )}
+              aria-hidden
+            />
+            <span className="min-w-[6ch] text-center">{busy ? copy.busyVerb : copy.verb}</span>
+          </button>
+        </div>
+      </ModalShell>
+    );
+  },
+);
+
+ObjectCopyDialog.displayName = 'BucketsPanel.ObjectCopyDialog';
 
 // ── Delete-bucket modal (type-to-confirm) ────────────────────────────────────
 

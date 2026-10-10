@@ -62,6 +62,26 @@ export const UploadJsonBodySchema = z
   .strict();
 export type UploadJsonBody = z.infer<typeof UploadJsonBodySchema>;
 
+/**
+ * Body for `POST /r2/buckets/:bucket/objects/copy` — copy / move / rename ONE object (or a prefix) WITHIN
+ * a bucket (same-bucket this slice). `srcKey`/`destKey` are full object keys (a trailing `/` on BOTH makes
+ * it a prefix move). `deleteSource:true` turns a copy into a move/rename (copy-then-delete-source).
+ * `overwrite:true` opts into clobbering an existing destination (default: refuse with 409).
+ */
+export const CopyObjectBodySchema = z
+  .object({
+    srcKey: z.string().min(1).max(1024),
+    destKey: z.string().min(1).max(1024),
+    deleteSource: z.boolean().optional(),
+    overwrite: z.boolean().optional(),
+  })
+  .strict()
+  .refine((b) => b.srcKey !== b.destKey, {
+    message: 'Source and destination must differ',
+    path: ['destKey'],
+  });
+export type CopyObjectBody = z.infer<typeof CopyObjectBodySchema>;
+
 /** A single object descriptor in a list response (mirrors `SiteR2Object`). */
 export const ObjectEntrySchema = z.object({
   key: z.string(),

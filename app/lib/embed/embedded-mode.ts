@@ -2442,6 +2442,53 @@ export interface BucketDownloadResponseMessage {
   error?: string;
 }
 
+/**
+ * Child → Parent (Resources — Buckets, B8): copy / move / rename ONE object (or a prefix) WITHIN a bucket.
+ * The admin PROXIES to `POST /api/sites/:id/r2/buckets/:bucket/objects/copy` (the editor has no
+ * cross-origin session). SAME-BUCKET this slice (cross-bucket is a noted follow-up):
+ *   • copy   — `deleteSource` omitted/false
+ *   • rename / move — `deleteSource:true` (copy-then-delete-source; the worker picks the audit verb)
+ *   • folder move — `deleteSource:true` + a trailing `/` on BOTH `srcKey` and `destKey` (prefix move)
+ * No bytes transit the bridge (server-side S3 CopyObject). A pre-existing destination replies
+ * `{ok:false, conflict:true}` unless `overwrite:true` is set.
+ */
+export interface BucketCopyRequestMessage {
+  type: 'PS_R2_COPY';
+  correlationId: string;
+  bucket: string;
+
+  /** Full source object key (or source prefix — trailing `/` — for a folder move). */
+  srcKey: string;
+
+  /** Full destination object key (or destination prefix — trailing `/` — for a folder move). */
+  destKey: string;
+
+  /** `true` → move/rename (delete the source after copy); omit/false → copy (keep both). */
+  deleteSource?: boolean;
+
+  /** `true` → overwrite an existing destination; omit/false → refuse with a conflict (the default). */
+  overwrite?: boolean;
+}
+
+/** Parent → Child: reply to {@link BucketCopyRequestMessage}. */
+export interface BucketCopyResponseMessage {
+  type: 'PS_R2_COPY_RESULT';
+  correlationId?: string;
+  ok: boolean;
+
+  /** Echoed destination key on success. */
+  destKey?: string;
+
+  /** `moveSiteR2Prefix`: number of objects moved (folder move only). */
+  moved?: number;
+
+  /** `true` when the destination already existed (the 409) → the UI prompts to pick another name. */
+  conflict?: boolean;
+  enabled?: boolean;
+  needsCreds?: boolean;
+  error?: string;
+}
+
 /*
  * ── Owner-facing scoped R2 key bridge messages (Resources → Buckets, B5 slice 4) ────────────────
  *
@@ -2727,6 +2774,7 @@ export type ParentToChildMessage =
   | R2ResponseMessage
   | BucketUploadResponseMessage
   | BucketDownloadResponseMessage
+  | BucketCopyResponseMessage
   | OwnerKeyResponseMessage
   | BucketKeyResponseMessage
   | ClaudeFlagResponseMessage
@@ -2779,6 +2827,7 @@ export type ChildToParentMessage =
   | R2RequestMessage
   | BucketUploadRequestMessage
   | BucketDownloadRequestMessage
+  | BucketCopyRequestMessage
   | OwnerKeyStatusRequestMessage
   | OwnerKeyCreateRequestMessage
   | OwnerKeyRotateRequestMessage
@@ -3667,6 +3716,26 @@ export function requestBucketDownload(input: { bucket: string; key: string }): P
   return requestFromParent<BucketDownloadResponseMessage>(
     { type: 'PS_R2_DOWNLOAD', correlationId: nextBridgeCorrelationId(), ...input },
     'PS_R2_DOWNLOAD_RESULT',
+  );
+}
+
+/**
+ * Resources → Buckets (B8): copy / move / rename one object (or a prefix) WITHIN a bucket. The admin
+ * proxies to `POST /api/sites/:id/r2/buckets/:bucket/objects/copy`. `deleteSource:true` makes it a
+ * move/rename; a trailing `/` on BOTH keys makes it a folder (prefix) move. Server-side S3 CopyObject —
+ * no bytes cross the bridge. Resolves with the parent's {@link BucketCopyResponseMessage} (`conflict:true`
+ * when the destination already exists and `overwrite` wasn't set). Same-bucket this slice.
+ */
+export function requestR2Copy(input: {
+  bucket: string;
+  srcKey: string;
+  destKey: string;
+  deleteSource?: boolean;
+  overwrite?: boolean;
+}): Promise<BucketCopyResponseMessage> {
+  return requestFromParent<BucketCopyResponseMessage>(
+    { type: 'PS_R2_COPY', correlationId: nextBridgeCorrelationId(), ...input },
+    'PS_R2_COPY_RESULT',
   );
 }
 

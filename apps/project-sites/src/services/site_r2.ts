@@ -78,6 +78,7 @@ export type SiteR2Failure =
   | 'forbidden_bucket'
   | 'not_allocated'
   | 'needs_s3_credentials'
+  | 'destination_exists'
   | 'cf_error'
   | 's3_error';
 
@@ -1549,6 +1550,12 @@ async function s3Fetch(
     query?: Record<string, string>;
     body?: ArrayBuffer | Uint8Array | string;
     contentType?: string;
+    /**
+     * Extra `x-amz-*` request headers that MUST be SigV4-signed (e.g. `x-amz-copy-source` for
+     * CopyObject). Header names are lowercased + merged into the signed-header set; a header NOT
+     * signed is rejected by R2. Values are sent verbatim.
+     */
+    extraHeaders?: Record<string, string>;
   } = {},
 ): Promise<Response> {
   let res = await s3FetchOnce(s3, method, path, opts);
@@ -1568,6 +1575,7 @@ async function s3FetchOnce(
     query?: Record<string, string>;
     body?: ArrayBuffer | Uint8Array | string;
     contentType?: string;
+    extraHeaders?: Record<string, string>;
   } = {},
 ): Promise<Response> {
   const url = new URL(s3.endpoint + path);
@@ -1593,8 +1601,19 @@ async function s3FetchOnce(
           : new Uint8Array(opts.body);
   const payloadHash = await sha256Hex(bodyBytes);
 
-  const canonicalHeaders = `host:${host}\nx-amz-content-sha256:${payloadHash}\nx-amz-date:${amzDate}\n`;
-  const signedHeaders = 'host;x-amz-content-sha256;x-amz-date';
+  // The always-signed base triplet + any caller extras (e.g. `x-amz-copy-source`). SigV4 requires the
+  // canonical headers sorted by lowercase name and `signedHeaders` to list exactly those names — a
+  // header sent but not signed (or vice-versa) yields a SignatureDoesNotMatch. We lowercase, sort, and
+  // build both from one map so they can never drift.
+  const signedMap: Record<string, string> = {
+    host,
+    'x-amz-content-sha256': payloadHash,
+    'x-amz-date': amzDate,
+  };
+  for (const [k, v] of Object.entries(opts.extraHeaders ?? {})) signedMap[k.toLowerCase()] = v;
+  const sortedHeaderNames = Object.keys(signedMap).sort();
+  const canonicalHeaders = sortedHeaderNames.map((k) => `${k}:${signedMap[k]!.trim()}\n`).join('');
+  const signedHeaders = sortedHeaderNames.join(';');
   const canonicalUri = encodeS3Path(url.pathname);
   const canonicalRequest = [
     method,
@@ -1622,6 +1641,7 @@ async function s3FetchOnce(
     authorization,
     'x-amz-content-sha256': payloadHash,
     'x-amz-date': amzDate,
+    ...(opts.extraHeaders ?? {}),
   };
   if (opts.contentType) headers['content-type'] = opts.contentType;
 
@@ -1773,6 +1793,141 @@ export async function deleteSiteR2Object(
       status: res.status,
     };
   return { deleted: true, ok: true };
+}
+
+/**
+ * True when `key` already exists in the bucket (S3 HeadObject → 200), false on 404, or a typed failure
+ * on any other S3 error. Used by {@link copySiteR2Object} to refuse a silent overwrite unless the caller
+ * explicitly opts in. Signs with the already-resolved {@link S3Config} (never re-resolves creds).
+ */
+async function s3ObjectExists(
+  s3: S3Config,
+  bucketName: string,
+  key: string,
+): Promise<SiteR2Result<{ exists: boolean }>> {
+  const res = await s3Fetch(s3, 'HEAD', `/${bucketName}/${encodeS3Path(key)}`);
+  if (res.status === 404) return { exists: false, ok: true };
+  if (res.ok) return { exists: true, ok: true };
+  return {
+    message: `S3 head failed (HTTP ${res.status})`,
+    ok: false,
+    reason: 's3_error',
+    status: res.status,
+  };
+}
+
+/**
+ * Copy ONE object WITHIN a bucket (S3 CopyObject). Signs a `PUT /{bucket}/{destKey}` with the
+ * `x-amz-copy-source: /{bucket}/{srcKey}` header (each path segment URI-encoded) — R2's server-side copy,
+ * no bytes transit the Worker. SAME-BUCKET only this slice (cross-bucket is a noted follow-up); `bucketName`
+ * is the already-resolved REAL bucket for BOTH source + destination. Refuses a silent overwrite: unless
+ * `overwrite` is true, a pre-existing `destKey` yields a `destination_exists` failure (the route maps it to
+ * 409) — never clobbers data. A no-op self-copy (`srcKey === destKey`) is rejected by the caller.
+ */
+export async function copySiteR2Object(
+  env: Env,
+  ctx: SiteR2Context,
+  bucketName: string,
+  srcKey: string,
+  destKey: string,
+  opts: { overwrite?: boolean } = {},
+): Promise<SiteR2Result<{ key: string }>> {
+  const resolved = await resolveSiteS3Config(env, ctx);
+  if (!resolved.ok) return resolved;
+  const s3 = resolved.s3;
+
+  // Collision guard — never overwrite an existing destination unless the caller opts in explicitly.
+  if (!opts.overwrite) {
+    const exists = await s3ObjectExists(s3, bucketName, destKey);
+    if (!exists.ok) return exists;
+    if (exists.exists) return { ok: false, reason: 'destination_exists' };
+  }
+
+  // `x-amz-copy-source` is the bucket + key, each path segment URI-encoded (R2 follows the S3 contract;
+  // a leading `/` + the bucket name). encodeS3Path keeps `/` separators and encodes the rest.
+  const copySource = `/${bucketName}/${encodeS3Path(srcKey)}`;
+  const res = await s3Fetch(s3, 'PUT', `/${bucketName}/${encodeS3Path(destKey)}`, {
+    extraHeaders: { 'x-amz-copy-source': copySource },
+  });
+  if (!res.ok)
+    return {
+      message: `S3 copy failed (HTTP ${res.status})`,
+      ok: false,
+      reason: 's3_error',
+      status: res.status,
+    };
+  return { key: destKey, ok: true };
+}
+
+/**
+ * Rename / move ONE object within a bucket = {@link copySiteR2Object} then {@link deleteSiteR2Object} of
+ * the source. If the copy fails the source is left untouched (no data loss); the delete only runs after a
+ * confirmed copy. Same collision guard as copy (refuses to clobber `destKey` unless `overwrite`).
+ */
+export async function renameSiteR2Object(
+  env: Env,
+  ctx: SiteR2Context,
+  bucketName: string,
+  srcKey: string,
+  destKey: string,
+  opts: { overwrite?: boolean } = {},
+): Promise<SiteR2Result<{ key: string }>> {
+  const copied = await copySiteR2Object(env, ctx, bucketName, srcKey, destKey, opts);
+  if (!copied.ok) return copied;
+  const removed = await deleteSiteR2Object(env, ctx, bucketName, srcKey);
+  // The copy already succeeded; a delete failure leaves a harmless duplicate rather than losing data.
+  if (!removed.ok) return removed;
+  return { key: destKey, ok: true };
+}
+
+/**
+ * Move every object under `srcPrefix` to `destPrefix` within a bucket (rename a "folder"). Lists the
+ * source prefix page-by-page (bounded at 100×1000) and copy+deletes each object, rewriting only the
+ * prefix portion of the key. Partial progress is reported via `moved`; the first hard error stops and is
+ * returned (objects already moved stay moved — honest, resumable). Same-bucket only this slice.
+ */
+export async function moveSiteR2Prefix(
+  env: Env,
+  ctx: SiteR2Context,
+  bucketName: string,
+  srcPrefix: string,
+  destPrefix: string,
+  opts: { overwrite?: boolean } = {},
+): Promise<SiteR2Result<{ moved: number }>> {
+  const resolved = await resolveSiteS3Config(env, ctx);
+  if (!resolved.ok) return resolved;
+  const s3 = resolved.s3;
+
+  let moved = 0;
+  let cursor: string | undefined;
+  for (let page = 0; page < 100; page++) {
+    const query: Record<string, string> = { 'list-type': '2', 'max-keys': '1000', prefix: srcPrefix };
+    if (cursor) query['continuation-token'] = cursor;
+    const listRes = await s3Fetch(s3, 'GET', `/${bucketName}`, { query });
+    if (!listRes.ok)
+      return {
+        message: `S3 list failed (HTTP ${listRes.status})`,
+        ok: false,
+        reason: 's3_error',
+        status: listRes.status,
+      };
+    const xml = await listRes.text();
+    const keys = xmlAll(xml, 'Contents')
+      .map((frag) => xmlUnescape(xmlFirst(frag, 'Key') ?? ''))
+      .filter(Boolean);
+    for (const key of keys) {
+      // Rewrite only the leading prefix; the remainder of the key (sub-folders + filename) is preserved.
+      const destKey = destPrefix + key.slice(srcPrefix.length);
+      if (destKey === key) continue; // no-op (dest === src prefix)
+      const r = await renameSiteR2Object(env, ctx, bucketName, key, destKey, opts);
+      if (!r.ok) return { ...r, message: r.message ?? `Could not move ${key}` };
+      moved++;
+    }
+    if (xmlFirst(xml, 'IsTruncated') !== 'true') break;
+    cursor = xmlFirst(xml, 'NextContinuationToken');
+    if (!cursor) break;
+  }
+  return { moved, ok: true };
 }
 
 /** Empty a bucket (list → delete all) via S3 — used before {@link deleteSiteR2}. */

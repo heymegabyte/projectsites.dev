@@ -335,6 +335,14 @@ interface PsMessage {
   readonly treeDigest?: string;
   /** PS_PROMOTE_REQUEST: optional commit SHA associated with this draft. */
   readonly commitSha?: string | null;
+  /** PS_R2_COPY (Resources → Buckets, B8): the source object key (or prefix — trailing `/`). */
+  readonly srcKey?: string;
+  /** PS_R2_COPY: the destination object key (or prefix — trailing `/`). */
+  readonly destKey?: string;
+  /** PS_R2_COPY: `true` → move/rename (delete the source after copy); omit → copy. */
+  readonly deleteSource?: boolean;
+  /** PS_R2_COPY: `true` → overwrite an existing destination; omit → refuse with a conflict. */
+  readonly overwrite?: boolean;
 }
 
 /**
@@ -3688,6 +3696,45 @@ export class BoltEmbedService {
                 if (err instanceof HttpErrorResponse && err.status === 404 && r2NotEnabled(err)) reply({ ok: false, enabled: false });
                 else if (err instanceof HttpErrorResponse && err.status === 503) reply({ ok: false, needsCreds: true, error: r2ErrMessage(err) ?? 'Object downloads need R2 S3 credentials.' });
                 else reply({ ok: false, error: r2ErrMessage(err) ?? 'Could not download the object.' });
+              },
+            });
+          break;
+        }
+        case 'PS_R2_COPY': {
+          // Resources → Buckets (B8) — copy / move / rename ONE object (or a prefix) WITHIN a bucket. The
+          // editor has no cross-origin session, so we POST to /api/sites/:id/r2/buckets/:bucket/objects/copy
+          // (server-side S3 CopyObject — no bytes cross the bridge). Reply PS_R2_COPY_RESULT. A 409
+          // destination-collision → {ok:false, conflict:true} so the editor can prompt for another name.
+          const iframe = this.iframeEl;
+          const site = this.currentSite;
+          const cid = msg.correlationId;
+          const reply = (payload: Record<string, unknown>): void => {
+            iframe?.contentWindow?.postMessage({ type: 'PS_R2_COPY_RESULT', correlationId: cid, ...payload }, EDITOR_BASE);
+          };
+          if (!site) {
+            reply({ ok: false, error: 'No site selected' });
+            break;
+          }
+          const bucket = typeof msg.bucket === 'string' ? encodeURIComponent(msg.bucket) : '';
+          const srcKey = typeof msg.srcKey === 'string' ? msg.srcKey : '';
+          const destKey = typeof msg.destKey === 'string' ? msg.destKey : '';
+          if (!bucket || !srcKey || !destKey) {
+            reply({ ok: false, error: 'Missing bucket, source or destination' });
+            break;
+          }
+          this.api
+            .post<{ data?: { destKey?: string; moved?: number } }>(
+              `/sites/${site.id}/r2/buckets/${bucket}/objects/copy`,
+              { deleteSource: msg.deleteSource ?? false, destKey, overwrite: msg.overwrite ?? false, srcKey },
+              { silent: true },
+            )
+            .subscribe({
+              next: (res) => reply({ ok: true, destKey: res?.data?.destKey ?? destKey, moved: res?.data?.moved }),
+              error: (err) => {
+                if (err instanceof HttpErrorResponse && err.status === 404 && r2NotEnabled(err)) reply({ ok: false, enabled: false });
+                else if (err instanceof HttpErrorResponse && err.status === 503) reply({ ok: false, needsCreds: true, error: r2ErrMessage(err) ?? 'File operations need R2 S3 credentials.' });
+                else if (err instanceof HttpErrorResponse && err.status === 409) reply({ ok: false, conflict: true, error: r2ErrMessage(err) ?? 'Something with that name already exists here.' });
+                else reply({ ok: false, error: r2ErrMessage(err) ?? 'Could not complete that.' });
               },
             });
           break;

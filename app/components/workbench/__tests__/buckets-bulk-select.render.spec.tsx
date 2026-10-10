@@ -22,6 +22,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 // ── Mock the bridge BEFORE importing the panel (swc hoists vi.mock). ──
 const mockR2 = vi.fn();
+const mockR2Copy = vi.fn();
 
 vi.mock('~/lib/embed/embedded-mode', async (importOriginal) => {
   const actual = await importOriginal<typeof import('~/lib/embed/embedded-mode')>();
@@ -30,6 +31,7 @@ vi.mock('~/lib/embed/embedded-mode', async (importOriginal) => {
     isEmbedded: true,
     postToastToParent: vi.fn(),
     requestR2: (...a: unknown[]) => mockR2(...a),
+    requestR2Copy: (...a: unknown[]) => mockR2Copy(...a),
     requestBucketDownload: vi.fn(async () => ({ ok: false })),
     requestBucketUpload: vi.fn(async () => ({ ok: false })),
   };
@@ -49,8 +51,10 @@ const OBJECTS = [
 
 beforeEach(() => {
   mockR2.mockReset();
+  mockR2Copy.mockReset();
   // Every listObjects → one full page of objects, no folders, not truncated.
   mockR2.mockResolvedValue({ ok: true, objects: OBJECTS, prefixes: [], truncated: false, cursor: undefined });
+  mockR2Copy.mockResolvedValue({ ok: true, destKey: 'renamed.txt' });
 });
 
 afterEach(cleanup);
@@ -159,5 +163,74 @@ describe('Keyboard multi-select — Cmd/Ctrl+A, Shift-range, Escape', () => {
 
     fireEvent.keyDown(screen.getByTestId('buckets-object-list'), { key: 'Escape' });
     await waitFor(() => expect(screen.queryByTestId('buckets-bulk-bar')).toBeNull());
+  });
+});
+
+// ── B8 — copy/move/rename wired end-to-end through the real ObjectBrowser ──────
+
+describe('Object rename/copy/move (B8) — context menu → dialog → bridge → close + reload', () => {
+  /** Open a row's context menu + click one of the B8 items. */
+  async function openOp(rowLabel: string, itemTestId: string) {
+    const row = screen.getAllByTestId('buckets-object-row').find((r) => r.textContent?.includes(rowLabel))!;
+    fireEvent.contextMenu(row);
+    await screen.findByTestId('buckets-object-context-menu');
+    fireEvent.click(screen.getByTestId(itemTestId));
+    await screen.findByTestId('buckets-object-op-modal');
+  }
+
+  it('Rename → submits the derived destKey + deleteSource:true, closes the dialog, reloads the list', async () => {
+    await mountBrowser();
+    expect(mockR2).toHaveBeenCalledTimes(1); // initial list
+
+    await openOp('a.txt', 'buckets-object-context-rename');
+    const input = screen.getByTestId('buckets-object-op-input') as HTMLInputElement;
+    expect(input.value).toBe('a.txt'); // prefilled with the current name
+    fireEvent.change(input, { target: { value: 'renamed.txt' } });
+    fireEvent.click(screen.getByTestId('buckets-object-op-submit'));
+
+    await waitFor(() =>
+      expect(mockR2Copy).toHaveBeenCalledWith({
+        bucket: 'site-assets',
+        deleteSource: true,
+        destKey: 'renamed.txt',
+        srcKey: 'a.txt',
+      }),
+    );
+    // On success the parent unmounts the dialog + reloads the object list (a second listObjects).
+    await waitFor(() => expect(screen.queryByTestId('buckets-object-op-modal')).toBeNull());
+    await waitFor(() => expect(mockR2.mock.calls.length).toBeGreaterThanOrEqual(2));
+  });
+
+  it('Copy → submits deleteSource:false (source kept)', async () => {
+    mockR2Copy.mockResolvedValue({ ok: true, destKey: 'a-copy.txt' });
+    await mountBrowser();
+
+    await openOp('a.txt', 'buckets-object-context-duplicate');
+    fireEvent.change(screen.getByTestId('buckets-object-op-input'), { target: { value: 'a-copy.txt' } });
+    fireEvent.click(screen.getByTestId('buckets-object-op-submit'));
+
+    await waitFor(() =>
+      expect(mockR2Copy).toHaveBeenCalledWith({
+        bucket: 'site-assets',
+        deleteSource: false,
+        destKey: 'a-copy.txt',
+        srcKey: 'a.txt',
+      }),
+    );
+  });
+
+  it('a server-side conflict keeps the dialog OPEN (no data loss, owner retries)', async () => {
+    mockR2Copy.mockResolvedValue({ ok: false, conflict: true });
+    await mountBrowser();
+
+    await openOp('a.txt', 'buckets-object-context-rename');
+    // A name NOT in the loaded list (so the client guard passes) that the SERVER rejects (a race).
+    fireEvent.change(screen.getByTestId('buckets-object-op-input'), { target: { value: 'unique.png' } });
+    fireEvent.click(screen.getByTestId('buckets-object-op-submit'));
+
+    await waitFor(() => expect(mockR2Copy).toHaveBeenCalled());
+    // Dialog stays mounted with an inline error.
+    await waitFor(() => expect(screen.getByTestId('buckets-object-op-error').textContent).toMatch(/already exists/i));
+    expect(screen.getByTestId('buckets-object-op-modal')).toBeTruthy();
   });
 });
