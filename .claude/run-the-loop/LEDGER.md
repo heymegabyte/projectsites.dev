@@ -1676,3 +1676,11 @@ Lean fire (coalesced 1 cron tick). ONE coherent verified slice = B15 selector (h
 - B15-GROOM `a9a88f3e9`/`9fd15fcbf` — B4-UI DONE; DoD §21 ≈ 87% (~20/23).
 - lead — editor Pages f144dc2f; no-regression (gallery 200 · 0 console errors · editor bundle healthy). Authed Code-view widget → 8 unit tests are behavioral proof (real-browser render CF-challenge-gated, consistent w/ prior authed-UI slices).
 - DoD §21 NOT met — remaining B15-fast-follow (object-tree load/edit/save) · B6 clone · B7 zip · B8 copy/move/rename · B9 per-object public+shares · B10 env reassign+rollback · B11 server search · B14 axe. Cron b1182793 KEPT.
+
+## fire-buckets-b8 (2026-10-10) — object rename/copy/move (same-bucket)
+Full-stack fire (coalesced 2 cron ticks). ONE coherent verified slice = B8 same-bucket (cross-bucket = fast-follow). No migration (S3 op).
+- B8-FULLSTACK `cc16c58ef` — copySiteR2Object = S3 CopyObject (SigV4-signed x-amz-copy-source via extended s3Fetch extraHeaders); HEAD collision guard (409 destination_exists unless overwrite); renameSiteR2Object = copy-THEN-delete (no data loss); moveSiteR2Prefix. Route POST /r2/buckets/:bucket/objects/copy (gate auth→flag→ownsSiteData→gateAndBucket IDOR; Zod src≠dest; audit r2.object.{copied,moved,renamed} keys-only). Bridge PS_R2_COPY + requestR2Copy (embedded-mode + bolt-embed.service admin half). UI: ObjectActionMenu Rename/Copy to/Move to + ObjectCopyDialog (3 modes, prefill, collision guard, focus-trap). Gates: jest 82 · backend+frontend tsc clean · 151 buckets Vitest · build · validate:features · lint 0.
+- B8-GROOM `a1b8d9d31`/`e9f2a0773` — B15 DONE; DoD §21 ≈ 88% (~21/24).
+- lead — worker 3218d0ce + editor Pages 0b0d3a90; PROD-VERIFIED real round-trip via workers.dev: PUT src 201 → copy 200 (copy GET 200) → rename deleteSource 200 (renamed GET 200, src removed — confirmed via LIST: 0 probe keys) → cleanup 200. No-regression gallery 0 errors.
+- BUG FOUND (groom, pre-existing not B8): GET /r2/buckets/:bucket/objects/* on a MISSING key returns 502, should be 404 — the GET handler mis-maps R2's missing-object. Small robustness fix for a future fire.
+- DoD §21 NOT met — remaining B8 cross-bucket (fast-follow) · B10 · B11 · B6 · B7 · B9 · B14 axe · B15 tree-load (fast-follow) · the 502-GET fix. Cron b1182793 KEPT.
