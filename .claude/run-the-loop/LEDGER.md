@@ -1669,3 +1669,10 @@ Lean fire. ONE coherent verified slice = B4-UI (consuming UI for the per-bucket 
 - B4-UI-GROOM `edbf82b82`/`7fde41b1b` — B3 reconciled DONE, visual-rounds MET; DoD §21 ≈ 85% (~19/22).
 - lead — editor Pages e79b3aca; no-regression verified (gallery 200 · body 2373 · 0 console errors). Authed-Settings UI → 11 unit tests are behavioral proof; the consumed per-bucket backend was prod-proven in b4 (200 own / 403 other / 401 revoked). Per-bucket key feature now END-TO-END complete (UI→bridge→backend→valid creds).
 - DoD §21 NOT met — remaining B6 clone · B7 zip · B8 copy/move/rename · B9 per-object public+shares · B10 env reassign+rollback · B11 server search · B15 Code-view selector · B14 axe. Cron b1182793 KEPT.
+
+## fire-buckets-b15 (2026-10-10) — Code-view bucket source selector
+Lean fire (coalesced 1 cron tick). ONE coherent verified slice = B15 selector (honest scope-down: picker + active-source state shipped; in-explorer object-tree load/edit/save-back-to-R2 is the backend-wired fast-follow, NOT stubbed — graceful BucketSourceNotice, never a dead-end).
+- B15-FE `efb0ad1a8` — CodeSourcePicker (Radix Source▾ RadioGroup: website | R2 buckets, env badges, Production read-only/warn, menuitemradio+Escape a11y) + useCodeSources hook (reuses live listBuckets bridge op + BucketEntry; dark-flag 404 → website-only graceful) + BucketSourceNotice; wired into EditorPanel explorer header. 8 tests + sibling 23 no-regression; tsc clean; build ✓.
+- B15-GROOM `a9a88f3e9`/`9fd15fcbf` — B4-UI DONE; DoD §21 ≈ 87% (~20/23).
+- lead — editor Pages f144dc2f; no-regression (gallery 200 · 0 console errors · editor bundle healthy). Authed Code-view widget → 8 unit tests are behavioral proof (real-browser render CF-challenge-gated, consistent w/ prior authed-UI slices).
+- DoD §21 NOT met — remaining B15-fast-follow (object-tree load/edit/save) · B6 clone · B7 zip · B8 copy/move/rename · B9 per-object public+shares · B10 env reassign+rollback · B11 server search · B14 axe. Cron b1182793 KEPT.
