@@ -22,6 +22,7 @@
  */
 import React, { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import * as DropdownMenu from '@radix-ui/react-dropdown-menu';
+import * as ContextMenu from '@radix-ui/react-context-menu';
 import { classNames } from '~/utils/classNames';
 import { PanelShell, PanelHeader } from './panel';
 import { PanelEmpty } from './panel/PanelEmpty';
@@ -1202,6 +1203,146 @@ const BucketRowMenu = memo(
 
 BucketRowMenu.displayName = 'BucketsPanel.BucketRowMenu';
 
+/*
+ * ── Object selection logic (B3 — keyboard multi-select) ───────────────────────
+ * Pure, dependency-free helpers for the keyboard + range selection so the Vitest suite can assert
+ * the EXACT set math without mounting the bridge-coupled panel. The browser wires these straight to
+ * the existing `setSelected` Set (checkbox selection keeps working unchanged).
+ */
+
+/** Every loaded (shown) object key — what `Cmd/Ctrl+A` selects. */
+export function selectAllKeys(shown: ReadonlyArray<{ key: string }>): Set<string> {
+  return new Set(shown.map((o) => o.key));
+}
+
+/**
+ * The keys in the INCLUSIVE index range between an anchor and a target (order-independent) — what a
+ * `Shift+click` selects. Out-of-bounds / missing anchor → just the target's key (graceful, never a
+ * doomed no-op). Returns an empty set when the target index itself is invalid.
+ */
+export function rangeKeys(shown: ReadonlyArray<{ key: string }>, anchor: number, target: number): Set<string> {
+  if (target < 0 || target >= shown.length) {
+    return new Set();
+  }
+
+  if (anchor < 0 || anchor >= shown.length) {
+    return new Set([shown[target].key]);
+  }
+
+  const lo = Math.min(anchor, target);
+  const hi = Math.max(anchor, target);
+  const out = new Set<string>();
+
+  for (let i = lo; i <= hi; i++) {
+    out.add(shown[i].key);
+  }
+
+  return out;
+}
+
+/** Union the current selection with a range (Shift+click EXTENDS, it never replaces). */
+export function extendSelection(current: ReadonlySet<string>, add: ReadonlySet<string>): Set<string> {
+  const next = new Set(current);
+
+  for (const k of add) {
+    next.add(k);
+  }
+
+  return next;
+}
+
+/*
+ * ── Object row/tile context menu (B3) ─────────────────────────────────────────
+ * A Radix ContextMenu wrapping each object row/tile — exposes the SAME four ops the hover buttons do
+ * (Preview · Copy URL · Download · Delete), reusing the EXACT handlers. Radix gives us right-click +
+ * keyboard (the browser's context-menu key / Shift+F10), roles (`menu`/`menuitem`), Escape-to-close,
+ * and focus return for free. On touch there's no right-click, so the always-present ⋯ hover buttons
+ * remain the touch affordance — this menu is the pointer/keyboard power path, never the only path.
+ * The trigger is the row/tile itself (`asChild`), so a two-finger / right click anywhere on it opens.
+ */
+
+const OBJECT_MENU_CONTENT =
+  'z-[100001] min-w-[180px] rounded-xl border border-bolt-elements-borderColor bg-bolt-elements-background-depth-2 ' +
+  'p-1 shadow-2xl shadow-black/40 motion-safe:animate-[fadeIn_.12s_ease-out]';
+const OBJECT_MENU_ITEM =
+  'flex items-center gap-2 px-2.5 py-1.5 text-[11px] rounded-lg cursor-pointer select-none outline-none ' +
+  'text-bolt-elements-textSecondary data-[highlighted]:bg-bolt-elements-item-contentAccent/[0.12] ' +
+  'data-[highlighted]:text-bolt-elements-item-contentAccent data-[disabled]:opacity-40 data-[disabled]:cursor-not-allowed';
+
+/**
+ * Right-click (and keyboard) context menu for a single object. Wraps its row/tile as the trigger and
+ * fires the existing object handlers. `name` is the display label (prefix-stripped key).
+ */
+export const ObjectActionMenu = memo(
+  ({
+    objectKey,
+    name,
+    canPreview,
+    children,
+    onPreview,
+    onCopyUrl,
+    onDownload,
+    onDelete,
+  }: {
+    objectKey: string;
+    name: string;
+    canPreview: boolean;
+    children: React.ReactNode;
+    onPreview: (key: string) => void;
+    onCopyUrl: (key: string) => void;
+    onDownload: (key: string) => void;
+    onDelete: (key: string) => void;
+  }) => (
+    <ContextMenu.Root>
+      <ContextMenu.Trigger asChild>{children}</ContextMenu.Trigger>
+      <ContextMenu.Portal>
+        <ContextMenu.Content
+          className={OBJECT_MENU_CONTENT}
+          data-testid="buckets-object-context-menu"
+          aria-label={`Actions for ${name}`}
+        >
+          {canPreview && (
+            <ContextMenu.Item
+              className={OBJECT_MENU_ITEM}
+              data-testid="buckets-object-context-preview"
+              onSelect={() => onPreview(objectKey)}
+            >
+              <div className="i-ph:eye text-sm" aria-hidden /> Preview
+            </ContextMenu.Item>
+          )}
+          <ContextMenu.Item
+            className={OBJECT_MENU_ITEM}
+            data-testid="buckets-object-context-copy"
+            onSelect={() => onCopyUrl(objectKey)}
+          >
+            <div className="i-ph:link text-sm" aria-hidden /> Copy URL
+          </ContextMenu.Item>
+          <ContextMenu.Item
+            className={OBJECT_MENU_ITEM}
+            data-testid="buckets-object-context-download"
+            onSelect={() => onDownload(objectKey)}
+          >
+            <div className="i-ph:download-simple text-sm" aria-hidden /> Download
+          </ContextMenu.Item>
+          <ContextMenu.Separator className="my-1 h-px bg-bolt-elements-borderColor/60" />
+          <ContextMenu.Item
+            className={classNames(
+              OBJECT_MENU_ITEM,
+              'text-red-400 data-[highlighted]:bg-red-500/15 data-[highlighted]:text-red-300',
+            )}
+            data-testid="buckets-object-context-delete"
+            onSelect={() => onDelete(objectKey)}
+          >
+            <div className="i-ph:trash text-sm" aria-hidden /> Delete
+          </ContextMenu.Item>
+        </ContextMenu.Content>
+      </ContextMenu.Portal>
+    </ContextMenu.Root>
+  ),
+);
+
+ObjectActionMenu.displayName = 'BucketsPanel.ObjectActionMenu';
+
 // ── Object browser ───────────────────────────────────────────────────────────
 
 /** Files view mode — persists for the editor session (survives bucket/tab switches). */
@@ -1217,7 +1358,7 @@ function readStoredViewMode(): FilesViewMode {
   }
 }
 
-const ObjectBrowser = memo(
+export const ObjectBrowser = memo(
   ({
     bucket,
     objectOpsAvailable,
@@ -1243,6 +1384,11 @@ const ObjectBrowser = memo(
     const dragDepth = useRef(0);
     const fileInputRef = useRef<HTMLInputElement>(null);
     const cursorStack = useRef<string[]>([]);
+    // B3 — the anchor index for Shift-click range selection (the last row/tile the user clicked).
+    const rangeAnchor = useRef<number | null>(null);
+    // Whether Shift was held at pointer-down (captured there so the `onChange` toggle can read it —
+    // `change` events don't carry modifier keys). Reset after each toggle.
+    const shiftHeld = useRef(false);
 
     /** Load one page of objects for the current bucket + prefix (+ optional cursor). */
     const loadObjects = useCallback(
@@ -1409,7 +1555,7 @@ const ObjectBrowser = memo(
       await loadObjects();
     }, [selected, bucket.name, loadObjects]);
 
-    /** Download an object → save via a temporary anchor. */
+    /** Download an object → save via a temporary anchor. (Declared before `bulkDownload` uses it.) */
     const downloadObject = useCallback(
       async (key: string) => {
         setBusyKey(key);
@@ -1451,6 +1597,21 @@ const ObjectBrowser = memo(
       },
       [bucket.publicUrl, bucket.address],
     );
+
+    /** Bulk-download every selected object (sequential so a large selection never floods the bridge). */
+    const bulkDownload = useCallback(async () => {
+      const keys = [...selected];
+
+      if (keys.length === 0) {
+        return;
+      }
+
+      postToastToParent('info', `Downloading ${keys.length} file${keys.length === 1 ? '' : 's'}…`);
+
+      for (const key of keys) {
+        await downloadObject(key);
+      }
+    }, [selected, downloadObject]);
 
     // Drag-and-drop.
     const onDragEnter = useCallback((e: React.DragEvent) => {
@@ -1517,9 +1678,81 @@ const ObjectBrowser = memo(
     const totalBytes = objects.status === 'ready' ? objects.objects.reduce((sum, o) => sum + (o.size ?? 0), 0) : 0;
     const allSelected = shownObjects.length > 0 && shownObjects.every((o) => selected.has(o.key));
 
+    /*
+     * B3 — keyboard multi-select on the object browser:
+     *   • Cmd/Ctrl+A → select every loaded object (and resets the range anchor to the top).
+     *   • Escape     → clear the whole selection.
+     * Scoped to the browser container; we skip when focus is in the Filter input so A/typing there is
+     * untouched, and we never hijack the browser-native select-all unless there are objects to select.
+     */
+    const onBrowserKeyDown = useCallback(
+      (e: React.KeyboardEvent<HTMLDivElement>) => {
+        const target = e.target as HTMLElement | null;
+        const typing =
+          !!target &&
+          (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable);
+
+        if ((e.metaKey || e.ctrlKey) && (e.key === 'a' || e.key === 'A') && !typing) {
+          if (shownObjects.length === 0) {
+            return;
+          }
+
+          e.preventDefault();
+          rangeAnchor.current = 0;
+          setSelected(selectAllKeys(shownObjects));
+
+          return;
+        }
+
+        if (e.key === 'Escape' && selected.size > 0 && !typing) {
+          e.preventDefault();
+          rangeAnchor.current = null;
+          setSelected(new Set());
+        }
+      },
+      [shownObjects, selected.size],
+    );
+
+    /*
+     * Toggle ONE object's selection from its checkbox/row click. A plain click sets the Shift anchor;
+     * a Shift+click extends the selection across the inclusive range from the anchor to this index
+     * (the familiar file-manager gesture) WITHOUT clearing what's already picked.
+     */
+    const toggleObjectAt = useCallback(
+      (index: number, shiftKey: boolean) => {
+        setSelected((cur) => {
+          if (shiftKey && rangeAnchor.current !== null) {
+            return extendSelection(cur, rangeKeys(shownObjects, rangeAnchor.current, index));
+          }
+
+          const key = shownObjects[index]?.key;
+
+          if (key === undefined) {
+            return cur;
+          }
+
+          const next = new Set(cur);
+
+          if (next.has(key)) {
+            next.delete(key);
+          } else {
+            next.add(key);
+          }
+
+          return next;
+        });
+
+        if (!shiftKey) {
+          rangeAnchor.current = index;
+        }
+      },
+      [shownObjects],
+    );
+
     return (
       <div
         className="relative flex-1 flex flex-col min-h-0"
+        onKeyDown={onBrowserKeyDown}
         onDragEnter={onDragEnter}
         onDragOver={onDragOver}
         onDragLeave={onDragLeave}
@@ -1669,29 +1902,53 @@ const ObjectBrowser = memo(
           </div>
         </div>
 
-        {/* Bulk-action bar (visible only with a selection). */}
+        {/* Bulk-action bar (visible only with a selection). Rises in on the shared `psBucketRise`
+            keyframe — motion-safe only, with a motion-reduce opt-out (WCAG 2.3.3). A cyan left rail +
+            accent wash makes the selection state read instantly on the brand-dark shell. */}
         {selected.size > 0 && (
           <div
-            className="flex items-center gap-2 px-3 py-1.5 border-b border-bolt-elements-borderColor/40 bg-bolt-elements-item-contentAccent/[0.05] shrink-0"
+            className={classNames(
+              'relative flex items-center gap-2 px-3 py-1.5 border-b border-bolt-elements-item-contentAccent/25 shrink-0',
+              'bg-bolt-elements-item-contentAccent/[0.07]',
+              'motion-safe:animate-[psBucketRise_.22s_cubic-bezier(0.22,1,0.36,1)_both] motion-reduce:animate-none',
+            )}
+            role="toolbar"
+            aria-label={`${selected.size} object${selected.size === 1 ? '' : 's'} selected — bulk actions`}
             data-testid="buckets-bulk-bar"
           >
-            <span className="text-[11px] text-bolt-elements-item-contentAccent font-medium tabular-nums">
+            <span
+              aria-hidden
+              className="absolute left-0 top-1 bottom-1 w-0.5 rounded-full bg-bolt-elements-item-contentAccent"
+            />
+            <span className="text-[11px] text-bolt-elements-item-contentAccent font-semibold tabular-nums">
               {selected.size} selected
             </span>
             <button
               type="button"
-              onClick={() => setSelected(new Set())}
+              onClick={() => {
+                rangeAnchor.current = null;
+                setSelected(new Set());
+              }}
               className={classNames(BTN_GHOST, 'min-h-[24px] px-2 py-0.5 text-[10px]')}
+              data-testid="buckets-bulk-clear"
             >
               Clear
             </button>
             <button
               type="button"
+              onClick={() => void bulkDownload()}
+              className={classNames(BTN_SECONDARY, 'min-h-[24px] px-2 py-0.5 text-[10px] ml-auto')}
+              data-testid="buckets-bulk-download"
+            >
+              <div className="i-ph:download-simple text-xs" /> Download
+            </button>
+            <button
+              type="button"
               onClick={() => void bulkDelete()}
-              className={classNames(BTN_DESTRUCTIVE, 'min-h-[24px] px-2 py-0.5 text-[10px] ml-auto')}
+              className={classNames(BTN_DESTRUCTIVE, 'min-h-[24px] px-2 py-0.5 text-[10px]')}
               data-testid="buckets-bulk-delete"
             >
-              <div className="i-ph:trash text-xs" /> Delete selected
+              <div className="i-ph:trash text-xs" /> Delete
             </button>
           </div>
         )}
@@ -1763,8 +2020,17 @@ const ObjectBrowser = memo(
                     const busy = busyKey === obj.key;
 
                     return (
-                      <div
+                      <ObjectActionMenu
                         key={obj.key}
+                        objectKey={obj.key}
+                        name={name}
+                        canPreview={isPreviewable(obj.key)}
+                        onPreview={setPreviewKey}
+                        onCopyUrl={(k) => void copyObjectUrl(k)}
+                        onDownload={(k) => void downloadObject(k)}
+                        onDelete={(k) => void deleteObject(k)}
+                      >
+                      <div
                         style={objectEntranceStyle(index)}
                         className={classNames(
                           'group relative flex items-center gap-3 px-3 py-2.5 border-b transition-all duration-150 motion-reduce:transition-none',
@@ -1786,19 +2052,14 @@ const ObjectBrowser = memo(
                         <input
                           type="checkbox"
                           checked={checked}
-                          onChange={(e) =>
-                            setSelected((cur) => {
-                              const next = new Set(cur);
-
-                              if (e.target.checked) {
-                                next.add(obj.key);
-                              } else {
-                                next.delete(obj.key);
-                              }
-
-                              return next;
-                            })
-                          }
+                          // Capture Shift at pointer/keyboard-down; `change` can't see modifier keys.
+                          onMouseDown={(e) => (shiftHeld.current = e.shiftKey)}
+                          onKeyDown={(e) => (shiftHeld.current = e.shiftKey)}
+                          onChange={() => {
+                            // Shift+click extends a range from the anchor; plain click toggles + re-anchors.
+                            toggleObjectAt(index, shiftHeld.current);
+                            shiftHeld.current = false;
+                          }}
                           aria-label={`Select ${name}`}
                           className="h-3.5 w-3.5 accent-[var(--bolt-elements-item-contentAccent)] cursor-pointer shrink-0"
                         />
@@ -1888,6 +2149,7 @@ const ObjectBrowser = memo(
                           </button>
                         </div>
                       </div>
+                      </ObjectActionMenu>
                     );
                   })}
                 </>
@@ -1928,8 +2190,17 @@ const ObjectBrowser = memo(
                         : null;
 
                     return (
-                      <div
+                      <ObjectActionMenu
                         key={obj.key}
+                        objectKey={obj.key}
+                        name={name}
+                        canPreview={isPreviewable(obj.key)}
+                        onPreview={setPreviewKey}
+                        onCopyUrl={(k) => void copyObjectUrl(k)}
+                        onDownload={(k) => void downloadObject(k)}
+                        onDelete={(k) => void deleteObject(k)}
+                      >
+                      <div
                         style={objectEntranceStyle(index)}
                         data-testid="buckets-object-tile"
                         className={classNames(
@@ -1945,19 +2216,12 @@ const ObjectBrowser = memo(
                         <input
                           type="checkbox"
                           checked={checked}
-                          onChange={(e) =>
-                            setSelected((cur) => {
-                              const next = new Set(cur);
-
-                              if (e.target.checked) {
-                                next.add(obj.key);
-                              } else {
-                                next.delete(obj.key);
-                              }
-
-                              return next;
-                            })
-                          }
+                          onMouseDown={(e) => (shiftHeld.current = e.shiftKey)}
+                          onKeyDown={(e) => (shiftHeld.current = e.shiftKey)}
+                          onChange={() => {
+                            toggleObjectAt(index, shiftHeld.current);
+                            shiftHeld.current = false;
+                          }}
                           aria-label={`Select ${name}`}
                           className={classNames(
                             'absolute left-1.5 top-1.5 z-[1] h-3.5 w-3.5 cursor-pointer accent-[var(--bolt-elements-item-contentAccent)] transition-opacity',
@@ -2056,6 +2320,7 @@ const ObjectBrowser = memo(
                           </button>
                         </div>
                       </div>
+                      </ObjectActionMenu>
                     );
                   })}
                 </div>
