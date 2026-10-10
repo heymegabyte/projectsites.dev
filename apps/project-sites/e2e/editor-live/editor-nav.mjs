@@ -472,7 +472,13 @@ async function verifyResourcesSubTabs(page, frame, consoleErrors, resourcesTabSe
           const sheetOpen = await firstFoundTestId(frame, ['buckets-shortcuts-sheet'], 3000);
           const sheetShot = await shot(page, 'tab-buckets-shortcuts');
           console.log(`  [buckets] shortcuts sheet → ${sheetOpen ?? 'none'} (screenshot ${sheetShot})`);
+
+          // B14 (fire-buckets-modalfocus): ModalShell now closes on Escape at the shell level — assert the
+          // sheet actually goes away (it has no own Escape handler, so this proves the dialog is keyboard-closable).
           await page.keyboard.press('Escape').catch(() => {});
+          await page.waitForTimeout(400);
+          const stillOpen = await frame.locator('[data-testid="buckets-shortcuts-sheet"]').count();
+          console.log(`  [buckets] Escape closed shortcuts sheet: ${stillOpen === 0 ? 'yes' : 'NO (still open)'}`);
         } else {
           console.log('  [buckets] shortcuts trigger not present (older build?) — skipped');
         }

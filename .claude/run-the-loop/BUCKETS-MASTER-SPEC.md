@@ -229,12 +229,17 @@ B6/B7/B9/B10 (Workflows / gateway / env-pointer — large backend) · B13/B14 (i
 - [~] **B14 a11y + hardening pass** — WCAG 2.2 AA + visual-regression + authz/tenancy + failure-injection + 6bp.
   - [x] **navigator keyboard (roving listbox)** *(fire-buckets-b14 — ✅ DONE, live)* — the Buckets navigator is now a
     proper single-tab-stop `role=listbox`: the selected (or first) row is the ONE tab stop (roving tabindex), Arrow
-    Up/Down/Home/End move selection + focus across all groups. Was: every row `tabIndex=0` (a tab stop each). 2
-    Vitest cases; live-verified (`editor-nav.mjs` asserts exactly 1 tabbable row LIVE).
-  - [ ] **remaining:** axe-clean @ 6bp (needs an axe dep — NOT in the editor yet; add `@axe-core/playwright` to the
-    prod E2E, not a jsdom unit dep), SR live-status on async ops, workspace-tab + menu keyboard already covered by
-    Radix/APG, visual-regression screenshots, handler authz/tenancy tests, long-job failure-injection. New-backend:
-    **NO**. Priority: **P2** (the keyboard foundation is the highest-leverage part — done).
+    Up/Down/Home/End move selection + focus across all groups. 2 Vitest cases; live-verified (`editor-nav.mjs` asserts
+    exactly 1 tabbable row LIVE).
+  - [x] **modal focus trap + Escape** *(fire-buckets-modalfocus — ✅ DONE, live)* — `ModalShell` (create/delete/
+    address/shortcuts) was `role=dialog aria-modal` but did NOT trap focus (Tab escaped to the background — WCAG
+    2.4.3) and the shortcuts sheet had no Escape. Now moves focus IN on open, TRAPS Tab (cycles first↔last), and
+    closes on Escape at the shell level. 2 Vitest cases; live-verified (`editor-nav.mjs` asserts Escape closes the sheet).
+  - [ ] **remaining:** axe-clean @ 6bp (needs `@axe-core/playwright` in the prod E2E — a MODERATE slice, start fresh),
+    SR live-status (`aria-live`) on async ops (promote/create/delete toasts), visual-regression screenshots, handler
+    authz/tenancy tests, long-job failure-injection. New-backend: **NO**. Priority: **P2**. *(Note: the "FE backlog
+    exhausted" framing of fire-buckets-ux was overstated — genuine MODERATE a11y work remained, e.g. this modal trap;
+    axe@6bp + SR-live-status + B13 activity-timeline are the remaining decision-independent slices, just not "light".)*
 
 **Secondary integration:**
 - [ ] **B15 Code editor bucket selector** — one-line: a `Source ▾` picker in Code view → website source | R2
