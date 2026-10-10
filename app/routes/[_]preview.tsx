@@ -190,7 +190,16 @@ function ObjectBrowserSample() {
   return (
     <div className="flex flex-col min-h-0" data-testid="buckets-populated-sample">
       <SampleToolbar />
-      <div className="overflow-auto modern-scrollbar">
+      {/* tabIndex={0} + role/aria-label: a scrollable region with no focusable descendants is
+          unreachable by keyboard-only users (axe `scrollable-region-focusable`, WCAG 2.1.1). Making
+          the overflow container focusable lets keyboard users scroll it; the label names the region
+          for screen readers. Mirrors the real Buckets object pane, so the fix is faithful. */}
+      <div
+        className="overflow-auto modern-scrollbar focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-bolt-elements-item-contentAccent/60"
+        tabIndex={0}
+        role="region"
+        aria-label="Bucket objects"
+      >
         <ObjectListSample testId="buckets-object-list" />
         <div className="border-t border-bolt-elements-borderColor/40">
           <ObjectGridSample testId="buckets-object-grid" />
