@@ -31,6 +31,7 @@ import { decrypt, encrypt } from './ai_crypto.js';
 import { uuidv7 } from '../lib/uuid.js';
 import { dbExecute, dbQuery, dbQueryOne } from './db.js';
 import { isFlagOn } from '../modules/feature_flags/services.js';
+import { writeAuditLog } from './audit.js';
 
 /** Flag gating the per-site scoped-token object-ops path (DARK killswitch; see the B5 header above). */
 const PER_SITE_OBJECT_OPS_FLAG = 'r2_bucket_manager';
@@ -604,6 +605,38 @@ async function cfDeleteToken(auth: CfAuth, account: string, tokenId: string): Pr
 /** Sentinel stored in the NOT-NULL `secret_enc` for owner rows — the real owner secret is NEVER persisted. */
 const OWNER_KEY_SECRET_SENTINEL = ' ';
 
+/**
+ * Append an `audit_logs` entry for an owner-key lifecycle event (R6 P2 fix — the owner-key
+ * create/rotate/revoke paths were previously unaudited). Records the site/org/actor + the
+ * `accessKeyId` so an operator can correlate the key at Cloudflare — but NEVER the secret (it's
+ * show-once + unrecoverable; writing it anywhere is a leak). `writeAuditLog` is fire-and-forget +
+ * never throws, so a failed audit write can't break the key operation it records.
+ *
+ * @param action - e.g. `r2.owner_key.created` | `r2.owner_key.rotated` | `r2.owner_key.revoked`.
+ * @param accessKeyId - the S3 Access Key ID (safe to log); pass null when there's no key (no-op revoke).
+ */
+async function auditOwnerKey(
+  env: Env,
+  ctx: SiteR2Context,
+  action: 'r2.owner_key.created' | 'r2.owner_key.rotated' | 'r2.owner_key.revoked',
+  accessKeyId: string | null,
+  message: string,
+): Promise<void> {
+  await writeAuditLog(env.DB, {
+    action,
+    actor_id: ctx.actorId ?? null,
+    message,
+    metadata_json: {
+      // accessKeyId is safe to record (it's the non-secret id half); NEVER the secretAccessKey.
+      ...(accessKeyId ? { access_key_id: accessKeyId } : {}),
+      site_id: ctx.siteId,
+    },
+    org_id: ctx.orgId ?? ctx.tenantId,
+    target_id: ctx.siteId,
+    target_type: 'site_r2_owner_key',
+  });
+}
+
 /** Masked view of a site's owner key — safe to return anywhere (NEVER carries the secret). */
 export interface SiteR2OwnerKeyStatus {
   /** `true` when an active owner key exists. */
@@ -776,6 +809,14 @@ export async function revokeSiteOwnerKey(
       WHERE id = ? AND site_id = ?`,
     [row.id, ctx.siteId],
   );
+  // Audit the revoke (R6 P2) — records which accessKeyId was torn down, never a secret.
+  await auditOwnerKey(
+    env,
+    ctx,
+    'r2.owner_key.revoked',
+    row.access_key_id,
+    `Revoked the R2 access key for this site (${maskAccessKeyId(row.access_key_id)})`,
+  );
   return { ok: true, revoked: true };
 }
 
@@ -841,6 +882,18 @@ async function mintOwnerKey(
       JSON.stringify(bucketNames),
       opts.rotated ? createdAt : null,
     ],
+  );
+
+  // Audit the lifecycle event (R6 P2) — records the accessKeyId, NEVER the secret. A rotate's fresh
+  // mint logs `rotated`; a first create logs `created`. Fire-and-forget (never breaks the mint).
+  await auditOwnerKey(
+    env,
+    ctx,
+    opts.rotated ? 'r2.owner_key.rotated' : 'r2.owner_key.created',
+    created.id,
+    opts.rotated
+      ? `Rotated the R2 access key for this site (new key ${maskAccessKeyId(created.id)})`
+      : `Created an R2 access key for this site (${maskAccessKeyId(created.id)})`,
   );
 
   return {
@@ -1067,6 +1120,13 @@ export interface SiteR2Context {
   readonly siteId: string;
   readonly tenantId: string;
   readonly orgId: string | null;
+  /**
+   * The acting user id (`c.get('userId')`), threaded ONLY so the owner-key lifecycle
+   * (create/rotate/revoke) can attribute its `audit_logs` entry to a human actor. Optional —
+   * object-ops callers (list/put/get/delete) don't pass it and don't audit. Never load-bearing
+   * for isolation (that's `orgId` + `ownsSiteData` upstream); a missing actor logs `actor_id: null`.
+   */
+  readonly actorId?: string | null;
 }
 
 /**

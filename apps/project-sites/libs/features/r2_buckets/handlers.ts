@@ -227,7 +227,12 @@ r2Buckets.post('/api/sites/:siteId/r2/keys', async (c) => {
   const { siteId } = c.req.param();
   const g = await gate(c, siteId, R2_OWNER_KEY_FLAG);
   if (g instanceof Response) return g;
-  const result = await createSiteOwnerKey(c.env, { orgId: g.orgId, siteId, tenantId: g.tenantId });
+  const result = await createSiteOwnerKey(c.env, {
+    actorId: c.get('userId') ?? null,
+    orgId: g.orgId,
+    siteId,
+    tenantId: g.tenantId,
+  });
   if (!result.ok) return r2Failure(c, result.reason, result.message);
   // reused:true → an active key already exists; return its MASKED status (200), no secret.
   // reused:false → a fresh key; return the SHOW-ONCE secret (201). The secret is never retrievable again.
@@ -239,7 +244,12 @@ r2Buckets.post('/api/sites/:siteId/r2/keys/rotate', async (c) => {
   const { siteId } = c.req.param();
   const g = await gate(c, siteId, R2_OWNER_KEY_FLAG);
   if (g instanceof Response) return g;
-  const result = await rotateSiteOwnerKey(c.env, { orgId: g.orgId, siteId, tenantId: g.tenantId });
+  const result = await rotateSiteOwnerKey(c.env, {
+    actorId: c.get('userId') ?? null,
+    orgId: g.orgId,
+    siteId,
+    tenantId: g.tenantId,
+  });
   if (!result.ok) return r2Failure(c, result.reason, result.message);
   return c.json({ data: result.key, ok: true }, 201);
 });
@@ -249,7 +259,12 @@ r2Buckets.delete('/api/sites/:siteId/r2/keys', async (c) => {
   const { siteId } = c.req.param();
   const g = await gate(c, siteId, R2_OWNER_KEY_FLAG);
   if (g instanceof Response) return g;
-  const result = await revokeSiteOwnerKey(c.env, { orgId: g.orgId, siteId, tenantId: g.tenantId });
+  const result = await revokeSiteOwnerKey(c.env, {
+    actorId: c.get('userId') ?? null,
+    orgId: g.orgId,
+    siteId,
+    tenantId: g.tenantId,
+  });
   if (!result.ok) return r2Failure(c, result.reason, result.message);
   return c.json({ data: { revoked: result.revoked }, ok: true });
 });
