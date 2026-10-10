@@ -2326,19 +2326,27 @@ Re-architect every workbench panel onto a shared gorgeous spine so chrome/tokens
 > list-paging (`site_r2.ts:677`) for the cursor scan. **Prod-verified:** authed whole-bucket search round-trip on
 > real R2 via `*.workers.dev` found a deep (non-first-page) key. Do NOT re-open.
 >
-> **🔶 IN-FLIGHT THIS FIRE (B14 residual — axe @ 6bp on the Buckets panel / `/_preview`):** add
-> `@axe-core/playwright` to the PROD E2E (NOT a jsdom unit dep), run axe on the Buckets panel @
-> 375/390/768/1024/1280/1920, fix violations. Keyboard/focus/SR already done (B14 foundation). **Anchors:** the
-> `/_preview` gallery surface (the non-authed `BucketsTwoPane` primitive) + the existing PROD E2E config; no new
-> backend. Verify: axe color-contrast + landmark + name-role-value CLEAN at all 6 breakpoints.
+> **✅ B14 residual DONE — axe @ 6bp on the Buckets panel / `/_preview` (prod-verified GREEN):** `@axe-core/playwright`
+> added to the PROD E2E (`npm run verify:buckets-axe` on the non-authed `/_preview` `BucketsTwoPane` surface), run @
+> 375/390/768/1024/1280/1920. Found + fixed a real **serious `scrollable-region-focusable`** violation; **0
+> critical/serious at all 6 breakpoints** (color-contrast + landmark + name-role-value CLEAN). Keyboard/focus/SR
+> already done (B14 foundation). Closes the DoD §21 "a11y+keyboard+touch+responsive" clause. Do NOT re-open.
+>
+> **🔶 IN-FLIGHT THIS FIRE (502-GET fix — GET `/objects/*` on a MISSING key returns 502, should be 404):** a
+> missing-object GET surfaces the upstream R2/S3 error as a generic 502 instead of a clean 404 (an object-serving
+> correctness bug, not a new feature). **Anchors:** the object-GET path in `apps/project-sites/src/services/site_r2.ts`
+> (`getSiteR2Object` + the SigV4 `s3Fetch`@1544 — map the S3 `NoSuchKey`/404 to a 404 RFC7807 envelope) + the
+> object-GET route in `libs/features/r2_buckets/handlers.ts`; no new backend. Verify: authed GET of a non-existent key
+> via `*.workers.dev` returns **404** (not 502), existing-key GET still **200**. Drop from the fast-follow list once done.
 
 > ### READY NOW — Buckets top 5 (pick ONE per fire; VERIFY each with the live object round-trip where object-touching)
 > *(B5 s4 CLOSED `daaf2db1c` + B4 BACKEND DONE + **B4-UI DONE** `673a46a55`/`5d875bd57` + **B12 rich previews DONE**
 > `98045914b` + **B3 object-rows DONE** `b6d229409`/`d9044b304` + **B15 selector DONE** `efb0ad1a8`/`6e03fc3e2` +
 > **B8 same-bucket rename/copy/move DONE** (prod-verified on real R2) + **B11 server-side whole-bucket search DONE**
-> (prod-verified on real R2) — all dropped from the pick-list. **B14 axe @ 6bp is IN-FLIGHT this fire** (🔶 banner
-> above) — kept as #5 for continuity but NOT a fresh pick; the next fire picks a FRESH item from #1-#4. Only **B6**
-> (clone) + **B9** (per-object public) are non-trivial heavies; **B10** + **B7** are ~1-2-fire mediums.)*
+> (prod-verified on real R2) + **B14 axe @ 6bp DONE** (prod-verified GREEN at all 6 bp) — all dropped from the
+> pick-list. **The 502-GET fix is IN-FLIGHT this fire** (🔶 banner above — dropping from the fast-follow list once
+> landed). Remaining picks are all DoD §21 clauses: **B10** (reassign+rollback) + **B7** (zip) are ~1-2-fire mediums;
+> **B6** (clone) + **B9** (per-object public) are the two non-trivial heavies. Next fire picks a FRESH item #1-#4.)*
 > 1. **[product] B10 — Reassign bucket → environment (Preview/Production) + rollback** *(a DoD §21 clause; today's
 >    `EnvAssignmentGrid.tsx` is READ-ONLY — confirmed this groom: `PS_RES_OVERVIEW_REQUEST` read @174, "Not provisioned"
 >    cell @370, no mutation)* — assign an UNASSIGNED custom bucket to the Preview/Production slot; reassign swaps the
@@ -2366,16 +2374,48 @@ Re-architect every workbench panel onto a shared gorgeous spine so chrome/tokens
 >    table `object_visibility{bucketId,objectKey,visibility,publicSlug}` + resolver honoring bucket-public inheritance;
 >    integrate with `site_r2_manager` for bucket→site resolution. · **new-backend: YES (heavy).** · category product.
 >    *(2-3 fires — the other heavy.)*
-> 5. **🔶 [testing/a11y] B14 residual — axe @ 6bp on the Buckets panel** *(IN-FLIGHT THIS FIRE)* — add
->    `@axe-core/playwright` to the PROD E2E (not a jsdom unit dep), run axe on the Buckets panel @
->    375/390/768/1024/1280/1920, fix violations. Keyboard/focus/SR already done. Verify on the non-authed `/_preview`
->    `BucketsTwoPane` surface. · **new-backend: NO.** · category testing. *(MODERATE.)*
+> 5. **🔶 [bugfix] 502-GET fix — missing-object GET returns 502, should be 404** *(IN-FLIGHT THIS FIRE)* — GET
+>    `/objects/*` on a non-existent key surfaces the upstream R2/S3 error as a generic 502 instead of a clean 404.
+>    **Accept:** authed GET of a missing key via `*.workers.dev` → **404** RFC7807 envelope; existing-key GET still
+>    **200**; add a regression test. **Anchors:** `getSiteR2Object` + the SigV4 `s3Fetch`@1544 in
+>    `src/services/site_r2.ts` + the object-GET route in `libs/features/r2_buckets/handlers.ts`. · **new-backend: NO.**
+>    · category bugfix. *(1 fire — IN-FLIGHT; drops from the list once landed. Next fire picks a FRESH #1-#4.)*
 >
-> *(B13 insights (P3) + the **B8 cross-bucket** and **B15 object-tree** fast-follows + the pre-existing **502-GET fix**
-> (GET `/objects/*` on a missing key returns 502, should be 404) remain crisp one-fire TODOs in the B6-B13 list below —
-> rotate them into the top-5 as picks are consumed. **Only B6 + B9 are non-trivial heavies**; everything else is ~1
-> fire.)*
+> *(B13 insights (P3) + the **B8 cross-bucket** and **B15 object-tree** fast-follows remain crisp one-fire TODOs in the
+> B6-B13 list below — rotate them into the top-5 as picks are consumed. **Only B6 + B9 are non-trivial heavies**;
+> everything else is ~1 fire. All four non-in-flight picks — B6/B7/B9/B10 — are literal DoD §21 clauses, so each counts
+> toward DoD §21; see the DoD-% note below.)*
 
+> ### 📊 DoD §21 status — ~88% · exact remaining slices · CronDelete condition (groomed fire-buckets-b14-done)
+> **Honest read against the `BUCKETS-MASTER-SPEC.md` §21 clause list** (abridged there; each clause = a sub-feature).
+> **DONE (shipped on main, prod-verified):** 2-default model (B2) · custom-bucket CRUD · empty/delete · type-icon file
+> browser · browse/search (B11)/sort/preview (B12)/upload/download · copy/move/rename same-bucket (B8) · bucket+file
+> context menus (B3) · bulk actions (B3) · per-bucket keys create/rotate/revoke (B4+B4-UI) · global id+secret secure
+> copy (B5-s4) · Code-editor bucket selector (B15) · tenant isolation every op · loading/empty/error/success ·
+> **a11y+keyboard+touch+responsive incl. axe @ 6bp (B14)** · E2E golden paths · ≥5 visual-refinement rounds · deployed +
+> prod-verified · existing data intact. → **~17 of ~21 clauses = ~88%.**
+>
+> **REMAINING — ALL FOUR ARE EXPLICIT §21 CLAUSES (so each counts toward DoD, none is post-DoD optional):**
+> 1. **B10 reassign unassigned→env w/ rollback** — §21 "reassign unassigned→env w/ rollback". *(1-2 fires, medium.)*
+> 2. **B7 zip export** — §21 "clone/empty/delete/**zip**". *(1-2 fires, medium.)*
+> 3. **B6 clone bucket** — §21 "**clone**/empty/delete/zip". *(2-3 fires, HEAVY — CF Workflow.)*
+> 4. **B9 per-object public + revoke-safe** — §21 "per-object public while rest private · public bucket marks all ·
+>    revoke safe". *(2-3 fires, HEAVY — Worker gateway + `object_visibility` D1 table.)*
+>
+> **Is DoD §21 reachable in ~2-3 more fires if B6/B9 defer? NO — be explicit.** B6 (clone) and B9 (per-object public)
+> are LITERAL §21 clauses, not polish; deferring them leaves §21 UNMET. The ~2-3-fire path (B10 → B7 → 502-fix) clears
+> the two *mediums* and reaches **~95%**, but **true §21 completion additionally requires both heavies (B6 + B9) →
+> realistically ~6-9 more fires total** (B10 1-2 + B7 1-2 + B6 2-3 + B9 2-3, pick-one-per-fire). *(The progress.md
+> "~97% · defer B6/B9 as post-DoD depth" read is OPTIMISTIC — corrected here: B6/B9 are in-scope §21 clauses.)*
+>
+> **Precise CronDelete condition (cron `b1182793`, every 30m — KEEP until ALL true):** (a) **B10 + B7 + B6 + B9** all
+> shipped on main + **prod-verified on real R2** (not appearance); (b) the **502-GET fix** landed (404 proven); (c) the
+> **B8 cross-bucket** + **B15 object-tree** fast-follows shipped (or Brian explicitly scopes them OUT of §21); (d)
+> ≥5 visual rounds logged (✅ already) + axe @ 6bp GREEN (✅ already); (e) a final headless **visual walkthrough** of
+> the live Buckets panel confirms no user-visible defect (per `finish-screen-directive-needs-visual-walkthrough`).
+> Only then `CronDelete b1182793`. Until (a)-(c) are green, the cron stays; if the frontier stalls on an external
+> blocker, GROOM (don't grind ceremony fires) per `focus-cron-on-completed-externally-blocked-target-stop-ceremony-fires`.
+>
 > ### Buckets spec slices — self-contained one-fire TODOs (B6-B13; pick after the top-5)
 > - [x] **B5 s4 — owner credential-strip UI + audit + validity-E2E** — ✅ CLOSED (`96b2bf415`+`a3c2073c3`+`daaf2db1c`).
 >   UI (`OwnerKeySection`@2291, wired L2243) + audit (`audit_logs`) + credential-VALIDITY E2E (valid/scoped/revocable
@@ -2477,10 +2517,12 @@ Re-architect every workbench panel onto a shared gorgeous spine so chrome/tokens
 > (`e2e/editor-live/check-owner-key-valid.mjs`) and the object-ops round-trip (`check-r2-objectops-live.mjs`) both do this.
 > **Apply to ALL future B4/B9/B11/B15 credential + objectops probes.** (Pairs with memory `[[prod-verify-authed-mutation-via-workers-dev]]`.)
 >
-> ### 📊 DoD §21 PROGRESS (master abridged — see `BUCKETS-MASTER-SPEC.md:323`)
-> **~96% complete** (≈23 of ~24 acceptance clauses met; +1 vs last groom — the **B11 server-side bucket-wide search**
-> clause is now DONE, prod-verified on real R2. The remaining open clauses are **B10 env-reassign+rollback · B6 clone ·
-> B7 zip · B9 per-object-public**, plus the **B14 axe** testing clause — in-flight this fire).
+> ### 📊 DoD §21 PROGRESS (master abridged — see `BUCKETS-MASTER-SPEC.md:323`) — authoritative read is the ~88% block above
+> **~88% complete** (~17 of ~21 acceptance clauses met; this groom — **B14 axe @ 6bp** is now DONE, prod-verified GREEN;
+> **B11 search** done last groom). The remaining open clauses are the FOUR literal §21 features **B10 env-reassign+
+> rollback · B7 zip · B6 clone (HEAVY) · B9 per-object-public (HEAVY)** — ALL count toward §21, none post-DoD. The
+> **502-GET fix** is the in-flight bugfix this fire. *(An earlier "~96% / B14-axe-in-flight" read here was stale —
+> corrected: axe is DONE, and B6/B9 are in-scope §21 clauses, so the honest number is ~88%, not ~96%.)*
 > **✅ DONE:** exactly-2 defaults (Preview+Production, Uploads retired via `0649`) · custom-bucket CRUD · delete/empty ·
 > type-icon file browser · browse/sort/upload/download/delete + object round-trip (B5 s2, prod-proven) · rich sandboxed
 > object previews image/video/audio/pdf/text/md/json/code (B12, `98045914b`) · bucket+file context menus (B3 bucket-level) ·
@@ -2492,25 +2534,26 @@ Re-architect every workbench panel onto a shared gorgeous spine so chrome/tokens
 > read-only, 8 Vitest)** · **server-side whole-bucket search + filters (B11 — ext/size/date/visibility/prefix, cursor
 > pagination, honest indexing/scanning status; prod-verified on real R2, a deep non-first-page key found)** · tenant
 > isolation on every op (`ownsSiteData` IDOR) · beautiful loading/empty/error/success + `psBucketRise` · a11y
-> keyboard/focus/SR (B14 foundation) · **≥5 real visual-refinement rounds logged+numbered (`d9044b304`/`15432d9ea`)** ·
-> deployed + prod-verified · existing data intact.
-> **🔶 IN-FLIGHT THIS FIRE:** B14 residual — axe @ 6bp on the Buckets panel (`@axe-core/playwright` in the PROD E2E, run
-> @ 375/390/768/1024/1280/1920 on the non-authed `/_preview` `BucketsTwoPane` surface, fix violations). Keyboard/focus/SR
-> already done (B14 foundation).
-> **⬜ REMAINING TO GENUINE DoD (the exact open slices — 4 feature + 1 testing):** (1) **B10** env reassign
-> unassigned→env + rollback · (2) **B6** clone bucket (Workflow — HEAVY) · (3) **B7** ZIP export · (4) **B9**
-> per-object-public + public-bucket-marks-all + revoke-safe (HEAVY) · plus **B14 axe @ 6bp** (testing clause, not a
-> feature slice — *in-flight this fire*). Two deferred fast-follows ride on top: **B8 cross-bucket** (extends B8) +
-> **B15 object-tree load** (extends B15), plus the pre-existing **502-GET fix** (GET `/objects/*` on a missing key
-> returns 502, should be 404). The ≥5-visual-rounds · per-bucket-key · B15-selector · **B8 same-bucket** · **B11
-> search** clauses are MET.
-> Est. **4-5 one-fire slices** remain to genuine DoD (B14 axe this fire; **B6 + B9 are the only non-trivial heavies**
-> ~2-3 fires each, B10 + B7 are ~1-2; the two fast-follows + the 502-GET fix ~1 each). **DoD is within ~2-4 fires IF
-> the two heavies are the long pole** — realistically B10 + B7 + B14 close in 2-3 fires, then B6 + B9 are the final
-> 3-5 fires; call genuine DoD **~5-7 fires out** (the heavies dominate), tighter (~2-4) if B6/B9 are deferred as
-> post-DoD depth and DoD is declared on the medium slices.
-> **Cron-retire trigger (b1182793):** ALL remaining feature slices (B10 / B6 / B7 / B9 + the B8-cross-bucket and
-> B15-object-tree fast-follows + the 502-GET fix) shipped + prod-verified + B14 axe clean → THEN CronDelete per
-> `[[loop-cron-refires-one-prompt-retire-when-directive-complete]]` (don't flood once DoD is genuinely met). Not yet —
-> 4 feature slices + 2 fast-follows + 502-GET + B14 axe remain (B14 axe in-flight this fire; visual-rounds ✅ +
-> per-bucket-key ✅ + B15 selector ✅ + B8 same-bucket ✅ + **B11 search ✅** already satisfied).
+> keyboard/focus/SR (B14 foundation) · **axe @ 6bp GREEN at all 6 breakpoints (B14 residual DONE — prod-verified)** ·
+> **≥5 real visual-refinement rounds logged+numbered (`d9044b304`/`15432d9ea`)** · deployed + prod-verified · existing
+> data intact.
+> **🔶 IN-FLIGHT THIS FIRE:** the **502-GET fix** — GET `/objects/*` on a MISSING key returns a generic 502, should be
+> a clean **404** (`getSiteR2Object`/`s3Fetch`@1544 in `site_r2.ts` + the object-GET route in `r2_buckets/handlers.ts`;
+> map S3 `NoSuchKey`→404 RFC7807 + regression test; verify authed via `*.workers.dev` → 404, existing-key → 200).
+> B14 axe is DONE (no longer in-flight).
+> **⬜ REMAINING TO GENUINE DoD §21 — exactly FOUR slices, ALL literal §21 clauses (none is post-DoD optional):**
+> (1) **B10** reassign unassigned→env + rollback *(medium, 1-2 fires)* · (2) **B7** ZIP export *(medium, 1-2 fires)* ·
+> (3) **B6** clone bucket (CF Workflow — HEAVY, 2-3 fires) · (4) **B9** per-object-public + public-bucket-marks-all +
+> revoke-safe (Worker gateway + `object_visibility` D1 — HEAVY, 2-3 fires). Two deferred fast-follows ride on top:
+> **B8 cross-bucket** (extends B8) + **B15 object-tree load** (extends B15); plus the **502-GET fix** (in-flight). The
+> ≥5-visual-rounds · axe @ 6bp · per-bucket-key · B15-selector · B8 same-bucket · B11 search clauses are MET.
+> **DoD §21 ≈ 88%** (~17 of ~21 clauses). **Honest fire estimate:** the ~2-3-fire path B10 → B7 → 502-fix clears the
+> two mediums + reaches ~95%, but **B6 + B9 are literal §21 clauses ("clone", "per-object public") — deferring them
+> leaves §21 UNMET.** Genuine DoD §21 therefore needs BOTH heavies too → realistically **~6-9 more fires** total
+> (pick-one-per-fire). *(Correcting the older "~97% · B6/B9 are post-DoD depth" framing: B6/B9 are in-scope.)*
+> **Cron-retire trigger (b1182793, every 30m — KEEP until ALL true):** B10 + B7 + B6 + B9 all shipped + prod-verified
+> on real R2 · the 502-GET fix landed (404 proven) · the B8-cross-bucket + B15-object-tree fast-follows shipped (or
+> Brian scopes them OUT of §21) · ≥5 visual rounds ✅ + axe @ 6bp GREEN ✅ · a final headless visual walkthrough of the
+> live Buckets panel confirms no user-visible defect (per `finish-screen-directive-needs-visual-walkthrough`). THEN
+> `CronDelete b1182793` per `[[loop-cron-refires-one-prompt-retire-when-directive-complete]]` (don't flood once DoD is
+> genuinely met). Not yet — 4 §21 slices + 2 fast-follows + the 502-GET fix remain (502-GET in-flight this fire).
